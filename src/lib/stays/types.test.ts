@@ -22,22 +22,80 @@ describe('groupByProperty', () => {
 		expect(groups[0].options.map((o) => o.stay)).toEqual([dorm, priv]);
 	});
 
-	it('keeps two properties separate even when their names match, since they are different objects', () => {
-		// Mirrors two different adapters (Agoda, Booking) each building their own Property
-		// literal for what might be the same real hostel - groupByProperty must not
-		// pretend it knows they are the same place.
-		const propertyFromAgoda: Property = {
+	it('groups a property that came back through the cache, where identity is gone', () => {
+		// The #188 crash. A stay read out of IndexedDB has been through JSON, so each one
+		// carries its own structurally-equal Property. Grouping on identity gave one group
+		// per room price, StayPicker keys its {#each} on name plus coordinates, the repeats
+		// collided, and Svelte threw each_key_duplicate and took the detail panel with it.
+		const afterJson = (): Property => ({
 			name: 'Wombats City Hostel',
 			coordinates: { latitude: 48.2, longitude: 16.37 },
 			images: []
+		});
+		const dorm: Stay = { property: afterJson(), roomKind: 'dorm', pricePerNight: { minorUnits: 2946, currency: 'EUR' } };
+		const priv: Stay = { property: afterJson(), roomKind: 'private', pricePerNight: { minorUnits: 13311, currency: 'EUR' } };
+
+		const groups = groupByProperty([dorm, priv]);
+
+		expect(groups).toHaveLength(1);
+		expect(groups[0].options).toHaveLength(2);
+	});
+
+	it('merges two adapters describing the same hostel, keeping the cheaper price per room kind', () => {
+		// This reverses an earlier decision to keep them apart. That decision was made to
+		// avoid merging two price lists on a guess, but it only ever held while Property
+		// identity survived, and it does not survive the cache. Exact agreement on name and
+		// on both coordinates is a strong enough signal, and showing the owner the same
+		// hostel twice is the worse failure.
+		const here = { latitude: 48.2, longitude: 16.37 };
+		const fromAgoda: Stay = {
+			property: { name: 'Wombats City Hostel', coordinates: here, images: [] },
+			roomKind: 'dorm',
+			pricePerNight: { minorUnits: 2100, currency: 'EUR' }
 		};
-		const propertyFromBooking: Property = {
-			name: 'Wombats City Hostel',
-			coordinates: { latitude: 48.2, longitude: 16.37 },
-			images: []
+		const fromBooking: Stay = {
+			property: { name: 'Wombats City Hostel', coordinates: here, images: [] },
+			roomKind: 'dorm',
+			pricePerNight: { minorUnits: 2000, currency: 'EUR' }
 		};
-		const a: Stay = { property: propertyFromAgoda, roomKind: 'dorm', pricePerNight: { minorUnits: 2000, currency: 'EUR' } };
-		const b: Stay = { property: propertyFromBooking, roomKind: 'dorm', pricePerNight: { minorUnits: 2100, currency: 'EUR' } };
+
+		const groups = groupByProperty([fromAgoda, fromBooking]);
+
+		expect(groups).toHaveLength(1);
+		expect(groups[0].options).toHaveLength(1);
+		expect(groups[0].options[0].stay.pricePerNight.minorUnits).toBe(2000);
+	});
+
+	it('does not compare prices across currencies, since minor units are not ordered between them', () => {
+		const here = { latitude: 48.2, longitude: 16.37 };
+		const inEuros: Stay = {
+			property: { name: 'Wombats City Hostel', coordinates: here, images: [] },
+			roomKind: 'dorm',
+			pricePerNight: { minorUnits: 2000, currency: 'EUR' }
+		};
+		const inForint: Stay = {
+			property: { name: 'Wombats City Hostel', coordinates: here, images: [] },
+			roomKind: 'dorm',
+			pricePerNight: { minorUnits: 8000, currency: 'HUF' }
+		};
+
+		const groups = groupByProperty([inEuros, inForint]);
+
+		expect(groups[0].options).toHaveLength(1);
+		expect(groups[0].options[0].stay.pricePerNight.currency).toBe('EUR');
+	});
+
+	it('keeps genuinely different properties apart', () => {
+		const a: Stay = {
+			property: { name: 'Wombats City Hostel', coordinates: { latitude: 48.2, longitude: 16.37 }, images: [] },
+			roomKind: 'dorm',
+			pricePerNight: { minorUnits: 2000, currency: 'EUR' }
+		};
+		const b: Stay = {
+			property: { name: 'Wombats City Hostel', coordinates: { latitude: 47.5, longitude: 19.05 }, images: [] },
+			roomKind: 'dorm',
+			pricePerNight: { minorUnits: 2100, currency: 'EUR' }
+		};
 
 		expect(groupByProperty([a, b])).toHaveLength(2);
 	});

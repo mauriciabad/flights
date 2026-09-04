@@ -57,28 +57,57 @@ export function propertyOf(group: PropertyStayOptions): Property {
 /**
  * Groups a flat `Stay[]` - exactly what `StayProvider.searchStays` resolves to
  * (providers/types.ts, issue #10's now-merged Agoda/Booking adapters) - into one
- * `PropertyStayOptions` per property, by reference equality of `stay.property`.
+ * `PropertyStayOptions` per property, keyed on the property's own values.
  *
- * That works because it is how every shipped adapter actually builds one: both
- * agoda-mapper.ts's `mapMasterRoomsToStays` and booking-mapper.ts's
- * `mapRoomBlocksToStays` construct every `Stay` for one property from the same
- * `Property` object literal, closing over it in a single `.map()` call. Two different
- * adapters describing what is really the same physical hostel still get two separate
- * groups here, since they build two distinct `Property` objects - matching hostels
- * across providers by name or coordinates is a harder problem this function does not
- * attempt, and guessing at it wrongly would silently merge two different price lists.
+ * This used to key on reference equality of `stay.property`, which was true of every
+ * adapter's output and false of ours. Both mappers do build all of one property's stays
+ * from a single `Property` literal, so identity held on a fresh fetch. It does not
+ * survive the cache: a stay read back out of IndexedDB has been through JSON, so every
+ * `Stay` carries its own structurally-equal but distinct `Property`. The same hotel then
+ * grouped once per room price, and `StayPicker.svelte` keys its `{#each}` on name plus
+ * coordinates, so the repeats collided and Svelte threw `each_key_duplicate` - taking
+ * the whole detail panel down with it (#188).
+ *
+ * Keying on the same values the template keys on makes that class of crash
+ * unrepresentable rather than merely fixed.
+ *
+ * Two adapters describing the same physical hostel now do merge, where before they got
+ * two groups. That needs an exact match on name and on both coordinates, which is a
+ * strong enough signal to prefer over showing the owner the same hostel twice. Merging
+ * makes a room kind reachable from two providers at two prices, so the cheaper one wins
+ * and the type's "at most one option per RoomKind" promise still holds. Prices in
+ * different currencies are not compared, since minor units across currencies are not
+ * ordered - the first seen is kept and the other dropped.
  */
+/** The identity StayPicker.svelte's `{#each}` keys on. Kept beside the grouping so the
+ * two cannot drift apart again. */
+function propertyKey(property: Property): string {
+	return `${property.name}@${property.coordinates.latitude},${property.coordinates.longitude}`;
+}
+
 export function groupByProperty(stays: readonly Stay[]): PropertyStayOptions[] {
 	const groups: PropertyStayOptions[] = [];
-	const indexByProperty = new Map<Property, number>();
+	const indexByKey = new Map<string, number>();
 	for (const stay of stays) {
-		const existingIndex = indexByProperty.get(stay.property);
+		const key = propertyKey(stay.property);
+		const existingIndex = indexByKey.get(key);
 		if (existingIndex === undefined) {
-			indexByProperty.set(stay.property, groups.length);
+			indexByKey.set(key, groups.length);
 			groups.push({ options: [{ stay }] });
-		} else {
-			groups[existingIndex].options.push({ stay });
+			continue;
+		}
+		const options = groups[existingIndex].options;
+		const sameKind = options.findIndex((o) => o.stay.roomKind === stay.roomKind);
+		if (sameKind === -1) {
+			options.push({ stay });
+			continue;
+		}
+		const held = options[sameKind].stay.pricePerNight;
+		const offered = stay.pricePerNight;
+		if (held.currency === offered.currency && offered.minorUnits < held.minorUnits) {
+			options[sameKind] = { stay };
 		}
 	}
 	return groups;
 }
+
