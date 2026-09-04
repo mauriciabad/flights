@@ -163,6 +163,17 @@
 	   areas (not DOM order) move the nav from "own row at the bottom" to
 	   "beside the brand" at the desktop breakpoint, so there is exactly
 	   one <nav>, not a mobile copy and a desktop copy. */
+	/* `height`, not `min-height` (issue #119): a grid container's block size has to be
+	   DEFINITE for `1fr` to mean "whatever is left after the other rows," per the CSS
+	   Grid sizing algorithm. `min-height: 100dvh` only sets a floor — the container's
+	   real size is still "auto," so with no definite size to divide up, the `main` row
+	   stretches to fit its own content instead of stopping at the viewport edge. That
+	   silently turns off `.app-content`'s `overflow-y: auto` (there is nothing left
+	   for it to overflow) and hands scrolling to the whole document instead, taking
+	   this header and nav along for the ride rather than leaving them pinned. Results
+	   is the one page long enough to ever scroll past a phone screen, which is why the
+	   bug only ever showed up there: scroll (or jump to a control below the fold, e.g.
+	   "Show details") and the header was gone, not merely stuck. */
 	.app-shell {
 		display: grid;
 		grid-template-columns: 1fr;
@@ -171,7 +182,7 @@
 			'header'
 			'main'
 			'nav';
-		min-height: 100dvh;
+		height: 100dvh;
 		background: var(--color-bg);
 	}
 
@@ -200,6 +211,14 @@
 		overflow-y: auto;
 		overflow-x: hidden;
 		min-width: 0;
+		/* Both minimums, not just the horizontal one (issue #119). A grid item's automatic
+		   minimum size is its content, so a `1fr` row grows past its track to fit whatever
+		   is inside it and `overflow-y: auto` never engages: the document scrolls instead
+		   of this box, and the header and nav scroll away with it. Making `.app-shell`
+		   `height: 100dvh` is necessary but not sufficient — measured on a 390x844 phone,
+		   the shell was correctly 844px while the document was still 4359px tall, and
+		   `window.scrollTo(0, 3000)` put the header at -3000. */
+		min-height: 0;
 		padding: var(--space-4);
 	}
 
