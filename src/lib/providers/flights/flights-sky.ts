@@ -12,7 +12,8 @@
  * choose between them.
  *
  * Structured like ryanair.ts / skyscanner.ts: network (flights-sky-client.ts), types
- * (flights-sky-types.ts), timezone maths (flights-sky-timezone.ts) and mapping
+ * (flights-sky-types.ts), timezone maths (airport-timezone.ts, shared with skyscanner.ts
+ * since issue #124 unified what used to be two near-identical copies) and mapping
  * (flights-sky-map-offers.ts, flights-sky-map-calendar.ts) each in their own file. Unlike
  * either of those, every real request here routes through
  * `callProviderWithBudget` (../budget), per this issue's brief — that module owns the

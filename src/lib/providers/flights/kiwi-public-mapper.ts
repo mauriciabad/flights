@@ -23,7 +23,7 @@ import type {
 // Skyscanner-prefixed name for historical reasons but is a pure, provider-agnostic helper,
 // and re-implementing the same arithmetic here would be a second place to get a DST
 // boundary wrong.
-import { buildLocalDateTime } from './skyscanner-timezone';
+import { buildLocalDateTime } from './airport-timezone';
 import type {
 	KiwiPublicItinerary,
 	KiwiPublicItinerariesResult,
