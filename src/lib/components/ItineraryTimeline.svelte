@@ -1,34 +1,65 @@
 <script lang="ts">
 	/**
-	 * Issue #24: the itinerary timeline, the app's centrepiece. Renders exactly the
-	 * schedule from docs/prompts/001-initial-brief.md lines 44-53 (also quoted in the
-	 * issue): origin location, transfer to origin airport, waiting time, outbound flight,
-	 * transfer to hotel, free time, transfer to connection airport, waiting time, onward
-	 * flight, transfer to destination location.
+	 * Issue #24: the itinerary timeline. Renders exactly the schedule from
+	 * docs/prompts/001-initial-brief.md lines 44-53: origin location, transfer to origin
+	 * airport, waiting time, outbound flight, transfer to hotel, free time, transfer to
+	 * connection airport, waiting time, onward flight, transfer to destination location.
 	 *
-	 * DOM shape: this component's root is the `<ol>` itself, with no wrapping `<div>`
-	 * around it, followed by a sibling `<dl>` of totals. Each schedule step is one
-	 * `<li class="tl-row">`, always in the same order.
+	 * ## Shape: a timetable, not a stack of cards
+	 *
+	 * The owner's verdict on the previous version was "a terrible layout and poorely
+	 * displayed, it is pathetic", and the specific complaint was size. Every row was a
+	 * stack of paragraphs: a label, a detail line, then for a flight two time badges each
+	 * printing a clock, a full calendar date and a UTC offset on three lines of their own.
+	 * Eleven rows of that is most of a phone screen per itinerary.
+	 *
+	 * So each row is now four grid columns, the same four for every row, exactly like a
+	 * printed departure board: WHEN, the rail, WHAT, and HOW MUCH. A reader scans one
+	 * column at a time instead of re-parsing a paragraph per step. Three specific things
+	 * shrank it:
+	 *
+	 * - `TimeCell` prints a date only when it differs from the reading before it, and a UTC
+	 *   offset only when the trip actually crossed into a different one. The reference is
+	 *   the previous reading in schedule order, not the one in the same row, so a whole
+	 *   itinerary that happens on one day prints that day once. On the fixture below that
+	 *   took ten date and offset lines down to four. See `TimeCell` for why this keeps
+	 *   AGENTS.md's "a 00:30 arrival must never render as the previous day" guarantee
+	 *   intact rather than trading it away for space.
+	 * - The waiting rows lost "Buffer before Ryanair FR1234 boards". The very next row is
+	 *   that flight, with that flight number on it.
+	 *   The stepper moved onto the label's own line.
+	 * - The totals bar is now `MetricRail`, shared with the results card, which is what
+	 *   stopped the two of them disagreeing about which figures an itinerary even has.
+	 *
+	 * ## DOM shape
+	 *
+	 * This component's root is the `<ol>` itself, with no wrapping `<div>`, followed by a
+	 * sibling totals rail. Each schedule step is one `<li class="tl-row">`, always in the
+	 * same order, and every row has exactly four children which subgrid this list's four
+	 * columns. That is a change from two, and it is what makes clocks line up under clocks
+	 * and prices under prices however tall any one row turns out to be.
 	 *
 	 * Issue #73 makes each `<li>` clickable (to drive `ItineraryMap`'s selection, issue
-	 * #26), but only by adding attributes and handlers directly to that same `<li>` — no
-	 * wrapping element.
+	 * #26), by adding attributes and handlers directly to that same `<li>`, no wrapping
+	 * element, so the shape above still holds.
 	 */
 	import type { Airport, Duration, FlightOffer, Itinerary, LocalDateTime, Location, Transfer } from '../domain';
 	import { recomputeItineraryWaitingTimes } from '../algorithm/build';
 	import { readMissedService } from '../algorithm/transit-schedule';
 	import type { ItinerarySegmentId } from '../itinerary-map/segment-id';
 	import {
-		formatCalendarDate,
 		formatClockTime,
 		formatDuration,
+		formatLongDuration,
 		formatMoney,
-		formatUtcOffset,
-		isDifferentCalendarDate,
 		transferModeLabel,
 		unroutedLegNote
 	} from './itinerary-timeline-format';
 	import type { UnroutedLeg } from './itinerary-timeline-format';
+	import { ALL_METRIC_IDS } from './itinerary-metrics';
+	import AirlineLogo from './AirlineLogo.svelte';
+	import MetricRail from './MetricRail.svelte';
+	import TimeCell from './TimeCell.svelte';
 
 	interface Props {
 		itinerary: Itinerary;
@@ -52,9 +83,16 @@
 		 * the code and never guesses.
 		 */
 		connectionAirport?: Airport;
+		/** Applied to the row list; the totals block keeps its own fixed class. */
+		class?: string;
 	}
 
-	let { itinerary, selectedSegmentId = $bindable(null), connectionAirport }: Props = $props();
+	let {
+		itinerary,
+		selectedSegmentId = $bindable(null),
+		connectionAirport,
+		class: className
+	}: Props = $props();
 
 	/** The origin buffer has no domain-side ceiling (unlike the connection buffer, it never
 	 * borrows from free time), so this is purely a sane upper bound for the number input. */
@@ -86,9 +124,24 @@
 
 	/** "Bergamo", or "BGY" until the airport record resolves. Never both, and never a
 	 * guess: the code is a fact this component always has. */
-	const connectionLabel = $derived(
-		connectionAirport?.city.name ?? shown.outboundFlight.arrivalAirport
-	);
+	const connectionLabel = $derived(connectionAirport?.city.name ?? shown.outboundFlight.arrivalAirport);
+
+	/**
+	 * The reading each clock is compared against: the one directly before it in schedule
+	 * order, so a date or an offset prints exactly when it changes and never again.
+	 *
+	 * Reading order is fixed by the schedule, so this is a plain lookup rather than
+	 * anything the rows have to coordinate. The first entry deliberately has no reference:
+	 * something has to anchor the calendar, and it is the moment the traveller leaves.
+	 */
+	const timeReferences = $derived({
+		outboundDeparture: undefined,
+		outboundArrival: shown.outboundFlight.departure,
+		freeStart: shown.outboundFlight.arrival,
+		freeEnd: shown.freeTime.start,
+		onwardDeparture: shown.freeTime.end,
+		onwardArrival: shown.onwardFlight.departure
+	});
 
 	// The connection buffer can grow only as far as the *original* free time allows before
 	// it would push freeTime.duration negative. It is a UI input range, not a rule the domain
@@ -134,7 +187,8 @@
 	}
 
 	// Every row's selectable state lives on the `<li>` itself rather than a wrapping
-	// element, so each step stays exactly one flat `<li class="tl-row">`.
+	// element, since the comparator (issue #25) depends on each step being exactly one
+	// flat `<li class="tl-row">`.
 	//
 	// This used to be a `role="listbox"`/`role="option"` list (matching "a single-select
 	// list of steps"), until axe caught what that pattern actually requires: EVERY owned
@@ -162,9 +216,10 @@
 	// legitimate way to mark a plain listitem as actionable, so it flags a real tabindex/
 	// click/keydown on a "non-interactive" `<li>` (`a11y_no_noninteractive_tabindex`,
 	// `a11y_no_noninteractive_element_interactions`) and the same for `onkeydown` on the
-	// `<ol>` itself. Each is silenced with a `<!-- svelte-ignore -->` at its own spot.
-	// It is a linter heuristic, not an ARIA rule, and axe itself is clean against a real
-	// build (verified per issue #19).
+	// `<ol>` itself. Each is silenced with a `<!-- svelte-ignore -->` at its own spot,
+	// the same pattern the comparator's own scrollable region already uses in
+	// Comparator.svelte for an identical reason — a linter heuristic, not an ARIA rule,
+	// axe itself is clean against a real build (verified per issue #19).
 	function handleRowKeydown(event: KeyboardEvent & { currentTarget: HTMLLIElement }, segment: ItinerarySegmentId) {
 		if (event.target !== event.currentTarget) return;
 		if (event.key !== 'Enter' && event.key !== ' ') return;
@@ -215,7 +270,10 @@
 	// connection (issue #94) — there is no nightly rate to multiply.
 	const staySubtotal = $derived(
 		shown.stay
-			? { minorUnits: shown.stay.pricePerNight.minorUnits * shown.nightsInConnection, currency: shown.stay.pricePerNight.currency }
+			? {
+					minorUnits: shown.stay.pricePerNight.minorUnits * shown.nightsInConnection,
+					currency: shown.stay.pricePerNight.currency
+				}
 			: undefined
 	);
 
@@ -225,16 +283,6 @@
 		`Itinerary from ${shown.originAirport.iataCode} to ${shown.destinationAirport.iataCode} via ${shown.outboundFlight.arrivalAirport}`
 	);
 </script>
-
-{#snippet timeBadge(dateTime: LocalDateTime)}
-	<span class="tl-time">
-		<span class="tl-time-clock font-mono tabular-nums">{formatClockTime(dateTime)}</span>
-		<span class="tl-time-date">{formatCalendarDate(dateTime)}</span>
-		<span class="tl-time-offset font-mono" title={dateTime.timeZone}>
-			{formatUtcOffset(dateTime.utcOffsetMinutes)}
-		</span>
-	</span>
-{/snippet}
 
 {#snippet dot(kind: 'point' | 'event' | 'stopover')}
 	<span
@@ -259,20 +307,16 @@
 		onclick={() => selectSegment(segment)}
 		onkeydown={(event) => handleRowKeydown(event, segment)}
 	>
+		<span class="tl-when"></span>
 		<span class="tl-rail">{@render dot('point')}</span>
 		<div class="tl-content">
-			<p class="tl-label">{label}</p>
-			<p class="tl-detail">{location.label}</p>
+			<p class="tl-label">{label}<span class="tl-detail-inline">{location.label}</span></p>
 		</div>
+		<div class="tl-meta"></div>
 	</li>
 {/snippet}
 
-{#snippet transferRow(
-	transfer: Transfer | undefined,
-	label: string,
-	segment: ItinerarySegmentId,
-	leg: UnroutedLeg
-)}
+{#snippet transferRow(transfer: Transfer | undefined, label: string, segment: ItinerarySegmentId, leg: UnroutedLeg)}
 	<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 	<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 	<li
@@ -286,65 +330,63 @@
 		onclick={() => selectSegment(segment)}
 		onkeydown={(event) => handleRowKeydown(event, segment)}
 	>
+		<span class="tl-when">
+			{#if transfer?.transitSchedule}
+				<span class="tl-when-clock font-mono tabular-nums">
+					{formatClockTime(transfer.transitSchedule.intended)}
+				</span>
+			{/if}
+		</span>
 		<span class="tl-rail">{@render dot('point')}</span>
-		<div class="tl-content tl-content-row">
-			<div class="tl-transfer-info">
-				<p class="tl-label">{label}</p>
-				{#if transfer}
-					<p class="tl-detail">
-						{transferModeLabel(transfer.mode)}
-						{#if transfer.legs.some((leg) => leg.description)}
+		<div class="tl-content">
+			{#if transfer}
+				<p class="tl-label">
+					{label}<span class="tl-detail-inline">
+						{transferModeLabel(transfer.mode)}{#if transfer.legs.some((leg) => leg.description)}
 							&middot; {transfer.legs
 								.map((leg) => leg.description)
 								.filter(Boolean)
-								.join(', ')}
-						{/if}
-					</p>
-					{#if transfer.mode === 'transit' && transfer.transitSchedule}
-						{@const schedule = transfer.transitSchedule}
-						{@const missed = readMissedService(schedule)}
-						<p class="tl-note">
-							Departs {formatClockTime(schedule.intended)} on {formatCalendarDate(schedule.intended)}
+								.join(', ')}{/if}
+					</span>
+				</p>
+				{#if transfer.mode === 'transit' && transfer.transitSchedule}
+					{@const schedule = transfer.transitSchedule}
+					{@const missed = readMissedService(schedule)}
+					{#if missed.outcome === 'last-in-time'}
+						<p class="tl-note tl-note-warning">
+							Last departure that still gets you there by {formatClockTime(schedule.plannedFor.time)}.
 						</p>
-						{#if missed.outcome === 'last-in-time'}
-							<p class="tl-note tl-note-warning">
-								The last departure that still gets you there by {formatClockTime(schedule.plannedFor.time)}. Miss it
-								and nothing later arrives in time.
-							</p>
-						{:else if missed.outcome === 'last-known'}
-							<p class="tl-note tl-note-warning">
-								No later service found. Nothing runs after this one for the rest of the timetable.
-							</p>
-						{:else if missed.outcome === 'long-gap' && missed.next && missed.gap !== undefined}
-							<p class="tl-note tl-note-warning">
-								Miss it and the next one is {formatClockTime(missed.next)}, {formatDuration(missed.gap)} later.
-							</p>
-						{:else}
-							<p class="tl-note">
-								Next after this one: {schedule.following.map((t) => formatClockTime(t)).join(', ')}
-							</p>
-						{/if}
+					{:else if missed.outcome === 'last-known'}
+						<p class="tl-note tl-note-warning">No later service runs for the rest of the timetable.</p>
+					{:else if missed.outcome === 'long-gap' && missed.next && missed.gap !== undefined}
+						<p class="tl-note tl-note-warning">
+							Miss it and the next is {formatClockTime(missed.next)}, {formatDuration(missed.gap)} later.
+						</p>
+					{:else}
+						<p class="tl-note">Next: {schedule.following.map((time) => formatClockTime(time)).join(', ')}</p>
 					{/if}
-				{:else}
-					<!-- Issue #140: why this leg has no route, never "not available yet".
-					     See unroutedLegNote for what each case actually observed. -->
-					<p class="tl-note">
+				{/if}
+			{:else}
+				<!-- Issue #140: why this leg has no route, never "not available yet".
+				     See unroutedLegNote for what each case actually observed. -->
+				<p class="tl-label">
+					{label}<span class="tl-detail-inline tl-detail-absent">
 						{unroutedLegNote(leg, {
 							hasStay: shown.stay !== undefined,
 							nightsInConnection: shown.nightsInConnection
 						})}
-					</p>
-				{/if}
-			</div>
+					</span>
+				</p>
+			{/if}
+		</div>
+		<div class="tl-meta">
 			{#if transfer}
-				<div class="tl-meta">
-					<span class="tl-duration font-mono tabular-nums">{formatDuration(transfer.duration)}</span>
-					{#if transfer.price}
-						<span class="tl-price font-mono tabular-nums">{formatMoney(transfer.price)}</span>
-					{:else}
-						<span class="tl-price tl-price-unknown">price n/a</span>
-					{/if}
-				</div>
+				<span class="tl-duration font-mono tabular-nums">{formatDuration(transfer.duration)}</span>
+				{#if transfer.price}
+					<span class="tl-price font-mono tabular-nums">{formatMoney(transfer.price)}</span>
+				{:else}
+					<span class="tl-price-unknown">price n/a</span>
+				{/if}
 			{/if}
 		</div>
 	</li>
@@ -353,7 +395,6 @@
 {#snippet waitingRow(
 	airportLabel: string,
 	minutes: Duration,
-	flight: FlightOffer,
 	segment: ItinerarySegmentId,
 	onAdjust: (delta: number) => void,
 	onInput: (event: Event & { currentTarget: HTMLInputElement }) => void,
@@ -373,10 +414,14 @@
 		onclick={() => selectSegment(segment)}
 		onkeydown={(event) => handleRowKeydown(event, segment)}
 	>
+		<span class="tl-when"></span>
 		<span class="tl-rail">{@render dot('event')}</span>
-		<div class="tl-content">
+		<div class="tl-content tl-content-waiting">
 			<p class="tl-label">Waiting at {airportLabel}</p>
-			<p class="tl-detail">Buffer before {flight.carrier.name} {flight.flightNumber} boards</p>
+			<!-- The stepper sits on the label's own line rather than under it. It is the
+			     only editable thing in the whole timeline (brief lines 39 and 69), so it
+			     stays a real 44px target; what it stopped doing is claiming a third row of
+			     its own on every itinerary. -->
 			<div class="tl-waiting-editor">
 				<label class="visually-hidden" for={inputId}>Waiting time at {airportLabel}, in minutes</label>
 				<button
@@ -399,7 +444,6 @@
 					value={minutes}
 					oninput={onInput}
 				/>
-				<span class="tl-stepper-unit">min</span>
 				<button
 					type="button"
 					class="tl-stepper-btn"
@@ -409,17 +453,25 @@
 				>
 					&plus;
 				</button>
-				<span class="tl-waiting-formatted font-mono tabular-nums">{formatDuration(minutes)}</span>
 			</div>
+		</div>
+		<div class="tl-meta">
+			<span class="tl-duration font-mono tabular-nums">{formatDuration(minutes)}</span>
 		</div>
 	</li>
 {/snippet}
 
-{#snippet flightRow(flight: FlightOffer, label: string, segment: ItinerarySegmentId)}
+{#snippet flightRow(
+	flight: FlightOffer,
+	label: string,
+	segment: ItinerarySegmentId,
+	departureReference: LocalDateTime | undefined,
+	arrivalReference: LocalDateTime
+)}
 	<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 	<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 	<li
-		class="tl-row"
+		class="tl-row tl-row-flight"
 		class:is-selected={selectedSegmentId === segment}
 		data-segment={segment}
 		tabindex="0"
@@ -429,49 +481,45 @@
 		onclick={() => selectSegment(segment)}
 		onkeydown={(event) => handleRowKeydown(event, segment)}
 	>
+		<span class="tl-when tl-when-pair">
+			<TimeCell value={flight.departure} reference={departureReference} align="end" />
+			<TimeCell value={flight.arrival} reference={arrivalReference} align="end" />
+		</span>
 		<span class="tl-rail">{@render dot('event')}</span>
-		<div class="tl-content tl-content-row">
-			<div class="tl-flight-info">
-				<p class="tl-label">{label}</p>
-				<p class="tl-detail">
-					{flight.carrier.name} {flight.flightNumber}
-					{#if flight.aircraft}&middot; {flight.aircraft}{/if}
-				</p>
-				<div class="tl-flight-times">
-					<span class="tl-flight-endpoint">
-						<span class="tl-flight-code font-mono">{flight.departureAirport}</span>
-						{@render timeBadge(flight.departure)}
-					</span>
-					<span class="tl-flight-arrow" aria-hidden="true">&rarr;</span>
-					<span class="tl-flight-endpoint">
-						<span class="tl-flight-code font-mono">{flight.arrivalAirport}</span>
-						{@render timeBadge(flight.arrival)}
-						{#if isDifferentCalendarDate(flight.departure, flight.arrival)}
-							<span class="tl-note tl-note-plusday">next day</span>
-						{/if}
-					</span>
-				</div>
-			</div>
-			<div class="tl-meta">
-				<span class="tl-duration font-mono tabular-nums">{formatDuration(flight.duration)}</span>
-				<span class="tl-price font-mono tabular-nums">{formatMoney(flight.price)}</span>
-			</div>
+		<div class="tl-content">
+			<p class="tl-label tl-label-route">
+				<span class="font-mono">{flight.departureAirport}</span>
+				<span class="tl-route-arrow" aria-hidden="true">→</span>
+				<span class="font-mono">{flight.arrivalAirport}</span>
+			</p>
+			<p class="tl-carrier">
+				<AirlineLogo iataCode={flight.carrier.iataCode} name={flight.carrier.name} />
+				<span class="tl-carrier-name"
+					>{flight.carrier.name}
+					<span class="font-mono">{flight.flightNumber}</span
+					>{#if flight.aircraft}&nbsp;&middot; {flight.aircraft}{/if}</span
+				>
+			</p>
+		</div>
+		<div class="tl-meta">
+			<span class="tl-duration font-mono tabular-nums">{formatDuration(flight.duration)}</span>
+			<span class="tl-price font-mono tabular-nums">{formatMoney(flight.price)}</span>
 		</div>
 	</li>
 {/snippet}
 
 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 <ol
-	class="itinerary-timeline"
+	class={['itinerary-timeline', className]}
 	aria-label={routeDescription}
 	role="list"
 	onkeydown={handleListKeydown}
 >
 	{#if shown.originLocation}
-		{@render locationRow(shown.originLocation, 'Starting point', 'origin-location')}
+		{@render locationRow(shown.originLocation, 'Start', 'origin-location')}
 		{@render transferRow(
 			shown.transferToOriginAirport,
-			'Travel to the airport',
+			'To the airport',
 			'transfer-to-origin-airport',
 			'to-origin-airport'
 		)}
@@ -480,18 +528,23 @@
 	{@render waitingRow(
 		`${shown.originAirport.name} (${shown.originAirport.iataCode})`,
 		shown.originWaitingTime,
-		shown.outboundFlight,
 		'origin-waiting',
 		adjustOriginWaitingTime,
 		handleOriginWaitingTimeInput,
 		ORIGIN_WAITING_TIME_INPUT_MAX_MINUTES
 	)}
 
-	{@render flightRow(shown.outboundFlight, `Flight to ${shown.outboundFlight.arrivalAirport}`, 'outbound-flight')}
+	{@render flightRow(
+		shown.outboundFlight,
+		`Flight to ${shown.outboundFlight.arrivalAirport}`,
+		'outbound-flight',
+		timeReferences.outboundDeparture,
+		timeReferences.outboundArrival
+	)}
 
 	{@render transferRow(
 		shown.transferToHotel,
-		shown.stay ? `Travel to ${shown.stay.property.name}` : 'Travel to the stopover',
+		shown.stay ? `To ${shown.stay.property.name}` : 'To the stopover',
 		'transfer-to-hotel',
 		'to-hotel'
 	)}
@@ -509,55 +562,48 @@
 		onclick={() => selectSegment('free-time')}
 		onkeydown={(event) => handleRowKeydown(event, 'free-time')}
 	>
+		<span class="tl-when tl-when-pair">
+			<TimeCell value={shown.freeTime.start} reference={timeReferences.freeStart} align="end" />
+			<TimeCell value={shown.freeTime.end} reference={timeReferences.freeEnd} align="end" />
+		</span>
 		<span class="tl-rail">{@render dot('stopover')}</span>
 		<div class="tl-content tl-stopover">
-			<p class="tl-stopover-eyebrow">The stopover</p>
 			<p class="tl-stopover-nights">
 				<!-- Issue #140: the night count comes off the flight schedule alone (build.ts's
-				     `nightsBetween`, issue #105), never off whether a bed was priced, so it leads
-				     here whether or not a stay provider is configured. Branching on the stay
-				     first used to hide a real six-night stopover behind a bare "Stopover in
-				     BGY". Zero nights is a same-day connection, a fact about the schedule, not
-				     a missing purchase. -->
+				     `nightsBetween`, issue #105), never off whether a bed was priced, so it
+				     leads here whether or not a stay provider is configured. Zero nights is a
+				     same-day connection, a fact about the schedule, not a missing purchase. -->
 				{#if shown.nightsInConnection > 0}
-					{shown.nightsInConnection}
+					<strong class="font-mono tabular-nums">{shown.nightsInConnection}</strong>
 					{shown.nightsInConnection === 1 ? 'night' : 'nights'} in {connectionLabel}
 				{:else}
-					<span class="tl-stopover-sameday">Day stopover in {connectionLabel}, no overnight stay</span>
+					Day stopover in {connectionLabel}
 				{/if}
 			</p>
-			<p class="tl-detail">
+			<p class="tl-stopover-stay">
 				{#if shown.stay}
-					{shown.stay.property.name} &middot; {shown.stay.roomKind}
-					{#if shown.stay.property.rating}&middot; rated {shown.stay.property.rating}/5{/if}
+					{shown.stay.property.name} &middot; {shown.stay.roomKind}{#if shown.stay.property.rating}
+						&middot; rated {shown.stay.property.rating}/5{/if}
 				{:else if shown.nightsInConnection > 0}
-					No bed priced yet. Add an Agoda or Booking.com key, or widen the search, to price one here.
+					No bed priced yet. Add an Agoda or Booking.com key, or widen the search.
 				{:else}
 					No night spent here, so there is no bed to price.
 				{/if}
 			</p>
-			<div class="tl-free-window">
-				<span class="tl-free-endpoint">
-					<span class="tl-free-caption">Free from</span>
-					{@render timeBadge(shown.freeTime.start)}
-				</span>
-				<span class="tl-free-endpoint">
-					<span class="tl-free-caption">Until</span>
-					{@render timeBadge(shown.freeTime.end)}
-				</span>
-			</div>
-			<div class="tl-meta">
-				<span class="tl-duration font-mono tabular-nums">{formatDuration(shown.freeTime.duration)} free</span>
-				{#if staySubtotal && shown.nightsInConnection > 0}
-					<span class="tl-price font-mono tabular-nums">{formatMoney(staySubtotal)}</span>
-				{/if}
-			</div>
+		</div>
+		<div class="tl-meta">
+			<span class="tl-duration tl-duration-free font-mono tabular-nums"
+				>{formatLongDuration(shown.freeTime.duration)} free</span
+			>
+			{#if staySubtotal && shown.nightsInConnection > 0}
+				<span class="tl-price font-mono tabular-nums">{formatMoney(staySubtotal)}</span>
+			{/if}
 		</div>
 	</li>
 
 	{@render transferRow(
 		shown.transferToConnectionAirport,
-		'Travel to the connection airport',
+		'To the connection airport',
 		'transfer-to-connection-airport',
 		'from-hotel'
 	)}
@@ -568,72 +614,50 @@
 		// actually have (the IATA code) rather than fabricating a name, city or country.
 		`the connection airport (${shown.outboundFlight.arrivalAirport})`,
 		shown.connectionWaitingTime,
-		shown.onwardFlight,
 		'connection-waiting',
 		adjustConnectionWaitingTime,
 		handleConnectionWaitingTimeInput,
 		maxConnectionWaitingTime
 	)}
 
-	{@render flightRow(shown.onwardFlight, `Flight to ${shown.destinationAirport.iataCode}`, 'onward-flight')}
+	{@render flightRow(
+		shown.onwardFlight,
+		`Flight to ${shown.destinationAirport.iataCode}`,
+		'onward-flight',
+		timeReferences.onwardDeparture,
+		timeReferences.onwardArrival
+	)}
 
 	{#if shown.destinationLocation}
 		{@render transferRow(
 			shown.transferToDestinationLocation,
-			'Travel to the destination',
+			'To the destination',
 			'transfer-to-destination-location',
 			'to-destination-location'
 		)}
-		{@render locationRow(shown.destinationLocation, 'Final destination', 'destination-location')}
+		{@render locationRow(shown.destinationLocation, 'Arrive', 'destination-location')}
 	{/if}
 </ol>
 
-<dl class="itinerary-timeline-totals">
-	<div class="tl-total">
-		<dt>In-flight</dt>
-		<dd class="font-mono tabular-nums">{formatDuration(shown.times.inFlight)}</dd>
-	</div>
-	<div class="tl-total">
-		<dt>Airport waiting</dt>
-		<dd class="font-mono tabular-nums">{formatDuration(shown.times.airportWaiting)}</dd>
-	</div>
-	<div class="tl-total">
-		<dt>Free time</dt>
-		<dd class="font-mono tabular-nums">{formatDuration(shown.times.free)}</dd>
-	</div>
-	<div class="tl-total tl-total-nights">
-		<dt>Nights in connection</dt>
-		<dd class="font-mono tabular-nums">{shown.nightsInConnection}</dd>
-	</div>
-	<div class="tl-total tl-total-primary">
-		<dt>Total time</dt>
-		<dd class="font-mono tabular-nums">{formatDuration(shown.times.total)}</dd>
-	</div>
-	<div class="tl-total tl-total-primary">
-		<dt>Total price</dt>
-		<dd class="font-mono tabular-nums">{formatMoney(shown.totalPrice)}</dd>
-		<!-- Issue #140: only a stopover that actually spends a night is missing
-		     anything. On a same-day connection this total is complete, and warning that
-		     it excludes a stay would invent a cost the trip never had. -->
-		{#if !shown.stay && shown.nightsInConnection > 0}
-			<p class="tl-note tl-note-warning">Excludes an unpriced stopover stay</p>
-		{/if}
-	</div>
-</dl>
+<MetricRail itinerary={shown} ids={ALL_METRIC_IDS} class="itinerary-timeline-totals" />
 
 <style>
 	/* ---------------------------------------------------------------------
-	 * Row list. Two columns exposed to every row (a narrow rail, a flexible
-	 * content column) so each <li> can subgrid them and every dot / line
-	 * lands in the same place regardless of how tall that row's own content
-	 * is.
+	 * Four columns, the same four on every row: WHEN, the rail, WHAT, HOW
+	 * MUCH. Every row subgrids them, so clocks line up under clocks and
+	 * prices under prices no matter how tall any one row's content is,
+	 * which is the whole reason this reads as a timetable rather than as a
+	 * stack of little cards.
 	 * ------------------------------------------------------------------- */
 	.itinerary-timeline {
 		position: relative;
 		display: grid;
-		grid-template-columns: 1.5rem minmax(0, 1fr);
-		column-gap: var(--space-3);
-		row-gap: var(--space-5);
+		/* 5rem holds "Wed, 10 Mar" on one line at this column's own type size, and a clock
+		   with a "+2" day stamp beside it. Narrower and the date wrapped to two lines,
+		   which made every flight row a third taller than it needed to be. */
+		grid-template-columns: 5rem 0.875rem minmax(0, 1fr) auto;
+		column-gap: var(--space-2);
+		row-gap: 0;
 	}
 
 	.tl-row {
@@ -641,45 +665,76 @@
 		grid-column: 1 / -1;
 		grid-template-columns: subgrid;
 		align-items: start;
-		border-radius: var(--radius-md);
+		/* Dense by default. Hairline rules between rows instead of gaps: a timetable's
+		   rows touch, and the space a gap would have taken is space the panel does not
+		   need to be. */
+		padding: var(--space-2) var(--space-2) var(--space-2) 0;
+		border-top: 1px solid var(--color-border);
+		border-radius: var(--radius-sm);
 		/* The interactive role (issue #73, the map selection contract) lives on the `<li>`
 		   itself, not a wrapper: a wrapper would need its own `grid-template-columns:
-		   subgrid`, breaking the two-column contract every row here relies on. */
+		   subgrid`, breaking the four-column contract every row here relies on. */
 		cursor: pointer;
 		transition: background-color var(--transition-fast);
+	}
+
+	.tl-row:first-child {
+		border-top: none;
 	}
 
 	.tl-row:hover {
 		background: var(--color-surface-hover);
 	}
 
-	/* A box-shadow, not `outline`: `outline` is reserved for the global `:focus-visible` ring
-	   below, so a row that is both selected and keyboard-focused still shows both, rather than
+	/* A box-shadow, not `outline`: `outline` is reserved for the global `:focus-visible` ring,
+	   so a row that is both selected and keyboard-focused still shows both, rather than
 	   one replacing the other under the same CSS property. */
 	.tl-row.is-selected {
 		background: var(--color-accent-muted);
-		box-shadow: 0 0 0 2px var(--color-accent);
+		box-shadow: inset 3px 0 0 0 var(--color-accent);
 	}
 
 	/* ---------------------------------------------------------------------
-	 * The rail: a continuous line down the left edge with a marker per row.
-	 * Built from one pseudo-element per row rather than a single absolutely
-	 * positioned line for the whole list, so the rail lines up correctly
-	 * however tall each row's own content turns out to be.
+	 * WHEN. The clock column a reader scans straight down.
+	 * ------------------------------------------------------------------- */
+	.tl-when {
+		display: flex;
+		flex-direction: column;
+		min-width: 0;
+		text-align: right;
+		align-items: flex-end;
+	}
+
+	/* Departure over arrival, joined by a rule down the left of the pair, which is how a
+	   printed timetable shows a leg's two ends without repeating a header. */
+	.tl-when-pair {
+		gap: var(--space-1);
+	}
+
+	.tl-when-clock {
+		font-size: var(--font-size-sm);
+		color: var(--color-text-muted);
+	}
+
+	/* ---------------------------------------------------------------------
+	 * The rail: a continuous line down the middle of its column with a
+	 * marker per row. Built from one pseudo-element per row rather than one
+	 * absolutely positioned line for the whole list, so it lines up however
+	 * tall each row's own content turns out to be.
 	 * ------------------------------------------------------------------- */
 	.tl-rail {
 		position: relative;
 		display: flex;
 		justify-content: center;
 		height: 100%;
-		min-height: 1.5rem;
+		min-height: 1.25rem;
 	}
 
 	.tl-rail::before {
 		content: '';
 		position: absolute;
 		top: 0;
-		bottom: calc(-1 * var(--space-5));
+		bottom: calc(-1 * var(--space-4));
 		left: 50%;
 		width: 2px;
 		background: var(--color-border-strong);
@@ -693,59 +748,77 @@
 	.tl-dot {
 		position: relative;
 		z-index: 1;
-		width: 0.5rem;
-		height: 0.5rem;
+		width: 0.4rem;
+		height: 0.4rem;
 		margin-top: 0.4rem;
 		border-radius: var(--radius-full);
 		background: var(--color-border-strong);
 	}
 
 	.tl-dot-event {
-		width: 0.85rem;
-		height: 0.85rem;
-		margin-top: 0.3rem;
+		width: 0.7rem;
+		height: 0.7rem;
+		margin-top: 0.25rem;
 		background: var(--color-accent);
 		box-shadow: 0 0 0 3px var(--color-accent-muted);
 	}
 
 	.tl-dot-stopover {
-		width: 1.1rem;
-		height: 1.1rem;
+		width: 0.9rem;
+		height: 0.9rem;
 		margin-top: 0.2rem;
 		background: var(--color-stopover);
-		box-shadow: 0 0 0 4px var(--color-stopover-bg);
+		box-shadow: 0 0 0 3px var(--color-stopover-bg);
 	}
 
 	/* ---------------------------------------------------------------------
-	 * Row content
+	 * WHAT.
 	 * ------------------------------------------------------------------- */
 	.tl-content {
 		min-width: 0;
-		padding-bottom: var(--space-1);
-	}
-
-	.tl-content-row {
-		display: flex;
-		flex-wrap: wrap;
-		align-items: flex-start;
-		justify-content: space-between;
-		gap: var(--space-3);
-	}
-
-	.tl-transfer-info,
-	.tl-flight-info {
-		min-width: 0;
-		flex: 1 1 14rem;
 	}
 
 	.tl-label {
+		font-size: var(--font-size-sm);
 		font-weight: var(--font-weight-semibold);
+		line-height: 1.35;
 		color: var(--color-text);
 	}
 
-	.tl-detail {
+	/* The detail rides on the label's own line and wraps under it only when it has to,
+	   instead of claiming a paragraph of its own on every row. Two facts, one line. */
+	.tl-detail-inline {
+		margin-left: var(--space-2);
+		font-weight: var(--font-weight-regular);
+		color: var(--color-text-muted);
+	}
+
+	.tl-detail-absent {
+		font-style: italic;
+		color: var(--color-text-faint);
+	}
+
+	.tl-label-route {
+		display: flex;
+		align-items: baseline;
+		gap: var(--space-1);
+		font-size: var(--font-size-base);
+		letter-spacing: var(--tracking-wide);
+	}
+
+	.tl-route-arrow {
+		color: var(--color-text-faint);
+	}
+
+	.tl-carrier {
+		display: flex;
+		align-items: center;
+		gap: var(--space-2);
 		margin-top: var(--space-1);
-		font-size: var(--font-size-sm);
+	}
+
+	.tl-carrier-name {
+		font-size: var(--font-size-xs);
 		color: var(--color-text-muted);
 	}
 
@@ -759,31 +832,26 @@
 		color: var(--color-warning);
 	}
 
-	.tl-note-plusday {
-		display: inline-block;
-		margin-top: var(--space-1);
-		padding: 0 var(--space-2);
-		border-radius: var(--radius-sm);
-		background: var(--color-warning-bg);
-		color: var(--color-warning);
-		font-size: var(--font-size-xs);
-		font-weight: var(--font-weight-medium);
-		text-transform: uppercase;
-		letter-spacing: 0.03em;
-	}
-
+	/* ---------------------------------------------------------------------
+	 * HOW MUCH.
+	 * ------------------------------------------------------------------- */
 	.tl-meta {
 		display: flex;
 		flex-direction: column;
 		align-items: flex-end;
-		gap: var(--space-1);
-		flex: 0 0 auto;
+		gap: 0;
 		text-align: right;
+		line-height: 1.3;
 	}
 
 	.tl-duration {
 		font-size: var(--font-size-sm);
-		color: var(--color-text);
+		color: var(--color-text-muted);
+	}
+
+	.tl-duration-free {
+		color: var(--color-stopover);
+		font-weight: var(--font-weight-semibold);
 	}
 
 	.tl-price {
@@ -799,67 +867,20 @@
 	}
 
 	/* ---------------------------------------------------------------------
-	 * Local time badges. The clock time is the headline; the calendar date
-	 * and UTC offset are always shown alongside it, never only on request,
-	 * because AGENTS.md is explicit that a 00:30 arrival must never render
-	 * as the previous day. Showing the date every time is what makes that
-	 * failure mode impossible to reintroduce later by accident.
-	 * ------------------------------------------------------------------- */
-	.tl-time {
-		display: flex;
-		flex-direction: column;
-		line-height: 1.3;
-	}
-
-	.tl-time-clock {
-		font-size: var(--font-size-lg);
-		font-weight: var(--font-weight-semibold);
-		color: var(--color-text);
-	}
-
-	.tl-time-date {
-		font-size: var(--font-size-xs);
-		color: var(--color-text-muted);
-	}
-
-	.tl-time-offset {
-		font-size: var(--font-size-xs);
-		color: var(--color-text-faint);
-	}
-
-	.tl-flight-times {
-		display: flex;
-		align-items: center;
-		gap: var(--space-3);
-		margin-top: var(--space-2);
-	}
-
-	.tl-flight-endpoint {
-		display: flex;
-		flex-direction: column;
-		gap: var(--space-1);
-	}
-
-	.tl-flight-code {
-		font-size: var(--font-size-xs);
-		font-weight: var(--font-weight-semibold);
-		letter-spacing: var(--tracking-wide);
-		color: var(--color-text-faint);
-	}
-
-	.tl-flight-arrow {
-		color: var(--color-text-faint);
-	}
-
-	/* ---------------------------------------------------------------------
 	 * Waiting-time editor (brief lines 39 & 69: editable inline).
 	 * ------------------------------------------------------------------- */
-	.tl-waiting-editor {
+	.tl-content-waiting {
 		display: flex;
 		flex-wrap: wrap;
 		align-items: center;
+		justify-content: space-between;
 		gap: var(--space-2);
-		margin-top: var(--space-2);
+	}
+
+	.tl-waiting-editor {
+		display: flex;
+		align-items: center;
+		gap: var(--space-1);
 	}
 
 	.tl-stepper-btn {
@@ -867,9 +888,10 @@
 		align-items: center;
 		justify-content: center;
 		/* 44px minimum touch target, matching Button.svelte's own md size: WCAG 2.5.5, and
-		   this app is meant to be used one-handed. */
+		   this app is meant to be used one-handed. The row around it is dense; the control
+		   inside it is not, which is the correct place to spend the pixels. */
 		width: 2.75rem;
-		height: 2.75rem;
+		height: 2.25rem;
 		flex-shrink: 0;
 		border: 1px solid var(--color-border-strong);
 		border-radius: var(--radius-md);
@@ -900,14 +922,14 @@
 	}
 
 	.tl-stepper-input {
-		width: 4rem;
-		height: 2.75rem;
-		padding: 0 var(--space-2);
+		width: 3.25rem;
+		height: 2.25rem;
+		padding: 0 var(--space-1);
 		border: 1px solid var(--color-border-strong);
 		border-radius: var(--radius-md);
 		background: var(--color-surface);
 		color: var(--color-text);
-		font-size: var(--font-size-base);
+		font-size: var(--font-size-sm);
 		text-align: center;
 	}
 
@@ -916,143 +938,124 @@
 		box-shadow: 0 0 0 3px var(--color-accent-muted);
 	}
 
-	.tl-stepper-unit {
-		font-size: var(--font-size-xs);
-		color: var(--color-text-faint);
-	}
-
-	.tl-waiting-formatted {
-		margin-left: var(--space-2);
-		font-size: var(--font-size-sm);
-		font-weight: var(--font-weight-medium);
-		color: var(--color-text-muted);
-	}
-
 	/* ---------------------------------------------------------------------
 	 * The stopover row: the emotional payload of the product, so it reads
-	 * as the good part rather than as one row among ten. Reuses the
-	 * ticket-stub dashed border and warm-accent header treatment from
-	 * Card's "ticket" variant, applied directly (rather than wrapping in
-	 * <Card>) so this row stays a plain <li> in the flat row list issue #25
-	 * depends on.
+	 * as the good part rather than as one row among ten. Keeps the
+	 * torn-ticket dashes, loses the padding that made it three times the
+	 * height of everything around it.
 	 * ------------------------------------------------------------------- */
 	.tl-row-stopover {
-		margin-block: var(--space-2);
+		padding-block: var(--space-3);
 	}
 
 	.tl-stopover {
-		padding: var(--space-4);
-		border: 2px dashed var(--color-stopover);
-		border-radius: var(--radius-lg);
+		padding: var(--space-2) var(--space-3);
+		border: 1px dashed var(--color-stopover);
+		border-radius: var(--radius-md);
 		background: var(--color-stopover-bg);
 	}
 
-	.tl-stopover-eyebrow {
-		font-size: var(--font-size-xs);
-		font-weight: var(--font-weight-semibold);
-		text-transform: uppercase;
-		letter-spacing: var(--tracking-wide);
-		color: var(--color-stopover);
-	}
-
 	.tl-stopover-nights {
-		margin-top: var(--space-1);
-		font-family: var(--font-mono);
-		font-variant-numeric: tabular-nums;
-		font-size: var(--font-size-xl);
-		font-weight: var(--font-weight-bold);
+		font-size: var(--font-size-sm);
+		font-weight: var(--font-weight-semibold);
 		color: var(--color-text);
 	}
 
-	/* The night count is a number, so it earns the big mono departure-board treatment.
-	   "Day stopover in Bergamo, no overnight stay" is a sentence, and set at the same
-	   size it wraps to three lines on a 390px screen and reads as shouting. Same slot,
-	   same weight, sentence size. */
-	.tl-stopover-sameday {
-		font-family: var(--font-sans);
-		font-size: var(--font-size-base);
+	.tl-stopover-nights strong {
+		font-size: var(--font-size-lg);
+		font-weight: var(--font-weight-bold);
+		color: var(--color-stopover);
 	}
 
-	.tl-free-window {
-		display: flex;
-		flex-wrap: wrap;
-		gap: var(--space-5);
-		margin-top: var(--space-3);
-	}
-
-	.tl-free-caption {
-		display: block;
+	.tl-stopover-stay {
 		font-size: var(--font-size-xs);
-		color: var(--color-text-faint);
-	}
-
-	/* `--color-text-faint` was only ever checked against `--color-bg`/`--color-surface`
-	   (app.css's own comment on the token), not against `--color-stopover-bg` — the one
-	   background it also sits on here (the caption above each free-time clock, and the
-	   UTC-offset badge inside `timeBadge`). In the dark palette that pairing is 3.55:1,
-	   under WCAG AA's 4.5:1 (axe caught it as a real contrast failure, not a false
-	   positive). `--color-text-muted` clears 4.5:1 against every background this app
-	   uses, stopover included, so this scopes the swap to inside the stopover box rather
-	   than touching either token's own definition or every other place they're used. */
-	.tl-stopover .tl-free-caption,
-	.tl-stopover .tl-time-offset {
 		color: var(--color-text-muted);
 	}
 
-	.tl-stopover .tl-meta {
-		flex-direction: row;
-		align-items: center;
-		justify-content: flex-start;
-		margin-top: var(--space-3);
-		gap: var(--space-4);
-	}
-
 	/* ---------------------------------------------------------------------
-	 * Totals summary: a separate top-level sibling of the row list, not a
-	 * child of it, so it is never caught by the row grid's own tracks.
+	 * Totals. `MetricRail` draws them; this only places the block.
 	 * ------------------------------------------------------------------- */
-	.itinerary-timeline-totals {
-		display: flex;
-		flex-wrap: wrap;
-		gap: var(--space-5);
-		margin-top: var(--space-6);
-		padding-top: var(--space-4);
+	:global(.itinerary-timeline-totals) {
+		margin-top: var(--space-4);
+		padding-top: var(--space-3);
 		border-top: 2px dashed var(--color-border-strong);
 	}
 
-	.tl-total {
-		display: flex;
-		flex-direction: column;
-		gap: var(--space-1);
-	}
-
-	.tl-total dt {
-		font-size: var(--font-size-xs);
-		color: var(--color-text-faint);
-	}
-
-	.tl-total dd {
-		margin: 0;
-		font-size: var(--font-size-base);
-		color: var(--color-text);
-	}
-
-	.tl-total-nights dd {
-		color: var(--color-stopover);
-	}
-
-	.tl-total-primary dd {
-		font-size: var(--font-size-lg);
-		font-weight: var(--font-weight-bold);
-	}
-
 	/* ---------------------------------------------------------------------
-	 * Wider viewports: give flight/transfer rows a dedicated time+price
-	 * column instead of letting them wrap under the label.
+	 * Narrow viewports: 3.5rem of clock column plus a rail plus a price
+	 * column leaves too little for the label under about 24rem, so the
+	 * clock column narrows and the meta column moves under the content.
 	 * ------------------------------------------------------------------- */
-	@media (min-width: 40rem) {
-		.tl-content-row {
-			flex-wrap: nowrap;
+	/* ---------------------------------------------------------------------
+	 * Narrow: four columns stop being a timetable and start being four
+	 * squeezed paragraphs. Below 34rem the row folds to rail plus content,
+	 * with the clocks as a single line above the label and the duration and
+	 * price as a single line below it. Same four children, same order, same
+	 * `data-segment` contract, placed differently.
+	 * ------------------------------------------------------------------- */
+	@media (max-width: 34rem) {
+		.itinerary-timeline {
+			grid-template-columns: 0.875rem minmax(0, 1fr);
+		}
+
+		.tl-row {
+			grid-template-rows: auto auto auto;
+			row-gap: var(--space-1);
+		}
+
+		.tl-rail {
+			grid-column: 1;
+			grid-row: 1 / -1;
+		}
+
+		.tl-when,
+		.tl-content,
+		.tl-meta {
+			grid-column: 2;
+		}
+
+		.tl-when {
+			grid-row: 1;
+			flex-direction: row;
+			flex-wrap: wrap;
+			align-items: baseline;
+			justify-content: flex-start;
+			gap: var(--space-1) var(--space-3);
+			text-align: left;
+		}
+
+		/* `TimeCell` is told to hang off its right edge for the wide layout's right-aligned
+		   clock column. Laid out in a row it has to hang off the left instead, or the clock
+		   floats to the right of its own (wider) date line and reads as an indent. The
+		   component's own class, hence :global. */
+		.tl-when :global(.time-cell-end),
+		.tl-when :global(.time-cell-end .time-cell-line),
+		.tl-when :global(.time-cell-end .time-cell-meta) {
+			align-items: flex-start;
+			justify-content: flex-start;
+			text-align: left;
+		}
+
+		/* Empty on the rows that carry no clock, and an empty flex box still takes its
+		   row's gap. Collapsing it keeps a waiting row two lines tall, not three. */
+		.tl-when:empty {
+			display: none;
+		}
+
+		.tl-content {
+			grid-row: 2;
+		}
+
+		.tl-meta {
+			grid-row: 3;
+			flex-direction: row;
+			align-items: baseline;
+			justify-content: flex-start;
+			gap: var(--space-3);
+		}
+
+		.tl-meta:empty {
+			display: none;
 		}
 	}
 </style>

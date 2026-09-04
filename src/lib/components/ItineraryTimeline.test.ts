@@ -130,17 +130,21 @@ function renderSelectionHarness(itinerary: Itinerary) {
 	return { root: target, harness };
 }
 
-/** Reads one row of the totals `<dl>` by its label, rather than searching the whole
+/** Reads one figure from the totals rail by its label, rather than searching the whole
  * section's text: `formatDuration` can render the same string (e.g. "4h") for two
  * different totals that happen to share a value, so matching by the `<dt>` is the only way
- * to be sure which total actually moved. */
+ * to be sure which total actually moved.
+ *
+ * The rail is `MetricRail` now, shared with the results card and the comparator footer,
+ * so the labels are that component's (`itinerary-metrics.ts`) and its `<dd>` can carry a
+ * caveat span alongside the figure; hence the trim. */
 function getTotal(root: HTMLElement, label: string): string {
 	const dt = Array.from(root.querySelectorAll('.itinerary-timeline-totals dt')).find(
 		(el) => el.textContent === label
 	);
 	const dd = dt?.nextElementSibling;
 	if (!dd) throw new Error(`No total found for label "${label}"`);
-	return dd.textContent ?? '';
+	return dd.textContent?.trim() ?? '';
 }
 
 describe('ItineraryTimeline, editable waiting time recomputes totals', () => {
@@ -152,8 +156,8 @@ describe('ItineraryTimeline, editable waiting time recomputes totals', () => {
 		expect(originInput).not.toBeNull();
 		expect(originInput?.value).toBe('120');
 
-		expect(getTotal(root, 'Airport waiting')).toBe('4h'); // 2h origin + 2h connection
-		const totalTimeBefore = getTotal(root, 'Total time');
+		expect(getTotal(root, 'Airport wait')).toBe('4h'); // 2h origin + 2h connection
+		const totalTimeBefore = getTotal(root, 'Door to door');
 		const freeTotalBefore = getTotal(root, 'Free time');
 
 		originInput!.value = '180';
@@ -166,8 +170,8 @@ describe('ItineraryTimeline, editable waiting time recomputes totals', () => {
 		// airport waiting grows by the same 60 minutes the origin buffer grew by, and total
 		// time grows by the same 60 minutes since the origin buffer isn't borrowed from
 		// anywhere else on the itinerary.
-		expect(getTotal(root, 'Airport waiting')).toBe('5h');
-		expect(getTotal(root, 'Total time')).not.toBe(totalTimeBefore);
+		expect(getTotal(root, 'Airport wait')).toBe('5h');
+		expect(getTotal(root, 'Door to door')).not.toBe(totalTimeBefore);
 		// Free time is untouched: only the connection buffer borrows from it.
 		expect(getTotal(root, 'Free time')).toBe(freeTotalBefore);
 	});
@@ -180,9 +184,9 @@ describe('ItineraryTimeline, editable waiting time recomputes totals', () => {
 		});
 		const root = renderTimeline(itinerary);
 
-		const nightsBefore = getTotal(root, 'Nights in connection');
+		const nightsBefore = getTotal(root, 'Nights');
 		const freeTotalBefore = getTotal(root, 'Free time');
-		const totalTimeBefore = getTotal(root, 'Total time');
+		const totalTimeBefore = getTotal(root, 'Door to door');
 		const totalPriceBefore = getTotal(root, 'Total price');
 
 		const connectionInput = root.querySelector<HTMLInputElement>('[data-segment="connection-waiting"] input');
@@ -194,12 +198,12 @@ describe('ItineraryTimeline, editable waiting time recomputes totals', () => {
 		connectionInput!.dispatchEvent(new Event('input', { bubbles: true }));
 		flushSync();
 
-		expect(getTotal(root, 'Nights in connection')).not.toBe(nightsBefore);
-		expect(Number(getTotal(root, 'Nights in connection'))).toBeGreaterThan(Number(nightsBefore));
+		expect(getTotal(root, 'Nights')).not.toBe(nightsBefore);
+		expect(Number(getTotal(root, 'Nights'))).toBeGreaterThan(Number(nightsBefore));
 		expect(getTotal(root, 'Free time')).not.toBe(freeTotalBefore);
 		// Door-to-door time does not move: the connection buffer only trades against free
 		// time, it never changes the total journey length.
-		expect(getTotal(root, 'Total time')).toBe(totalTimeBefore);
+		expect(getTotal(root, 'Door to door')).toBe(totalTimeBefore);
 		// The total price grew, since an extra night was added to the stay.
 		expect(getTotal(root, 'Total price')).not.toBe(totalPriceBefore);
 	});
@@ -381,8 +385,11 @@ describe('ItineraryTimeline, selection binding for the map (issue #73)', () => {
 		for (const row of rows) {
 			expect(row.classList.contains('tl-row')).toBe(true);
 			expect(row.getAttribute('data-segment')).not.toBeNull();
-			// No wrapper: the rail and content are still the row's only two direct children.
-			expect(row.children.length).toBe(2);
+			// No wrapper: every row is still exactly its own grid cells as direct children,
+			// four of them since the timetable rewrite (when, rail, what, how much) and
+			// the same four on every row, which is what lets each `<li>` subgrid the
+			// list's columns without an intermediate element.
+			expect(row.children.length).toBe(4);
 		}
 	});
 });

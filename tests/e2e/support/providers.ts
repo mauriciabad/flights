@@ -3,12 +3,16 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { BrowserContext, Page } from '@playwright/test';
 import { OSRM_BASE_URL } from '../../../src/lib/providers/transfers/osrm';
+import {
+	AIRLINE_LOGO_BASE_URL,
+	AIRLINE_LOGO_REDIRECT_HOST
+} from '../../../src/lib/data/airline-logos';
 import { FIXTURE_FLIGHT_NUMBERS, FIXTURE_PRICES } from './fixture-markers';
 
 // Re-exported so a spec that wants to check "did this request really land on the host
 // mockOsrm intercepts" (issue #132) can import it from here instead of reaching into
 // src/lib itself.
-export { OSRM_BASE_URL };
+export { AIRLINE_LOGO_BASE_URL, OSRM_BASE_URL };
 
 const fixturesDir = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'fixtures');
 
@@ -283,4 +287,32 @@ export async function mockAllProviders(target: Routable) {
 	await mockSkyscanner(target);
 	await mockRome2Rio(target);
 	await mockBookingCom(target);
+}
+
+/**
+ * Airline logo images. Not a provider a spec opts into: `AirlineLogo.svelte` fires this
+ * request on any page that renders a flight, so `fixtures.ts` wires it globally rather
+ * than leaving each spec to remember. Without it the network guard blocks the request and
+ * every results spec fails on an unmocked host.
+ *
+ * Both hosts are mocked from the constants the component itself uses (issue #132's rule:
+ * a test host derived from the real one cannot drift from it). The second exists because
+ * a code the CDN has never heard of redirects through `fe-resize-image.skypicker.com` on
+ * its way to the generic glyph, and a redirect target is a separate host as far as the
+ * guard is concerned.
+ *
+ * A one-pixel transparent PNG is enough: nothing asserts on the pixels, only on the
+ * request being made and on the monogram fallback firing when it is not.
+ */
+const TRANSPARENT_PNG = Buffer.from(
+	'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+	'base64'
+);
+
+export async function mockAirlineLogos(target: Routable) {
+	for (const host of [AIRLINE_LOGO_BASE_URL, AIRLINE_LOGO_REDIRECT_HOST]) {
+		await target.route(`${new URL(host).origin}/**`, async (route) => {
+			await route.fulfill({ status: 200, contentType: 'image/png', body: TRANSPARENT_PNG });
+		});
+	}
 }

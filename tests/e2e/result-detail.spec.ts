@@ -88,7 +88,7 @@ test.describe('result detail (issue #104)', () => {
 		// `mapAriaLabel` names the cities, not the IATA codes, hence the loose match).
 		await expect(detail.getByRole('region', { name: /Route map/ })).toBeVisible();
 
-		const totalPriceRow = detail.locator('.itinerary-timeline-totals .tl-total', { hasText: 'Total price' });
+		const totalPriceRow = detail.locator('.itinerary-timeline-totals .metric', { hasText: 'Total price' });
 		// 9,111.11 (cheaper outbound) + 9,333.33 onward. Absurd figures on purpose — see
 		// support/fixture-markers.ts — but the sum is still the real arithmetic under test.
 		await expect(totalPriceRow).toContainText('€18,444.44');

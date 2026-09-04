@@ -78,7 +78,16 @@ export function makeItinerary(
 	if (overrides.outboundCarrier) {
 		outboundFlight.carrier = { iataCode: overrides.outboundCarrier, name: `${overrides.outboundCarrier} Airline` };
 	}
-	const priceMinorUnits = overrides.priceMinorUnits ?? outboundFlight.price.minorUnits + onwardFlight.price.minorUnits;
+	const travellers = overrides.travellers ?? 1;
+	const nightsInConnection = overrides.nightsInConnection ?? 0;
+	// Mirrors `buildItineraries`' own total: both fares scaled to the party by each offer's
+	// declared `priceScope`, plus nights x the nightly rate. It used to be the two fares
+	// alone, so a fixture with `nightsInConnection: 3` carried a `totalPrice` that its own
+	// parts could not add up to — fine while nothing broke a total back down, wrong the
+	// moment `priceBreakdown` (itinerary-metrics.ts) did.
+	const priceMinorUnits =
+		overrides.priceMinorUnits ??
+		(outboundFlight.price.minorUnits + onwardFlight.price.minorUnits) * travellers + 2000 * nightsInConnection;
 	const totalMinutes = overrides.totalMinutes ?? 600;
 	const freeTimeMinutes = overrides.freeTimeMinutes ?? 300;
 
@@ -97,13 +106,13 @@ export function makeItinerary(
 			end: localDateTime(overrides.freeTimeEnd ?? '2026-10-14T13:00:00'),
 			duration: freeTimeMinutes as Duration
 		},
-		nightsInConnection: overrides.nightsInConnection ?? 0,
+		nightsInConnection,
 		transferToConnectionAirport: { mode: 'walk', duration: 15 as Duration, legs: [{ mode: 'walk', duration: 15 as Duration }] },
 		connectionWaitingTime: 120 as Duration,
 		onwardFlight,
 		destinationAirport: airport('OTP', 'Bucharest'),
 		totalPrice: money(priceMinorUnits),
-		travellers: overrides.travellers ?? 1,
+		travellers,
 		times: {
 			inFlight: (outboundFlight.duration + onwardFlight.duration) as Duration,
 			airportWaiting: 240 as Duration,
