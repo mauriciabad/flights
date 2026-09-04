@@ -73,6 +73,54 @@ Provider slugs, since finding these cost real time:
 `rapidapi.com/apiheya/api/sky-scrapper`, `rapidapi.com/ntd119/api/flights-sky`,
 `rapidapi.com/ntd119/api/agoda-com`, `rapidapi.com/DataCrawler/api/booking-com15`.
 
+### Flights Sky has a price calendar, and it is the reason this app is affordable
+
+**Measured 2026-09-04.** `flights-sky.p.rapidapi.com/flights/price-calendar` returns a price
+for EVERY DAY across roughly a month, in ONE request:
+
+```
+GET /flights/price-calendar?fromEntityId=BCN&toEntityId=VIE&departDate=2026-10-15&currency=EUR
+```
+
+```json
+{"data":{"flights":{"days":[
+  {"day":"2026-09-04","group":"high","price":124.0},
+  {"day":"2026-09-15","group":"low","price":34.0},
+  {"day":"2026-09-19","group":"low","price":33.0}, ...]}}}
+```
+
+Compare that with Sky Scrapper, which costs one request per date. Exploring a ten-day window
+over two legs is 20 Sky Scrapper requests, its entire monthly quota, versus **2** here.
+
+So the free tiers are not comparable by their headline numbers. 50 requests that each answer
+"what does every day of the next month cost on this route" is worth far more than 20 that
+each answer "what does this one day cost".
+
+That makes the search shape obvious. Use the price calendar to find WHICH dates and which
+stopover cities are cheap, across many candidates, for a handful of requests. Only then spend
+a per-date request confirming one specific itinerary.
+
+The `group` field (`low`/`medium`/`high`) is the API's own cheapness banding and is free
+signal for ranking, so use it rather than recomputing a threshold.
+
+Endpoints confirmed live and returning 200 with a real key:
+`/flights/auto-complete`, `/flights/search-one-way`, `/flights/search-roundtrip`,
+`/flights/price-calendar`. Note `departDate` is required even for the calendar, which
+otherwise returns `{"errors":{"departDate":"departDate is required"}}`.
+
+### Kiwi.com is subscribed but its backend is down
+
+BASIC is $0/month for **300 requests/month**, the most generous quota of any provider here,
+and it subscribed without demanding a card. But both live endpoints return
+`402 {"error":{"code":"402","message":"Payment required"}}` with header
+`x-vercel-error: DEPLOYMENT_DISABLED`, which is Vercel's marker for a deployment its owner
+switched off. A valid `x-rapidapi-request-id` comes back, so RapidAPI's gateway is forwarding
+correctly and this is an upstream outage rather than a key or subscription problem.
+
+The adapter exists and is tested against fixtures reconstructed from Kiwi's historical public
+schema, NOT from a captured live payload. Re-verify the response shape before trusting it if
+the listing ever comes back.
+
 ### Sky Scrapper costs one request PER DATE, which changes the search design
 
 Measured against the live API on 2026-09-04: `searchFlights` takes exactly one `date`
