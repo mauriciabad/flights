@@ -248,8 +248,11 @@
 		display: inline-flex;
 		align-items: center;
 		justify-content: center;
-		width: 2rem;
-		height: 2rem;
+		/* 44px minimum touch target (WCAG 2.5.5): each rule row has its own line with
+		   room to spare, unlike a wrapped chip list, so this can just grow for real
+		   rather than reaching for an invisible hit area. */
+		width: 2.75rem;
+		height: 2.75rem;
 		flex-shrink: 0;
 		border-radius: var(--radius-full);
 		color: var(--color-text-faint);
@@ -267,6 +270,7 @@
 
 	.tiered-add {
 		align-self: flex-start;
+		min-height: 2.75rem;
 		padding: var(--space-2) var(--space-3);
 		border: 1px dashed var(--color-border-strong);
 		border-radius: var(--radius-md);

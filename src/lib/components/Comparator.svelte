@@ -230,19 +230,25 @@
 						</div>
 						<div class="comparator-total">
 							<dt>Free time</dt>
-							<dd class="font-mono tabular-nums">{formatDuration(item.itinerary.times.free)}</dd>
-							<div
-								class="comparator-share-track"
-								role="img"
-								aria-label="{formatDuration(item.itinerary.times.free)} free, {maxFreeTime > 0
-									? Math.round(relativeShare(item.itinerary.times.free, maxFreeTime) * 100)
-									: 0}% of the longest stopover being compared"
-							>
-								<span
-									class="comparator-share-fill"
-									style:width="{relativeShare(item.itinerary.times.free, maxFreeTime) * 100}%"
-								></span>
-							</div>
+							<!-- The share bar lives inside this <dd>, not as a sibling <div> after it: a
+							     <dl>'s div-wrapped dt/dd group may only contain dt/dd elements (HTML's own
+							     content model for <dl>), and a stray div there is exactly what axe's
+							     definition-list check flags. A <dd>'s own content model has no such limit. -->
+							<dd class="font-mono tabular-nums">
+								{formatDuration(item.itinerary.times.free)}
+								<div
+									class="comparator-share-track"
+									role="img"
+									aria-label="{formatDuration(item.itinerary.times.free)} free, {maxFreeTime > 0
+										? Math.round(relativeShare(item.itinerary.times.free, maxFreeTime) * 100)
+										: 0}% of the longest stopover being compared"
+								>
+									<span
+										class="comparator-share-fill"
+										style:width="{relativeShare(item.itinerary.times.free, maxFreeTime) * 100}%"
+									></span>
+								</div>
+							</dd>
 						</div>
 						<div class="comparator-total">
 							<dt>Nights</dt>
@@ -414,6 +420,14 @@
 		color: var(--color-text);
 	}
 
+	/* The Free time stat is the one row whose <dd> also holds the share bar below (see
+	   the template comment on why the bar moved inside <dd>). Forcing that one <dd> onto
+	   its own flex line reproduces the old layout, where the bar itself (then a sibling
+	   flex item) was what forced the wrap. */
+	.comparator-total:has(.comparator-share-track) dd {
+		flex-basis: 100%;
+	}
+
 	.comparator-total-primary dd {
 		font-size: var(--font-size-lg);
 		font-weight: var(--font-weight-bold);
@@ -426,7 +440,7 @@
 	   clutter) — the bar's own width against the row's fixed max-width already reads as a
 	   share once there is more than one column to compare it against. */
 	.comparator-share-track {
-		flex-basis: 100%; /* forces this onto its own flex line, below dt/dd */
+		margin-top: var(--space-1);
 		width: 100%;
 		max-width: 8rem;
 		height: 4px;

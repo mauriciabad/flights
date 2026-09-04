@@ -139,21 +139,82 @@
 		selectedSegmentId = segment;
 	}
 
-	// Every row is `role="option"` on the `<li>` itself rather than a wrapping element,
-	// since the comparator (issue #25) depends on each step being exactly one flat `<li
-	// class="tl-row">`. (Svelte's own a11y check rejects `role="button"` there: a `<li>`
-	// is not natively interactive, and `option` is the one interactive role the compiler
-	// accepts on a non-interactive list item — the same "row picked from a list" shape
-	// `<ol role="listbox">` below declares for its children.) The waiting-time rows nest
-	// their own real `<button>`/`<input>` controls; a keydown bubbles up from those too,
-	// and without this guard, `preventDefault()` here would run on *their* Space/Enter
-	// press and swallow the native control's own activation before it happens. Checking
-	// that the row itself (not a descendant) is what has focus keeps the two independent.
+	// Every row's selectable state lives on the `<li>` itself rather than a wrapping
+	// element, since the comparator (issue #25) depends on each step being exactly one
+	// flat `<li class="tl-row">`.
+	//
+	// This used to be a `role="listbox"`/`role="option"` list (matching "a single-select
+	// list of steps"), until axe caught what that pattern actually requires: EVERY owned
+	// element of a listbox must be an option, while ARIA's `option` role forbids
+	// interactive descendants outright — and the two waiting-time rows nest a real
+	// stepper (button/input/button), so they can never legally be options. Swapping just
+	// those two rows to `role="group"` traded that violation for a worse one
+	// (`aria-required-children`, since a listbox missing even one option-or-group-of-
+	// options child is invalid full stop) — there is no per-row role that satisfies both
+	// "conforms to listbox" and "may contain a real widget."
+	//
+	// So none of the rows carry a widget role at all: the `<li>`s stay plain, native
+	// listitems (a `<ol>`'s implicit role already reads as a sequence — the one override
+	// that stays is `role="list"` on the `<ol>` itself, since this app's own
+	// `ul, ol { list-style: none }` reset is exactly the thing that makes Safari/
+	// VoiceOver stop announcing list semantics otherwise), each with a real
+	// `<button>`/`<input>` free to live inside without any nested-interactive
+	// complaint. `aria-roledescription="selectable step"` is what tells a screen reader
+	// this particular listitem is worth acting on, without touching its actual role or
+	// tripping any parent/child conformance rule the way a widget role would.
+	// `aria-current` marks whichever row is currently shown on the map, and a plain
+	// onclick/onkeydown handles the actual selection.
+	//
+	// The trade-off: Svelte's own a11y linter does not know `aria-roledescription` is a
+	// legitimate way to mark a plain listitem as actionable, so it flags a real tabindex/
+	// click/keydown on a "non-interactive" `<li>` (`a11y_no_noninteractive_tabindex`,
+	// `a11y_no_noninteractive_element_interactions`) and the same for `onkeydown` on the
+	// `<ol>` itself. Each is silenced with a `<!-- svelte-ignore -->` at its own spot,
+	// the same pattern the comparator's own scrollable region already uses in
+	// Comparator.svelte for an identical reason — a linter heuristic, not an ARIA rule,
+	// axe itself is clean against a real build (verified per issue #19).
 	function handleRowKeydown(event: KeyboardEvent & { currentTarget: HTMLLIElement }, segment: ItinerarySegmentId) {
 		if (event.target !== event.currentTarget) return;
 		if (event.key !== 'Enter' && event.key !== ' ') return;
 		event.preventDefault();
 		selectSegment(segment);
+	}
+
+	// Arrow/Home/End convenience on top of the plain Tab order every row already has:
+	// a sequence of eleven separate tab stops is correct but slow, so this lets a
+	// keyboard or screen-reader user jump directly between rows the way a listbox would,
+	// without this list actually having to conform to one (see the comment above).
+	// `[data-segment]` identifies a row regardless of which of the two roles above it
+	// carries. Guarded the same way `handleRowKeydown` is: only when a row `<li>` itself
+	// has focus, not a nested control (the waiting-time stepper's number input already
+	// owns Up/Down for its own value).
+	function handleListKeydown(event: KeyboardEvent & { currentTarget: HTMLOListElement }) {
+		const target = event.target as HTMLElement;
+		if (!target.hasAttribute('data-segment')) return;
+		const rows = Array.from(event.currentTarget.children).filter((child): child is HTMLElement =>
+			child.hasAttribute('data-segment')
+		);
+		const index = rows.indexOf(target);
+		if (index === -1) return;
+		let nextIndex: number;
+		switch (event.key) {
+			case 'ArrowDown':
+				nextIndex = Math.min(index + 1, rows.length - 1);
+				break;
+			case 'ArrowUp':
+				nextIndex = Math.max(index - 1, 0);
+				break;
+			case 'Home':
+				nextIndex = 0;
+				break;
+			case 'End':
+				nextIndex = rows.length - 1;
+				break;
+			default:
+				return;
+		}
+		event.preventDefault();
+		rows[nextIndex]?.focus();
 	}
 
 	// Accommodation subtotal for the free-time row: not stored anywhere on Itinerary
@@ -193,14 +254,16 @@
 {/snippet}
 
 {#snippet locationRow(location: Location, label: string, segment: ItinerarySegmentId)}
+	<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+	<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 	<li
 		class="tl-row"
 		class:is-selected={selectedSegmentId === segment}
 		data-segment={segment}
-		role="option"
 		tabindex="0"
+		aria-roledescription="selectable step"
 		aria-label={`${label}: ${location.label}`}
-		aria-selected={selectedSegmentId === segment}
+		aria-current={selectedSegmentId === segment ? 'true' : undefined}
 		onclick={() => selectSegment(segment)}
 		onkeydown={(event) => handleRowKeydown(event, segment)}
 	>
@@ -213,14 +276,16 @@
 {/snippet}
 
 {#snippet transferRow(transfer: Transfer | undefined, label: string, segment: ItinerarySegmentId)}
+	<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+	<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 	<li
 		class="tl-row"
 		class:is-selected={selectedSegmentId === segment}
 		data-segment={segment}
-		role="option"
 		tabindex="0"
+		aria-roledescription="selectable step"
 		aria-label={label}
-		aria-selected={selectedSegmentId === segment}
+		aria-current={selectedSegmentId === segment ? 'true' : undefined}
 		onclick={() => selectSegment(segment)}
 		onkeydown={(event) => handleRowKeydown(event, segment)}
 	>
@@ -278,14 +343,16 @@
 	maxMinutes: number
 )}
 	{@const inputId = `${uid}-${segment}`}
+	<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+	<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 	<li
 		class="tl-row"
 		class:is-selected={selectedSegmentId === segment}
 		data-segment={segment}
-		role="option"
 		tabindex="0"
 		aria-label={`Waiting time at ${airportLabel}`}
-		aria-selected={selectedSegmentId === segment}
+		aria-roledescription="selectable step"
+		aria-current={selectedSegmentId === segment ? 'true' : undefined}
 		onclick={() => selectSegment(segment)}
 		onkeydown={(event) => handleRowKeydown(event, segment)}
 	>
@@ -332,14 +399,16 @@
 {/snippet}
 
 {#snippet flightRow(flight: FlightOffer, label: string, segment: ItinerarySegmentId)}
+	<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+	<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 	<li
 		class="tl-row"
 		class:is-selected={selectedSegmentId === segment}
 		data-segment={segment}
-		role="option"
 		tabindex="0"
+		aria-roledescription="selectable step"
 		aria-label={label}
-		aria-selected={selectedSegmentId === segment}
+		aria-current={selectedSegmentId === segment ? 'true' : undefined}
 		onclick={() => selectSegment(segment)}
 		onkeydown={(event) => handleRowKeydown(event, segment)}
 	>
@@ -374,11 +443,13 @@
 	</li>
 {/snippet}
 
+<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 <ol
 	class={['itinerary-timeline', className]}
 	class:itinerary-timeline--subgrid={subgrid}
 	aria-label={routeDescription}
-	role="listbox"
+	role="list"
+	onkeydown={handleListKeydown}
 >
 	{#if shown.originLocation}
 		{@render locationRow(shown.originLocation, 'Starting point', 'origin-location')}
@@ -403,14 +474,16 @@
 		'transfer-to-hotel'
 	)}
 
+	<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+	<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 	<li
 		class="tl-row tl-row-stopover"
 		class:is-selected={selectedSegmentId === 'free-time'}
 		data-segment="free-time"
-		role="option"
 		tabindex="0"
+		aria-roledescription="selectable step"
 		aria-label={`The stopover, in ${shown.outboundFlight.arrivalAirport}`}
-		aria-selected={selectedSegmentId === 'free-time'}
+		aria-current={selectedSegmentId === 'free-time' ? 'true' : undefined}
 		onclick={() => selectSegment('free-time')}
 		onkeydown={(event) => handleRowKeydown(event, 'free-time')}
 	>
@@ -549,9 +622,10 @@
 		grid-template-columns: subgrid;
 		align-items: start;
 		border-radius: var(--radius-md);
-		/* `role="option"` on the `<li>` itself (issue #73, the map selection contract), not a
-		   wrapper: a wrapper would need its own `grid-template-columns: subgrid`, breaking the
-		   two-column contract every row here relies on and the comparator (#25) reads from. */
+		/* The interactive role (issue #73, the map selection contract) lives on the `<li>`
+		   itself, not a wrapper: a wrapper would need its own `grid-template-columns:
+		   subgrid`, breaking the two-column contract every row here relies on and the
+		   comparator (#25) reads from. */
 		cursor: pointer;
 		transition: background-color var(--transition-fast);
 	}
@@ -889,6 +963,19 @@
 		display: block;
 		font-size: var(--font-size-xs);
 		color: var(--color-text-faint);
+	}
+
+	/* `--color-text-faint` was only ever checked against `--color-bg`/`--color-surface`
+	   (app.css's own comment on the token), not against `--color-stopover-bg` — the one
+	   background it also sits on here (the caption above each free-time clock, and the
+	   UTC-offset badge inside `timeBadge`). In the dark palette that pairing is 3.55:1,
+	   under WCAG AA's 4.5:1 (axe caught it as a real contrast failure, not a false
+	   positive). `--color-text-muted` clears 4.5:1 against every background this app
+	   uses, stopover included, so this scopes the swap to inside the stopover box rather
+	   than touching either token's own definition or every other place they're used. */
+	.tl-stopover .tl-free-caption,
+	.tl-stopover .tl-time-offset {
+		color: var(--color-text-muted);
 	}
 
 	.tl-stopover .tl-meta {

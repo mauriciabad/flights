@@ -212,19 +212,30 @@
 			<ul id={listboxId} role="listbox" class="combobox-list">
 				{#each results as airport, i (airport.iataCode)}
 					{@const icon = iconForAirport(airport)}
-					<li id={`${listboxId}-opt-${i}`} role="option" aria-selected={i === activeIndex}>
-						<button
-							type="button"
-							class={['combobox-option', { 'is-active': i === activeIndex }]}
-							onmousedown={(event) => event.preventDefault()}
-							onclick={() => select(airport)}
-						>
-							<span class="combobox-option-icon" aria-hidden="true">{icon.glyph}</span>
-							<span class="combobox-option-text">
-								<span class="combobox-option-code font-mono">{airport.iataCode}</span>
-								<span class="combobox-option-place">{airport.city.name}, {airport.country.name}</span>
-							</span>
-						</button>
+					<!-- The click target is this `<li>` itself, not a nested `<button>`: this
+					     combobox already drives keyboard selection through `aria-activedescendant`
+					     on the input above (the option is never really focused), so a real
+					     interactive element here only ever existed for the mouse. `role="option"`
+					     forbids interactive descendants outright — axe's "nested-interactive"
+					     check catches exactly a `<button>` in this spot — and putting the
+					     handlers on the option directly needs no such descendant to begin with.
+					     No keyboard handler belongs here either: this `<li>` never receives real
+					     DOM focus (it has no tabindex), so it is never reachable by keyboard on
+					     its own — Enter is handled once, on the input, in `onKeydown` above. -->
+					<!-- svelte-ignore a11y_click_events_have_key_events -->
+					<li
+						id={`${listboxId}-opt-${i}`}
+						role="option"
+						aria-selected={i === activeIndex}
+						class={['combobox-option', { 'is-active': i === activeIndex }]}
+						onmousedown={(event) => event.preventDefault()}
+						onclick={() => select(airport)}
+					>
+						<span class="combobox-option-icon" aria-hidden="true">{icon.glyph}</span>
+						<span class="combobox-option-text">
+							<span class="combobox-option-code font-mono">{airport.iataCode}</span>
+							<span class="combobox-option-place">{airport.city.name}, {airport.country.name}</span>
+						</span>
 					</li>
 				{/each}
 			</ul>
@@ -316,6 +327,9 @@
 		padding: var(--space-2) var(--space-3);
 		text-align: left;
 		color: var(--color-text);
+		/* This used to be a <button>'s free reset (app.css's global `button { cursor:
+		   pointer }`); now that the click target is the <li> itself, it needs its own. */
+		cursor: pointer;
 	}
 
 	.combobox-option.is-active,

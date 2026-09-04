@@ -195,15 +195,21 @@
 			{#if open && candidates.length > 0}
 				<ul id={listboxId} role="listbox" class="combobox-list">
 					{#each candidates as candidate, i (`${candidate.name}-${candidate.coordinates.latitude}-${candidate.coordinates.longitude}`)}
-						<li id={`${listboxId}-opt-${i}`} role="option" aria-selected={i === activeIndex}>
-							<button
-								type="button"
-								class={['combobox-option', { 'is-active': i === activeIndex }]}
-								onmousedown={(event) => event.preventDefault()}
-								onclick={() => selectCandidate(candidate)}
-							>
-								{describeGeocodeCandidate(candidate)}
-							</button>
+						<!-- The click target is this `<li>` itself, not a nested `<button>` — see
+						     AirportField.svelte's identical comment, same combobox pattern. No
+						     keyboard handler here either, for the same reason: this `<li>` is
+						     never a real Tab stop, so it is never reachable by keyboard on its
+						     own — Enter is handled once, on the input, in `onKeydown` above. -->
+						<!-- svelte-ignore a11y_click_events_have_key_events -->
+						<li
+							id={`${listboxId}-opt-${i}`}
+							role="option"
+							aria-selected={i === activeIndex}
+							class={['combobox-option', { 'is-active': i === activeIndex }]}
+							onmousedown={(event) => event.preventDefault()}
+							onclick={() => selectCandidate(candidate)}
+						>
+							{describeGeocodeCandidate(candidate)}
 						</li>
 					{/each}
 				</ul>
@@ -309,6 +315,7 @@
 		text-align: left;
 		color: var(--color-text);
 		font-size: var(--font-size-sm);
+		cursor: pointer;
 	}
 
 	.combobox-option.is-active,
