@@ -16,6 +16,7 @@
  */
 
 import type { IataAirlineCode, IataAirportCode, Itinerary, Money } from '$lib/domain';
+import { currencyExponent, majorUnitsOf } from '$lib/domain';
 import type { ItineraryScore } from '$lib/algorithm/score';
 import type { ProviderError, ProviderId, ProviderKind } from '$lib/providers/types';
 import type { ProviderIssueReason } from '$lib/components';
@@ -228,10 +229,11 @@ export function connectionAirportCode(itinerary: Itinerary): IataAirportCode {
 }
 
 /** Total price in major units (e.g. euros, not cents), for filter thresholds a person
- * types in. Exact for EUR/USD/GBP, wrong by a factor of 100 for a zero-decimal currency,
- * the same documented trade-off as `algorithm/score.ts`'s own `priceInMajorUnits`. */
+ * types in. Scaled by the currency's own exponent (`majorUnitsOf`, domain/money.ts): a
+ * "max ¥20000" typed into a filter has to mean twenty thousand yen and not two hundred,
+ * which is what dividing every currency by 100 gave (issue #179). */
 export function priceMajorUnits(price: Money): number {
-	return price.minorUnits / 100;
+	return majorUnitsOf(price);
 }
 
 /** Airline codes the traveller asked to avoid, threaded through from
@@ -326,5 +328,8 @@ export function summarizePriceCalendarOutcome(outcome: PriceCalendarOutcome): st
 		return `${legLabel} calendar for ${outcome.candidateAirportCode}: no prices returned.`;
 	}
 	const cheapest = days.reduce((min, day) => (day.price.minorUnits < min.price.minorUnits ? day : min));
-	return `${legLabel} calendar for ${outcome.candidateAirportCode}: cheapest is ${cheapest.date} at ${(cheapest.price.minorUnits / 100).toFixed(2)} ${cheapest.price.currency} (${cheapest.group}).`;
+	// `majorUnitsOf` rather than `/ 100`: this line is read while debugging a wrong price,
+	// so it must not be the one place that reports one (issue #179).
+	const amount = majorUnitsOf(cheapest.price).toFixed(currencyExponent(cheapest.price.currency));
+	return `${legLabel} calendar for ${outcome.candidateAirportCode}: cheapest is ${cheapest.date} at ${amount} ${cheapest.price.currency} (${cheapest.group}).`;
 }

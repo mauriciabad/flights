@@ -252,6 +252,26 @@ describe('mapDailyFareToFlightOffer', () => {
 		});
 	});
 
+	// Issue #179: Ryanair sells Budapest routes and quotes them in forints. The forint has
+	// two decimal digits, and this adapter used to be read by adapters that thought it had
+	// none — the same fare a hundred times cheaper depending on which one answered.
+	it.each([
+		['HUF', '45000', '00', 4500000],
+		['EUR', '14', '99', 1499],
+		['JPY', '12000', '', 12000],
+		['KWD', '1', '500', 1500]
+	])('reads a %s fare of %s.%s as %i minor units', (currencyCode, main, fractional, minorUnits) => {
+		const fare = structuredClone(fares.outbound.fares[0]);
+		fare.price = {
+			value: Number(`${main}.${fractional || '0'}`),
+			valueMainUnit: main,
+			valueFractionalUnit: fractional,
+			currencyCode,
+			currencySymbol: currencyCode
+		};
+		expect(mapDailyFareToFlightOffer(fare, scheduleIndex, context)?.price).toEqual({ minorUnits, currency: currencyCode });
+	});
+
 	// Issue #93: `valueMainUnit` renamed, retyped, or otherwise missing used to reach
 	// `Number.parseInt` unchecked and come back `NaN` — a number, so nothing downstream
 	// noticed a price had stopped being a real one. Every case below must drop the fare.

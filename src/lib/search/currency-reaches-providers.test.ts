@@ -282,7 +282,7 @@ describe('a currency the traveller chose, rather than the default', () => {
 
 		expect(getPricesUrls.length).toBeGreaterThan(0);
 		for (const url of getPricesUrls) {
-			// 2 is Agoda's own numeric id for GBP (`AGODA_CURRENCY_INFO`). Reading it off the
+			// 2 is Agoda's own numeric id for GBP (`AGODA_CURRENCY_IDS`). Reading it off the
 			// wire is what proves the picker reaches the provider rather than stopping at a
 			// field somebody forgot to thread, which is exactly how #158 happened.
 			expect(new URL(url).searchParams.get('currency_id')).toBe('2');

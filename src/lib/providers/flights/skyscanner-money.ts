@@ -1,24 +1,5 @@
 import type { IsoCurrencyCode, Money } from '../../domain';
-
-/**
- * Currencies whose smallest unit is the whole unit, not a hundredth of it. money.ts's
- * "integer minor units" only means something once you know how many decimal digits a
- * currency actually has. This is the short, stable exception list (ISO 4217 minor-unit
- * count 0); everything not listed here is assumed to have 2, which covers EUR/USD/GBP and
- * the overwhelming majority of currencies Sky Scrapper is likely to quote.
- */
-const ZERO_DECIMAL_CURRENCIES: ReadonlySet<IsoCurrencyCode> = new Set([
-	'JPY',
-	'KRW',
-	'VND',
-	'CLP',
-	'ISK',
-	'HUF'
-]);
-
-function minorUnitsPerMajorUnit(currency: IsoCurrencyCode): number {
-	return ZERO_DECIMAL_CURRENCIES.has(currency.toUpperCase()) ? 1 : 100;
-}
+import { moneyFromDecimalString, moneyFromMajorUnits } from '../../domain';
 
 /**
  * Sky Scrapper's `price` object carries both a number (`raw`, in major units, e.g. `17.99`)
@@ -28,37 +9,31 @@ function minorUnitsPerMajorUnit(currency: IsoCurrencyCode): number {
  * for a response that omits the number and gives only the string, which real aggregators do
  * for some fare types. Returns `undefined`, never a fabricated 0, when neither parses, so
  * the caller can drop that one offer instead of quoting a fictional price.
+ *
+ * How many minor units make a major one comes from `domain/money.ts` (issue #179). This
+ * file used to keep its own six-code list of zero-decimal currencies, byte-identical to the
+ * one in `flights-sky-money.ts` and disagreeing with Agoda's table about the forint.
  */
 export function parseOfferPrice(
 	price: { raw?: unknown; formatted?: unknown } | undefined,
 	currency: IsoCurrencyCode
 ): Money | undefined {
-	const majorUnits = extractMajorUnits(price);
-	if (majorUnits === undefined || !Number.isFinite(majorUnits) || majorUnits < 0) {
-		return undefined;
-	}
-	const minorUnits = Math.round(majorUnits * minorUnitsPerMajorUnit(currency));
-	return { minorUnits, currency };
+	if (price === undefined) return undefined;
+	return fromRaw(price.raw, currency) ?? fromFormatted(price.formatted, currency);
 }
 
-function extractMajorUnits(price: { raw?: unknown; formatted?: unknown } | undefined): number | undefined {
-	if (price === undefined) return undefined;
-	if (typeof price.raw === 'number' && Number.isFinite(price.raw)) {
-		return price.raw;
-	}
-	// Some responses give `raw` as a numeric string instead of a number.
-	if (typeof price.raw === 'string' && price.raw.trim() !== '') {
-		const parsed = Number(price.raw);
-		if (Number.isFinite(parsed)) return parsed;
-	}
-	// Last resort: strip everything but digits, dot and minus from the display string,
-	// e.g. "18 €" -> "18", "$1,234.50" -> "1234.50". This is inherently lossy, since a
-	// formatted price is usually already rounded, which is exactly why `raw` is always
-	// tried first.
-	if (typeof price.formatted === 'string') {
-		const digitsOnly = price.formatted.replace(/[^0-9.,-]/g, '').replace(/,/g, '');
-		const parsed = Number(digitsOnly);
-		if (digitsOnly !== '' && Number.isFinite(parsed)) return parsed;
-	}
+function fromRaw(raw: unknown, currency: IsoCurrencyCode): Money | undefined {
+	if (typeof raw === 'number') return moneyFromMajorUnits(raw, currency);
+	// Some responses give `raw` as a numeric string instead of a number. Read that
+	// digit-wise, so a price that arrives as text never goes through a float at all.
+	if (typeof raw === 'string') return moneyFromDecimalString(raw, currency);
 	return undefined;
+}
+
+/** Last resort: strip everything but digits and the decimal point from the display string,
+ * e.g. "18 €" -> "18", "$1,234.50" -> "1234.50". Inherently lossy, since a formatted price
+ * is usually already rounded, which is why `raw` is always tried first. */
+function fromFormatted(formatted: unknown, currency: IsoCurrencyCode): Money | undefined {
+	if (typeof formatted !== 'string') return undefined;
+	return moneyFromDecimalString(formatted.replace(/[^0-9.,]/g, '').replace(/,/g, ''), currency);
 }

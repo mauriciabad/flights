@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { AGODA_CURRENCY_INFO } from '../providers/stays/agoda-mapper';
+import { currencyExponent } from '../domain';
+import { AGODA_CURRENCY_IDS } from '../providers/stays/agoda-mapper';
 import { currencyOptions, findCurrency, SUPPORTED_CURRENCIES } from './currencies';
 
 /**
@@ -11,27 +12,48 @@ import { currencyOptions, findCurrency, SUPPORTED_CURRENCIES } from './currencie
 describe('SUPPORTED_CURRENCIES', () => {
 	it('offers nothing Agoda cannot be asked for', () => {
 		for (const currency of SUPPORTED_CURRENCIES) {
-			const agoda = AGODA_CURRENCY_INFO[currency.code];
-			expect(agoda, `${currency.code} has no entry in Agoda's currency table`).toBeDefined();
 			// USD is the one exception, and only because it is Agoda's own implicit default
 			// when the parameter is omitted, so it needs no id to arrive correctly.
-			if (currency.code !== 'USD') {
-				expect(agoda?.id, `${currency.code} has no Agoda currency_id`).toBeTypeOf('number');
-			}
+			if (currency.code === 'USD') continue;
+			expect(AGODA_CURRENCY_IDS[currency.code], `${currency.code} has no Agoda currency_id`).toBeTypeOf('number');
 		}
 	});
 
-	it('offers nothing whose minor units two adapters disagree about', () => {
-		// JPY has no minor unit at all, and `booking-mapper.ts` multiplies every price by 100
-		// regardless. HUF is worse: `ZERO_DECIMAL_CURRENCIES` in `skyscanner-money.ts` and
-		// `flights-sky-money.ts` treats it as having none while Agoda's own table gives it
-		// two. Either would put a flight and a bed a factor of 100 apart in one total, so
-		// they stay out of the picker until issue #179 settles it.
-		for (const currency of SUPPORTED_CURRENCIES) {
-			expect(AGODA_CURRENCY_INFO[currency.code]?.minorUnitDigits).toBe(2);
+	it('offers every currency Agoda can be asked for, now that nothing is mis-scaled', () => {
+		// JPY and HUF used to be held back because three adapters disagreed about their
+		// minor units (issue #179). One table answers that now, so the picker offers Agoda's
+		// whole set rather than the subset whose scaling we happened to agree on.
+		const offered = SUPPORTED_CURRENCIES.map((currency) => currency.code);
+		expect(offered).toContain('JPY');
+		expect(offered).toContain('HUF');
+		for (const code of Object.keys(AGODA_CURRENCY_IDS)) {
+			expect(offered, `${code} has an Agoda id but no tile`).toContain(code);
 		}
-		expect(SUPPORTED_CURRENCIES.map((c) => c.code)).not.toContain('JPY');
-		expect(SUPPORTED_CURRENCIES.map((c) => c.code)).not.toContain('HUF');
+	});
+
+	it('knows the right minor-unit exponent for every currency it offers', () => {
+		// Written out rather than derived, because deriving it is what #179 was about. The
+		// yen has no minor unit and the forint has two, whatever a given browser's currency
+		// data happens to say about the forint this year (domain/money.ts).
+		const expected: Record<string, number> = {
+			EUR: 2,
+			GBP: 2,
+			USD: 2,
+			CHF: 2,
+			DKK: 2,
+			SEK: 2,
+			NOK: 2,
+			PLN: 2,
+			CZK: 2,
+			AUD: 2,
+			NZD: 2,
+			SGD: 2,
+			JPY: 0,
+			HUF: 2
+		};
+		for (const currency of SUPPORTED_CURRENCIES) {
+			expect(currencyExponent(currency.code), currency.code).toBe(expected[currency.code]);
+		}
 	});
 
 	it('names every currency with a well-formed code and no blank display fields', () => {
@@ -68,16 +90,16 @@ describe('currencyOptions', () => {
 	it('adds a tile for a saved code it does not carry, rather than showing the wrong one selected', () => {
 		// A key file from a newer build can name a currency this release does not offer. The
 		// searches will use it either way, so the screen has to admit it.
-		const options = currencyOptions('JPY');
+		const options = currencyOptions('THB');
 		expect(options).toHaveLength(SUPPORTED_CURRENCIES.length + 1);
-		expect(options.at(-1)?.code).toBe('JPY');
-		expect(options.filter((option) => option.code === 'JPY')).toHaveLength(1);
+		expect(options.at(-1)?.code).toBe('THB');
+		expect(options.filter((option) => option.code === 'THB')).toHaveLength(1);
 	});
 });
 
 describe('findCurrency', () => {
 	it('finds a listed currency and returns nothing for an unlisted one', () => {
 		expect(findCurrency('CZK')?.name).toBe('Czech koruna');
-		expect(findCurrency('JPY')).toBeUndefined();
+		expect(findCurrency('THB')).toBeUndefined();
 	});
 });

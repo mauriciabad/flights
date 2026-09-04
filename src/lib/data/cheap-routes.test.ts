@@ -1,26 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-	getCheapRoutesFrom,
-	loadCheapRoutes,
-	loadCheapRoutesDataset,
-	moneyFromMajorUnits
-} from './cheap-routes';
-
-describe('moneyFromMajorUnits', () => {
-	it('converts euros to cents', () => {
-		expect(moneyFromMajorUnits(45, 'eur')).toEqual({ minorUnits: 4500, currency: 'EUR' });
-	});
-
-	it('rounds away float error instead of undercharging by a cent', () => {
-		// 19.99 * 100 === 1998.9999999999998 in IEEE 754 -- a plain multiply-and-cast
-		// would silently drop a cent here.
-		expect(moneyFromMajorUnits(19.99, 'eur').minorUnits).toBe(1999);
-	});
-
-	it('uppercases the currency code', () => {
-		expect(moneyFromMajorUnits(10, 'eur').currency).toBe('EUR');
-	});
-});
+import { getCheapRoutesFrom, loadCheapRoutes, loadCheapRoutesDataset } from './cheap-routes';
 
 describe('loadCheapRoutes', () => {
 	it('resolves an array, memoized across calls', async () => {
@@ -33,8 +12,11 @@ describe('loadCheapRoutes', () => {
 	it('gives every route a Money price and an expiresAt, never one without the other', async () => {
 		const routes = await loadCheapRoutes();
 		for (const route of routes) {
-			expect(typeof route.price.minorUnits).toBe('number');
-			expect(typeof route.price.currency).toBe('string');
+			// Integer minor units, not a float (AGENTS.md "Money"). The conversion itself
+			// lives in domain/money.ts and is tested there; this is the dataset holding up
+			// its end of it.
+			expect(Number.isSafeInteger(route.price.minorUnits)).toBe(true);
+			expect(route.price.currency).toMatch(/^[A-Z]{3}$/);
 			expect(typeof route.expiresAt).toBe('string');
 			expect(route.expiresAt.length).toBeGreaterThan(0);
 		}

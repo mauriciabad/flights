@@ -1,41 +1,5 @@
 import type { IsoCurrencyCode, Money } from '../../domain';
-
-/**
- * Currencies whose smallest unit is the whole unit, not a hundredth of it — same short,
- * stable exception list as skyscanner-money.ts (ISO 4217 minor-unit count 0). Everything not
- * listed here is assumed to have 2, which covers EUR/USD/GBP and the currencies this API is
- * likely to quote.
- */
-const ZERO_DECIMAL_CURRENCIES: ReadonlySet<IsoCurrencyCode> = new Set([
-	'JPY',
-	'KRW',
-	'VND',
-	'CLP',
-	'ISK',
-	'HUF'
-]);
-
-function minorUnitsPerMajorUnit(currency: IsoCurrencyCode): number {
-	return ZERO_DECIMAL_CURRENCIES.has(currency.toUpperCase()) ? 1 : 100;
-}
-
-/**
- * `price-calendar`'s `price` field is a bare float in major units (`34.0` for 34.00 EUR),
- * not an object — a different shape from `search-one-way`'s `price.raw` (see
- * `parseItineraryPrice` below). This is the one place that float becomes `Money`.
- *
- * This issue's brief names the exact trap: `19.99 * 100` is `1998.9999999999998` in
- * JavaScript, not `1999`, because 19.99 has no exact binary floating-point representation.
- * `Math.round` after the multiplication — not a naive `* 100` cast to an integer, which
- * would truncate that `.9999999999998` down to `1998` and silently undercharge by a cent —
- * is what fixes it, since the error is always well under half a minor unit.
- */
-export function moneyFromMajorUnits(majorUnits: unknown, currency: IsoCurrencyCode): Money | undefined {
-	if (typeof majorUnits !== 'number' || !Number.isFinite(majorUnits) || majorUnits < 0) {
-		return undefined;
-	}
-	return { minorUnits: Math.round(majorUnits * minorUnitsPerMajorUnit(currency)), currency };
-}
+import { moneyFromDecimalString, moneyFromMajorUnits } from '../../domain';
 
 /**
  * `search-one-way`'s itinerary price carries both a number (`raw`, major units, e.g.
@@ -45,29 +9,30 @@ export function moneyFromMajorUnits(majorUnits: unknown, currency: IsoCurrencyCo
  * defensive shape skyscanner-money.ts's `parseOfferPrice` keeps for the same reason. Returns
  * `undefined`, never a fabricated 0, when neither parses, so the caller drops that one
  * itinerary instead of quoting a fictional price.
+ *
+ * The minor-unit exponent comes from `domain/money.ts` (issue #179). This file used to
+ * carry its own six-code zero-decimal list, byte-identical to skyscanner-money.ts's, which
+ * called the forint a zero-decimal currency while Agoda's own table called it a two-decimal
+ * one. `price-calendar`'s bare float price (`34.0` for 34.00 EUR, a different shape from
+ * this object) reads the same table, straight from `flights-sky-map-calendar.ts`.
  */
 export function parseItineraryPrice(
 	price: { raw?: unknown; formatted?: unknown } | undefined,
 	currency: IsoCurrencyCode
 ): Money | undefined {
-	const majorUnits = extractMajorUnits(price);
-	if (majorUnits === undefined) return undefined;
-	return moneyFromMajorUnits(majorUnits, currency);
+	if (price === undefined) return undefined;
+	return fromRaw(price.raw, currency) ?? fromFormatted(price.formatted, currency);
 }
 
-function extractMajorUnits(price: { raw?: unknown; formatted?: unknown } | undefined): number | undefined {
-	if (price === undefined) return undefined;
-	if (typeof price.raw === 'number' && Number.isFinite(price.raw)) {
-		return price.raw;
-	}
-	if (typeof price.raw === 'string' && price.raw.trim() !== '') {
-		const parsed = Number(price.raw);
-		if (Number.isFinite(parsed)) return parsed;
-	}
-	if (typeof price.formatted === 'string') {
-		const digitsOnly = price.formatted.replace(/[^0-9.,-]/g, '').replace(/,/g, '');
-		const parsed = Number(digitsOnly);
-		if (digitsOnly !== '' && Number.isFinite(parsed)) return parsed;
-	}
+function fromRaw(raw: unknown, currency: IsoCurrencyCode): Money | undefined {
+	if (typeof raw === 'number') return moneyFromMajorUnits(raw, currency);
+	// `raw` sometimes arrives as a numeric string. Read it digit-wise rather than through
+	// `Number`, so a price that comes as text never touches a float.
+	if (typeof raw === 'string') return moneyFromDecimalString(raw, currency);
 	return undefined;
+}
+
+function fromFormatted(formatted: unknown, currency: IsoCurrencyCode): Money | undefined {
+	if (typeof formatted !== 'string') return undefined;
+	return moneyFromDecimalString(formatted.replace(/[^0-9.,]/g, '').replace(/,/g, ''), currency);
 }

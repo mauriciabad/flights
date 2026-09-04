@@ -34,6 +34,7 @@
  */
 
 import type { FlightOffer, IataAirlineCode, IsoCalendarDate, Money, IsoCurrencyCode } from '../domain';
+import { currencyExponent, majorUnitsOf } from '../domain';
 import type { ProviderId, ProviderResult } from '../providers/types';
 
 /** The provider id the real Ryanair adapter is expected to register under (see this file's
@@ -254,14 +255,19 @@ export function cheapestSourceNote(comparison: FlightPriceComparison): CheapestS
 	return { identity: comparison.identity, cheapestProviderIds: comparison.cheapestProviderIds, cheapestPrice, message };
 }
 
-// Display only — never the canonical value (AGENTS.md "Money"). `Intl` already knows how
-// many decimal places each currency uses (0 for JPY, 3 for KWD, 2 for most), which is
-// exactly the information needed to turn integer minor units back into a display amount
-// without this module hardcoding a currency-to-exponent table of its own.
+// Display only, never the canonical value (AGENTS.md "Money"). The digit count comes from
+// `currencyExponent` (domain/money.ts), the one table this app answers "how many minor
+// units does this currency have" from — 0 for JPY, 3 for KWD, 2 for most — rather than
+// from a second opinion of `Intl`'s that could differ from the one the price was parsed
+// with (issue #179).
 function formatMoney(money: Money): string {
-	const formatter = new Intl.NumberFormat('en-US', { style: 'currency', currency: money.currency });
-	const digits = formatter.resolvedOptions().maximumFractionDigits ?? 2;
-	return formatter.format(money.minorUnits / 10 ** digits);
+	const digits = currencyExponent(money.currency);
+	return new Intl.NumberFormat('en-US', {
+		style: 'currency',
+		currency: money.currency,
+		minimumFractionDigits: digits,
+		maximumFractionDigits: digits
+	}).format(majorUnitsOf(money));
 }
 
 /** One provider's track record within one currency: how often it was in a comparison, how

@@ -6,6 +6,7 @@
  */
 
 import type { BaggageAllowance, Carrier, FlightOffer, IataAirportCode, Money } from '../../domain';
+import { moneyFromDecimalString } from '../../domain';
 import { isSupportedTimeZone } from './airport-timezone';
 import { computeFlightDuration, toLocalDateTime } from './ryanair-timezone';
 import type { RyanairNetworkSnapshot } from '../../data/ryanair-network';
@@ -79,23 +80,24 @@ function isParsableLocalIsoString(value: unknown): value is string {
 /** Converts Ryanair's price to `Money`'s integer minor units using the two pre-split
  * decimal strings rather than `value` itself — `14.99 * 100` is not reliably `1499` in
  * floating point, and `valueMainUnit`/`valueFractionalUnit` exist precisely so a caller
- * never has to do that multiplication. Returns `undefined`, rather than a `NaN` total,
- * when either string is missing or the wrong type (issue #93). `valueFractionalUnit` may
- * legitimately be `""` (rounds to "00" cents below); `valueMainUnit` may not, since an
- * empty whole-unit string has no honest reading. */
+ * never has to do that multiplication. Rejoining them into one decimal string hands
+ * `moneyFromDecimalString` (domain/money.ts) the same digits Ryanair sent, and lets the
+ * currency decide how many of them are minor units — two for the euro and for the forint
+ * Ryanair prices Budapest fares in, none at all for a currency that has no minor unit
+ * (issue #179). Returns `undefined`, rather than a `NaN` total, when either string is
+ * missing or the wrong type (issue #93).
+ * `valueFractionalUnit` may legitimately be `""`; `valueMainUnit` may not, since an empty
+ * whole-unit string has no honest reading. */
 function toMoney(price: RyanairPrice | null): Money | undefined {
 	if (
 		!isRecord(price) ||
 		!isNonEmptyString(price.valueMainUnit) ||
-		typeof price.valueFractionalUnit !== 'string' ||
-		!isNonEmptyString(price.currencyCode)
+		typeof price.valueFractionalUnit !== 'string'
 	) {
 		return undefined;
 	}
-	const wholeUnits = Number.parseInt(price.valueMainUnit, 10);
-	const fractionalUnits = Number.parseInt(price.valueFractionalUnit.padEnd(2, '0').slice(0, 2), 10);
-	if (!Number.isFinite(wholeUnits) || !Number.isFinite(fractionalUnits)) return undefined;
-	return { minorUnits: wholeUnits * 100 + fractionalUnits, currency: price.currencyCode };
+	const fraction = price.valueFractionalUnit === '' ? '' : `.${price.valueFractionalUnit}`;
+	return moneyFromDecimalString(`${price.valueMainUnit}${fraction}`, price.currencyCode);
 }
 
 /** Ryanair does not publish a documented deep-link format for a specific fare; this

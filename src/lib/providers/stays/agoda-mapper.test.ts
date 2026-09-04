@@ -13,8 +13,7 @@ import {
 	mapGetPricesToStays,
 	mapMasterRoomsToStays,
 	mapSearchPropertyToCandidate,
-	resolveLocationLabel,
-	toMoney
+	resolveLocationLabel
 } from './agoda-mapper';
 
 const searchFixture = agodaSearchVienna as AgodaSearchResponse;
@@ -52,17 +51,49 @@ describe('classifyAgodaRoomKind', () => {
 	});
 });
 
-describe('toMoney', () => {
-	it('converts a 2-decimal currency using cents', () => {
-		expect(toMoney(29.46, 'EUR')).toEqual({ minorUnits: 2946, currency: 'EUR' });
+/**
+ * Issue #179's proof for this adapter: the same real Wombat's response, with every currency
+ * marker swapped, scales by the currency the response says it is in. Prices convert through
+ * `moneyFromMajorUnits` (domain/money.ts) now — this file used to carry its own
+ * `minorUnitDigits` column, captured from Agoda's `/currencies`, which agreed with the
+ * shared table on all fourteen currencies and disagreed with the flight adapters about the
+ * forint.
+ */
+describe('prices scale by the currency Agoda answered in', () => {
+	const property: Property = {
+		name: "Wombat's City Hostel Vienna Naschmarkt",
+		coordinates: { latitude: 48.19685745239258, longitude: 16.36066246032715 },
+		images: []
+	};
+
+	function asCurrency(code: string): AgodaGetPricesResponse {
+		return JSON.parse(JSON.stringify(wombatsFixture).replaceAll('"EUR"', `"${code}"`)) as AgodaGetPricesResponse;
+	}
+
+	function cheapestDorm(response: AgodaGetPricesResponse) {
+		return mapGetPricesToStays(property, response).find((stay) => stay.roomKind === 'dorm')?.pricePerNight;
+	}
+
+	it('reads a two-decimal currency as cents', () => {
+		// "1 Person in 8-Bed Dormitory - Mixed" at 29.46.
+		expect(cheapestDorm(asCurrency('EUR'))).toEqual({ minorUnits: 2946, currency: 'EUR' });
 	});
 
-	it('converts a 0-decimal currency without multiplying by 100', () => {
-		expect(toMoney(1500, 'JPY')).toEqual({ minorUnits: 1500, currency: 'JPY' });
+	it('reads the forint as a two-decimal currency, which is what Agoda always said it was', () => {
+		expect(cheapestDorm(asCurrency('HUF'))).toEqual({ minorUnits: 2946, currency: 'HUF' });
 	});
 
-	it('defaults to 2 decimal digits for an unmapped currency', () => {
-		expect(toMoney(10, 'XYZ')).toEqual({ minorUnits: 1000, currency: 'XYZ' });
+	it('reads a zero-decimal currency without multiplying by 100', () => {
+		// 29.46 yen is not a real room rate; 2946 minor units would be the bug.
+		expect(cheapestDorm(asCurrency('JPY'))).toEqual({ minorUnits: 29, currency: 'JPY' });
+	});
+
+	it('reads a three-decimal dinar with three', () => {
+		expect(cheapestDorm(asCurrency('KWD'))).toEqual({ minorUnits: 29460, currency: 'KWD' });
+	});
+
+	it('assumes cents for a currency nothing has an entry for', () => {
+		expect(cheapestDorm(asCurrency('XYZ'))).toEqual({ minorUnits: 2946, currency: 'XYZ' });
 	});
 });
 

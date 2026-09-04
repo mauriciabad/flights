@@ -6,6 +6,7 @@
  */
 
 import type { Coordinates, Money, Property, RoomKind, Stay } from '../../domain';
+import { moneyFromMajorUnits } from '../../domain';
 import { haversineDistanceKm } from './agoda-geo';
 import type { AgodaGetPricesResponse, AgodaMasterRoom, AgodaSearchProperty } from './agoda-types';
 
@@ -46,56 +47,37 @@ function asNonEmptyString(value: unknown): string | undefined {
  * give for free. Only currencies this app is likely to actually request are listed —
  * unmapped ones fall back to omitting `currency_id`, which live testing showed returns USD.
  *
- * `minorUnitDigits` is Agoda's own `NoDecimal` field from that same response — used so
- * `toMoney` below converts JPY's 0-decimal prices correctly instead of assuming every
- * currency has cents like EUR/USD do. USD itself never appears in `/currencies` (it is the
- * implicit default rather than a selectable option) but still needs an entry here so its
- * *returned* prices convert correctly.
+ * USD is deliberately absent: it never appears in Agoda's `/currencies` list at all,
+ * because it is the implicit default when `currency_id` is omitted rather than a selectable
+ * option (agoda-client.ts `GetPricesParams.currencyId`).
+ *
+ * This table used to carry a `minorUnitDigits` per entry, read from the same response's
+ * `NoDecimal` field. Issue #179 took it out: it agreed with `currencyExponent`
+ * (domain/money.ts) on all fourteen currencies, including the forint's two digits that the
+ * flight adapters got wrong, so keeping it meant a second answer to a question that now has
+ * one. Prices convert through `moneyFromMajorUnits`, which reads that shared table.
  */
-export const AGODA_CURRENCY_INFO: Readonly<Record<string, { id?: number; minorUnitDigits: number }>> = {
-	EUR: { id: 1, minorUnitDigits: 2 },
-	GBP: { id: 2, minorUnitDigits: 2 },
-	SGD: { id: 5, minorUnitDigits: 2 },
-	NZD: { id: 8, minorUnitDigits: 2 },
-	AUD: { id: 9, minorUnitDigits: 2 },
-	JPY: { id: 11, minorUnitDigits: 0 },
-	CHF: { id: 19, minorUnitDigits: 2 },
-	DKK: { id: 20, minorUnitDigits: 2 },
-	SEK: { id: 21, minorUnitDigits: 2 },
-	CZK: { id: 22, minorUnitDigits: 2 },
-	PLN: { id: 23, minorUnitDigits: 2 },
-	NOK: { id: 31, minorUnitDigits: 2 },
-	HUF: { id: 87, minorUnitDigits: 2 },
-	// USD has no id: it never appears in Agoda's own `/currencies` list (captured
-	// 2026-09-04) and is instead the implicit default when `currency_id` is omitted
-	// entirely — see agoda-client.ts `GetPricesParams.currencyId`. Still needs an entry
-	// here so *returned* USD prices convert with the right number of decimal digits.
-	USD: { minorUnitDigits: 2 }
+export const AGODA_CURRENCY_IDS: Readonly<Record<string, number>> = {
+	EUR: 1,
+	GBP: 2,
+	SGD: 5,
+	NZD: 8,
+	AUD: 9,
+	JPY: 11,
+	CHF: 19,
+	DKK: 20,
+	SEK: 21,
+	CZK: 22,
+	PLN: 23,
+	NOK: 31,
+	HUF: 87
 };
 
 /** Agoda's own numeric id for `currencyCode`, or `undefined` when this adapter has no
  * mapping for it — agoda.ts then omits `currency_id` from the request entirely rather
  * than guessing, which live testing showed falls back to USD. */
 export function agodaCurrencyId(currencyCode: string | undefined): number | undefined {
-	return currencyCode ? AGODA_CURRENCY_INFO[currencyCode]?.id : undefined;
-}
-
-/** Converts a display price (a plain float in major units, e.g. `29.46`) plus the
- * currency Agoda's response actually says it is in — never the currency this adapter
- * asked for, since a caller must not assume a request parameter was honoured — into
- * `Money`'s integer minor units. Multiplying by `10 ** digits` rather than always `* 100`
- * is what keeps a 0-decimal currency like JPY from being reported 100x too large.
- *
- * Both parameters are `unknown`, not `number`/`string`, because both come straight off an
- * unverified response body (see this file's header) — `undefined`, `null`, a boolean or an
- * object here must become "no price," never a fabricated one. `null * 100 === 0` in
- * JavaScript, so without this check a `null` display price would silently become a real
- * `Money` of zero minor units rather than being dropped, which is a worse outcome than
- * either a thrown error or a visibly missing price. */
-export function toMoney(display: unknown, currencyCode: unknown): Money | undefined {
-	if (!isFiniteNumber(display) || typeof currencyCode !== 'string' || !currencyCode) return undefined;
-	const digits = AGODA_CURRENCY_INFO[currencyCode]?.minorUnitDigits ?? 2;
-	return { minorUnits: Math.round(display * 10 ** digits), currency: currencyCode };
+	return currencyCode ? AGODA_CURRENCY_IDS[currencyCode] : undefined;
 }
 
 /**
@@ -155,9 +137,11 @@ function mapImages(property: AgodaSearchProperty): string[] {
 export function extractHeadlinePrice(property: AgodaSearchProperty): Money | undefined {
 	if (property.soldOut) return undefined;
 	const summary = property.pricing?.offers?.[0]?.roomOffers?.[0]?.room?.mseRoomSummaries?.[0]?.pricingSummaries?.[0];
-	// `toMoney` itself now validates both arguments (see its own comment) — no need to
-	// re-check `display`/`currency` here before calling it.
-	return toMoney(summary?.price?.perRoomPerNight?.inclusive?.display, summary?.currency);
+	// The currency Agoda's response actually says the price is in, never the one this
+	// adapter asked for: a caller must not assume a request parameter was honoured.
+	// `moneyFromMajorUnits` validates both arguments, so nothing needs re-checking here —
+	// `null * 100` is `0` in JavaScript, and a fabricated free room is worse than none.
+	return moneyFromMajorUnits(summary?.price?.perRoomPerNight?.inclusive?.display, summary?.currency);
 }
 
 export interface AgodaCandidate {
@@ -220,7 +204,7 @@ function cheapestOfferPrice(masterRoom: AgodaMasterRoom): Money | undefined {
 	let cheapest: Money | undefined;
 	for (const offer of rooms) {
 		const display = offer.inclusivePricePerNightWithoutExtraBed?.display ?? offer.inclusivePrice?.display;
-		const money = toMoney(display, offer.currency);
+		const money = moneyFromMajorUnits(display, offer.currency);
 		if (!money) continue;
 		if (!cheapest || money.minorUnits < cheapest.minorUnits) cheapest = money;
 	}
