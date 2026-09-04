@@ -12,6 +12,8 @@ import {
 	formatMoneyRange,
 	formatTimeDelta,
 	formatUtcOffset,
+	formatWeekday,
+	formatWeekdayLong,
 	isDifferentCalendarDate
 } from './format';
 
@@ -42,6 +44,19 @@ describe('formatCalendarDate', () => {
 		// app prints the same three letters on every runtime it ships to.
 		expect(formatCalendarDate(at('2026-09-04T10:00:00'))).toBe('Fri, 4 Sep');
 		expect(formatCalendarDate(at('2026-09-05T00:35:00'))).toBe('Sat, 5 Sep');
+	});
+});
+
+describe('formatWeekday', () => {
+	it('names the day on the airport clock, not the day in UTC', () => {
+		// 00:30 on a Tuesday in Vienna is still Monday in UTC. The strip stamps Tuesday.
+		expect(formatWeekday(at('2026-10-06T00:30:00'))).toBe('Tue');
+		expect(formatWeekdayLong(at('2026-10-06T00:30:00'))).toBe('Tuesday');
+	});
+
+	it('uses the same fixed table as formatCalendarDate, so the two never disagree', () => {
+		const reading = at('2026-09-04T12:00:00');
+		expect(formatCalendarDate(reading).startsWith(formatWeekday(reading))).toBe(true);
 	});
 });
 

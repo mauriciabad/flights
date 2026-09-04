@@ -1,128 +1,307 @@
 /**
- * The compact trip strip: three spans of an itinerary, sized roughly to how long each one
- * really takes.
+ * The compact trip strip: every part of an itinerary as one band, each part sized to how
+ * long it takes.
  *
- * The results list needed a preview of the timeline that reads at a glance instead of a
- * text list, and the answer to "what shape is this trip" is not the ten-row schedule, it
- * is the three spans a traveller actually weighs against each other: the flight out, the
- * time in the stopover city, the flight on. Everything else on the itinerary happens
- * inside one of those three.
+ * The results list needs a preview of the timeline that reads at a glance instead of a
+ * text list. Issue #209 (the owner, verbatim: "the elements should be proportional to the
+ * time they take and on the free time each day should be split (at midnight). and it
+ * should also display the waiting time at airports and all transport times") makes the
+ * strip carry the whole schedule the brief lists (docs/prompts/001, lines 44-53): the
+ * ground leg to the origin airport, the wait there, the flight, the leg into the city,
+ * the free time cut at every local midnight, the leg back, the wait, the flight, and the
+ * leg on to the destination. Before it drew three spans and silently dropped the hours
+ * between them, which are exactly the hours a traveller asks about.
  *
- * The arithmetic lives here rather than in the component so the proportions are testable
- * without mounting Svelte, and so every screen that wants to show the shape of a trip
+ * The arithmetic lives here rather than in the component so the split and the shares are
+ * testable without mounting Svelte, and so every screen that wants the shape of a trip
  * draws the same bar from the same numbers.
  *
- * ## Why proportional, and why not exactly proportional
+ * ## The scale: square root of minutes, and why not linear
  *
- * The point of the strip is that a 3-night stopover looks nothing like a 2-hour one, so
- * the spans have to carry magnitude spatially. But a real trip runs to ratios like 2 hours
- * against 72, and at 375px a raw 1:36 split renders a flight as a 4px sliver: technically
- * proportional, useless as a picture, and impossible to label. So each span gets a floor
- * (`MIN_SHARE`) and the rest is redistributed. Between two itineraries the longer stopover
- * is still visibly the longer one, which is the comparison the strip exists to serve;
- * what is given up is reading an exact ratio off the pixels, which nobody does anyway and
- * which the printed durations beside the bar answer exactly.
+ * A linear strip cannot show this schedule at 335px (a 375px phone minus the card's
+ * padding). A three-night stopover beside a 25-minute transfer is a 170:1 ratio, and the
+ * transfer comes out at a pixel and a half. Every honest fix costs something:
+ *
+ * - A per-part floor with the remainder linear is what the three-span strip did. With
+ *   ten or more parts the floors eat most of the bar, every short part lands on its floor
+ *   and looks the same, and the result is a bar that claims to be linear and is not.
+ * - A broken axis (full days drawn compressed with a break mark) keeps the hours linear,
+ *   but a ten-hour morning then draws wider than the full day beside it, which reads as
+ *   wrong before anyone reads the break mark.
+ * - A square-root scale keeps every part visible and every comparison in the right
+ *   direction: a longer part is always wider, a part twice as long is about 1.4 times as
+ *   wide, and the full days stay the widest cells so nights are still countable. What it
+ *   gives up is reading a ratio off the pixels, which is why the component prints the
+ *   scale on the strip itself (issue #209: "if the scale is not linear, say so on
+ *   screen") and why the durations that matter are printed as text beside it.
+ *
+ * Worked on the reference route (docs/prompts/007, BVC->LGW->PFO, one night): a 2h wait,
+ * a 7h 50m flight, an evening of 2h 50m, a morning of 12h 40m, a 2h wait and a 6h 40m
+ * flight come out at roughly 31, 62, 37, 79, 31 and 57px of 335. Linear would give 19,
+ * 74, 27, 120, 19 and 63, with any 25-minute transfer at 4px. The picture is the same
+ * shape; the short parts survive.
+ *
+ * ## Free time split at the stopover's own midnight
+ *
+ * Nights are what a traveller books, and "2d 15h free" does not say which days. The
+ * free-time window is cut at every `00:00` on the stopover airport's own wall clock,
+ * read straight off `LocalDateTime.local`, never off a UTC instant: AGENTS.md's timezone
+ * rule, and the difference between "Friday evening, all Saturday, Sunday morning" and a
+ * bar that loses a night. Each piece is measured in wall-clock minutes for the same
+ * reason. A DST change inside the stopover makes one piece 60 minutes off its elapsed
+ * time, and that piece is still the day the traveller lived through.
  */
 
-import type { Itinerary } from '$lib/domain';
-import { minutesBetween } from '$lib/algorithm/build';
+import type { Carrier, IsoLocalDateTimeString, Itinerary, LocalDateTime, TransferMode } from '$lib/domain';
 
-/**
- * The share of the bar every span is guaranteed regardless of its length. 0.10 of a 335px
- * bar (a 375px phone, minus the card's own padding) is about 33px, wide enough to hold a
- * carrier's mark and stay a recognisable band.
- */
-export const MIN_SHARE = 0.1;
+/** The one scale rule the strip draws with. Exported so the component prints it and the
+ * tests pin it, not to offer a choice: see the header for what the alternatives cost. */
+export const TRIP_STRIP_SCALE = 'sqrt' as const;
 
-export interface TripStripSpan {
-	kind: 'flight' | 'stopover';
-	/** Real elapsed minutes this span covers. Printed as text beside the bar, so the
-	 * clamped `share` below never has to be read as a measurement. */
+interface SegmentBase {
+	/** Wall-clock minutes this part covers. Printed or spoken as text, so the scaled
+	 * `share` below never has to be read as a measurement. */
 	minutes: number;
-	/** Fraction of the bar's width, floored at `MIN_SHARE` and renormalised so the three
-	 * of them still sum to 1. */
+	/** Fraction of the bar's width on the square-root scale. Sums to 1 across the strip.
+	 * The component floors each track at a few pixels so a very short part stays a
+	 * visible seam; that floor is a CSS `minmax`, not a share adjustment. */
 	share: number;
-	/** IATA codes at this span's two ends. */
+}
+
+export interface TripStripTransferSegment extends SegmentBase {
+	kind: 'transfer';
+	mode: TransferMode;
+	/** Which of the brief's four ground legs this is (docs/prompts/001, lines 45, 48, 50,
+	 * 53), so the component can say where it goes without re-deriving it. */
+	leg: 'to-origin-airport' | 'to-city' | 'to-connection-airport' | 'to-destination';
+}
+
+export interface TripStripWaitSegment extends SegmentBase {
+	kind: 'wait';
+	/** IATA code of the airport the traveller waits at. */
+	airport: string;
+}
+
+export interface TripStripFlightSegment extends SegmentBase {
+	kind: 'flight';
 	from: string;
 	to: string;
+	carrier: Carrier;
 }
+
+export interface TripStripFreeSegment extends SegmentBase {
+	kind: 'free';
+	/** Calendar date on the stopover's own clock, `YYYY-MM-DD`. */
+	date: string;
+	/** Wall-clock readings at the stopover for the piece's two ends. A piece that ends at
+	 * midnight ends at `T00:00:00` of the next date, the way a hotel night does. */
+	start: IsoLocalDateTimeString;
+	end: IsoLocalDateTimeString;
+	/** `true` when this piece runs from one local midnight to the next. */
+	wholeDay: boolean;
+	/** `true` when the piece begins at 00:00: a morning after a night, or a whole day. */
+	startsAtMidnight: boolean;
+	/** `true` when the piece ends at 00:00: an evening before a night, or a whole day. */
+	endsAtMidnight: boolean;
+}
+
+export type TripStripSegment =
+	| TripStripTransferSegment
+	| TripStripWaitSegment
+	| TripStripFlightSegment
+	| TripStripFreeSegment;
+
+/** `Omit` applied to each member of a union in turn. A plain `Omit` on a union keeps only
+ * the keys every member shares, which would drop each segment's own fields. */
+type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
+
+/** A segment before its share of the bar is known. */
+type Unshared = DistributiveOmit<TripStripSegment, 'share'>;
 
 export interface TripStrip {
-	spans: [TripStripSpan, TripStripSpan, TripStripSpan];
-	/** Airport-to-airport, the span the bar actually covers. Not `times.total`, which also
-	 * counts the ground legs at either end that this strip deliberately does not draw. */
+	segments: TripStripSegment[];
+	/** Every segment's minutes added up: door to door when every ground leg is present,
+	 * airport to airport when none is. */
 	totalMinutes: number;
+	/** Index of the outbound flight in `segments`. The stopover starts right after it. */
+	outboundIndex: number;
+	/** Index of the onward flight in `segments`. The stopover ends right before it. */
+	onwardIndex: number;
+	scale: typeof TRIP_STRIP_SCALE;
 }
 
 /**
- * Distributes `1` across the given weights: `MIN_SHARE` to each as a baseline, then the
- * remainder in proportion.
+ * Distributes `1` across the given minutes on a square-root scale. Order-preserving by
+ * construction (a longer part is always wider), and an all-zero input splits evenly rather
+ * than dividing by zero: a degenerate itinerary with no measurable time in it has no
+ * honest picture but an equal one.
  *
- * The obvious alternative, clamping anything under the floor up to it and renormalising
- * the rest, has a failure this does not: when two spans are both under the floor they
- * both land on it exactly, so a two-hour flight and a three-hour flight become the same
- * width. That is the common case here, not an edge one, since a multi-night stopover puts
- * both flights under any floor worth having. A baseline plus a proportional remainder is
- * strictly order-preserving: a longer span is always a wider band.
- *
- * Exported for its own tests. The invariants worth pinning down (sums to 1, nothing below
- * the floor, order preserved) are properties of this function, not of any component.
+ * Exported for its own tests. The invariants worth pinning (sums to 1, order preserved,
+ * a quadrupled part exactly doubles) are properties of this function, not of a component.
  */
-export function clampedShares(weights: readonly number[]): number[] {
-	if (weights.length === 0) return [];
-	const safe = weights.map((weight) => Math.max(weight, 0));
-	// A floor of 0.1 needs at most 10 spans to exhaust the bar; this app draws 3. The cap
-	// is here so the function is total rather than because anything calls it that way.
-	const floor = Math.min(MIN_SHARE, 1 / safe.length);
-	const total = safe.reduce((sum, weight) => sum + weight, 0);
-	// A degenerate itinerary with no measurable time in it: an equal split is the only
-	// honest picture.
-	if (total <= 0) return safe.map(() => 1 / safe.length);
+export function sqrtShares(minutes: readonly number[]): number[] {
+	if (minutes.length === 0) return [];
+	const weights = minutes.map((value) => Math.sqrt(Math.max(value, 0)));
+	const total = weights.reduce((sum, weight) => sum + weight, 0);
+	if (total <= 0) return weights.map(() => 1 / weights.length);
+	return weights.map((weight) => weight / total);
+}
 
-	const remainder = 1 - floor * safe.length;
-	return safe.map((weight) => floor + (weight / total) * remainder);
+/** Wall-clock minutes since the Unix epoch, treating the local digits as if they were
+ * UTC. Deliberately not the real instant: two readings on the same airport clock differ
+ * by the minutes that clock ticked through, which is what a day on the strip means. */
+function wallClockMinutes(local: string): number {
+	return Date.parse(`${local}Z`) / 60_000;
+}
+
+function isoLocal(wallMinutes: number): IsoLocalDateTimeString {
+	return new Date(wallMinutes * 60_000).toISOString().slice(0, 19);
+}
+
+function isoDate(wallMinutes: number): string {
+	return isoLocal(wallMinutes).slice(0, 10);
+}
+
+/** The local midnight that starts the calendar day containing `wallMinutes`. */
+function startOfDay(wallMinutes: number): number {
+	return Date.parse(`${isoDate(wallMinutes)}T00:00:00Z`) / 60_000;
+}
+
+/** One piece of a free-time window, before it gets a share of the bar. */
+export interface FreeTimePiece {
+	date: string;
+	start: IsoLocalDateTimeString;
+	end: IsoLocalDateTimeString;
+	minutes: number;
+	wholeDay: boolean;
+	startsAtMidnight: boolean;
+	endsAtMidnight: boolean;
 }
 
 /**
- * The three spans, in order, with their real durations and their bar widths.
+ * Cuts a free-time window at every local midnight between its two readings. Both
+ * readings are on the stopover airport's own clock (`build.ts` derives them from the two
+ * flights' own arrival and departure at that airport), so the cut is read straight off
+ * the `local` string and never touches the UTC offset.
  *
- * The stopover's length is measured between the two flights' own clocks rather than
- * summed out of `freeTime`, `connectionWaitingTime` and the two ground transfers. Those
- * parts do add up to the same number, but only when every one of them is present, and a
- * stopover with no priced bed has no transfers at all (`search/resources.ts` never looks
- * them up). `minutesBetween` is DST-correct and always available, since both flights
- * always are.
+ * Zero-length pieces are dropped: a window that starts exactly at midnight begins with the
+ * morning, not with an empty evening. A window with no length at all yields no pieces.
+ * A window whose end precedes its start is a pipeline defect (`build.ts` filters those)
+ * and also yields nothing rather than a piece with negative minutes.
+ */
+export function splitFreeTimeAtLocalMidnight(start: LocalDateTime, end: LocalDateTime): FreeTimePiece[] {
+	const startMinutes = wallClockMinutes(start.local);
+	const endMinutes = wallClockMinutes(end.local);
+	if (!Number.isFinite(startMinutes) || !Number.isFinite(endMinutes) || endMinutes <= startMinutes) return [];
+
+	const pieces: FreeTimePiece[] = [];
+	let cursor = startMinutes;
+	while (cursor < endMinutes) {
+		const dayStart = startOfDay(cursor);
+		const midnight = dayStart + 24 * 60;
+		const pieceEnd = Math.min(midnight, endMinutes);
+		const startsAtMidnight = cursor === dayStart;
+		const endsAtMidnight = pieceEnd === midnight;
+		pieces.push({
+			date: isoDate(cursor),
+			start: isoLocal(cursor),
+			end: isoLocal(pieceEnd),
+			minutes: pieceEnd - cursor,
+			wholeDay: startsAtMidnight && endsAtMidnight,
+			startsAtMidnight,
+			endsAtMidnight
+		});
+		cursor = pieceEnd;
+	}
+	return pieces;
+}
+
+/**
+ * Every part of the itinerary in schedule order, with its real minutes and its share of
+ * the bar. Ground legs appear only when the itinerary has them: `search/resources.ts`
+ * looks up the two connection-side transfers only when there is a bed or a checked city
+ * point to route to, and the outer two only when the query carried a location. A missing
+ * leg is not drawn as an empty cell, because an empty cell would claim a duration of zero
+ * for a leg nobody measured.
+ *
+ * The waiting times are the traveller's own buffers (`WaitingTimeRule`), not measured
+ * queues; the component's tooltip says so. They are drawn because they are time the
+ * traveller spends at the airport, which the brief counts separately from flying and from
+ * free time (line 58).
  */
 export function tripStrip(itinerary: Itinerary): TripStrip {
-	const { outboundFlight, onwardFlight } = itinerary;
-	const stopoverMinutes = Math.max(0, minutesBetween(outboundFlight.arrival, onwardFlight.departure));
-	const minutes = [outboundFlight.duration, stopoverMinutes, onwardFlight.duration];
-	const shares = clampedShares(minutes);
+	const {
+		transferToOriginAirport,
+		originAirport,
+		originWaitingTime,
+		outboundFlight,
+		transferToHotel,
+		freeTime,
+		transferToConnectionAirport,
+		connectionWaitingTime,
+		onwardFlight,
+		transferToDestinationLocation
+	} = itinerary;
+
+	const parts: Unshared[] = [];
+
+	if (transferToOriginAirport) {
+		parts.push({
+			kind: 'transfer',
+			mode: transferToOriginAirport.mode,
+			leg: 'to-origin-airport',
+			minutes: transferToOriginAirport.duration
+		});
+	}
+	parts.push({ kind: 'wait', airport: originAirport.iataCode, minutes: originWaitingTime });
+	const outboundIndex = parts.length;
+	parts.push({
+		kind: 'flight',
+		from: outboundFlight.departureAirport,
+		to: outboundFlight.arrivalAirport,
+		carrier: outboundFlight.carrier,
+		minutes: outboundFlight.duration
+	});
+	if (transferToHotel) {
+		parts.push({ kind: 'transfer', mode: transferToHotel.mode, leg: 'to-city', minutes: transferToHotel.duration });
+	}
+	for (const piece of splitFreeTimeAtLocalMidnight(freeTime.start, freeTime.end)) {
+		parts.push({ kind: 'free', ...piece });
+	}
+	if (transferToConnectionAirport) {
+		parts.push({
+			kind: 'transfer',
+			mode: transferToConnectionAirport.mode,
+			leg: 'to-connection-airport',
+			minutes: transferToConnectionAirport.duration
+		});
+	}
+	parts.push({ kind: 'wait', airport: onwardFlight.departureAirport, minutes: connectionWaitingTime });
+	const onwardIndex = parts.length;
+	parts.push({
+		kind: 'flight',
+		from: onwardFlight.departureAirport,
+		to: onwardFlight.arrivalAirport,
+		carrier: onwardFlight.carrier,
+		minutes: onwardFlight.duration
+	});
+	if (transferToDestinationLocation) {
+		parts.push({
+			kind: 'transfer',
+			mode: transferToDestinationLocation.mode,
+			leg: 'to-destination',
+			minutes: transferToDestinationLocation.duration
+		});
+	}
+	const minutes = parts.map((part) => Math.max(0, part.minutes));
+	const shares = sqrtShares(minutes);
+	const segments = parts.map((part, index) => ({ ...part, share: shares[index]! }) as TripStripSegment);
 
 	return {
-		totalMinutes: minutes[0]! + minutes[1]! + minutes[2]!,
-		spans: [
-			{
-				kind: 'flight',
-				minutes: minutes[0]!,
-				share: shares[0]!,
-				from: outboundFlight.departureAirport,
-				to: outboundFlight.arrivalAirport
-			},
-			{
-				kind: 'stopover',
-				minutes: minutes[1]!,
-				share: shares[1]!,
-				from: outboundFlight.arrivalAirport,
-				to: onwardFlight.departureAirport
-			},
-			{
-				kind: 'flight',
-				minutes: minutes[2]!,
-				share: shares[2]!,
-				from: onwardFlight.departureAirport,
-				to: onwardFlight.arrivalAirport
-			}
-		]
+		segments,
+		totalMinutes: minutes.reduce((sum, value) => sum + value, 0),
+		outboundIndex,
+		onwardIndex,
+		scale: TRIP_STRIP_SCALE
 	};
 }
