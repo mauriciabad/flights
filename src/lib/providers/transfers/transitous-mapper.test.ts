@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { mapPlanResponseToTransfer, TransitousMapMalformedResponseError } from './transitous-mapper';
+import type { TransitPlanMoment } from '../../domain';
 import type { TransitousPlanResponse } from './transitous-types';
 
 /**
@@ -211,9 +212,21 @@ const RURAL_NIGHT_GAP_RESPONSE: TransitousPlanResponse = {
  * `error` field, just a genuinely empty `itineraries` array — distinct from a gap. */
 const NO_ROUTE_RESPONSE: TransitousPlanResponse = { itineraries: [], direct: [] };
 
+/** Issue #135: every lookup now states the journey moment it was planned for, so these
+ * fixtures do too. `DEPART_AFTER` is the leg-starts-at-a-runway question ("I am free from
+ * this moment"), `ARRIVE_BY` the leg-ends-at-a-gate one ("be there by this moment"). */
+const DEPART_AFTER: TransitPlanMoment = {
+	time: { local: '2026-09-10T11:00:00', timeZone: 'Europe/Madrid', utcOffsetMinutes: 120 },
+	arriveBy: false
+};
+const ARRIVE_BY: TransitPlanMoment = {
+	time: { local: '2026-09-10T12:00:00', timeZone: 'Europe/Madrid', utcOffsetMinutes: 120 },
+	arriveBy: true
+};
+
 describe('mapPlanResponseToTransfer', () => {
 	it('builds a transit Transfer from the earliest itinerary, with every leg described', () => {
-		const transfer = mapPlanResponseToTransfer(DAYTIME_BARCELONA_RESPONSE);
+		const transfer = mapPlanResponseToTransfer(DAYTIME_BARCELONA_RESPONSE, DEPART_AFTER);
 
 		expect(transfer).toBeDefined();
 		expect(transfer?.mode).toBe('transit');
@@ -235,14 +248,14 @@ describe('mapPlanResponseToTransfer', () => {
 	});
 
 	it('sets transitSchedule.intended to the first itinerary\'s first transit leg, not the overall walk start', () => {
-		const transfer = mapPlanResponseToTransfer(DAYTIME_BARCELONA_RESPONSE);
+		const transfer = mapPlanResponseToTransfer(DAYTIME_BARCELONA_RESPONSE, DEPART_AFTER);
 		// The chosen itinerary starts with a 09:01 walk; the actual bus/metro service
 		// question is about the 09:02 metro it connects to.
 		expect(transfer?.transitSchedule?.intended.local).toBe('2026-09-10T11:02:00');
 	});
 
 	it('lists the following itineraries\' first transit departures, strictly after the intended one', () => {
-		const transfer = mapPlanResponseToTransfer(DAYTIME_BARCELONA_RESPONSE);
+		const transfer = mapPlanResponseToTransfer(DAYTIME_BARCELONA_RESPONSE, DEPART_AFTER);
 		const following = transfer?.transitSchedule?.following ?? [];
 		expect(following.map((d) => d.local)).toEqual([
 			'2026-09-10T11:06:00', // second itinerary's metro
@@ -253,7 +266,7 @@ describe('mapPlanResponseToTransfer', () => {
 	it('the last-bus problem: reports the real gap instead of hiding it or erroring', () => {
 		// This is the acceptance criterion: a 01:00Z ask met with a 05:03Z bus is a
 		// first-class result, not an error and not an empty array.
-		const transfer = mapPlanResponseToTransfer(RURAL_NIGHT_GAP_RESPONSE);
+		const transfer = mapPlanResponseToTransfer(RURAL_NIGHT_GAP_RESPONSE, DEPART_AFTER);
 
 		expect(transfer).toBeDefined();
 		expect(transfer?.mode).toBe('transit');
@@ -272,11 +285,11 @@ describe('mapPlanResponseToTransfer', () => {
 	});
 
 	it('returns undefined (not a thrown error) when there is no transit route at all', () => {
-		expect(mapPlanResponseToTransfer(NO_ROUTE_RESPONSE)).toBeUndefined();
+		expect(mapPlanResponseToTransfer(NO_ROUTE_RESPONSE, DEPART_AFTER)).toBeUndefined();
 	});
 
 	it('returns undefined when the response has no itineraries field at all', () => {
-		expect(mapPlanResponseToTransfer({})).toBeUndefined();
+		expect(mapPlanResponseToTransfer({}, DEPART_AFTER)).toBeUndefined();
 	});
 
 	it('falls back to a generic "Transit" label for an unrecognised leg mode', () => {
@@ -300,7 +313,7 @@ describe('mapPlanResponseToTransfer', () => {
 				}
 			]
 		};
-		const transfer = mapPlanResponseToTransfer(response);
+		const transfer = mapPlanResponseToTransfer(response, DEPART_AFTER);
 		expect(transfer?.legs[0].description).toBe('Transit');
 	});
 
@@ -325,7 +338,7 @@ describe('mapPlanResponseToTransfer', () => {
 				}
 			]
 		};
-		const transfer = mapPlanResponseToTransfer(response);
+		const transfer = mapPlanResponseToTransfer(response, DEPART_AFTER);
 		expect(transfer?.transitSchedule?.intended.timeZone).toBe('UTC');
 	});
 });
@@ -376,8 +389,8 @@ describe('runtime validation of an unverified field type (corrupted fixture)', (
 				}
 			]
 		};
-		expect(() => mapPlanResponseToTransfer(response)).not.toThrow();
-		const transfer = mapPlanResponseToTransfer(response);
+		expect(() => mapPlanResponseToTransfer(response, DEPART_AFTER)).not.toThrow();
+		const transfer = mapPlanResponseToTransfer(response, DEPART_AFTER);
 		expect(transfer?.transitSchedule?.intended.local).toBe('2026-09-10T12:00:00');
 	});
 
@@ -402,11 +415,11 @@ describe('runtime validation of an unverified field type (corrupted fixture)', (
 				}
 			]
 		};
-		expect(() => mapPlanResponseToTransfer(response)).toThrow(TransitousMapMalformedResponseError);
+		expect(() => mapPlanResponseToTransfer(response, DEPART_AFTER)).toThrow(TransitousMapMalformedResponseError);
 	});
 
 	it('returns undefined (not malformed) for a genuinely empty itineraries array — the ordinary no-service case', () => {
-		expect(mapPlanResponseToTransfer({ itineraries: [] })).toBeUndefined();
+		expect(mapPlanResponseToTransfer({ itineraries: [] }, DEPART_AFTER)).toBeUndefined();
 	});
 
 	it('drops a leg whose duration is a non-numeric string, failing that itinerary rather than producing NaN', () => {
@@ -430,7 +443,7 @@ describe('runtime validation of an unverified field type (corrupted fixture)', (
 				}
 			]
 		};
-		expect(() => mapPlanResponseToTransfer(response)).toThrow(TransitousMapMalformedResponseError);
+		expect(() => mapPlanResponseToTransfer(response, DEPART_AFTER)).toThrow(TransitousMapMalformedResponseError);
 	});
 
 	it('drops a leg whose place has a non-numeric latitude rather than corrupting timezone maths', () => {
@@ -454,6 +467,6 @@ describe('runtime validation of an unverified field type (corrupted fixture)', (
 				}
 			]
 		};
-		expect(() => mapPlanResponseToTransfer(response)).toThrow(TransitousMapMalformedResponseError);
+		expect(() => mapPlanResponseToTransfer(response, DEPART_AFTER)).toThrow(TransitousMapMalformedResponseError);
 	});
 });

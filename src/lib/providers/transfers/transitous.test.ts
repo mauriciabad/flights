@@ -103,11 +103,55 @@ describe('createTransitousTransferProvider', () => {
 		});
 
 		const result = await provider.searchTransfers(
-			{ from: { latitude: 0, longitude: -30 }, to: { latitude: 0.5, longitude: -30.5 } },
+			{
+				from: { latitude: 0, longitude: -30 },
+				to: { latitude: 0.5, longitude: -30.5 },
+				departure: REQUESTED_LATE_NIGHT_DEPARTURE
+			},
 			ctx()
 		);
 
 		expect(result).toMatchObject({ ok: true, data: [], requestsUsed: 1 });
+	});
+
+	it('declines rather than planning for the moment the search ran (issue #135)', async () => {
+		// The whole defect: with no journey moment this used to substitute `new Date()` and
+		// hand back a real timetable for today, which the results page then presented as the
+		// plan for a flight weeks away. Nothing goes on the wire now, and the caller gets an
+		// empty answer that cost no request rather than a confident wrong one.
+		const fetchImpl = vi.fn();
+		const provider = createTransitousTransferProvider({
+			fetchImpl,
+			resolveStore: async () => new MemoryCacheStore()
+		});
+
+		const result = await provider.searchTransfers(
+			{ from: { latitude: 41, longitude: 2 }, to: { latitude: 41.1, longitude: 2.1 } },
+			ctx()
+		);
+
+		expect(result).toMatchObject({ ok: true, data: [], requestsUsed: 0 });
+		expect(fetchImpl).not.toHaveBeenCalled();
+	});
+
+	it('asks arriveBy for a leg that has to reach a deadline, and caches the two questions apart', async () => {
+		const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(nightGapPlanBody()));
+		const store = new MemoryCacheStore();
+		const provider = createTransitousTransferProvider({ fetchImpl, resolveStore: async () => store });
+		const query = {
+			from: { latitude: 42.199, longitude: 2.6975 },
+			to: { latitude: 42.1818, longitude: 2.4901 },
+			departure: REQUESTED_LATE_NIGHT_DEPARTURE
+		};
+
+		await provider.searchTransfers({ ...query, arriveBy: true }, ctx());
+		expect(fetchImpl.mock.calls[0][0]).toContain('arriveBy=true');
+
+		// Same coordinates, same instant, opposite question: a cache that ignored `arriveBy`
+		// would serve the deadline answer to the depart-after query.
+		await provider.searchTransfers({ ...query, arriveBy: false }, ctx());
+		expect(fetchImpl).toHaveBeenCalledTimes(2);
+		expect(fetchImpl.mock.calls[1][0]).toContain('arriveBy=false');
 	});
 
 	it('skips the network call when the caller only wants modes this adapter cannot supply', async () => {
@@ -183,7 +227,7 @@ describe('createTransitousTransferProvider', () => {
 		});
 
 		const result = await provider.searchTransfers(
-			{ from: { latitude: 41, longitude: 2 }, to: { latitude: 41.1, longitude: 2.1 } },
+			{ from: { latitude: 41, longitude: 2 }, to: { latitude: 41.1, longitude: 2.1 }, departure: REQUESTED_LATE_NIGHT_DEPARTURE },
 			ctx()
 		);
 
@@ -200,7 +244,7 @@ describe('createTransitousTransferProvider', () => {
 		});
 
 		const result = await provider.searchTransfers(
-			{ from: { latitude: 41, longitude: 2 }, to: { latitude: 41.1, longitude: 2.1 } },
+			{ from: { latitude: 41, longitude: 2 }, to: { latitude: 41.1, longitude: 2.1 }, departure: REQUESTED_LATE_NIGHT_DEPARTURE },
 			ctx()
 		);
 
@@ -218,7 +262,7 @@ describe('createTransitousTransferProvider', () => {
 		});
 
 		const result = await provider.searchTransfers(
-			{ from: { latitude: 41, longitude: 2 }, to: { latitude: 41.1, longitude: 2.1 } },
+			{ from: { latitude: 41, longitude: 2 }, to: { latitude: 41.1, longitude: 2.1 }, departure: REQUESTED_LATE_NIGHT_DEPARTURE },
 			ctx()
 		);
 
@@ -240,7 +284,7 @@ describe('createTransitousTransferProvider', () => {
 		});
 
 		const result = await provider.searchTransfers(
-			{ from: { latitude: 41, longitude: 2 }, to: { latitude: 41.1, longitude: 2.1 } },
+			{ from: { latitude: 41, longitude: 2 }, to: { latitude: 41.1, longitude: 2.1 }, departure: REQUESTED_LATE_NIGHT_DEPARTURE },
 			ctx(controller.signal)
 		);
 

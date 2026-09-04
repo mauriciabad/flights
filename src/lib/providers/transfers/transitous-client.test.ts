@@ -22,8 +22,21 @@ describe('fetchTransitousPlan', () => {
 	const request = {
 		from: { latitude: 41.3874, longitude: 2.1686 },
 		to: { latitude: 41.2971, longitude: 2.0785 },
-		departureUtc: new Date('2026-09-10T09:00:00Z')
+		departureUtc: new Date('2026-09-10T09:00:00Z'),
+		arriveBy: false
 	};
+
+	it('sends arriveBy=true when the leg has to reach a deadline (issue #135)', async () => {
+		const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ itineraries: [] }));
+
+		await fetchTransitousPlan({ ...request, arriveBy: true }, {
+			signal: new AbortController().signal,
+			fetchImpl
+		});
+
+		const [url] = fetchImpl.mock.calls[0] as [string];
+		expect(url).toContain('arriveBy=true');
+	});
 
 	it('builds the documented query shape and returns the parsed body on 2xx', async () => {
 		const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ itineraries: [] }));

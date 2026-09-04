@@ -254,6 +254,10 @@ function createFakeTransferProvider(id = 'transit-fixture'): TransferProvider {
 		label: `Fixture transfers (${id})`,
 		needsKey: false,
 		keyFields: [],
+		// Issue #135: a fixture stands in for a provider that answers about everything, so
+		// it declares every mode. A real adapter declares only what it serves, which is what
+		// keeps a roads-only lookup from calling a timetable adapter at all.
+		modes: ['walk', 'transit', 'drive', 'taxi'],
 		async healthCheck() {
 			return { ok: true, data: {}, source: source(id), requestsUsed: 0 };
 		},
@@ -282,6 +286,10 @@ function createConfigurableTransferProvider(
 		label: `Fixture transfers (${id})`,
 		needsKey: false,
 		keyFields: [],
+		// Issue #135: a fixture stands in for a provider that answers about everything, so
+		// it declares every mode. A real adapter declares only what it serves, which is what
+		// keeps a roads-only lookup from calling a timetable adapter at all.
+		modes: ['walk', 'transit', 'drive', 'taxi'],
 		async healthCheck() {
 			return { ok: true, data: {}, source: source(id), requestsUsed: 0 };
 		},
@@ -668,11 +676,14 @@ describe('runSearch: transfer alternatives and request count (issue #114)', () =
 		const snapshots = await drain(runSearch(query, deps));
 		const final = snapshots.at(-1)!;
 
-		// Four legs (origin, hotel, connection airport, destination) x one call each — the
-		// same fan-out this pipeline always made, regardless of how many Transfer objects
-		// each call now returns.
-		expect(transferProvider.callCount()).toBe(4);
-		expect(final.providers['configurable-transfers' as ProviderId]?.requestsUsed).toBe(4);
+		// Four legs (origin, hotel, connection airport, destination), each asked twice: once
+		// for the time-independent road modes before any flight is known, and once for a
+		// timetable at that leg's own journey moment (issue #135). This fixture declares
+		// every mode, so it answers both halves; the real pair splits them, OSRM taking the
+		// first and Transitous the second. Issue #114's point still holds — the number of
+		// `Transfer` objects a call returns changes nothing about how many calls are made.
+		expect(transferProvider.callCount()).toBe(8);
+		expect(final.providers['configurable-transfers' as ProviderId]?.requestsUsed).toBe(8);
 
 		// And every leg still kept every alternative that same unchanged call count produced.
 		expect(final.outerTransferOptions.transferToOriginAirport.candidates).toHaveLength(3);

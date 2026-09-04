@@ -25,6 +25,7 @@
 	 */
 	import type { Airport, Duration, FlightOffer, Itinerary, LocalDateTime, Location, Transfer } from '../domain';
 	import { recomputeItineraryWaitingTimes } from '../algorithm/build';
+	import { readMissedService } from '../algorithm/transit-schedule';
 	import type { ItinerarySegmentId } from '../itinerary-map/segment-id';
 	import {
 		formatCalendarDate,
@@ -327,14 +328,27 @@
 						{/if}
 					</p>
 					{#if transfer.mode === 'transit' && transfer.transitSchedule}
-						{#if transfer.transitSchedule.following.length === 0}
+						{@const schedule = transfer.transitSchedule}
+						{@const missed = readMissedService(schedule)}
+						<p class="tl-note">
+							Departs {formatClockTime(schedule.intended)} on {formatCalendarDate(schedule.intended)}
+						</p>
+						{#if missed.outcome === 'last-in-time'}
 							<p class="tl-note tl-note-warning">
-								No later service found. The {formatClockTime(transfer.transitSchedule.intended)} connection is the
-								last one.
+								The last departure that still gets you there by {formatClockTime(schedule.plannedFor.time)}. Miss it
+								and nothing later arrives in time.
+							</p>
+						{:else if missed.outcome === 'last-known'}
+							<p class="tl-note tl-note-warning">
+								No later service found. Nothing runs after this one for the rest of the timetable.
+							</p>
+						{:else if missed.outcome === 'long-gap' && missed.next && missed.gap !== undefined}
+							<p class="tl-note tl-note-warning">
+								Miss it and the next one is {formatClockTime(missed.next)}, {formatDuration(missed.gap)} later.
 							</p>
 						{:else}
 							<p class="tl-note">
-								Next after this one: {transfer.transitSchedule.following.map((t) => formatClockTime(t)).join(', ')}
+								Next after this one: {schedule.following.map((t) => formatClockTime(t)).join(', ')}
 							</p>
 						{/if}
 					{/if}

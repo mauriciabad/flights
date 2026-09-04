@@ -1,9 +1,21 @@
 import { describe, expect, it, afterEach } from 'vitest';
 import { flushSync, mount, unmount } from 'svelte';
-import type { Airport, City, Country, Duration, FlightOffer, Itinerary, LocalDateTime, Stay, Transfer } from '../domain';
+import type {
+	Airport,
+	City,
+	Country,
+	Duration,
+	FlightOffer,
+	Itinerary,
+	LocalDateTime,
+	Stay,
+	Transfer,
+	TransitPlanMoment
+} from '../domain';
 import { buildItineraries, type BuildItinerariesInput } from '../algorithm/build';
 import type { RecomputedSelection } from '../algorithm/recompute-selection';
 import type { TaxiFareEstimate } from '../providers/transfers/taxi-rate-table';
+import type { TransitLegAnswer } from '../search/types';
 import TransportPicker from './TransportPicker.svelte';
 
 const country: Country = { isoCode: 'FR', name: 'France' };
@@ -22,6 +34,16 @@ function makeAirport(iataCode: string): Airport {
 
 function localDateTime(local: string): LocalDateTime {
 	return { local, timeZone: 'Europe/Paris', utcOffsetMinutes: 60 };
+}
+
+/** Issue #135: the journey moment a schedule was planned for. `departAfter` is the
+ * leg-starts-at-a-runway question; `arriveByDeadline` the leg-ends-at-a-gate one. */
+function departAfter(local: string): TransitPlanMoment {
+	return { time: localDateTime(local), arriveBy: false };
+}
+
+function arriveByDeadline(local: string): TransitPlanMoment {
+	return { time: localDateTime(local), arriveBy: true };
 }
 
 function makeFlight(departure: LocalDateTime, arrival: LocalDateTime): FlightOffer {
@@ -103,6 +125,7 @@ function mountPicker(props: {
 	alternatives: Transfer[];
 	taxiFareEstimate?: TaxiFareEstimate;
 	referenceMoment?: LocalDateTime;
+	transitAnswer?: TransitLegAnswer;
 	onselect?: (result: RecomputedSelection) => void;
 }) {
 	target = document.createElement('div');
@@ -117,6 +140,7 @@ function mountPicker(props: {
 			taxiFareEstimate: props.taxiFareEstimate,
 			referenceMoment: props.referenceMoment,
 			referenceLabel: 'you land',
+			transitAnswer: props.transitAnswer,
 			onselect: props.onselect ?? (() => {})
 		}
 	});
@@ -135,7 +159,7 @@ describe('TransportPicker: no-service transit', () => {
 			mode: 'transit',
 			duration: 25 as Duration,
 			legs: [{ mode: 'transit', description: 'Bus 100 to City Airport Station', duration: 25 as Duration }],
-			transitSchedule: { intended: localDateTime('2026-06-01T05:20:00'), following: [] }
+			transitSchedule: { intended: localDateTime('2026-06-01T05:20:00'), following: [], plannedFor: departAfter('2026-06-01T01:00:00') }
 		};
 
 		const root = mountPicker({
@@ -158,7 +182,7 @@ describe('TransportPicker: no-service transit', () => {
 			mode: 'transit',
 			duration: 25 as Duration,
 			legs: [],
-			transitSchedule: { intended: localDateTime('2026-06-01T05:20:00'), following: [] }
+			transitSchedule: { intended: localDateTime('2026-06-01T05:20:00'), following: [], plannedFor: departAfter('2026-06-01T01:00:00') }
 		};
 		const taxi: Transfer = { mode: 'taxi', duration: 18 as Duration, legs: [] };
 		const taxiFareEstimate: TaxiFareEstimate = {
@@ -193,7 +217,8 @@ describe('TransportPicker: no-service transit', () => {
 			legs: [],
 			transitSchedule: {
 				intended: localDateTime('2026-06-01T01:05:00'),
-				following: [localDateTime('2026-06-01T01:20:00'), localDateTime('2026-06-01T01:35:00')]
+				following: [localDateTime('2026-06-01T01:20:00'), localDateTime('2026-06-01T01:35:00')],
+				plannedFor: departAfter('2026-06-01T01:00:00')
 			}
 		};
 
@@ -221,7 +246,7 @@ describe('TransportPicker: mode breakdown', () => {
 				{ mode: 'walk', description: 'Walk to the station', duration: 10 as Duration },
 				{ mode: 'transit', description: 'Train to City Centre', duration: 35 as Duration }
 			],
-			transitSchedule: { intended: localDateTime('2026-06-01T01:10:00'), following: [] }
+			transitSchedule: { intended: localDateTime('2026-06-01T01:10:00'), following: [], plannedFor: departAfter('2026-06-01T01:00:00') }
 		};
 
 		const root = mountPicker({ itinerary, alternatives: [multiLeg] });
@@ -298,5 +323,153 @@ describe('TransportPicker: selection', () => {
 		);
 		expect(selectCount).toBe(0); // opening the citation must never fire onselect
 		expect(root.querySelector('.taxi-citation')?.hasAttribute('open')).toBe(true); // it did open
+	});
+});
+
+describe('TransportPicker: what missing it costs (issue #135)', () => {
+	it('names the next departure and the gap when the last one of the night is missed', () => {
+		const itinerary = baseItinerary({ mode: 'walk', duration: 40 as Duration, legs: [] });
+		// Lands 01:00, the 01:10 bus is the last of the night, the next is at 05:20.
+		const transit: Transfer = {
+			mode: 'transit',
+			duration: 25 as Duration,
+			legs: [],
+			transitSchedule: {
+				intended: localDateTime('2026-06-01T01:10:00'),
+				following: [localDateTime('2026-06-01T05:20:00')],
+				plannedFor: departAfter('2026-06-01T01:00:00')
+			}
+		};
+
+		const text = normalizedText(
+			mountPicker({
+				itinerary,
+				alternatives: [transit],
+				referenceMoment: localDateTime('2026-06-01T01:00:00')
+			})
+		);
+
+		expect(text).toContain('Miss it and the next one is 05:20, 4h 10m later');
+	});
+
+	it('says nothing later arrives in time for a leg that has to make a check-in', () => {
+		const itinerary = baseItinerary({ mode: 'walk', duration: 40 as Duration, legs: [] });
+		const transit: Transfer = {
+			mode: 'transit',
+			duration: 50 as Duration,
+			legs: [],
+			transitSchedule: {
+				intended: localDateTime('2026-06-01T05:15:00'),
+				arrival: localDateTime('2026-06-01T05:59:00'),
+				following: [],
+				earlier: [localDateTime('2026-06-01T04:45:00')],
+				plannedFor: arriveByDeadline('2026-06-01T06:15:00')
+			}
+		};
+
+		const text = normalizedText(mountPicker({ itinerary, alternatives: [transit] }));
+
+		expect(text).toContain('The last one that gets you there by 06:15');
+		expect(text).toContain('Miss it and nothing later arrives in time');
+		expect(text).toContain('Earlier and still in time: 04:45');
+		// Never the overnight-gap framing: an empty `following` here means the deadline was
+		// respected, not that the timetable ran out.
+		expect(text).not.toContain('Nothing runs after it');
+	});
+
+	it('shows which journey moment the schedule was planned for', () => {
+		const itinerary = baseItinerary({ mode: 'walk', duration: 40 as Duration, legs: [] });
+		const transit: Transfer = {
+			mode: 'transit',
+			duration: 50 as Duration,
+			legs: [],
+			transitSchedule: {
+				intended: localDateTime('2026-06-01T05:15:00'),
+				following: [],
+				plannedFor: arriveByDeadline('2026-06-01T06:15:00')
+			}
+		};
+
+		const text = normalizedText(mountPicker({ itinerary, alternatives: [transit] }));
+
+		expect(text).toContain('Planned for Mon, 1 Jun, arriving by 06:15');
+	});
+});
+
+describe('TransportPicker: telling "no service" from "nobody asked" (issue #135)', () => {
+	const roadOnly: Transfer[] = [
+		{ mode: 'walk', duration: 316 as Duration, legs: [] },
+		{ mode: 'taxi', duration: 59 as Duration, legs: [] }
+	];
+
+	it('says the timetable was asked and had nothing, for a place with no coverage', () => {
+		// Bucharest, verbatim from the issue: Transitous returned `itineraries: []` and the
+		// picker offered Walk 5h 16m, Drive 59m, Taxi 59m with no hint either way.
+		const itinerary = baseItinerary({ mode: 'walk', duration: 316 as Duration, legs: [] });
+
+		const text = normalizedText(
+			mountPicker({
+				itinerary,
+				alternatives: roadOnly,
+				transitAnswer: { answer: 'nothing-found', plannedFor: departAfter('2026-06-01T01:00:00') }
+			})
+		);
+
+		expect(text).toContain('No public transport data for this area');
+		expect(text).toContain('had no service between these two points');
+	});
+
+	it('says nobody asked, and why, rather than implying there is no bus', () => {
+		const itinerary = baseItinerary({ mode: 'walk', duration: 316 as Duration, legs: [] });
+
+		const text = normalizedText(
+			mountPicker({
+				itinerary,
+				alternatives: roadOnly,
+				transitAnswer: { answer: 'not-asked', reason: 'budget-spent' }
+			})
+		);
+
+		expect(text).toContain('was not checked for this option');
+		expect(text).not.toContain('No public transport data for this area');
+	});
+
+	it("quotes the provider's own failure, status code included", () => {
+		const itinerary = baseItinerary({ mode: 'walk', duration: 316 as Duration, legs: [] });
+
+		const text = normalizedText(
+			mountPicker({
+				itinerary,
+				alternatives: roadOnly,
+				transitAnswer: {
+					answer: 'failed',
+					error: { code: 'quota-exceeded', message: 'Transitous responded 429: slow down', status: 429 }
+				}
+			})
+		);
+
+		expect(text).toContain('429: Transitous responded 429: slow down');
+	});
+
+	it('stays quiet when a transit option is actually on offer', () => {
+		const itinerary = baseItinerary({ mode: 'walk', duration: 40 as Duration, legs: [] });
+		const transit: Transfer = {
+			mode: 'transit',
+			duration: 25 as Duration,
+			legs: [],
+			transitSchedule: {
+				intended: localDateTime('2026-06-01T01:10:00'),
+				following: [],
+				plannedFor: departAfter('2026-06-01T01:00:00')
+			}
+		};
+
+		const root = mountPicker({
+			itinerary,
+			alternatives: [transit],
+			transitAnswer: { answer: 'answered', plannedFor: departAfter('2026-06-01T01:00:00') }
+		});
+
+		expect(root.querySelector('[data-testid="transit-notice"]')).toBeNull();
 	});
 });

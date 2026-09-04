@@ -35,10 +35,20 @@
 
 import type { ConnectionCandidate as AlgorithmConnectionCandidate } from '../algorithm/connections';
 import type { ItineraryScore } from '../algorithm/score';
-import type { Airport, IataAirportCode, IsoCalendarDate, IsoCurrencyCode, SearchQuery, Stay, Transfer } from '../domain';
+import type {
+	Airport,
+	IataAirportCode,
+	IsoCalendarDate,
+	IsoCurrencyCode,
+	SearchQuery,
+	Stay,
+	Transfer,
+	TransitPlanMoment
+} from '../domain';
 import type { ProviderRegistry } from '../providers/registry';
 import type { AvailableKeys, ProviderError, ProviderId, ProviderKind, ProviderSource } from '../providers/types';
 import type { TaxiFareEstimate } from '../providers/transfers/taxi-rate-table';
+import type { ProviderAnswer } from './provenance';
 
 export type { Airport };
 export type ConnectionCandidate = AlgorithmConnectionCandidate;
@@ -133,10 +143,49 @@ export interface ItinerarySources {
 	transferToDestinationLocation?: ProviderSource;
 }
 
+/** The four transfer legs of an itinerary, named the way `Itinerary` names them so a leg
+ * identifier can be used as a key into either. */
+export type TransitLegField =
+	| 'transferToOriginAirport'
+	| 'transferToHotel'
+	| 'transferToConnectionAirport'
+	| 'transferToDestinationLocation';
+
+/**
+ * Issue #135's honest-gap half: what the transit lookup for ONE leg of ONE itinerary
+ * actually said.
+ *
+ * `SearchSnapshot.providers` (issue #130) already answers this search-wide, and cannot
+ * answer it here: one Transitous call covering Barcelona and another covering Bucharest
+ * collapse into a single provider row reading "answered", while the traveller looking at
+ * the Bucharest leg is shown Walk 5h 16m, Drive 59m, Taxi 59m and no way to tell whether
+ * there is no bus or whether nobody looked. So the states are #130's own `ProviderAnswer`
+ * vocabulary, read by its own `providerAnswer()`, applied at leg granularity.
+ */
+export interface TransitLegAnswer {
+	answer: ProviderAnswer;
+	/** The journey moment the lookup was planned for. Present even when nothing was asked,
+	 * so a UI can say what it *would* have asked about. */
+	plannedFor?: TransitPlanMoment;
+	/** The provider's own error, verbatim, when `answer` is `'failed'` — AGENTS.md: "show
+	 * the error you got, never the one you assumed". */
+	error?: ProviderError;
+	/** Why nothing was asked, when `answer` is `'not-asked'`. `'no-provider'`: no usable
+	 * transit adapter at all. `'budget-spent'`: this search had already used its ration
+	 * (`transit-schedule.ts`'s `MAX_TRANSIT_LOOKUPS_PER_SEARCH`). */
+	reason?: 'no-provider' | 'budget-spent';
+}
+
+export type TransitLegAnswers = Partial<Record<TransitLegField, TransitLegAnswer>>;
+
 /** One scored itinerary plus where its numbers came from. */
 export interface ItineraryResult {
 	score: ItineraryScore;
 	sources: ItinerarySources;
+	/** Issue #135: per-leg transit lookups for THIS itinerary, planned for its own flight
+	 * times. Absent on an itinerary that was never refined — a snapshot emitted mid-search,
+	 * or one past the lookup budget. */
+	transit?: TransitLegAnswers;
 }
 
 /**

@@ -33,7 +33,14 @@
 
 import { contextFor, isProviderUsable } from '../providers/registry';
 import { runCostAwareSearch } from '../providers/budget';
-import type { AvailableKeys, StayProvider, StaySearchQuery, TransferProvider, TransferSearchQuery } from '../providers/types';
+import type {
+	AvailableKeys,
+	ProviderResult,
+	StayProvider,
+	StaySearchQuery,
+	TransferProvider,
+	TransferSearchQuery
+} from '../providers/types';
 import type {
 	AirportSizeClass,
 	Coordinates,
@@ -170,7 +177,23 @@ export function applyLandingBuffer(transfer: Transfer, buffer: Duration, sources
 export interface TransferSearchOutcome {
 	candidates: Transfer[];
 	selected: Transfer | undefined;
+	/** Issue #135: every provider's untouched answer for this leg, in call order, so a
+	 * caller can tell "asked, and there is no service here" from "never asked" for THIS leg
+	 * rather than only for the whole search. `SearchSnapshot.providers` already answers the
+	 * search-wide version of that question (issue #130), and it cannot: one Transitous call
+	 * covering Barcelona and another covering Bucharest collapse into one provider row that
+	 * reads "answered". */
+	results: ProviderResult<Transfer[]>[];
 }
+
+/**
+ * The modes that do not depend on what time it is. A walking or driving duration is the
+ * same at 04:00 as at 13:00, so these can be fetched before any flight is known; a
+ * timetable cannot (issue #135), which is why the pipeline's pre-flight transfer lookups
+ * ask for exactly these and leave `'transit'` to `search/transit-schedule.ts`, once there
+ * is a real journey moment to plan for.
+ */
+export const ROAD_TRANSFER_MODES: readonly TransferMode[] = ['walk', 'drive', 'taxi'];
 
 /** Queries every given (already usability-filtered) transfer provider for one A-to-B leg,
  * merges what comes back, tags each with its provenance, and returns both every candidate
@@ -187,18 +210,31 @@ export async function fetchBestTransfer(
 	sources: SourceTracker,
 	record: RecordProviderCall
 ): Promise<TransferSearchOutcome> {
-	const usable = providers.filter((provider) => isProviderUsable(provider, keys));
-	const perProvider = await Promise.all(
+	// Issue #135: an adapter with nothing to contribute is left out of the call, not called
+	// and then ignored. Calling it returns an empty, `ok`, zero-request result that issue
+	// #130's status machinery cannot tell from "asked, and there is no service here" — so
+	// asking Transitous for a walking duration would have put "Transitous: nothing found"
+	// on screen for every leg, which is the same lie #130 exists to stop, pointed the other
+	// way.
+	const usable = providers.filter(
+		(provider) => isProviderUsable(provider, keys) && servesAnyRequestedMode(provider, query.modes)
+	);
+	const results = await Promise.all(
 		usable.map(async (provider) => {
 			const result = await provider.searchTransfers(query, contextFor(provider.id, keys, signal));
 			record(provider, result);
-			if (!result.ok) return [];
+			if (!result.ok) return result;
 			for (const transfer of result.data) sources.attach(transfer, result.source);
-			return result.data;
+			return result;
 		})
 	);
-	const candidates = perProvider.flat();
-	return { candidates, selected: pickBestTransfer(candidates) };
+	const candidates = results.flatMap((result) => (result.ok ? result.data : []));
+	return { candidates, selected: pickBestTransfer(candidates), results };
+}
+
+function servesAnyRequestedMode(provider: TransferProvider, requested: readonly TransferMode[] | undefined): boolean {
+	if (!requested) return true;
+	return provider.modes.some((mode) => requested.includes(mode));
 }
 
 /**
@@ -427,8 +463,11 @@ export async function fetchConnectionResources(
 	if (!stay) return withoutStay(stayCandidates);
 
 	const [transferToHotelOutcome, transferToConnectionAirportOutcome] = await Promise.all([
+		// Roads only: this runs before any flight for this candidate has resolved, so there
+		// is no journey moment to plan a timetable for. `search/transit-schedule.ts` asks
+		// about public transport once there is (issue #135).
 		fetchBestTransfer(
-			{ from: input.connectionCoordinates, to: stay.property.coordinates },
+			{ from: input.connectionCoordinates, to: stay.property.coordinates, modes: [...ROAD_TRANSFER_MODES] },
 			input.transferProviders,
 			input.keys,
 			input.signal,
@@ -436,7 +475,7 @@ export async function fetchConnectionResources(
 			input.record
 		),
 		fetchBestTransfer(
-			{ from: stay.property.coordinates, to: input.connectionCoordinates },
+			{ from: stay.property.coordinates, to: input.connectionCoordinates, modes: [...ROAD_TRANSFER_MODES] },
 			input.transferProviders,
 			input.keys,
 			input.signal,

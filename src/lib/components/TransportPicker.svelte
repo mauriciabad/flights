@@ -12,6 +12,12 @@
 	 * start this leg (a flight's arrival, typically), supplied by whoever assembles the
 	 * itinerary (issue #23/#24) since this component has no notion of "the flight before it"
 	 * on its own.
+	 *
+	 * Issue #135 gave every schedule a `plannedFor` moment and this component two jobs it
+	 * could not do before. It now says what missing the named departure actually costs —
+	 * the next one and how far away, "nothing later at all", or "nothing later arrives in
+	 * time" for a leg with a check-in deadline — and, through `transitAnswer`, it
+	 * distinguishes a place with no timetable from a lookup that never happened.
 	 */
 	import type { Duration, Itinerary, LocalDateTime, Transfer, TransferMode } from '../domain';
 	import {
@@ -20,8 +26,12 @@
 		type RecomputedSelection
 	} from '../algorithm/recompute-selection';
 	import { minutesBetween } from '../algorithm/build';
+	import { readMissedService } from '../algorithm/transit-schedule';
+	import type { MissedService } from '../algorithm/transit-schedule';
+	import type { TransitLegAnswer } from '../search/types';
 	import type { TaxiFareEstimate } from '../providers/transfers/taxi-rate-table';
 	import {
+		formatCalendarDate,
 		formatClockTime,
 		formatDuration,
 		formatMoney,
@@ -57,6 +67,15 @@
 		referenceMoment?: LocalDateTime;
 		/** e.g. "you land". Only used when `referenceMoment` is given. */
 		referenceLabel?: string;
+		/**
+		 * Issue #135: what the transit lookup for THIS leg actually said. Rendered only when
+		 * no transit row is on offer, which is exactly when a traveller cannot otherwise tell
+		 * "there is no bus here" from "nobody looked". Bucharest is the case that made this
+		 * necessary: Transitous returned `itineraries: []` and the picker showed Walk 5h 16m,
+		 * Drive 59m, Taxi 59m with no hint that a timetable had been asked for and found
+		 * empty. Omit it and the picker simply says nothing, same as before.
+		 */
+		transitAnswer?: TransitLegAnswer;
 		minLayoverTime?: Duration;
 		onselect: (result: RecomputedSelection) => void;
 	}
@@ -69,6 +88,7 @@
 		taxiFareEstimate,
 		referenceMoment,
 		referenceLabel = 'the reference time',
+		transitAnswer,
 		minLayoverTime,
 		onselect
 	}: Props = $props();
@@ -78,8 +98,8 @@
 
 	// A gap under this is "you'd have waited for it regardless of the flight" rather than a
 	// real dead spot in the schedule. The dramatic "no service" framing is reserved for a
-	// gap bigger than this, or for the intended departure being the last one of the day
-	// (`following.length === 0`).
+	// gap bigger than this, or for a departure the planner found nothing at all after
+	// (`readMissedService`'s `last-known`).
 	const NORMAL_WAIT_THRESHOLD_MINUTES = 20;
 
 	function getSelectedTransfer(current: Itinerary, field: TransferLegField): Transfer | undefined {
@@ -109,7 +129,9 @@
 		delta: ReturnType<typeof diffTransfers> | null;
 		result: RecomputedSelection;
 		gapMinutes?: Duration;
-		isLastForToday: boolean;
+		/** Issue #135: what this row's own schedule says about missing it. Absent for a row
+		 * that is not transit, or a transit row with no schedule. */
+		missed?: MissedService;
 	}
 
 	const taxiRow = $derived(alternatives.find((alternative) => alternative.mode === 'taxi'));
@@ -140,7 +162,7 @@
 				delta: selected && !isSelected ? diffTransfers(selected, transfer) : null,
 				result,
 				gapMinutes,
-				isLastForToday: transfer.transitSchedule?.following.length === 0
+				missed: transfer.transitSchedule ? readMissedService(transfer.transitSchedule) : undefined
 			};
 		});
 	});
@@ -151,8 +173,51 @@
 		onselect(row.result);
 	}
 
+	/**
+	 * The honest-gap line, issue #135. Only ever shown when this leg has no transit row at
+	 * all — with one on offer the row's own schedule already says everything. Every branch
+	 * states what was observed and nothing else: "Transitous answered and had none" is a
+	 * different fact from "the request failed" and from "nobody asked", and the traveller
+	 * cannot act on the first without being told which one it was.
+	 */
+	const transitNotice = $derived.by<string | undefined>(() => {
+		if (!transitAnswer) return undefined;
+		if (rows.some((row) => row.transfer.mode === 'transit')) return undefined;
+
+		const when = transitAnswer.plannedFor
+			? ` for ${formatCalendarDate(transitAnswer.plannedFor.time)} at ${formatClockTime(transitAnswer.plannedFor.time)}`
+			: '';
+
+		switch (transitAnswer.answer) {
+			case 'nothing-found':
+				return `No public transport data for this area. The timetable was asked${when} and had no service between these two points.`;
+			case 'failed': {
+				// AGENTS.md: the provider's own words and status code, verbatim, never a
+				// classification standing in for them. `'status' in ...` is how no-results.ts
+				// reads the same union, since only some `ProviderError` cases carry one.
+				const error = transitAnswer.error;
+				const httpStatus = error && 'status' in error ? error.status : undefined;
+				return `Public transport could not be checked${when}: ${httpStatus ? `${httpStatus}: ` : ''}${error?.message ?? 'the lookup failed'}`;
+			}
+			case 'not-asked':
+				return transitAnswer.reason === 'budget-spent'
+					? `Public transport was not checked for this option: this search had already used its timetable lookups.`
+					: `Public transport was not checked: no timetable provider is available.`;
+			case 'answered':
+				// Answered with a route, yet no transit row reached this picker. Nothing
+				// honest to say beyond that, and staying silent would be the same "we do not
+				// know why" this notice exists to stop.
+				return `A public transport route was found${when}, but it is not among the options here.`;
+		}
+	});
+
 	function isNoServiceGap(row: TransferRow): boolean {
-		return row.isLastForToday || (row.gapMinutes !== undefined && row.gapMinutes > NORMAL_WAIT_THRESHOLD_MINUTES);
+		if (row.gapMinutes !== undefined && row.gapMinutes > NORMAL_WAIT_THRESHOLD_MINUTES) return true;
+		// The planner found nothing at all after this departure. An `arriveBy` leg is
+		// deliberately not treated this way: "nothing later arrives in time" is the answer to
+		// a question about a deadline, not a dead spot in the timetable, and the row says so
+		// in its own words below.
+		return row.missed?.outcome === 'last-known';
 	}
 </script>
 
@@ -229,6 +294,24 @@
 								Departs {formatClockTime(schedule.intended)}{#if row.gapMinutes !== undefined && row.gapMinutes > 0} ({formatDuration(row.gapMinutes)} after {referenceLabel}){/if}
 							</p>
 						{/if}
+						{#if row.missed?.outcome === 'last-in-time'}
+							<p class="schedule-line schedule-missed">
+								The last one that gets you there by {formatClockTime(schedule.plannedFor.time)}. Miss it and
+								nothing later arrives in time.
+							</p>
+						{:else if row.missed?.outcome === 'last-known'}
+							<p class="schedule-line schedule-missed">Nothing runs after it for the rest of the timetable.</p>
+						{:else if row.missed?.outcome === 'long-gap' && row.missed.next && row.missed.gap !== undefined}
+							<p class="schedule-line schedule-missed">
+								Miss it and the next one is {formatClockTime(row.missed.next)}, {formatDuration(row.missed.gap)}
+								later.
+							</p>
+						{/if}
+						{#if schedule.earlier && schedule.earlier.length > 0}
+							<p class="schedule-line schedule-following">
+								Earlier and still in time: {schedule.earlier.map((departure) => formatClockTime(departure)).join(', ')}
+							</p>
+						{/if}
 						{#if schedule.following.length > 0}
 							<p class="schedule-line schedule-following">
 								Next: {schedule.following
@@ -240,6 +323,11 @@
 									.join(', ')}
 							</p>
 						{/if}
+						<p class="schedule-planned">
+							Planned for {formatCalendarDate(schedule.plannedFor.time)},
+							{schedule.plannedFor.arriveBy ? 'arriving by' : 'leaving after'}
+							{formatClockTime(schedule.plannedFor.time)}
+						</p>
 					</div>
 				{/if}
 
@@ -267,6 +355,12 @@
 			</label>
 		{/each}
 	</div>
+
+	{#if transitNotice}
+		<p class="transit-notice" data-testid="transit-notice" data-transit-answer={transitAnswer?.answer}>
+			{transitNotice}
+		</p>
+	{/if}
 
 	{#if currentWarnings.length > 0}
 		<div class="current-warning" role="alert">
@@ -426,6 +520,29 @@
 	.schedule-following {
 		margin-top: var(--space-1);
 		font-family: var(--font-mono);
+	}
+
+	/* The answer to "what if I miss it" reads at the same weight as the departure itself:
+	   for a night arrival or a check-in deadline it is the more consequential of the two. */
+	.schedule-missed {
+		margin-top: var(--space-1);
+		font-weight: var(--font-weight-medium);
+		color: var(--color-text);
+	}
+
+	/* Deliberately the quietest line on the row. It is the receipt for the schedule above —
+	   which journey moment it was planned for — not something to read on every glance. */
+	.schedule-planned {
+		margin-top: var(--space-2);
+		font-size: var(--font-size-xs);
+		color: var(--color-text-faint);
+	}
+
+	.transit-notice {
+		padding: var(--space-2) var(--space-3);
+		border-left: 2px solid var(--color-border-strong);
+		font-size: var(--font-size-sm);
+		color: var(--color-text-muted);
 	}
 
 	.taxi-citation {

@@ -15,7 +15,7 @@
 
 import type { CacheKey, CacheStore } from '../../cache';
 import { defineCacheKey, getDefaultStore } from '../../cache';
-import type { Transfer } from '../../domain';
+import type { Transfer, TransitPlanMoment } from '../../domain';
 import type {
 	ProviderContext,
 	ProviderError,
@@ -68,6 +68,9 @@ export function createTransitousTransferProvider(
 		label: 'Transitous',
 		needsKey: false,
 		keyFields: [],
+		// Timetables only, deliberately — see this file's header for why walking and driving
+		// durations belong to OSRM rather than being read out of the same `/plan` response.
+		modes: ['transit'],
 
 		async healthCheck(ctx: ProviderContext): Promise<ProviderHealth> {
 			const fetchedAt = new Date().toISOString();
@@ -95,13 +98,34 @@ export function createTransitousTransferProvider(
 				return { ok: true, data: [], source, requestsUsed: 0 };
 			}
 
-			const departureUtc = query.departure
-				? localDateTimeToUtcInstant(query.departure)
-				: new Date();
+			// Issue #135. This used to fall back to `new Date()`, so a search run at 11:07 on
+			// a Thursday in September asked for the timetable of 11:07 on a Thursday in
+			// September and the results page presented it as the plan for a 06:15 Sunday
+			// check-in three weeks later. A different day of the week is exactly where bus
+			// and train timetables diverge most, so the wrong answer looked entirely
+			// plausible. Declining costs a caller its transit option; guessing costs the
+			// traveller a flight.
+			if (!query.departure) {
+				return { ok: true, data: [], source, requestsUsed: 0 };
+			}
+
+			const plannedFor: TransitPlanMoment = {
+				time: query.departure,
+				arriveBy: query.arriveBy ?? false
+			};
+			const departureUtc = localDateTimeToUtcInstant(query.departure);
 
 			const cacheKey = defineCacheKey(
 				TRANSITOUS_PROVIDER_ID,
-				{ from: query.from, to: query.to, departureUtc: departureUtc.toISOString() },
+				{
+					from: query.from,
+					to: query.to,
+					departureUtc: departureUtc.toISOString(),
+					// Same instant, opposite question, entirely different answer — so it needs
+					// its own key. AGENTS.md's own #131 lesson: a cached value whose shape or
+					// meaning changed needs a key that no longer resolves to the old one.
+					arriveBy: plannedFor.arriveBy
+				},
 				CACHE_TTL_MS
 			);
 
@@ -118,10 +142,10 @@ export function createTransitousTransferProvider(
 
 			try {
 				const plan = await fetchTransitousPlan(
-					{ from: query.from, to: query.to, departureUtc },
+					{ from: query.from, to: query.to, departureUtc, arriveBy: plannedFor.arriveBy },
 					{ signal: ctx.signal, fetchImpl }
 				);
-				const transfer = mapPlanResponseToTransfer(plan);
+				const transfer = mapPlanResponseToTransfer(plan, plannedFor);
 				const data = transfer ? [transfer] : [];
 				await writeCacheEntry(store, cacheKey, data);
 				return {

@@ -2,6 +2,7 @@ import type { Coordinates } from './coordinates';
 import type { LocalDateTime } from './datetime';
 import type { Duration } from './duration';
 import type { Money } from './money';
+import type { TransitSchedule } from './transit-schedule';
 
 /** Brief line 77: "walking, public transport time and driving time". */
 export type TransferMode = 'walk' | 'transit' | 'taxi' | 'drive';
@@ -32,11 +33,12 @@ export interface Transfer {
 	/**
 	 * Present only when mode is 'transit'. `following` can be an empty array — that is
 	 * the "missed the last bus" case, and it is data to show, not an error to throw.
+	 *
+	 * Issue #135: the shape moved to `transit-schedule.ts` when it gained `plannedFor`.
+	 * A transit transfer with no schedule at all is a lookup that was never planned for a
+	 * real journey moment, which is the one thing this app must never render as a timetable.
 	 */
-	transitSchedule?: {
-		intended: LocalDateTime;
-		following: LocalDateTime[];
-	};
+	transitSchedule?: TransitSchedule;
 	/**
 	 * Issue #118: the actual road/path this transfer follows, when a provider has one to
 	 * give. OSRM's `route` service returns this alongside the duration it was already

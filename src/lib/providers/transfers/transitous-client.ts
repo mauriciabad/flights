@@ -54,6 +54,10 @@ export interface TransitousPlanRequest {
 	 * format. Converting a caller's local departure time into this belongs to
 	 * transitous.ts, which has the airport's zone to do it with. */
 	departureUtc: Date;
+	/** Issue #135: MOTIS's own `arriveBy`. `true` makes `time` a deadline to arrive by,
+	 * which is what a leg ending at an airport check-in needs; the answers then come back
+	 * as the departures that still make it, latest first in usefulness. */
+	arriveBy: boolean;
 }
 
 /** Thrown for any non-2xx HTTP response. `retryAfterSeconds` is only ever set for a 429,
@@ -141,7 +145,7 @@ function buildPlanUrl(request: TransitousPlanRequest): string {
 		// to send more precision than a GTFS timetable (minute-granular) can use anyway.
 		time: request.departureUtc.toISOString().replace(/\.\d{3}Z$/, 'Z'),
 		numItineraries: String(TRANSITOUS_NUM_ITINERARIES),
-		arriveBy: 'false'
+		arriveBy: request.arriveBy ? 'true' : 'false'
 	});
 	return `${BASE_URL}/plan?${params.toString()}`;
 }
