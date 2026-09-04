@@ -62,6 +62,18 @@
 	let result = $state<KeyCheckOutcome | undefined>(undefined);
 	let inFlight: AbortController | undefined;
 
+	// AGENTS.md: "the button has no cooldown" — pressing Test repeatedly against the SAME
+	// saved value, e.g. while reading a confusing error and clicking again to see if it
+	// changes, used to spend one more real request every time. `lastChecked` remembers
+	// which exact key value the most recent completed check actually spent a request on;
+	// `runTest` below skips the network entirely for a re-press of that same value inside
+	// `TEST_COOLDOWN_MS` and just leaves the existing `result` showing. A genuinely new key
+	// value (or a press after the window elapses, e.g. after fixing a RapidAPI subscription
+	// and coming back to retry) still spends a fresh request — this is a guard against
+	// pressing the same button on the same value, never a cache of "this key is fine".
+	const TEST_COOLDOWN_MS = 30_000;
+	let lastChecked: { apiKey: string; at: number } | undefined;
+
 	const REASON_TITLE: Record<ProviderIssueReason, string> = {
 		'missing-key': 'No key saved yet',
 		'invalid-key': 'Key rejected',
@@ -89,16 +101,25 @@
 		// leaving the old values around here is harmless.
 	}
 
-	async function save() {
+	function save() {
 		for (const field of provider.keyFields) {
 			keyStore.setFieldValue(provider.id, field.id, draftValues[field.id] ?? '');
 		}
 		editing = false;
+		result = undefined;
 		// See the comment in `cancelEditing` above: `draftValues` is deliberately not
 		// cleared here either.
-		// "Paste a key, see it validated" (issue #29's brief): run the same cheap real
-		// call the persistent "Test" button uses, once, right after a save.
-		await runTest();
+		//
+		// Used to run the same real, metered call the "Test" button spends, once, right
+		// after every save ("paste a key, see it validated" — issue #29's brief). That
+		// meant every re-save spent a request with no way to opt out — retyping a typo,
+		// re-pasting the same key to double-check it, editing an unrelated field on the
+		// same form — and a health check has no free variant to fall back to (this
+		// module's own doc: RapidAPI meters this host per call regardless of path). A
+		// tier as tight as Booking's 40-request safety cap does not survive many of those.
+		// A saved key is now validated only when the traveller explicitly presses Test,
+		// or implicitly the first time a real search actually calls the provider —
+		// cheaply, or not at all, never automatically.
 	}
 
 	function removeKey() {
@@ -111,6 +132,21 @@
 	async function runTest() {
 		const primaryField = provider.keyFields[0];
 		const apiKey = keyStore.getFieldValue(provider.id, primaryField.id) ?? '';
+
+		// A re-press of the exact same value inside the cooldown window spends nothing:
+		// the outcome already on screen is still the true answer for this value, since
+		// nothing about a RapidAPI key's status changes on its own from one press to the
+		// next a few seconds apart. `apiKey.trim()` empty is excluded: `checkProviderKey`
+		// already reports `missing-key` for that without ever touching the network, so
+		// there is no real request here to guard against repeating.
+		if (
+			apiKey.trim().length > 0 &&
+			lastChecked?.apiKey === apiKey &&
+			Date.now() - lastChecked.at < TEST_COOLDOWN_MS
+		) {
+			return;
+		}
+
 		inFlight?.abort();
 		const controller = new AbortController();
 		inFlight = controller;
@@ -119,6 +155,9 @@
 		try {
 			result = await checkProviderKey(provider, apiKey, controller.signal);
 			refreshQuota();
+			if (inFlight === controller && apiKey.trim().length > 0) {
+				lastChecked = { apiKey, at: Date.now() };
+			}
 		} finally {
 			if (inFlight === controller) checking = false;
 		}
@@ -130,7 +169,7 @@
 
 	function handleSubmit(event: SubmitEvent) {
 		event.preventDefault();
-		void save();
+		save();
 	}
 </script>
 

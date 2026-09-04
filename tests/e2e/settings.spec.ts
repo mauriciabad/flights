@@ -14,6 +14,7 @@ import { test, expect } from './support/fixtures';
  */
 
 const SKY_SCRAPPER_HOST = 'https://sky-scrapper.p.rapidapi.com/**';
+const AGODA_HOST = 'https://agoda-com.p.rapidapi.com/**';
 const TEST_KEY = 'sk-e2e-test-key-1234';
 
 test.describe('settings: API keys', () => {
@@ -78,13 +79,10 @@ test.describe('settings: API keys', () => {
 		const card = page.locator('.provider-card', { hasText: 'Skyscanner (Sky Scrapper)' });
 		await card.getByLabel('RapidAPI key').fill(TEST_KEY);
 
-		// The Test button's own health check would otherwise fire the moment Save is
-		// pressed (issue #29: "paste a key, see it validated") and hit the real network —
-		// mock a boring success so this test only has to assert the redaction, not the
-		// health-check UI, which the next tests cover.
-		await page.context().route(SKY_SCRAPPER_HOST, (route) =>
-			route.fulfill({ status: 200, contentType: 'application/json', body: '{"status":true}' })
-		);
+		// Save no longer spends a real request on its own (issue #122: a metered health
+		// check with no free variant must never fire automatically, or every re-save on a
+		// tier as tight as Booking's 40-request cap burns real quota with no way to opt
+		// out) — no route mock needed here, since nothing calls out to the network.
 		await card.getByRole('button', { name: 'Save' }).click();
 
 		await expect(card.getByText('••••1234')).toBeVisible();
@@ -110,7 +108,10 @@ test.describe('settings: API keys', () => {
 				body: JSON.stringify({ message: 'You are not subscribed to this API.' })
 			})
 		);
+		// Save only stores the key now (issue #122) — Test is the explicit, deliberate
+		// action that actually spends the real request this scenario mocks.
 		await card.getByRole('button', { name: 'Save' }).click();
+		await card.getByRole('button', { name: 'Test' }).click();
 
 		await expect(card.getByText('Not subscribed on RapidAPI')).toBeVisible();
 		const subscribeLink = card.getByRole('link', { name: /subscribe to the free basic plan/i });
@@ -120,6 +121,70 @@ test.describe('settings: API keys', () => {
 		// The invalid-key wording must never appear for this failure — that's the whole
 		// point of telling the two apart.
 		await expect(card.getByText('Key rejected')).not.toBeVisible();
+
+		// Issue #122: our own headline sits above the raw response, never instead of it.
+		await expect(card.getByText(/responded HTTP 403.*you are not subscribed to this api/i)).toBeVisible();
+	});
+
+	test('a 200 with an application-level status:false is reported as an unexpected response, never as not-subscribed', async ({
+		page
+	}) => {
+		// The exact production bug (issue #122): Agoda answered a malformed request with
+		// HTTP 200 and its own `{"status":false,...}` body, and this screen used to read
+		// that as a plain success without ever looking at it. Regression coverage lives
+		// here rather than only in key-check.test.ts's unit tests, because the actual
+		// defect was in how the settings screen's real fetch handled a real HTTP 200 —
+		// a unit test stubbing a already-classified error can't see that class of bug.
+		await page.goto('/settings/');
+		const card = page.locator('.provider-card', { hasText: 'Agoda' });
+		await card.getByLabel('RapidAPI key').fill(TEST_KEY);
+
+		await page.context().route(AGODA_HOST, (route) =>
+			route.fulfill({
+				status: 200,
+				contentType: 'application/json',
+				body: JSON.stringify({ status: false, message: 'The location cannot be empty' })
+			})
+		);
+		await card.getByRole('button', { name: 'Save' }).click();
+		await card.getByRole('button', { name: 'Test' }).click();
+
+		await expect(card.getByText('Not subscribed on RapidAPI')).not.toBeVisible();
+		await expect(card.getByRole('link', { name: /subscribe/i })).toHaveCount(0);
+		await expect(card.getByText('Unexpected response')).toBeVisible();
+		await expect(card.getByText(/responded HTTP 200.*the location cannot be empty/i)).toBeVisible();
+	});
+
+	test('saving a key spends no real request; only pressing Test does, exactly once', async ({ page }) => {
+		// Issue #122: every re-save used to spend a real, metered request automatically
+		// ("paste a key, see it validated"), with no way to opt out — on a tier as tight
+		// as Booking's 40-request cap, a few rounds of editing a typo could burn a
+		// meaningful share of a whole month. Save must now be silent; only an explicit
+		// Test press may touch the network, and only once per press.
+		await page.goto('/settings/');
+		const card = page.locator('.provider-card', { hasText: 'Skyscanner (Sky Scrapper)' });
+
+		let requestCount = 0;
+		await page.context().route(SKY_SCRAPPER_HOST, (route) => {
+			requestCount++;
+			return route.fulfill({ status: 200, contentType: 'application/json', body: '{"status":true}' });
+		});
+
+		await card.getByLabel('RapidAPI key').fill(TEST_KEY);
+		await card.getByRole('button', { name: 'Save' }).click();
+		await expect(card.getByText('••••1234')).toBeVisible();
+		expect(requestCount).toBe(0);
+
+		await card.getByRole('button', { name: 'Test' }).click();
+		await expect(card.getByText('Skyscanner (Sky Scrapper) accepted the key.')).toBeVisible();
+		expect(requestCount).toBe(1);
+
+		// Pressing Test again on the same, still-saved value moments later — exactly the
+		// "click it again to see if it changes" pattern AGENTS.md now warns against —
+		// spends nothing more: the cooldown treats an unchanged value as already answered.
+		await card.getByRole('button', { name: 'Test' }).click();
+		await expect(card.getByText('Skyscanner (Sky Scrapper) accepted the key.')).toBeVisible();
+		expect(requestCount).toBe(1);
 	});
 
 	test('an invalid key is reported as a key problem, not a subscription problem', async ({ page }) => {
@@ -135,6 +200,7 @@ test.describe('settings: API keys', () => {
 			})
 		);
 		await card.getByRole('button', { name: 'Save' }).click();
+		await card.getByRole('button', { name: 'Test' }).click();
 
 		await expect(card.getByText('Key rejected')).toBeVisible();
 		await expect(card.getByRole('link', { name: /subscribe/i })).toHaveCount(0);
@@ -154,6 +220,7 @@ test.describe('settings: API keys', () => {
 			})
 		);
 		await card.getByRole('button', { name: 'Save' }).click();
+		await card.getByRole('button', { name: 'Test' }).click();
 
 		await expect(card.getByText('Free-tier quota used up')).toBeVisible();
 		await expect(card.getByText(/skyscanner \(sky scrapper\)/i).first()).toBeVisible();
@@ -165,9 +232,6 @@ test.describe('settings: API keys', () => {
 		await page.goto('/settings/');
 		const card = page.locator('.provider-card', { hasText: 'Skyscanner (Sky Scrapper)' });
 		await card.getByLabel('RapidAPI key').fill(TEST_KEY);
-		await page.context().route(SKY_SCRAPPER_HOST, (route) =>
-			route.fulfill({ status: 200, contentType: 'application/json', body: '{"status":true}' })
-		);
 		await card.getByRole('button', { name: 'Save' }).click();
 		await expect(card.getByText('••••1234')).toBeVisible();
 
