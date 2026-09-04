@@ -1,0 +1,182 @@
+import { describe, expect, it } from 'vitest';
+import type { Property } from '../../domain';
+import agodaGetPricesWombats from './fixtures/agoda-get-prices-wombats-hostel.json';
+import agodaSearchVienna from './fixtures/agoda-search-vienna.json';
+import nominatimFischamend from './fixtures/nominatim-fischamend.json';
+import nominatimVienna from './fixtures/nominatim-vienna.json';
+import type { AgodaGetPricesResponse, AgodaSearchResponse } from './agoda-types';
+import {
+	agodaCurrencyId,
+	classifyAgodaRoomKind,
+	extractHeadlinePrice,
+	filterWithinRadius,
+	mapGetPricesToStays,
+	mapSearchPropertyToCandidate,
+	resolveLocationLabel,
+	toMoney
+} from './agoda-mapper';
+
+const searchFixture = agodaSearchVienna as AgodaSearchResponse;
+const wombatsFixture = agodaGetPricesWombats as AgodaGetPricesResponse;
+
+describe('classifyAgodaRoomKind', () => {
+	// Every name below is a real Agoda room type, captured live 2026-09-04 against
+	// Wombat's City Hostel Vienna Naschmarkt (propertyId 417108) — see
+	// fixtures/agoda-get-prices-wombats-hostel.json and the PR body's "hostel data"
+	// section. `isDormitory` read `false` on all thirteen of these live, which is why it
+	// plays no part in this function at all (see its own doc comment).
+	it('classifies plain dorm rooms as dorm', () => {
+		expect(classifyAgodaRoomKind('1 Person in 8-Bed Dormitory - Mixed')).toBe('dorm');
+		expect(classifyAgodaRoomKind('Bed in 6 Bed Mixed Dormitory')).toBe('dorm');
+		expect(classifyAgodaRoomKind('Bed in 4 Bed Mixed Dormitory Room with Ensuite Bathroom')).toBe('dorm');
+	});
+
+	it('classifies female-only dorm rooms as female-dorm', () => {
+		expect(classifyAgodaRoomKind('1 Bed in 6 Bedded Female Room Ensuite')).toBe('female-dorm');
+		expect(classifyAgodaRoomKind('1 Bed in 4 Bedded Female Room Ensuite')).toBe('female-dorm');
+	});
+
+	it('classifies ordinary rooms as private', () => {
+		expect(classifyAgodaRoomKind('Double Room')).toBe('private');
+		expect(classifyAgodaRoomKind('Twin Room')).toBe('private');
+	});
+
+	it('classifies a "Private N Bed Dorm" whole-room product as private, not dorm', () => {
+		// The exact naming trap issue #10 warned to expect: a private room with bunk beds,
+		// booked and priced as one whole unit (roughly 4-5x a per-bed dorm rate at the same
+		// hostel), not a shared dorm bed.
+		expect(classifyAgodaRoomKind('4 Bed Private Dorm')).toBe('private');
+		expect(classifyAgodaRoomKind('Private 4 Bed Dorm Room')).toBe('private');
+		expect(classifyAgodaRoomKind('Private 6 Bed Dorm Room')).toBe('private');
+	});
+});
+
+describe('toMoney', () => {
+	it('converts a 2-decimal currency using cents', () => {
+		expect(toMoney(29.46, 'EUR')).toEqual({ minorUnits: 2946, currency: 'EUR' });
+	});
+
+	it('converts a 0-decimal currency without multiplying by 100', () => {
+		expect(toMoney(1500, 'JPY')).toEqual({ minorUnits: 1500, currency: 'JPY' });
+	});
+
+	it('defaults to 2 decimal digits for an unmapped currency', () => {
+		expect(toMoney(10, 'XYZ')).toEqual({ minorUnits: 1000, currency: 'XYZ' });
+	});
+});
+
+describe('agodaCurrencyId', () => {
+	it('resolves a known ISO code to its real, captured Agoda id', () => {
+		expect(agodaCurrencyId('EUR')).toBe(1);
+	});
+
+	it('returns undefined for USD, which Agoda never lists as a selectable id', () => {
+		expect(agodaCurrencyId('USD')).toBeUndefined();
+	});
+
+	it('returns undefined for an unmapped currency rather than guessing an id', () => {
+		expect(agodaCurrencyId('THB')).toBeUndefined();
+	});
+
+	it('returns undefined when no currency was requested', () => {
+		expect(agodaCurrencyId(undefined)).toBeUndefined();
+	});
+});
+
+describe('resolveLocationLabel', () => {
+	it('prefers city over the smaller settlement levels', () => {
+		expect(resolveLocationLabel({ city: 'Vienna', town: 'Should not win', country: 'Austria' })).toBe('Vienna, Austria');
+	});
+
+	it('resolves Vienna city-centre coordinates to "Vienna, Austria" (real Nominatim capture)', () => {
+		expect(resolveLocationLabel(nominatimVienna.address)).toBe('Vienna, Austria');
+	});
+
+	it('falls back to town when there is no city, matching the real VIE-airport case', () => {
+		// Real finding, 2026-09-04: Vienna International Airport's coordinates reverse-geocode
+		// to "Fischamend" (a town), never "Vienna" (a city) — captured live, not synthesised;
+		// see agoda-client.ts `fetchReverseGeocode`'s doc comment for why this matters.
+		expect(resolveLocationLabel(nominatimFischamend.address)).toBe('Fischamend, Austria');
+	});
+
+	it('falls back through village and hamlet when even town is absent', () => {
+		expect(resolveLocationLabel({ village: 'Some Village', country: 'Austria' })).toBe('Some Village, Austria');
+		expect(resolveLocationLabel({ hamlet: 'Some Hamlet', country: 'Austria' })).toBe('Some Hamlet, Austria');
+	});
+
+	it('returns undefined when Nominatim has no settlement name at all', () => {
+		expect(resolveLocationLabel({ country: 'Austria' })).toBeUndefined();
+	});
+});
+
+describe('mapSearchPropertyToCandidate (real fixture)', () => {
+	const properties = searchFixture.data?.properties ?? [];
+
+	it('maps an ordinary hotel with a live price to a candidate', () => {
+		const mercure = properties.find((p) => p.propertyId === 50373);
+		const candidate = mapSearchPropertyToCandidate(mercure!);
+		expect(candidate).toMatchObject({
+			propertyId: 50373,
+			property: { name: 'Mercure Wien Westbahnhof Hotel' },
+			headlinePrice: { currency: 'USD' }
+		});
+		expect(candidate?.property.images.length).toBeGreaterThan(0);
+		expect(candidate?.property.images[0]).toMatch(/^https:/);
+	});
+
+	it('trims a trailing non-breaking space off a real property name', () => {
+		// Wombat's City Hostel Vienna Naschmarkt came back from Agoda with a trailing
+		// U+00A0, captured as-is in the fixture.
+		const wombats = properties.find((p) => p.propertyId === 417108);
+		const candidate = mapSearchPropertyToCandidate(wombats!);
+		expect(candidate?.property.name).toBe("Wombat's City Hostel Vienna Naschmarkt");
+	});
+
+	it('skips a sold-out property entirely', () => {
+		const soldOut = properties.find((p) => p.propertyId === 65548);
+		expect(mapSearchPropertyToCandidate(soldOut!)).toBeUndefined();
+	});
+});
+
+describe('extractHeadlinePrice / filterWithinRadius (synthetic)', () => {
+	const property: Property = {
+		name: 'Test Property',
+		coordinates: { latitude: 48.2, longitude: 16.37 },
+		images: []
+	};
+
+	it('drops candidates outside the requested radius', () => {
+		const near = { property, propertyId: 1, headlinePrice: { minorUnits: 1000, currency: 'EUR' } };
+		const far = {
+			property: { ...property, coordinates: { latitude: 40, longitude: -3 } }, // Madrid-ish, far from Vienna
+			propertyId: 2,
+			headlinePrice: { minorUnits: 1000, currency: 'EUR' }
+		};
+		const result = filterWithinRadius([near, far], { latitude: 48.2082, longitude: 16.3738 }, 25);
+		expect(result.map((c) => c.propertyId)).toEqual([1]);
+	});
+});
+
+describe('mapGetPricesToStays (real fixture)', () => {
+	it('groups Wombat’s 13 room types into one Stay per RoomKind, each at its cheapest price', () => {
+		const property: Property = {
+			name: "Wombat's City Hostel Vienna Naschmarkt",
+			coordinates: { latitude: 48.19685745239258, longitude: 16.36066246032715 },
+			images: []
+		};
+		const stays = mapGetPricesToStays(property, wombatsFixture);
+
+		expect(stays).toHaveLength(3);
+		const byKind = Object.fromEntries(stays.map((s) => [s.roomKind, s.pricePerNight]));
+		// Cheapest dorm: "1 Person in 8-Bed Dormitory - Mixed" at 29.46 EUR.
+		expect(byKind.dorm).toEqual({ minorUnits: 2946, currency: 'EUR' });
+		// Cheapest female-dorm: "1 Bed in 6 Bedded Female Room Ensuite" at 30.56 EUR.
+		expect(byKind['female-dorm']).toEqual({ minorUnits: 3056, currency: 'EUR' });
+		// Cheapest private: "Double Room" at 133.11 EUR — cheaper than either
+		// "Private N Bed Dorm" whole-room product also present in this hostel's list.
+		expect(byKind.private).toEqual({ minorUnits: 13311, currency: 'EUR' });
+		for (const stay of stays) {
+			expect(stay.property).toBe(property);
+		}
+	});
+});
