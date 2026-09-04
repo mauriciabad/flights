@@ -1,0 +1,29 @@
+{
+	"status": true,
+	"timestamp": 1788495387254,
+	"data": [
+		{
+			"presentation": {
+				"title": "Vienna",
+				"suggestionTitle": "Vienna (VIE)",
+				"subtitle": "Austria"
+			},
+			"navigation": {
+				"entityId": "95673444",
+				"entityType": "AIRPORT",
+				"localizedName": "Vienna",
+				"relevantFlightParams": {
+					"skyId": "VIE",
+					"entityId": "95673444",
+					"flightPlaceType": "AIRPORT",
+					"localizedName": "Vienna"
+				},
+				"relevantHotelParams": {
+					"entityId": "27547395",
+					"entityType": "CITY",
+					"localizedName": "Vienna"
+				}
+			}
+		}
+	]
+}
