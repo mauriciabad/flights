@@ -32,10 +32,17 @@ describe('buildOneWayVariables', () => {
 		});
 	});
 
-	it('asks for direct flights only', () => {
-		// The load-bearing filter. Kiwi's speciality is multi-carrier self-transfer
-		// itineraries, and a domain FlightOffer cannot honestly represent one.
-		expect(buildOneWayVariables(base).filter.maxStopsCount).toBe(0);
+	it('asks for one flight, which is not the same as asking for a nonstop', () => {
+		// Issue #210. `maxStopsCount: 0` used to be the whole filter, and it silently
+		// excluded a real product: Kiwi counts a technical stop as a stop, so BVC->FCO
+		// returned nothing at 0 and returned Neos NO4864 at 1. The other two entries pay
+		// for the widening by keeping genuine connections off the wire; the mapper, not
+		// this, is what decides which of what comes back is really one flight.
+		expect(buildOneWayVariables(base).filter).toMatchObject({
+			maxStopsCount: 1,
+			enableSelfTransfer: false,
+			stopoverTime: { start: 0, end: 2 }
+		});
 	});
 
 	it('always prices exactly one adult, so priceScope is true by construction', () => {
@@ -72,8 +79,15 @@ describe('buildOnePerCityVariables', () => {
 		expect(buildOnePerCityVariables(base).search.itinerary.destination.ids).toEqual(['anywhere']);
 	});
 
-	it('asks for direct flights only, since that is what a route edge means', () => {
-		expect(buildOnePerCityVariables(base).filter.maxStopsCount).toBe(0);
+	it('asks for one flight, since that is what a route edge means', () => {
+		// Same widening as the fare query, and issue #210's route depends on it: Rome is
+		// one flight from Boa Vista, so it belongs in this list, and it was missing from it
+		// only because that flight touches down in Sal on the way.
+		expect(buildOnePerCityVariables(base).filter).toMatchObject({
+			maxStopsCount: 1,
+			enableSelfTransfer: false,
+			stopoverTime: { start: 0, end: 2 }
+		});
 	});
 });
 

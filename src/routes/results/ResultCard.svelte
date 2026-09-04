@@ -44,6 +44,7 @@
 	import { connectionAirportCode } from '$lib/results/types';
 	import type { ScoredResult } from '$lib/results/types';
 	import { describePriceFreshness, describeVariants } from '$lib/results/view-model';
+	import { technicalStopDetail, technicalStopLabel } from '$lib/components/technical-stop-note';
 
 	interface Props {
 		result: ScoredResult;
@@ -110,6 +111,27 @@
 		[itinerary.outboundFlight.carrier, itinerary.onwardFlight.carrier].filter(
 			(carrier, index, all) => all.findIndex((other) => other.iataCode === carrier.iataCode) === index
 		)
+	);
+
+	// One note per leg that has a technical stop, which for almost every itinerary is none
+	// at all. Keyed by segment rather than by index so a picker swap that changes only the
+	// onward leg does not re-key the outbound note.
+	const technicalStopNotes = $derived(
+		(
+			[
+				['outbound', itinerary.outboundFlight],
+				['onward', itinerary.onwardFlight]
+			] as const
+		)
+			.map(([key, flight]) => ({
+				key,
+				label: technicalStopLabel(flight),
+				detail: technicalStopDetail(flight)
+			}))
+			.filter(
+				(note): note is { key: 'outbound' | 'onward'; label: string; detail: string } =>
+					note.label !== undefined
+			)
 	);
 
 	// Card's `class` prop is a plain string (its own internal `class={[...]}` array
@@ -220,6 +242,16 @@
 						<AirlineLogo iataCode={carrier.iataCode} name={carrier.name} deprioritized={isDeprioritized} />
 						{carrier.name}
 					</span>
+				{/each}
+				<!-- Issue #210. A leg that touches down on the way is a different product
+				     from a nonstop, and nothing else on the collapsed card says so. Kept to
+				     the honest claim and no more: "1 stop, no plane change", with the
+				     airport and the ground time waiting in the title and in the expanded
+				     timeline row. Deliberately NOT drawn into the trip strip, which issue
+				     #209 is rebuilding — one honest sentence here beats two components
+				     disagreeing about the same flight. -->
+				{#each technicalStopNotes as note (note.key)}
+					<span class="technical-stop" title={note.detail}>{note.label}</span>
 				{/each}
 			</span>
 			<span class="provenance-source" title={sourceText}>{sourceText}</span>
@@ -461,6 +493,24 @@
 
 	:global(.is-deprioritized) .carrier {
 		color: var(--color-text-deprioritized);
+	}
+
+	/* Issue #210. Reads as a stamped note on the ticket stub rather than a status badge:
+	   this is a fact about the flight, not a warning about it, and the flight is often the
+	   best option on the board. */
+	.technical-stop {
+		display: inline-flex;
+		align-items: center;
+		padding: 0 var(--space-2);
+		border: 1px dashed var(--color-border-strong);
+		border-radius: var(--radius-sm);
+		color: var(--color-text-muted);
+		white-space: nowrap;
+	}
+
+	:global(.is-deprioritized) .technical-stop {
+		color: var(--color-text-deprioritized);
+		border-color: var(--color-border);
 	}
 
 	/* Desktop-sized padding and gaps were a third of what put the phone card over the

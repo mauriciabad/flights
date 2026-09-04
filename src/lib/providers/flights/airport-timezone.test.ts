@@ -3,6 +3,7 @@ import { MemoryCacheStore } from '../../cache';
 import type { ProviderContext } from '../types';
 import {
 	buildLocalDateTime,
+	elapsedMinutes,
 	resolveAirportTimeZone,
 	seedTimeZoneForAirport,
 	toLocalDateTime,
@@ -192,5 +193,32 @@ describe('toLocalDateTime', () => {
 
 	it('returns undefined for an airport with no entry in the resolved-zones map, rather than guessing', () => {
 		expect(toLocalDateTime('2026-10-15T08:05:00', 'XXX', new Map())).toBeUndefined();
+	});
+});
+
+describe('elapsedMinutes', () => {
+	it('measures a technical stop that crosses midnight on the airport clock', () => {
+		// Issue #210. Subtracting the two wall-clock strings gives minus 23h10m here, which
+		// is exactly how AGENTS.md says an overnight gap loses its night.
+		const arrival = buildLocalDateTime('2026-10-08T23:50:00', 'Atlantic/Cape_Verde');
+		const departure = buildLocalDateTime('2026-10-09T00:40:00', 'Atlantic/Cape_Verde');
+
+		expect(elapsedMinutes(arrival, departure)).toBe(50);
+	});
+
+	it('measures across two different offsets', () => {
+		// BVC (UTC-1) to LGW (BST, UTC+1) on the reference route: 12:40 to 20:30 reads as
+		// 7h50m on the two clocks and is 5h50m of flying.
+		const departure = buildLocalDateTime('2026-10-06T12:40:00', 'Atlantic/Cape_Verde');
+		const arrival = buildLocalDateTime('2026-10-06T20:30:00', 'Europe/London');
+
+		expect(elapsedMinutes(departure, arrival)).toBe(350);
+	});
+
+	it('goes negative when the second value is earlier, rather than wrapping', () => {
+		const first = buildLocalDateTime('2026-10-08T15:10:00', 'Atlantic/Cape_Verde');
+		const second = buildLocalDateTime('2026-10-08T14:10:00', 'Atlantic/Cape_Verde');
+
+		expect(elapsedMinutes(first, second)).toBe(-60);
 	});
 });

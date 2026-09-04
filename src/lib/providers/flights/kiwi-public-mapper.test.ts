@@ -6,6 +6,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
+import bvcToFco from './fixtures/kiwi-public-oneway-bvc-fco.json';
 import bvcToLgw from './fixtures/kiwi-public-oneway-bvc-lgw.json';
 import lgwToPfo from './fixtures/kiwi-public-oneway-lgw-pfo.json';
 import onePerCityBvc from './fixtures/kiwi-public-oneper-city-bvc.json';
@@ -135,13 +136,13 @@ describe('mapItineraryToFlightOffer', () => {
 		expect(mapItineraryToFlightOffer(itinerary)).toBeUndefined();
 	});
 
-	it('drops an itinerary with more than one segment', () => {
+	it('drops a second segment that does not start where the first one landed', () => {
 		const itinerary = realItinerary();
 		const segments = itinerary.sector?.sectorSegments ?? [];
-		itinerary.sector = { sectorSegments: [...segments, ...segments] };
+		// BVC->LGW twice over: same carrier, same flight number, but the second segment
+		// starts back at Boa Vista. Whatever the flags claim, a stop is one place.
+		itinerary.sector = { sectorSegments: [...segments, ...structuredClone(segments)] };
 
-		// A FlightOffer is one flight. Flattening a two-leg journey into one would describe
-		// a flight nobody sells — docs/ACCEPTANCE.md's highest-severity bug.
 		expect(mapItineraryToFlightOffer(itinerary)).toBeUndefined();
 	});
 
@@ -196,6 +197,162 @@ describe('mapItineraryToFlightOffer', () => {
 	it('survives a structurally broken entry', () => {
 		expect(mapItineraryToFlightOffer(null as unknown as KiwiPublicItinerary)).toBeUndefined();
 		expect(mapItineraryToFlightOffer({})).toBeUndefined();
+	});
+
+	it('leaves a nonstop offer with no technicalStops field at all', () => {
+		// Not `[]`. A consumer that forgets to check length reads `undefined` as falsy and
+		// an empty array as a truthy object, and only one of those fails safe.
+		expect(mapItineraryToFlightOffer(realItinerary())).not.toHaveProperty('technicalStops');
+	});
+});
+
+/**
+ * Issue #210. The owner:
+ *
+ * > sometimes a flight may make a stop to gather more passangers but i dont have to get out
+ * > of the plane. for me i dont count this as a layover
+ *
+ * Everything here runs against ./fixtures/kiwi-public-oneway-bvc-fco.json, captured live on
+ * 2026-09-04 with the shipped query document and filter. It is the useful fixture precisely
+ * because it holds one of each: Neos NO4864 stopping at Sal on one flight number, and a
+ * TAP itinerary through Lisbon on two — sold as one booking, and still a plane change.
+ */
+describe('technical stops', () => {
+	function bvcToFcoItineraries(): KiwiPublicItinerary[] {
+		return structuredClone(bvcToFco.data.onewayItineraries.itineraries) as KiwiPublicItinerary[];
+	}
+
+	function neosItinerary(): KiwiPublicItinerary {
+		return bvcToFcoItineraries()[0];
+	}
+
+	it("keeps the Neos flight the owner's own route was missing", () => {
+		const offer = mapItineraryToFlightOffer(neosItinerary());
+
+		expect(offer).toBeDefined();
+		expect(offer!.flightNumber).toBe('NO4864');
+		expect(offer!.carrier).toEqual({ iataCode: 'NO', name: 'Neos Air' });
+		// The endpoints are where the traveller boards and gets off, never the touchdown.
+		expect(offer!.departureAirport).toBe('BVC');
+		expect(offer!.arrivalAirport).toBe('FCO');
+		expect(offer!.departure.local).toBe('2026-10-08T13:40:00');
+		expect(offer!.arrival.local).toBe('2026-10-08T23:50:00');
+		expect(offer!.price).toEqual({ minorUnits: 26200, currency: 'EUR' });
+	});
+
+	it('records Sal as a technical stop with its own ground time', () => {
+		const offer = mapItineraryToFlightOffer(neosItinerary());
+
+		expect(offer!.technicalStops).toEqual([
+			{
+				airport: 'SID',
+				arrival: {
+					local: '2026-10-08T14:10:00',
+					timeZone: 'Atlantic/Cape_Verde',
+					utcOffsetMinutes: -60
+				},
+				departure: {
+					local: '2026-10-08T15:10:00',
+					timeZone: 'Atlantic/Cape_Verde',
+					utcOffsetMinutes: -60
+				},
+				groundTime: 60
+			}
+		]);
+	});
+
+	it('counts the hour on the ground at Sal inside the flight duration', () => {
+		const offer = mapItineraryToFlightOffer(neosItinerary());
+
+		// 30min BVC-SID + 60min parked + 340min SID-FCO. Kiwi's own itinerary total for
+		// this same booking is 25800s, and 25800 / 60 = 430, so the two agree.
+		expect(offer!.duration).toBe(430);
+		// Door to door is the number this app is judged on (docs/ACCEPTANCE.md), and
+		// algorithm/build.ts reaches it by adding the legs' durations. Dropping the hour
+		// here would shorten the whole trip by an hour.
+		expect(offer!.duration).toBe(30 + 60 + 340);
+	});
+
+	it('refuses a two-flight itinerary sold on one booking', () => {
+		const [, tapViaLisbon] = bvcToFcoItineraries();
+
+		// TP1568 BVC->LIS then TP838 LIS->FCO. One ticket, one carrier, and still two
+		// flights with two numbers and a plane to change. Collapsing it would invent a
+		// flight nobody sells, and would also hide a stopover this app exists to offer.
+		expect(mapItineraryToFlightOffer(tapViaLisbon)).toBeUndefined();
+	});
+
+	it('maps the response to exactly the one offer that is one flight', () => {
+		const offers = mapOneWayResultToOffers(bvcToFco.data.onewayItineraries);
+
+		expect(offers.map((offer) => offer.flightNumber)).toEqual(['NO4864']);
+	});
+
+	it("believes Kiwi over the flight number when Kiwi says the plane changes", () => {
+		const itinerary = neosItinerary();
+		itinerary.sector!.sectorSegments![0].segment!.followingTechnicalStop = false;
+
+		// One flight NUMBER across a change of aircraft is a real product airlines sell,
+		// and IATA calls it a direct flight. The traveller still gets off the plane, so it
+		// is not this. Kiwi's own field is the only thing that can tell the two apart.
+		expect(mapItineraryToFlightOffer(itinerary)).toBeUndefined();
+	});
+
+	it('falls back to the flight number when Kiwi sends no verdict', () => {
+		const itinerary = neosItinerary();
+		delete itinerary.sector!.sectorSegments![0].segment!.followingTechnicalStop;
+
+		// The field is undocumented and may vanish. Same carrier and same number across a
+		// contiguous pair of segments is what "one flight" means, so the offer survives.
+		expect(mapItineraryToFlightOffer(itinerary)?.technicalStops).toHaveLength(1);
+	});
+
+	it('refuses a stop Kiwi calls technical between two different flight numbers', () => {
+		const itinerary = neosItinerary();
+		itinerary.sector!.sectorSegments![1].segment!.code = '4999';
+
+		// One offer carries one flight number, and crosscheck.ts matches offers across
+		// providers on it. Printing NO4864 over a leg sold as NO4999 is a flight that does
+		// not exist, whatever the flag says.
+		expect(mapItineraryToFlightOffer(itinerary)).toBeUndefined();
+	});
+
+	it('refuses a stop between two different carriers', () => {
+		const itinerary = neosItinerary();
+		itinerary.sector!.sectorSegments![1].segment!.carrier = { code: 'AZ', name: 'ITA Airways' };
+
+		expect(mapItineraryToFlightOffer(itinerary)).toBeUndefined();
+	});
+
+	it('drops the offer rather than timing a stop whose airport has no zone', () => {
+		const itinerary = neosItinerary();
+		delete itinerary.sector!.sectorSegments![0].segment!.destination!.station!.timezone;
+
+		// A guessed offset at the stop is a wrong ground time, which is a wrong duration,
+		// which is a wrong door-to-door figure. AGENTS.md: say what you do not know.
+		expect(mapItineraryToFlightOffer(itinerary)).toBeUndefined();
+	});
+
+	it('drops an offer whose stop leaves before it lands', () => {
+		const itinerary = neosItinerary();
+		itinerary.sector!.sectorSegments![1].segment!.source!.localTime = '2026-10-08T13:50:00';
+
+		expect(mapItineraryToFlightOffer(itinerary)).toBeUndefined();
+	});
+
+	it('keeps the stop on the airport clock across a midnight touchdown', () => {
+		const itinerary = neosItinerary();
+		const [first, second] = itinerary.sector!.sectorSegments!;
+		first.segment!.destination!.localTime = '2026-10-08T23:50:00';
+		second.segment!.source!.localTime = '2026-10-09T00:40:00';
+
+		// 50 minutes, not "minus twenty-three hours and ten minutes". A stop that crosses
+		// a date on the airport clock is exactly the case AGENTS.md's timezone rule is
+		// about, and subtracting the two wall-clock strings is how the night goes missing.
+		const [stop] = mapItineraryToFlightOffer(itinerary)!.technicalStops!;
+		expect(stop.groundTime).toBe(50);
+		expect(stop.arrival.local).toBe('2026-10-08T23:50:00');
+		expect(stop.departure.local).toBe('2026-10-09T00:40:00');
 	});
 });
 

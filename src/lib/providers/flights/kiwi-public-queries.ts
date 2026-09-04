@@ -25,13 +25,16 @@ export const ONE_PER_CITY_FEATURE_NAME = 'OnePerCityItinerariesQuery';
  * Direct flights only, priced, between two airports across a date range — ONE request for
  * the whole range, unlike Sky Scrapper's one-request-per-day shape (docs/PROVIDERS.md).
  *
- * `maxStopsCount: 0` is the load-bearing filter. Kiwi's speciality is multi-carrier
+ * `SINGLE_FLIGHT_FILTER` is the load-bearing part. Kiwi's speciality is multi-carrier
  * self-transfer itineraries (its answer for BVC→PFO chains easyJet, Ryanair and Jet2
  * through two different cities), but a domain `FlightOffer` is exactly one flight with one
  * carrier and one flight number, and this app builds the connection itself so it can put a
  * night in the middle. Asking for connections here and flattening them would either
  * fabricate a single "offer" that no airline sells, or silently reprice a three-leg journey
  * as one leg. Neither is acceptable, so this asks only for what maps honestly.
+ *
+ * `followingTechnicalStop` is the one field added for issue #210. See
+ * `kiwi-public-types.ts` for what it means and how that was established.
  */
 export const ONE_WAY_DIRECT_QUERY = `query SearchOneWayItinerariesQuery($search: SearchOnewayInput, $filter: ItinerariesFilterInput, $options: ItinerariesOptionsInput) {
   onewayItineraries(search: $search, filter: $filter, options: $options) {
@@ -49,6 +52,7 @@ export const ONE_WAY_DIRECT_QUERY = `query SearchOneWayItinerariesQuery($search:
               segment {
                 code
                 duration
+                followingTechnicalStop
                 carrier { code name }
                 source { localTime station { code timezone } }
                 destination { localTime station { code timezone } }
@@ -62,8 +66,11 @@ export const ONE_WAY_DIRECT_QUERY = `query SearchOneWayItinerariesQuery($search:
 }`;
 
 /**
- * Every airport reachable on a DIRECT flight from one origin, one result per destination
- * city, in a single request. This is the capability no other adapter in this codebase has:
+ * Every airport reachable from one origin on a SINGLE FLIGHT — nonstop, or with a technical
+ * stop the traveller sits through — one result per destination city, in a single request.
+ * (It said "direct" before issue #210, and the widened `SINGLE_FLIGHT_FILTER` below is what
+ * changed. Sal is why: Rome is one flight from Boa Vista and was missing from this list.)
+ * This is the capability no other adapter in this codebase has:
  * Sky Scrapper's `searchFlightEverywhere` is deprecated and its v2 replacement only answers
  * at country level, and Flights Sky has no equivalent endpoint at all — both of their
  * `listDirectDestinations` implementations return a failure saying so. Ryanair answers it,
@@ -116,6 +123,50 @@ const ONE_ADULT = {
 
 const ECONOMY = { cabinClass: 'ECONOMY', applyMixedClasses: false } as const;
 
+/**
+ * Longest ground time, in hours, this adapter will ask Kiwi to consider for a stop.
+ *
+ * Purely a request-narrowing number. It never decides what a technical stop IS — only
+ * `kiwi-public-mapper.ts` does that, from `followingTechnicalStop` and the flight number —
+ * so getting it slightly wrong costs recall or requests, never correctness. Two hours is
+ * comfortably above real refuelling and pick-up stops (the Neos SID stop this was built for
+ * is exactly one hour) and well below any connection a person would call a layover.
+ */
+const TECHNICAL_STOP_MAX_HOURS = 2;
+
+/**
+ * Ask for what fits in one `FlightOffer`: one flight, one flight number, boarded once.
+ *
+ * `maxStopsCount: 0` used to be the whole of this, and it is what issue #210 was about.
+ * Kiwi counts a technical stop as a stop, so `0` silently excluded a real product: measured
+ * 2026-09-04, BVC→FCO for 6-8 October 2026 returns ZERO itineraries at `maxStopsCount: 0`
+ * and exactly one at `1` — Neos NO4864, BVC 13:40 → SID 14:10, SID 15:10 → FCO 23:50, one
+ * aircraft, one flight number, EUR 262. The owner's read is that this may be the lowest
+ * door-to-door option on his own route, so "widen the request and let the mapper judge" is
+ * the only shape that can find it. Fixing the mapper alone would have changed nothing,
+ * because the response never contained the itinerary in the first place.
+ *
+ * The other two entries pay for that widening, and both were measured rather than assumed:
+ *
+ * - `enableSelfTransfer: false` drops Kiwi's own stitched-together multi-carrier
+ *   itineraries. It is NOT a plane-change filter and must not be mistaken for one — with it
+ *   set, BVC→LGW still offered TAP 1568 then TAP 1334 via Lisbon on one booking, two flight
+ *   numbers, twelve hours apart. The mapper rejects that; this only keeps it off the wire.
+ * - `stopoverTime` bounds the ground time. Together the two keep the widening cheap:
+ *   Boa Vista's direct-destination list goes from 11 airports to 20 rather than to the 60+
+ *   an unfiltered one-stop search returns, and BVC→FCO comes back with the one Neos
+ *   itinerary instead of twenty-one mostly-unusable ones.
+ *
+ * Direct flights are untouched by any of it, which was checked rather than reasoned about:
+ * BVC→LGW and LGW→PFO, the two legs docs/ACCEPTANCE.md's reference route is made of,
+ * return byte-identical itinerary sets before and after (4 and 22 respectively).
+ */
+const SINGLE_FLIGHT_FILTER = {
+	maxStopsCount: 1,
+	enableSelfTransfer: false,
+	stopoverTime: { start: 0, end: TECHNICAL_STOP_MAX_HOURS }
+} as const;
+
 function optionsFor(currency: IsoCurrencyCode) {
 	return {
 		sortBy: 'PRICE',
@@ -165,7 +216,7 @@ export function buildOneWayVariables(input: OneWayVariablesInput) {
 			// KIWI only. The other providers Kiwi's own site can mix in (FRESH, KAYAK) return
 			// itineraries this adapter has no way to price-check or deep-link honestly.
 			contentProviders: ['KIWI'],
-			maxStopsCount: 0,
+			...SINGLE_FLIGHT_FILTER,
 			limit: input.limit,
 			flightsApiLimit: input.limit
 		},
@@ -195,7 +246,11 @@ export function buildOnePerCityVariables(input: OnePerCityVariablesInput) {
 		filter: {
 			transportTypes: ['FLIGHT'],
 			contentProviders: ['KIWI'],
-			maxStopsCount: 0,
+			// Same widening as the fare query, and it is what makes issue #210's route
+			// findable at all: `connections.ts` can only propose a stopover this ever
+			// listed, and Rome is absent from Boa Vista's direct-destination list precisely
+			// because the only flight there has a technical stop in Sal.
+			...SINGLE_FLIGHT_FILTER,
 			limit: input.limit,
 			flightsApiLimit: input.limit
 		},

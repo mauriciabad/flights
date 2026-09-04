@@ -138,11 +138,12 @@ EUR 238 of flights via London Gatwick.
 - **It is undocumented and belongs to someone else's website.** It can change shape or start
   refusing traffic with no notice. Every field is re-validated in
   `kiwi-public-mapper.ts` and a failure degrades to "this source doesn't know".
-- **Direct flights only, deliberately.** Kiwi's speciality is stitching several carriers
+- **One flight per offer, deliberately.** Kiwi's speciality is stitching several carriers
   into one self-transfer itinerary, and it does that for this very route (BVC→LIS easyJet,
   LIS→STN Ryanair, STN→PFO Jet2, USD 267). But a domain `FlightOffer` is one flight with one
   flight number, and this app builds the connection itself so it can put a night in the
   middle. Flattening a three-leg journey into one offer would describe a flight nobody sells.
+  What "one flight" means got more precise in issue #210 — see the next section.
 - **A headless User-Agent gets a 403 with no CORS headers.** See the section above. This
   affects probes, never real users.
 - **Whether its price scales with `passengers.adults` was not measured**, so the adapter
@@ -155,6 +156,54 @@ EUR 238 of flights via London Gatwick.
   network snapshot. Kiwi has no whole-network endpoint to fix it that way. With the cap the
   same search spends 52 and still returns 4 itineraries; BVC→PFO, the origin this adapter
   exists for, spends 19 and never reaches the cap at all.
+
+### A technical stop is a stop, as far as Kiwi's filter is concerned
+
+Issue #210, measured 2026-09-04 from a browser origin. This one is worth reading before
+touching the filter again, because the interesting part is not in the mapper.
+
+`maxStopsCount: 0` does not mean "nonstop". Kiwi counts a touchdown you sit through as a
+stop, so the filter excluded a real single-flight product, and no amount of fixing the
+mapper would have found it — the itinerary was never in the response:
+
+```
+BVC -> FCO   maxStopsCount: 0    0 itineraries
+BVC -> FCO   maxStopsCount: 1    Neos NO4864, BVC 13:40 -> SID 14:10, SID 15:10 -> FCO 23:50
+                                 one aircraft, one flight number, one booking, EUR 262
+```
+
+**`Segment.followingTechnicalStop` is Kiwi's own answer**, found by introspecting the live
+schema (`__type(name: "Segment")`) rather than guessed at. It is undocumented and carries no
+description, so the direction was read off a real response: on that Neos itinerary the FIRST
+segment (BVC→SID) is `true` and the second is `false`, so it describes the stop that
+*follows* a segment. `kiwi-public-mapper.ts` requires it to agree with the
+same-carrier-same-flight-number rule and falls back to that rule alone if the field ever
+disappears. Never treats absence as `true`.
+
+Three things that look like they would work and do not:
+
+- **`enableSelfTransfer: false` is not a plane-change filter.** It drops Kiwi's own stitched
+  multi-carrier itineraries, and that is all. With it set, BVC→LGW still offered TAP 1568
+  then TAP 1334 via Lisbon on ONE booking, two flight numbers, twelve hours apart. It is
+  worth sending as a narrowing device; it is not worth trusting as a discriminator.
+- **A `layover` object is present on a technical stop too**, with `duration: 3600`,
+  `isStationChange: false`, `isBaggageRecheck: false`. Its presence proves nothing.
+- **`onewayOnePerCityItineraries` cannot return segments.** `OnePerCityItinerary` is an
+  interface exposing only `price`, `source`, `destination`, `discountPercentage`,
+  `outboundDepartureDateRange` and `departureDate`, so the route-graph query cannot filter
+  technical stops client-side the way the fare query does. It has to lean on the filter, and
+  its destination list is therefore "reachable on one booking with at most one short stop" —
+  a superset of "one flight". A candidate that turns out not to be costs one fare request to
+  disprove.
+
+That widening is what makes the route findable at all: `connections.ts` can only propose a
+stopover some source has listed, and Rome was missing from Boa Vista's list precisely
+because the only flight there stops in Sal. Measured for BVC over the adapter's own 14-to-44
+day window: 11 destinations before, 20 after, against the 60+ an unfiltered one-stop search
+returns. A hub barely moves — BCN goes from 77 to 81.
+
+Nothing about a nonstop changes. BVC→LGW and LGW→PFO, the two legs `docs/ACCEPTANCE.md`'s
+reference route is built from, return identical itinerary sets before and after (4 and 22).
 
 ## What died
 

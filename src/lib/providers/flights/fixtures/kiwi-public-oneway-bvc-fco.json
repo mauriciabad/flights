@@ -1,0 +1,145 @@
+{
+	"data": {
+		"onewayItineraries": {
+			"__typename": "Itineraries",
+			"itineraries": [
+				{
+					"__typename": "ItineraryOneWay",
+					"id": "ItineraryOneWay:eyJwcm92aWRlcnMiOiJLSVdJLUJBU0lDOktJV0kiLCJyb3V0ZV9kYXRhIjoiTk86NDg2NDpCVkM6MTc5MTQ3MDQwMDpTSUQ6MTc5MTQ3MjIwMDplY29ub215OkZhbHNlOjo6Tk98Tk86NDg2NDpTSUQ6MTc5MTQ3NTgwMDpGQ086MTc5MTQ5NjIwMDplY29ub215OkZhbHNlOjo6Tk8iLCJwcmljZSI6IjI2MiJ9",
+					"price": {
+						"amount": "262",
+						"currency": {
+							"code": "EUR"
+						}
+					},
+					"bagsInfo": {
+						"includedCheckedBags": 0,
+						"includedHandBags": 1
+					},
+					"sector": {
+						"sectorSegments": [
+							{
+								"segment": {
+									"code": "4864",
+									"duration": 1800,
+									"followingTechnicalStop": true,
+									"carrier": {
+										"code": "NO",
+										"name": "Neos Air"
+									},
+									"source": {
+										"localTime": "2026-10-08T13:40:00",
+										"station": {
+											"code": "BVC",
+											"timezone": "Atlantic/Cape_Verde"
+										}
+									},
+									"destination": {
+										"localTime": "2026-10-08T14:10:00",
+										"station": {
+											"code": "SID",
+											"timezone": "Atlantic/Cape_Verde"
+										}
+									}
+								}
+							},
+							{
+								"segment": {
+									"code": "4864",
+									"duration": 20400,
+									"followingTechnicalStop": false,
+									"carrier": {
+										"code": "NO",
+										"name": "Neos Air"
+									},
+									"source": {
+										"localTime": "2026-10-08T15:10:00",
+										"station": {
+											"code": "SID",
+											"timezone": "Atlantic/Cape_Verde"
+										}
+									},
+									"destination": {
+										"localTime": "2026-10-08T23:50:00",
+										"station": {
+											"code": "FCO",
+											"timezone": "Europe/Rome"
+										}
+									}
+								}
+							}
+						]
+					}
+				},
+				{
+					"__typename": "ItineraryOneWay",
+					"id": "ItineraryOneWay:eyJwcm92aWRlcnMiOiJLSVdJLUJBU0lDOktJV0kiLCJyb3V0ZV9kYXRhIjoiVFA6MTU2ODpCVkM6MTc5MTYzOTkwMDpMSVM6MTc5MTY1NDAwMDplY29ub215OkZhbHNlOjo6VFB8VFA6ODM4OkxJUzoxNzkxNjU5NzAwOkZDTzoxNzkxNjcwNTAwOmVjb25vbXk6RmFsc2U6OjpUUCIsInByaWNlIjoiNjM3In0=",
+					"price": {
+						"amount": "637",
+						"currency": {
+							"code": "EUR"
+						}
+					},
+					"bagsInfo": {
+						"includedCheckedBags": 0,
+						"includedHandBags": 1
+					},
+					"sector": {
+						"sectorSegments": [
+							{
+								"segment": {
+									"code": "1568",
+									"duration": 14100,
+									"followingTechnicalStop": false,
+									"carrier": {
+										"code": "TP",
+										"name": "TAP Portugal"
+									},
+									"source": {
+										"localTime": "2026-10-10T12:45:00",
+										"station": {
+											"code": "BVC",
+											"timezone": "Atlantic/Cape_Verde"
+										}
+									},
+									"destination": {
+										"localTime": "2026-10-10T18:40:00",
+										"station": {
+											"code": "LIS",
+											"timezone": "Europe/Lisbon"
+										}
+									}
+								}
+							},
+							{
+								"segment": {
+									"code": "838",
+									"duration": 10800,
+									"followingTechnicalStop": false,
+									"carrier": {
+										"code": "TP",
+										"name": "TAP Portugal"
+									},
+									"source": {
+										"localTime": "2026-10-10T20:15:00",
+										"station": {
+											"code": "LIS",
+											"timezone": "Europe/Lisbon"
+										}
+									},
+									"destination": {
+										"localTime": "2026-10-11T00:15:00",
+										"station": {
+											"code": "FCO",
+											"timezone": "Europe/Rome"
+										}
+									}
+								}
+							}
+						]
+					}
+				}
+			]
+		}
+	}
+}
