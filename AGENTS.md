@@ -121,6 +121,28 @@ made it vanish.
 So before concluding the framework is wrong: `rm -rf .svelte-kit build && pnpm build`. If it
 survives that, it is real.
 
+## Show the error you got, never the one you assumed
+
+When a provider fails, surface **its own message and status code, verbatim**. Our own
+classification is an addition on top, never a replacement.
+
+This has already cost real time. Agoda returned `200` with
+`{"status":false,"message":"The location cannot be empty"}`, which points straight at a
+malformed request on our side. The settings screen discarded that and displayed an invented
+sentence saying the user had not subscribed on RapidAPI. He had. He went and checked his
+account, and the actual bug was in our own query parameters.
+
+So:
+
+- A headline and a suggested action are useful, but only when they are true and only alongside
+  the raw response.
+- Never assert a cause you did not observe. "Agoda returned 200 with: The location cannot be
+  empty" is worth more than a confident wrong diagnosis.
+- Include the status code. `403` versus `200`-with-an-error-body is exactly the distinction that
+  went missing here.
+
+The owner's words: "we should show the actual errors recieved, not invent our own".
+
 ## Definition of done
 
 - `pnpm check` passes. No new type errors, no `any` smuggled in to silence one.
