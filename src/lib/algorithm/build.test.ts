@@ -568,3 +568,68 @@ function addMinutesForTest(dateTime: LocalDateTime, minutes: number): LocalDateT
 		utcOffsetMinutes: dateTime.utcOffsetMinutes
 	};
 }
+
+/**
+ * Issue #152. The defect these pin was a closed loop: an itinerary that successfully priced
+ * a bed was thrown away for having priced one, because the bed came back in USD (the stay
+ * query carried no currency) and `sumMoney` refuses to total a mix. `pipeline.ts` caught
+ * that throw by discarding the whole candidate. Only the bedless itineraries survived to be
+ * rendered — each captioned "No bed priced for this stopover. Total excludes a stay." The
+ * app could not display a priced bed no matter what key was configured.
+ */
+describe('buildItineraries — a wrong-currency stay costs the bed, never the trip (issue #152)', () => {
+	function usdStay(pricePerNightMinorUnits = 3000): Stay {
+		return {
+			property: { name: 'Priced In Dollars', coordinates: { latitude: 0, longitude: 0 }, images: [] },
+			roomKind: 'dorm',
+			pricePerNight: { minorUnits: pricePerNightMinorUnits, currency: 'USD' }
+		};
+	}
+
+	function overnightInput(stay: Stay | undefined): BuildItinerariesInput {
+		const outboundArrival = localDateTime('2026-10-06T18:00:00', 'Europe/Vienna', 120);
+		const onwardDeparture = localDateTime('2026-10-08T10:00:00', 'Europe/Vienna', 120);
+		return baseInput({
+			outboundOffers: [makeFlight('LGW', 'VIE', outboundArrival, outboundArrival, 150, 10000)],
+			onwardOffers: [makeFlight('VIE', 'IST', onwardDeparture, onwardDeparture, 90, 12000)],
+			connectionResources: {
+				VIE: stay
+					? { stay, transferToHotel: makeTransfer(20), transferToConnectionAirport: makeTransfer(20) }
+					: {}
+			},
+			waitingTimeRules: flatWaitingTime(60)
+		});
+	}
+
+	it('still builds the itinerary when the stay is quoted in another currency', () => {
+		// Before the fix this threw out of `buildItineraries` entirely.
+		expect(() => buildItineraries(overnightInput(usdStay()))).not.toThrow();
+
+		const [itinerary] = buildItineraries(overnightInput(usdStay()));
+		expect(itinerary).toBeDefined();
+	});
+
+	it('drops the bed and totals the flights alone, rather than dropping the trip', () => {
+		const [itinerary] = buildItineraries(overnightInput(usdStay()));
+
+		expect(itinerary?.stay).toBeUndefined();
+		// Flights only: 10000 + 12000. The USD bed contributes nothing rather than
+		// contributing a number in the wrong money.
+		expect(itinerary?.totalPrice).toEqual({ minorUnits: 22000, currency: 'EUR' });
+	});
+
+	it('still counts the nights, so the stopover does not silently become a same-day connection', () => {
+		const [itinerary] = buildItineraries(overnightInput(usdStay()));
+		expect(itinerary?.nightsInConnection).toBeGreaterThan(0);
+	});
+
+	it('prices the bed into the total when the currencies do match', () => {
+		// The positive case, and the one the owner has never seen: two nights at 30.00 EUR
+		// on top of 220.00 EUR of flights.
+		const [itinerary] = buildItineraries(overnightInput(makeStay()));
+
+		expect(itinerary?.stay).toBeDefined();
+		expect(itinerary?.nightsInConnection).toBe(2);
+		expect(itinerary?.totalPrice).toEqual({ minorUnits: 22000 + 3000 * 2, currency: 'EUR' });
+	});
+});

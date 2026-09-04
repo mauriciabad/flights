@@ -20,8 +20,8 @@ import type {
 	StayProvider,
 	StaySearchQuery
 } from '../providers/types';
-import { estimateWidenCost, isQuotaGenerous } from '../providers/budget';
-import type { CostAwareSearchResult, CostAwareSource, ProviderTier } from '../providers/budget';
+import { estimateWidenCost } from '../providers/budget';
+import type { CostAwareSearchResult, CostAwareSource, ProviderTier, StayLookupBudget } from '../providers/budget';
 import type { FlightOffer, Stay } from '../domain';
 import type { RecordProviderCall, SourceTracker } from './provenance';
 
@@ -85,18 +85,35 @@ export function stayCostAwareSources(
 }
 
 /**
- * Metered stay sources cheap enough, relative to their OWN tracked cap, that a configured
- * key already counts as the traveller's consent to spend them (`isQuotaGenerous`) — issue
- * #94. Pass this straight into `runCostAwareSearch`'s `widenTo`: it never touches a free
- * source (nothing to widen to), and a metered source that fails the quota check — today,
- * none; a future Sky-Scrapper-tight stay provider, maybe — is simply left out, so it still
- * shows up in `report.skipped` and needs the explicit widen flow flight providers already
- * go through, rather than rotting into "always auto-runs" the day it's added.
+ * Metered stay sources this search may still spend a lookup on — issue #94 for why they
+ * auto-run at all, issue #148 for why the decision is now rationed rather than unanimous.
+ * Pass the result straight into `runCostAwareSearch`'s `widenTo`: it never touches a free
+ * source (nothing to widen to), and a metered source left out still shows up in
+ * `report.skipped` and needs the explicit widen flow flight providers already go through,
+ * rather than rotting into "always auto-runs" the day it's added.
+ *
+ * **This function has a side effect and must be called exactly once per stay lookup.** Each
+ * returned provider has had one lookup deducted from `budget`. Calling it twice for one
+ * lookup double-charges the search and silently halves how many candidates get a bed; not
+ * calling it at all is the unbounded fan-out issue #148 was filed over. The name says
+ * `claim` for that reason.
+ *
+ * The quota question is asked entirely through `budget`, whose per-provider ration is
+ * `maxStayLookupsPerSearch` and which therefore already folds in `isQuotaGenerous`: a
+ * provider too tight to auto-run at all gets a ration of zero and never claims. One gate,
+ * not two that could drift apart.
  */
-export function autoWidenStaySources(sources: readonly CostAwareSource<unknown>[]): ProviderId[] {
-	return sources
-		.filter((source) => source.tier === 'metered' && isQuotaGenerous(source.providerId, source.estimatedCost))
-		.map((source) => source.providerId);
+export function claimAutoWidenStaySources(
+	sources: readonly CostAwareSource<unknown>[],
+	budget: StayLookupBudget
+): ProviderId[] {
+	const claimed: ProviderId[] = [];
+	for (const source of sources) {
+		if (source.tier !== 'metered') continue;
+		if (!budget.claim(source.providerId, source.estimatedCost)) continue;
+		claimed.push(source.providerId);
+	}
+	return claimed;
 }
 
 /** Requests actually spent by the metered tier alone, read off a `runCostAwareSearch`

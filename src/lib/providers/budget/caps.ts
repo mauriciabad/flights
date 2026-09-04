@@ -109,17 +109,62 @@ export function clearProviderCapOverride(providerId: ProviderId): boolean {
 export const MIN_SEARCHES_PER_MONTH_FOR_AUTO_RUN = 20;
 
 /**
- * Whether a provider call that already costs something (`estimatedCost > 0`) is cheap
- * enough, relative to ITS OWN tracked cap (`getProviderCap`, including any user override),
- * to run the moment a key is configured, with no further opt-in beyond that key. Reads the
- * live cap rather than naming providers here, so an adapter added later is classified by
- * its real numbers the day it registers, never silently defaulted to "always ask" or
- * "never ask" by omission. `estimatedCost <= 0` is out of scope: a free source is
- * `cost-aware-search.ts`'s `'free'` tier already, decided before this is ever called.
+ * Whether a provider is cheap enough, relative to ITS OWN tracked cap (`getProviderCap`,
+ * including any user override), to run the moment a key is configured, with no further
+ * opt-in beyond that key. Reads the live cap rather than naming providers here, so an
+ * adapter added later is classified by its real numbers the day it registers, never
+ * silently defaulted to "always ask" or "never ask" by omission.
+ *
+ * `costPerSearch` is the cost of ONE WHOLE SEARCH, not of one provider call. Issue #148:
+ * this distinction was the entire bug. The parameter used to be a single `searchStays`
+ * estimate, and the ratio below was then read as "searches this key affords per month" —
+ * but `pipeline.ts` runs a stay lookup for EVERY connection candidate, six of them
+ * ordinarily and twenty-four on the fallback sweep. Booking passed at exactly
+ * `40 / 2 = 20`, while its real capacity under that pipeline was `40 / (2 × 6)` = 3.3
+ * searches a month. The owner's Booking tier was empty after a morning.
+ *
+ * A caller with a per-call estimate must multiply it by however many calls one search
+ * makes before passing it here. For stays that count is bounded by
+ * `maxStayLookupsPerSearch` below, which is the same arithmetic solved for the count
+ * rather than for the verdict.
+ *
+ * `costPerSearch <= 0` is out of scope: a free source is `cost-aware-search.ts`'s `'free'`
+ * tier already, decided before this is ever called.
  */
-export function isQuotaGenerous(providerId: ProviderId, estimatedCost: number): boolean {
-	if (estimatedCost <= 0) return true;
+export function isQuotaGenerous(providerId: ProviderId, costPerSearch: number): boolean {
+	if (costPerSearch <= 0) return true;
 	const cap = getProviderCap(providerId);
 	if (cap <= 0) return false; // no meaningful quota at all — always ask first
-	return cap / estimatedCost >= MIN_SEARCHES_PER_MONTH_FOR_AUTO_RUN;
+	return cap / costPerSearch >= MIN_SEARCHES_PER_MONTH_FOR_AUTO_RUN;
+}
+
+/**
+ * How many stay lookups ONE search may spend on a provider and still leave the key good
+ * for `MIN_SEARCHES_PER_MONTH_FOR_AUTO_RUN` searches this month — `isQuotaGenerous`'s
+ * inequality solved for the lookup count instead of for a yes/no.
+ *
+ * This is the number that makes one click's cost bounded and knowable, which it was not
+ * before issue #148: the pipeline fanned a stay lookup out across every connection
+ * candidate it happened to be processing, so the cost of a search was set by how many
+ * stopover cities the route graph returned rather than by any budget. Against the shipped
+ * caps that yields:
+ *
+ *   Booking  floor(40  / (20 × 2)) = 1 lookup  ->  2 requests per search, worst case
+ *   Agoda    floor(400 / (20 × 6)) = 3 lookups -> 18 requests per search, worst case
+ *
+ * Both hold whether the pipeline is processing 6 candidates or 24, which is the whole
+ * point. A provider too tight to afford even one lookup per search gets `0` and is left
+ * out of the auto-run set entirely, exactly as `isQuotaGenerous` would have left it out —
+ * it still needs the explicit widen flow, never a silent "always runs".
+ *
+ * `Number.POSITIVE_INFINITY` for a free provider (`costPerLookup <= 0`): nothing to ration.
+ */
+export function maxStayLookupsPerSearch(providerId: ProviderId, costPerLookup: number): number {
+	if (costPerLookup <= 0) return Number.POSITIVE_INFINITY;
+	// The cheapest search that still uses this provider is one doing a single lookup. If
+	// even that is too expensive to run unasked, the answer is zero lookups and the provider
+	// keeps needing the explicit widen flow — asked of `isQuotaGenerous` directly rather
+	// than restated here, so there is exactly one definition of "cheap enough to auto-run".
+	if (!isQuotaGenerous(providerId, costPerLookup)) return 0;
+	return Math.floor(getProviderCap(providerId) / (MIN_SEARCHES_PER_MONTH_FOR_AUTO_RUN * costPerLookup));
 }

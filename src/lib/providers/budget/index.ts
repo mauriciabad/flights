@@ -7,8 +7,11 @@ export {
 	clearProviderCapOverride,
 	getProviderCap,
 	isQuotaGenerous,
+	maxStayLookupsPerSearch,
 	setProviderCapOverride
 } from './caps';
+export { createStayLookupBudget, createUnboundedStayLookupBudget } from './stay-lookup-budget';
+export type { StayLookupBudget } from './stay-lookup-budget';
 export { callProviderWithBudget } from './call-with-budget';
 export type { CallProviderWithBudgetOptions } from './call-with-budget';
 export { ProviderHttpError, defaultClassifyError, retryAfterSecondsOf } from './classify-error';

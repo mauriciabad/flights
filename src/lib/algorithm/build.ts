@@ -278,7 +278,22 @@ export function buildItineraries(input: BuildItinerariesInput): Itinerary[] {
 			// are defined too, with no non-null assertion needed on either. No stay means
 			// nowhere to travel to during the layover: free time runs runway to runway, with
 			// no in-city transfer legs to add or subtract.
-			const { stay } = resources;
+			// Issue #152: a stay quoted in a currency this itinerary cannot total loses the
+			// BED, never the trip. `sumMoney` below refuses to add a mix and throws, and the
+			// only thing catching that was `pipeline.ts`, which discarded the entire
+			// candidate — so an itinerary was destroyed by the one thing it was supposed to
+			// achieve, having priced a bed, while every bedless itinerary survived to be
+			// rendered under "No bed priced for this stopover." Degrading to no bed is the
+			// same outcome as never finding one, which this builder already handles
+			// everywhere below.
+			//
+			// `resources.ts` already filters mismatched stays out a layer up. This is the
+			// belt to that braces: the failure mode is silent, total, and will recur with
+			// any future provider that ignores a requested currency, so the builder refuses
+			// to depend on an upstream filter staying correct.
+			const outboundCurrency = outbound.price.currency;
+			const stayCurrencyMatches = resources.stay?.pricePerNight.currency === outboundCurrency;
+			const stay = stayCurrencyMatches ? resources.stay : undefined;
 			const transferToHotel = stay ? resources.transferToHotel : undefined;
 			const transferToConnectionAirport = stay ? resources.transferToConnectionAirport : undefined;
 
