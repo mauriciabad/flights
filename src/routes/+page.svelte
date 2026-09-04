@@ -150,6 +150,10 @@
 	const urlQuery = $derived.by(() =>
 		browser ? buildSearchQuery(searchParamsToFields(page.url.searchParams)) : null
 	);
+
+	// Issue #23 reads the same PARAM encoding this page already writes, so this is
+	// just handing it the current URL's own query string rather than re-deriving one.
+	const resultsHref = $derived(browser ? `/results/?${page.url.searchParams.toString()}` : '/results/');
 </script>
 
 <svelte:head>
@@ -381,10 +385,8 @@
 				</div>
 			</dl>
 			{#snippet footer()}
-				<p class="summary-note">
-					This page's link now carries this search and will reload it exactly. Fetching real flights for it
-					is tracked in a separate issue.
-				</p>
+				<p class="summary-note">This page's link now carries this search and will reload it exactly.</p>
+				<Button href={resultsHref} variant="secondary">View results</Button>
 			{/snippet}
 		</Card>
 	{/if}
