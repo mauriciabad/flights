@@ -56,10 +56,37 @@ that suggests otherwise. The confirmation screen says "Total due today: Free" an
 
 ### Free tier quotas, and why they dominate the design
 
-| API | Free quota | Rate limit |
-|---|---|---|
-| Sky Scrapper | **20 requests / month**, hard limit | 1000/hour |
-| Flights Sky | **50 requests / month**, hard limit | 1000/hour |
+All measured on the owner's account on 2026-09-04, after subscribing.
+
+| API | Host | Free quota | Subscribed |
+|---|---|---|---|
+| Sky Scrapper (flights) | `sky-scrapper.p.rapidapi.com` | **20 / month**, hard limit | yes |
+| Flights Sky (flights) | `flights-sky.p.rapidapi.com` | **50 / month**, hard limit | yes |
+| Agoda (stays) | `agoda-com.p.rapidapi.com` | **500 / month**, hard limit | yes |
+| Booking.com (stays) | `booking-com15.p.rapidapi.com` | **50 / month**, hard limit | yes |
+| Rome2Rio (transport) | `rome2rio.p.rapidapi.com` | unknown | **no, see below** |
+
+Agoda's 500 is the outlier and worth exploiting. Stay lookups can be relatively generous
+while flight lookups must be hoarded, so do not apply one budget policy across all providers.
+
+Provider slugs, since finding these cost real time:
+`rapidapi.com/apiheya/api/sky-scrapper`, `rapidapi.com/ntd119/api/flights-sky`,
+`rapidapi.com/ntd119/api/agoda-com`, `rapidapi.com/DataCrawler/api/booking-com15`.
+
+### Rome2Rio cannot be subscribed to
+
+The gateway route is alive. A nonexistent host returns 404 "API doesn't exists", while
+`rome2rio.p.rapidapi.com` returns 403 "You are not subscribed to this API", so the listing
+exists. It is simply not reachable through the marketplace.
+
+Searching "rome2rio", "Rome2Rio" and bare "rome" returns zero results, site-wide and within
+the 481-API Travel category, while "agoda" returns 25, so the search itself works. The old
+official listing at `rapidapi.com/rome2rio/api/rome2rio-12` returns "API not found". Around
+17 plausible provider slugs were tried directly and all were dead.
+
+The likely explanation is that it was renamed or unlisted while the gateway stays up for
+existing subscribers. Unless someone supplies a direct link to a current listing, this is a
+dead end rather than a task.
 
 Twenty requests a month is roughly one search. A single naive search costs far more than
 that: two airport lookups, then two fare searches for every connection candidate, plus
