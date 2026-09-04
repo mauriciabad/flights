@@ -802,6 +802,9 @@ measured hardest.
    bookable rate that is not guaranteed to be the cheapest female bed at the property. That
    asymmetry is safe in one direction only, and it is the safe one — see
    `hostelworld-mapper.ts`'s `mapPropertyToStays`.
+4. **No structured field for a property-wide gender restriction**, the same gap Agoda and
+   Booking have. A women-only hostel is detected from its name through the shared
+   `women-only-name.ts` (#207), which is a name check because nothing better is on offer.
 
 ## Keyless sources
 

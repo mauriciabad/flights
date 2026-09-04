@@ -18,6 +18,7 @@ import type {
 	HostelworldProperty,
 	HostelworldRoom
 } from './hostelworld-types';
+import { isWomenOnlyPropertyName } from './women-only-name';
 
 /**
  * Nights between two `YYYY-MM-DD` dates, or `undefined` when either is not one.
@@ -191,7 +192,13 @@ export function mapPropertyToStays(
 		name,
 		coordinates,
 		images: imageUrls(property),
-		...(typeof rating === 'number' && Number.isFinite(rating) ? { rating } : {})
+		...(typeof rating === 'number' && Number.isFinite(rating) ? { rating } : {}),
+		// #207, and it applies to this adapter for exactly the reason it applied to the
+		// other two: Hostelworld has no structured field for a property-wide gender
+		// restriction either, and a women-only hostel's ROOMS are named ordinarily, so
+		// `classifyRoomKind` alone would hand one to a party with no women in it. The shared
+		// name test rather than a local copy, so all three mappers can only ever agree.
+		womenOnly: isWomenOnlyPropertyName(name) || undefined
 	};
 
 	// A fractional or absent party size would scale a real price into a fake one, so it

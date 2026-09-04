@@ -227,6 +227,22 @@ describe('mapPropertyToStays', () => {
 		expect(kind(party, 'private')).toBe(kind(alone, 'private'));
 	});
 
+	it('marks a women-only property from its name, the same way the other two mappers do', () => {
+		// #207: "Hostelle - women only hostel London" reached the owner's party of zero
+		// female travellers because both mappers of the day only ever tested the ROOM name.
+		// Hostelworld exposes no structured field for it either, so this adapter has to make
+		// the same call or it reintroduces the bug through a third door.
+		const hostelle: HostelworldProperty = {
+			name: 'Hostelle - women only hostel London',
+			latitude: 51.5,
+			longitude: -0.1,
+			lowestAverageDormPricePerNight: { value: '20.00', currency: 'EUR' }
+		};
+		expect(mapPropertyToStays(hostelle, 1)[0].property.womenOnly).toBe(true);
+		// An ordinary hostel is not quietly made unbookable for half the searches.
+		expect(mapPropertyToStays(restUp, 1)[0].property.womenOnly).toBeUndefined();
+	});
+
 	it('treats a party size that is not a whole number of people as one traveller', () => {
 		// A `NaN` or fractional multiplier would turn a real price into a fabricated one,
 		// and this app would rather quote a single bed than quote nonsense.
