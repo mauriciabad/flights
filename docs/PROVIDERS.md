@@ -155,6 +155,19 @@ The service is free and run by volunteers.
 **OSRM** gives walking and driving durations, keyless, on a shared demo server. Cache
 hard and do not hammer it.
 
+Issue #9 found that `router.project-osrm.org` — the host named in this doc's table
+above and in the issue itself — ignores the `{profile}` segment of its own URL: a
+`walking` request and a `driving` request for the same two points came back with
+identical distance and duration, both at car speed (~51 km/h for the test pair used).
+This matches a previously reported upstream issue (Project-OSRM/osrm-backend#4868), so
+it is not specific to this session. `routing.openstreetmap.de`, the other
+FOSSGIS-sponsored demo host on the same OSRM wiki page, routes each profile correctly
+when selected by URL path prefix (`/routed-foot/...`, `/routed-car/...`) rather than by
+the `{profile}` segment — the same test pair came back at a plausible ~4.5 km/h for
+foot and ~51 km/h for car. Also verified with CORS `*`. The transfers/osrm.ts adapter
+uses `routing.openstreetmap.de` for this reason; re-verify before assuming
+`router.project-osrm.org` is safe to use for anything but driving.
+
 **OurAirports** publishes a 12 MB public-domain CSV of every airport. Filter it at build
 time. Never ship it to a phone.
 
