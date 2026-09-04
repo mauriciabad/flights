@@ -176,6 +176,12 @@ export function mapSegmentToFlightOffer(
 		// cross a timezone boundary the same as any direct flight can.
 		duration: computeFlightDuration(segment.dTimeUTC, segment.aTimeUTC),
 		price,
+		// Issue #109: kiwi.ts always requests `adults: 1` now, regardless of the real party
+		// size, specifically so this can be `'per-person'` by construction rather than a
+		// guess — Kiwi's backend has been down (402) since before this adapter's response
+		// shape was confirmed live, so whether its price scales with `adults` at all could
+		// not be measured. See kiwi.ts's own comment at that request for the full reasoning.
+		priceScope: 'per-person',
 		baggage,
 		// Kiwi has no per-leg link once legs are bundled — this is the whole itinerary's
 		// booking link, which still lands a traveller on a real bookable page for this

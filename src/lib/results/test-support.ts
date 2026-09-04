@@ -47,6 +47,7 @@ function flightOffer(
 		arrival: localDateTime('2026-10-14T11:00:00'),
 		duration: durationMinutes as Duration,
 		price: money(priceMinorUnits),
+		priceScope: 'per-person',
 		baggage: { cabinBagsIncluded: 1, checkedBagsIncluded: 0 },
 		deepLink: 'https://example.invalid/book'
 	};

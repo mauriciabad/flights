@@ -54,6 +54,18 @@ describe('mapResponseToFlightOffers', () => {
 		});
 	});
 
+	it('declares its price as per-person, since kiwi.ts always requests exactly one adult (issue #109)', () => {
+		// Kiwi's backend has been returning 402 since before this adapter's response shape
+		// was confirmed live (kiwi.ts's own header comment), so whether its price would
+		// scale with a real `adults` count can't be measured. kiwi.ts always requests
+		// `adults: 1` regardless of the real party size specifically so this is true by
+		// construction rather than an unverified guess either way.
+		const offers = mapResponseToFlightOffers(fixture, requestedBags, countryCodeByIataCode);
+		for (const offer of offers) {
+			expect(offer.priceScope).toBe('per-person');
+		}
+	});
+
 	it('does not use the bundled itinerary price for either individual leg', () => {
 		const offers = mapResponseToFlightOffers(fixture, requestedBags, countryCodeByIataCode);
 		const combinedPriceMinorUnits = 7825; // itinerary.price = 78.25

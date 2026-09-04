@@ -55,6 +55,16 @@ describe('mapSearchFlightsToOffers', () => {
 		expect(vueling.price).toEqual({ minorUnits: 1799, currency: 'EUR' });
 	});
 
+	it('declares its price as already covering the whole party (issue #109)', () => {
+		// Measured live 2026-09-04, same BCN-DUB route and date, only `adults` changed:
+		// 1 adult 336.51/588.97, 3 adults 966.21/1766.38. 588.97 * 3 = 1766.91, not
+		// 1766.38 — Sky Scrapper's price already scales with the `adults` this adapter
+		// requests (`options.travellers`, sent as skyscanner.ts's own `adults: String(travellers)`),
+		// so the itinerary builder must not multiply it again.
+		const [vueling] = mapSearchFlightsToOffers(searchFlightsBcnVie, options);
+		expect(vueling.priceScope).toBe('party-total');
+	});
+
 	it('uses the marketing carrier, not the operating carrier, for a wet-lease flight', () => {
 		const offers = mapSearchFlightsToOffers(searchFlightsBcnVie, options);
 		const ryanairSold = offers.find((offer) => offer.flightNumber === 'FR12');

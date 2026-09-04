@@ -4,6 +4,7 @@ import type {
 	City,
 	Country,
 	Duration,
+	FlightFarePriceScope,
 	FlightOffer,
 	LocalDateTime,
 	Stay,
@@ -36,7 +37,8 @@ function makeFlight(
 	departure: LocalDateTime,
 	arrival: LocalDateTime,
 	duration: number,
-	priceMinorUnits = 5000
+	priceMinorUnits = 5000,
+	priceScope: FlightFarePriceScope = 'per-person'
 ): FlightOffer {
 	return {
 		carrier: { iataCode: 'FR', name: 'Test Air' },
@@ -45,6 +47,7 @@ function makeFlight(
 		arrivalAirport,
 		departure,
 		arrival,
+		priceScope,
 		duration: duration as Duration,
 		price: { minorUnits: priceMinorUnits, currency: 'EUR' },
 		baggage: { cabinBagsIncluded: 1, checkedBagsIncluded: 0 },
@@ -351,6 +354,50 @@ describe('buildItineraries — total price scales with travellers (issue #106)',
 
 		expect(itinerary.travellers).toBe(1);
 		expect(itinerary.totalPrice.minorUnits).toBe(5000 + 6000);
+	});
+});
+
+describe('buildItineraries — flight price scales per its own priceScope, never a blanket multiply (issue #109)', () => {
+	it('does not multiply a party-total fare again, but still multiplies a per-person one on the same itinerary', () => {
+		const arrival = localDateTime('2026-06-01T10:00:00', 'Europe/Vienna', 120);
+		const departure = localDateTime('2026-06-01T14:00:00', 'Europe/Vienna', 120);
+		// Mixed providers on one itinerary: outbound already priced for the whole party
+		// (confirmed live for Skyscanner, issue #109), onward still a single adult's fare
+		// (Ryanair). A blanket "multiply every flight by travellers" would triple-charge
+		// the outbound leg; this must not.
+		const outbound = makeFlight('LGW', 'VIE', arrival, arrival, 150, 30000, 'party-total'); // €300 for the whole party already
+		const onward = makeFlight('VIE', 'IST', departure, departure, 90, 6000, 'per-person'); // €60 per adult
+
+		const input = baseInput({
+			outboundOffers: [outbound],
+			onwardOffers: [onward],
+			connectionResources: { VIE: {} }, // isolate flight pricing from any stay cost
+			waitingTimeRules: flatWaitingTime(0)
+		});
+
+		const [group] = buildItineraries({ ...input, travellers: 3 });
+
+		// 30000 (already the party total, untouched) + 6000 * 3 (per-adult, multiplied).
+		expect(group.totalPrice.minorUnits).toBe(30000 + 6000 * 3);
+	});
+
+	it('leaves a solo traveller totalPrice unaffected by priceScope either way', () => {
+		const arrival = localDateTime('2026-06-01T10:00:00', 'Europe/Vienna', 120);
+		const departure = localDateTime('2026-06-01T14:00:00', 'Europe/Vienna', 120);
+		const outbound = makeFlight('LGW', 'VIE', arrival, arrival, 150, 30000, 'party-total');
+		const onward = makeFlight('VIE', 'IST', departure, departure, 90, 6000, 'per-person');
+
+		const [itinerary] = buildItineraries(
+			baseInput({
+				outboundOffers: [outbound],
+				onwardOffers: [onward],
+				connectionResources: { VIE: {} },
+				waitingTimeRules: flatWaitingTime(0)
+			})
+		);
+
+		expect(itinerary.travellers).toBe(1);
+		expect(itinerary.totalPrice.minorUnits).toBe(30000 + 6000);
 	});
 });
 

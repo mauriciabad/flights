@@ -65,6 +65,26 @@ describe('searchOffers', () => {
 		expect(result.requestsUsed).toBe(1);
 	});
 
+	it('always requests exactly one adult from Kiwi, regardless of the real party size (issue #109)', async () => {
+		// Kiwi's backend has been returning 402 since before this adapter's response shape
+		// could be confirmed live (this file's own header comment), so whether its price
+		// for `adults: N` is per-adult or already the party's total can't be measured.
+		// Requesting exactly one adult regardless of `query.travellers` is what lets
+		// kiwi-mapper.ts honestly declare every offer `priceScope: 'per-person'` by
+		// construction rather than as an unverified guess in either direction.
+		let capturedUrl: string | undefined;
+		const capturingFetch: typeof fetch = (async (input: RequestInfo | URL) => {
+			capturedUrl = input.toString();
+			return new Response(JSON.stringify(oneWayFixture), { status: 200 });
+		}) as typeof fetch;
+		const provider = createKiwiFlightProvider({ store: new MemoryCacheStore(), fetchImpl: capturingFetch });
+
+		await provider.searchOffers({ ...query, travellers: 4 }, { signal: new AbortController().signal, keys });
+
+		expect(capturedUrl).toBeDefined();
+		expect(new URL(capturedUrl!).searchParams.get('adults')).toBe('1');
+	});
+
 	it('serves the second identical call from cache, spending no requests', async () => {
 		const store = new MemoryCacheStore();
 		const fetchImpl = fixtureFetch();

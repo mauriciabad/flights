@@ -90,6 +90,7 @@ function flight(
 		arrival: localDateTime(arrival),
 		duration: durationMinutes as Duration,
 		price: { minorUnits: 8000, currency: 'EUR' },
+		priceScope: 'per-person',
 		baggage: { cabinBagsIncluded: 1, checkedBagsIncluded: 0 },
 		deepLink: 'https://example.invalid/book'
 	};

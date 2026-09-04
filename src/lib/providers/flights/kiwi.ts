@@ -301,7 +301,19 @@ function createKiwiFlightProvider(options: KiwiProviderOptions = {}): KiwiFlight
 							outboundDepartmentDateStart: toDateTimeStart(query.earliestDeparture),
 							outboundDepartmentDateEnd: toDateTimeEnd(query.latestDeparture),
 							currency,
-							adults: query.travellers ?? DEFAULT_TRAVELLERS,
+							// Issue #109: always 1, never `query.travellers`. Kiwi's backend has been
+							// returning 402 since before this adapter's own response shape could be
+							// confirmed live (this file's header), so whether its `price` for
+							// `adults: N` is per-adult or already the party's total cannot be
+							// measured — unlike Skyscanner, where it was (`skyscanner-map-offers.ts`).
+							// Requesting exactly one adult regardless of the real party size makes
+							// `priceScope: 'per-person'` (kiwi-mapper.ts) true by construction rather
+							// than a guess in either direction: an unconfirmed 'party-total' that
+							// turned out wrong would silently undercount a group (the original #106
+							// bug); an unconfirmed 'per-person' that turned out wrong would overcount
+							// (the worse #109 bug, confirmed for Skyscanner). Declining to ask this
+							// provider a question it cannot safely answer avoids both.
+							adults: 1,
 							handbags,
 							holdbags,
 							enableSelfTransfer: true,

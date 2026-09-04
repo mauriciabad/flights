@@ -5,9 +5,10 @@
  * class and the origin/connection waiting-time tiers are all already baked into the
  * itinerary the traveller is looking at, and a picker only ever changes one of six fields
  * on it. Reusing `minutesBetween` / `addLocalMinutes` / `nightsBetween` / `sumMoney` /
- * `sumDurations` from `build.ts` keeps this the same DST-correct arithmetic that built the
- * itinerary in the first place, rather than a second implementation that could disagree
- * with it on an overnight connection.
+ * `scaleFareForParty` / `sumDurations` from `build.ts` keeps this the same DST-correct,
+ * priceScope-aware arithmetic that built the itinerary in the first place, rather than a
+ * second implementation that could disagree with it on an overnight connection or on which
+ * flight fares need multiplying by the party size (issue #109).
  *
  * Waiting times (`originWaitingTime`, `connectionWaitingTime`) are deliberately carried
  * over unchanged from the itinerary being edited, never re-derived from the new flight's
@@ -18,7 +19,7 @@
  * used; it does not silently re-open how long the traveller waits at the gate.
  */
 
-import { addLocalMinutes, minutesBetween, nightsBetween, scaleMoney, sumDurations, sumMoney } from './build';
+import { addLocalMinutes, minutesBetween, nightsBetween, scaleFareForParty, sumDurations, sumMoney } from './build';
 import type { Duration, FlightOffer, Itinerary, ItineraryTimes, Money, Transfer } from '../domain';
 import { DEFAULT_MIN_LAYOVER_TIME_MINUTES } from '../domain';
 
@@ -123,11 +124,13 @@ export function recomputeItinerarySelection(
 	// the free-time window alone, same as `build.ts`'s own `buildItineraries`.
 	const nightsInConnection = freeDuration < 0 ? 0 : nightsBetween(freeStart, freeEnd);
 
-	// Issue #106: `itinerary.travellers` carries over from the itinerary being edited (a
-	// picker swap changes which flight is used, never the party size), so the flight fares
-	// scale by it exactly as `build.ts` itself does.
+	// Issue #106/#109: `itinerary.travellers` carries over from the itinerary being edited
+	// (a picker swap changes which flight is used, never the party size); each flight leg
+	// scales by its own `priceScope` (a swapped-in offer can come from a different provider
+	// than the one it replaced), exactly as `build.ts` itself does.
 	const totalPrice: Money = sumMoney(
-		scaleMoney(sumMoney(outboundFlight.price, onwardFlight.price), itinerary.travellers),
+		scaleFareForParty(outboundFlight, itinerary.travellers),
+		scaleFareForParty(onwardFlight, itinerary.travellers),
 		stay && nightsInConnection > 0
 			? {
 					minorUnits: stay.pricePerNight.minorUnits * nightsInConnection,

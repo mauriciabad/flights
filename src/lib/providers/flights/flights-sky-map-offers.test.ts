@@ -22,6 +22,10 @@ describe('mapSearchOneWayToOffers', () => {
 			arrivalAirport: 'VIE',
 			duration: 145,
 			price: { minorUnits: 6099, currency: 'EUR' },
+			// Issue #109: `search-one-way`'s own request shape has no adults field at all
+			// (flights-sky-client.ts's `SearchOneWayParams`), so this is a per-adult fare by
+			// construction, never a party total to double-count.
+			priceScope: 'per-person',
 			baggage: { cabinBagsIncluded: 0, checkedBagsIncluded: 0 }
 		});
 		expect(offer.departure).toEqual({

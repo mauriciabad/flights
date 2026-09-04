@@ -80,17 +80,17 @@ export interface Itinerary {
 	 * the unpriced part, not this field. */
 	nightsInConnection: number;
 	/** Issue #106: the party size `totalPrice` was computed for. `outboundFlight.price`
-	 * and `onwardFlight.price` are treated as a per-adult fare and multiplied by this
-	 * count — confirmed true for Ryanair's fare-finder, the free, no-key provider that
-	 * answers most searches (it has no adults/travellers parameter at all and always
-	 * returns one lowest single-adult fare, `providers/flights/ryanair-mapper.ts`).
-	 * Skyscanner, Kiwi and Flights Sky also send `travellers` upstream as an `adults`
-	 * count, but whether *their* returned price already reflects the full party rather
-	 * than one adult is not independently verified here — scaling it again would risk
-	 * overcounting instead of undercounting. `stay.pricePerNight` is deliberately NOT
-	 * multiplied by this: issue #80/#94's own choice, documented in
-	 * `search/resources.ts`, prices a stay as one flat per-night figure for the whole
-	 * party (a dorm bed is arguably per-person and a private room is not — an
+	 * and `onwardFlight.price` each scale to this count through that offer's OWN
+	 * `FlightOffer.priceScope` (issue #109, `algorithm/build.ts`'s `scaleFareForParty`) —
+	 * never a blanket "multiply every flight price by travellers". That distinction
+	 * exists because it is not the same answer for every provider: Ryanair's fare-finder
+	 * has no adults parameter at all and always returns one adult's fare (`'per-person'`,
+	 * multiply), while Skyscanner's `adults` parameter was measured live returning the
+	 * whole party's total already (`'party-total'`, do not multiply again — see
+	 * `FlightFarePriceScope`'s own doc comment for the numbers). `stay.pricePerNight` is
+	 * deliberately NOT multiplied by this count at all: issue #80/#94's own choice,
+	 * documented in `search/resources.ts`, prices a stay as one flat per-night figure for
+	 * the whole party (a dorm bed is arguably per-person and a private room is not — an
 	 * unresolved nuance that choice already accepts). No `TransferProvider` in this
 	 * codebase populates `Transfer.price` today (domain/transfer.ts), so there is
 	 * nothing yet to scale there either way. */

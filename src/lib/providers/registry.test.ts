@@ -33,6 +33,7 @@ function fakeOffer(carrierCode: string): FlightOffer {
 		arrival: { local: '2026-10-01T10:30:00', timeZone: 'Europe/Vienna', utcOffsetMinutes: 120 },
 		duration: 150 as Duration,
 		price: price(4599),
+		priceScope: 'per-person',
 		baggage: { cabinBagsIncluded: 1, checkedBagsIncluded: 0 },
 		deepLink: 'https://example.test/book/FA100'
 	};
