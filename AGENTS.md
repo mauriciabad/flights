@@ -37,6 +37,28 @@ If your issue depends on something that does not exist yet, do not invent a comp
 of it. Check whether another issue owns it, and if it does, either wait or define the
 narrowest possible interface and say so in your PR.
 
+## Design, for anything with a UI
+
+Before writing CSS or a component's visual layer, load these skills and follow them:
+
+- `design-taste-frontend` — the primary one. It exists to stop interfaces looking templated.
+- `ui-ux-pro-max` — style systems, palettes, font pairings, interaction states.
+- `web-design-guidelines` — check your work against it before opening the PR.
+
+The owner rejected the first pass as "boring and ugly", and he was right: it was the stock
+scaffold. Default system fonts, flat grey cards and a generic blue accent are the failure
+mode to avoid.
+
+What the product is actually about should drive the look. This app finds flights to places
+with no direct route by turning the connection into a trip of its own, so the pitch is
+getting a second city for free. It deals in time, cities and money, and its central screen
+is a timeline of a journey. Boarding passes, departure boards, transit maps and ticket
+stubs are all fair ground. It should look like something a frequent traveller wants to open.
+
+None of that overrides the constraints: dark-first around `#0b1020` with
+`prefers-color-scheme` working both ways, mobile first, real focus rings, and contrast that
+survives the greyed-out treatment used for deprioritised airlines.
+
 ## Svelte
 
 Svelte 5, runes, TypeScript throughout.
