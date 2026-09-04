@@ -6,6 +6,11 @@
 // and private helipads a flight search never touches. This keeps only airports with an
 // IATA code and scheduled service, and only the fields the app reads.
 //
+// That includes `keywords` (issue #116): OurAirports' `name` and `municipality` are
+// often not what a traveller types — "Rabil" for the municipality that hosts Boa
+// Vista's airport, "Paphos" where everyone writes "Pafos" — and `keywords` is where the
+// commonly-used alternates live.
+//
 // Run manually with `pnpm run data:airports` when the upstream data changes. The output
 // is committed so `pnpm build` never depends on a third-party CDN being up.
 //
@@ -90,6 +95,42 @@ async function loadCsvText(inputPath) {
 	return res.text();
 }
 
+// Defensive cap on the total characters kept from one airport's `keywords` field.
+// Nothing in the current source needs this — the longest entry across every
+// scheduled-service, IATA-coded airport is 170 characters (RDO, Radom) — but a future
+// upstream update could add a pathological one, and shipping that to every phone
+// unbounded would be exactly the kind of silent bundle-size bug issue #116 already was.
+const MAX_KEYWORDS_CHARS = 300;
+
+/**
+ * OurAirports' `keywords` column, split into individual alternate names. This is where
+ * the names travellers actually use live — "Boa Vista" for BVC (whose `municipality` is
+ * the administrative "Rabil"), "Pafos" for PFO (whose `name` only has "Paphos") — and
+ * issue #116 is the app being unusable because this column was discarded (see git log
+ * for the version that had no `keywords` field at all).
+ *
+ * Returns `undefined` rather than `[]` for a blank column so the compact JSON omits the
+ * key entirely for the ~60% of airports that have no keywords, instead of paying for an
+ * empty array on every one of them.
+ */
+function toKeywords(raw) {
+	if (!raw) return undefined;
+	const parts = raw
+		.split(',')
+		.map((k) => k.trim())
+		.filter(Boolean);
+	if (parts.length === 0) return undefined;
+
+	const kept = [];
+	let chars = 0;
+	for (const keyword of parts) {
+		if (kept.length > 0 && chars + keyword.length > MAX_KEYWORDS_CHARS) break;
+		kept.push(keyword);
+		chars += keyword.length;
+	}
+	return kept;
+}
+
 function toCompactAirport(row) {
 	const iataCode = row.iata_code?.trim();
 	if (!iataCode) return null;
@@ -97,6 +138,8 @@ function toCompactAirport(row) {
 	const latitude = Number.parseFloat(row.latitude_deg);
 	const longitude = Number.parseFloat(row.longitude_deg);
 	if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
+
+	const keywords = toKeywords(row.keywords);
 
 	return {
 		iataCode,
@@ -114,7 +157,10 @@ function toCompactAirport(row) {
 		// Raw OurAirports type (e.g. "large_airport"), the input to deriveSizeClass in
 		// src/lib/data/airports.ts. Kept as-is rather than pre-computing a size class so
 		// the derivation stays a testable pure function instead of baked-in data.
-		type: row.type?.trim() || ''
+		type: row.type?.trim() || '',
+		// Alternate names searchAirports matches against (issue #116). Omitted, not `[]`,
+		// when OurAirports has none for this airport.
+		...(keywords ? { keywords } : {})
 	};
 }
 
