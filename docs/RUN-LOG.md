@@ -201,3 +201,26 @@ spends nothing", was correct for Skyscanner's 20-per-month quota and wrong for A
 it made every itinerary unbuildable because stays could never resolve.
 
 Neither was found by a test. Both were found by opening the site and trying to plan a trip.
+
+## A verification that verified the wrong thing
+
+The first "it works" claim in this log was wrong, and the way it was wrong is the useful part.
+
+`BCN → TLL` returned a Dublin stopover for EUR 58.54, and that was recorded as proof the app
+does its job. **Ryanair flies Barcelona to Tallinn directly**, one of 64 direct destinations
+from BCN. So the test route did not need a stopover at all, and the app was solving a problem
+that was not there. The result was real; it just did not demonstrate what it was taken to
+demonstrate.
+
+Testing a genuinely indirect route exposed the actual state. `BCN → OTP`, no direct flight,
+returns **zero itineraries** while three workable stopovers exist in the same window, confirmed
+by querying Ryanair's fare finder directly: Bergamo with 13 nights, Dublin with 1, Berlin with
+4. BCN and OTP share 23 Ryanair connection airports. Filed as #115.
+
+The status line gave the clue away: `Ryanair: answered (6 requests)` against a candidate cap of
+6 is one leg per candidate, when an itinerary needs two.
+
+This is the same failure as the reactive loop, one level up. There, 849 passing tests verified
+code that never ran in a browser. Here, a browser test verified a route that never needed the
+feature. **Choosing the test case is part of the test**, and a case that passes for the wrong
+reason is worse than no case at all, because it stops the search.
