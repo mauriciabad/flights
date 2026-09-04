@@ -1,0 +1,56 @@
+{
+  "data": [
+    {
+      "presentation": {
+        "title": "Barcelona",
+        "suggestionTitle": "Barcelona (BCN)",
+        "subtitle": "Spain",
+        "id": "eyJlIjoiOTU1NjUwODUiLCJzIjoiQkNOIiwiaCI6IjI3NTQ4MjgzIiwidCI6IkFJUlBPUlQifQ==",
+        "skyId": "BCN"
+      },
+      "navigation": {
+        "entityId": "95565085",
+        "entityType": "AIRPORT",
+        "localizedName": "Barcelona",
+        "relevantFlightParams": {
+          "skyId": "BCN",
+          "entityId": "95565085",
+          "flightPlaceType": "AIRPORT",
+          "localizedName": "Barcelona"
+        },
+        "relevantHotelParams": {
+          "entityId": "27548283",
+          "entityType": "CITY",
+          "localizedName": "Barcelona"
+        }
+      }
+    },
+    {
+      "presentation": {
+        "title": "Barcelona",
+        "suggestionTitle": "Barcelona (BLA)",
+        "subtitle": "Venezuela",
+        "id": "eyJlIjoiMTI4NjY3MzE2IiwicyI6IkJMQSIsImgiOiIyNzUzOTQ1NiIsInQiOiJBSVJQT1JUIn0=",
+        "skyId": "BLA"
+      },
+      "navigation": {
+        "entityId": "128667316",
+        "entityType": "AIRPORT",
+        "localizedName": "Barcelona",
+        "relevantFlightParams": {
+          "skyId": "BLA",
+          "entityId": "128667316",
+          "flightPlaceType": "AIRPORT",
+          "localizedName": "Barcelona"
+        },
+        "relevantHotelParams": {
+          "entityId": "27539456",
+          "entityType": "CITY",
+          "localizedName": "Barcelona"
+        }
+      }
+    }
+  ],
+  "status": true,
+  "message": "Successful"
+}

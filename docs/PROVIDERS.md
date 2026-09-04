@@ -90,6 +90,14 @@ GET /flights/price-calendar?fromEntityId=BCN&toEntityId=VIE&departDate=2026-10-1
   {"day":"2026-09-19","group":"low","price":33.0}, ...]}}}
 ```
 
+Update, issue #61: "roughly a month" undersold it. A full capture of that same BCN-VIE call
+came back with **366 contiguous days, no gaps** — from *today*, not from the requested
+`departDate`, running exactly one year forward. `fromEntityId`/`toEntityId` also turned out to
+want the letters-only `skyId` ("BCN"), not the numeric `entityId` `auto-complete` also
+returns; passing the numeric id answers 400 `"SkyId can contain only letters"`. That is one
+measurement against one route, not a guarantee every route behaves identically — re-verify
+before assuming "always 366 days" elsewhere.
+
 Compare that with Sky Scrapper, which costs one request per date. Exploring a ten-day window
 over two legs is 20 Sky Scrapper requests, its entire monthly quota, versus **2** here.
 
