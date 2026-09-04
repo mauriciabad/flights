@@ -59,17 +59,42 @@ export interface Itinerary {
 	 * AGENTS.md ("partial results are the normal case... say what you do not know").
 	 * `transferToHotel`/`transferToConnectionAirport` are present only alongside this
 	 * field — without a bed, there is nowhere for either transfer to go. `totalPrice`
-	 * and `nightsInConnection` never guess a stay cost when this is `undefined`; a
-	 * caller must render that plainly rather than let the total read as complete. */
+	 * never guesses a stay cost when this is `undefined`; a caller must render that
+	 * plainly rather than let the total read as complete. `nightsInConnection` below is
+	 * NOT gated on this field (issue #105) — a stopover's night count comes from the
+	 * flight schedule alone, not from whether a bed got priced for it. */
 	stay?: Stay;
 	/** Line 49. */
 	freeTime: FreeTime;
 	/** Line 60: hotel nights, which is not free time divided by 24 — a stopover that
 	 * starts and ends on the same calendar day is zero nights even if it runs 20 hours,
-	 * and a stay spanning two midnights is two nights even on a short layover. Always 0
-	 * when `stay` is `undefined` — there is no booked bed to count nights against, never
-	 * a guess standing in for "unknown". */
+	 * and a stay spanning two midnights is two nights even on a short layover.
+	 *
+	 * Issue #105: computed from `freeTime` alone (`build.ts`'s own `nightsBetween`),
+	 * regardless of whether `stay` above is `undefined`. A 12-night stopover is 12
+	 * calendar nights whether or not any provider ever priced a bed for it — the
+	 * product thesis ("three nights in Vienna for free") has to rank on that fact even
+	 * for a search with no stay-provider key configured, which is every first-time
+	 * visitor's default state. `stay` being absent means no *priced* bed, never that
+	 * the stopover itself didn't happen; `totalPrice` above is what stays honest about
+	 * the unpriced part, not this field. */
 	nightsInConnection: number;
+	/** Issue #106: the party size `totalPrice` was computed for. `outboundFlight.price`
+	 * and `onwardFlight.price` are treated as a per-adult fare and multiplied by this
+	 * count — confirmed true for Ryanair's fare-finder, the free, no-key provider that
+	 * answers most searches (it has no adults/travellers parameter at all and always
+	 * returns one lowest single-adult fare, `providers/flights/ryanair-mapper.ts`).
+	 * Skyscanner, Kiwi and Flights Sky also send `travellers` upstream as an `adults`
+	 * count, but whether *their* returned price already reflects the full party rather
+	 * than one adult is not independently verified here — scaling it again would risk
+	 * overcounting instead of undercounting. `stay.pricePerNight` is deliberately NOT
+	 * multiplied by this: issue #80/#94's own choice, documented in
+	 * `search/resources.ts`, prices a stay as one flat per-night figure for the whole
+	 * party (a dorm bed is arguably per-person and a private room is not — an
+	 * unresolved nuance that choice already accepts). No `TransferProvider` in this
+	 * codebase populates `Transfer.price` today (domain/transfer.ts), so there is
+	 * nothing yet to scale there either way. */
+	travellers: number;
 	/** Line 50. Present only alongside `stay` — see that field's own doc comment. */
 	transferToConnectionAirport?: Transfer;
 	/** Line 51. */

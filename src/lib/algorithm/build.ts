@@ -24,7 +24,7 @@ import type {
 	Transfer,
 	WaitingTimeRule
 } from '../domain';
-import { DEFAULT_MIN_LAYOVER_TIME_MINUTES, DEFAULT_WAITING_TIME_RULES } from '../domain';
+import { DEFAULT_MIN_LAYOVER_TIME_MINUTES, DEFAULT_TRAVELLERS, DEFAULT_WAITING_TIME_RULES } from '../domain';
 
 /**
  * The brief ties waiting-time tiers to "short flight or small airport" vs "long flight or
@@ -136,6 +136,17 @@ export function sumDurations(...durations: (Duration | undefined)[]): Duration {
 	return durations.reduce<number>((total, duration) => total + (duration ?? 0), 0) as Duration;
 }
 
+/** Multiplies a Money value by a positive integer traveller count, rounding to the
+ * nearest minor unit. Issue #106: `Itinerary.travellers`'s own doc comment is the
+ * authority on which prices this is safe to apply to (flight fares, confirmed per-adult
+ * for the free Ryanair path) and which it deliberately is not (a stay's flat per-party
+ * rate). Exported so `recomputeItineraryWaitingTimes` below and
+ * `recompute-selection.ts`'s `recomputeItinerarySelection` share the exact same
+ * arithmetic rather than a second implementation that could round differently. */
+export function scaleMoney(money: Money, travellers: number): Money {
+	return { minorUnits: Math.round(money.minorUnits * travellers), currency: money.currency };
+}
+
 /** Totals Money values that must already share one currency — converting between
  * currencies is out of scope here, left to whichever module normalises provider prices
  * before they reach the builder. Exported for the same reason as `minutesBetween` above. */
@@ -196,6 +207,10 @@ export interface BuildItinerariesInput {
 	minLayoverTime?: Duration;
 	/** Brief line 39. Default DEFAULT_WAITING_TIME_RULES. */
 	waitingTimeRules?: WaitingTimeRule[];
+	/** Brief line 33, threaded down for issue #106's flight-price scaling — see
+	 * `Itinerary.travellers`'s own doc comment for exactly what this does and does not
+	 * scale. Default DEFAULT_TRAVELLERS. */
+	travellers?: number;
 }
 
 /**
@@ -207,6 +222,7 @@ export interface BuildItinerariesInput {
 export function buildItineraries(input: BuildItinerariesInput): Itinerary[] {
 	const minLayoverTime = input.minLayoverTime ?? DEFAULT_MIN_LAYOVER_TIME_MINUTES;
 	const waitingTimeRules = input.waitingTimeRules ?? DEFAULT_WAITING_TIME_RULES;
+	const travellers = input.travellers ?? DEFAULT_TRAVELLERS;
 
 	const onwardByConnection = new Map<IataAirportCode, FlightOffer[]>();
 	for (const onward of input.onwardOffers) {
@@ -265,13 +281,18 @@ export function buildItineraries(input: BuildItinerariesInput): Itinerary[] {
 			if (freeDuration < 0) continue; // not enough layover for the transfers plus the buffer
 
 			const freeTime = { start: freeStart, end: freeEnd, duration: freeDuration };
-			// No stay booked means no nights booked — never a guess standing in for
-			// "unknown" (AGENTS.md: "say what you do not know rather than guessing").
-			const nightsInConnection = stay ? nightsBetween(freeStart, freeEnd) : 0;
+			// Issue #105: calendar nights come from the free-time window alone, which is
+			// already known from the two flights' own timestamps — never gated on `stay`.
+			// A 12-night stopover is 12 nights whether or not a bed ever got priced for it;
+			// `stay` being absent only ever affects `totalPrice` below, not this.
+			const nightsInConnection = nightsBetween(freeStart, freeEnd);
 
+			// Issue #106: flight fares are per-adult (see `Itinerary.travellers`'s own doc
+			// comment for exactly which providers this is confirmed for), so the party's
+			// flight cost scales with `travellers`; the stay's per-night rate does not —
+			// issue #80/#94's own deliberate flat-per-party choice, unchanged here.
 			const totalPrice = sumMoney(
-				outbound.price,
-				onward.price,
+				scaleMoney(sumMoney(outbound.price, onward.price), travellers),
 				stay && nightsInConnection > 0
 					? {
 							minorUnits: stay.pricePerNight.minorUnits * nightsInConnection,
@@ -321,7 +342,8 @@ export function buildItineraries(input: BuildItinerariesInput): Itinerary[] {
 				transferToDestinationLocation: input.transferToDestinationLocation,
 				destinationLocation: input.destinationLocation,
 				totalPrice,
-				times
+				times,
+				travellers
 			});
 		}
 	}
@@ -342,11 +364,12 @@ export interface WaitingTimeOverrides {
  * dependent field recomputed. It never leaves a partial patch that skips one total.
  *
  * Reuses this module's own arithmetic (`addLocalMinutes`, `minutesBetween`, `nightsBetween`,
- * `sumMoney`) rather than a second implementation in the UI layer, so a hand edit can never
- * disagree with how `buildItineraries` would have computed the same itinerary from scratch.
- * Every value this needs (both flights' price/duration, the stay's nightly rate, both
- * connection-side transfers) already lives on the Itinerary itself, so this takes no other
- * input, unlike `buildItineraries`, which needs the wider candidate pool.
+ * `sumMoney`, `scaleMoney`) rather than a second implementation in the UI layer, so a hand
+ * edit can never disagree with how `buildItineraries` would have computed the same
+ * itinerary from scratch. Every value this needs (both flights' price/duration and the
+ * party size they're scaled by, the stay's nightly rate, both connection-side transfers)
+ * already lives on the Itinerary itself, so this takes no other input, unlike
+ * `buildItineraries`, which needs the wider candidate pool.
  *
  * `originWaitingTime` only ever affects `airportWaiting` and `total`: it is time spent
  * before a flight whose schedule is already fixed, so it cannot move anything else.
@@ -386,11 +409,14 @@ export function recomputeItineraryWaitingTimes(
 		: addLocalMinutes(itinerary.onwardFlight.departure, -connectionWaitingTime);
 	const freeDuration = minutesBetween(freeStart, freeEnd);
 	const freeTime = { start: freeStart, end: freeEnd, duration: freeDuration };
-	const nightsInConnection = stay ? nightsBetween(freeStart, freeEnd) : 0;
+	// Issue #105: not gated on `stay` — see `buildItineraries`'s own identical comment.
+	const nightsInConnection = nightsBetween(freeStart, freeEnd);
 
+	// Issue #106: `itinerary.travellers` is the party size this itinerary was already
+	// priced for (set once by `buildItineraries`, carried over untouched by a waiting-time
+	// edit), so the flight fares scale by it the same way here.
 	const totalPrice = sumMoney(
-		itinerary.outboundFlight.price,
-		itinerary.onwardFlight.price,
+		scaleMoney(sumMoney(itinerary.outboundFlight.price, itinerary.onwardFlight.price), itinerary.travellers),
 		stay && nightsInConnection > 0
 			? {
 					minorUnits: stay.pricePerNight.minorUnits * nightsInConnection,

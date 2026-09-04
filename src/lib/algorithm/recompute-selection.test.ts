@@ -158,6 +158,29 @@ describe('recomputeItinerarySelection: totals and nights', () => {
 		expect(result.itinerary.times.inFlight).toBe(150 + 90);
 	});
 
+	it('keeps scaling flight fares by the carried-over party size after a flight swap (issue #106)', () => {
+		const solo = baseItinerary();
+		const group = { ...solo, travellers: 3 };
+
+		const cheaperOutbound = makeFlight(
+			'LGW',
+			'VIE',
+			localDateTime('2026-06-01T09:00:00'),
+			localDateTime('2026-06-01T09:00:00'),
+			150,
+			4000
+		);
+
+		const soloResult = recomputeItinerarySelection(solo, { outboundFlight: cheaperOutbound });
+		const groupResult = recomputeItinerarySelection(group, { outboundFlight: cheaperOutbound });
+
+		expect(groupResult.itinerary.travellers).toBe(3);
+		// Flights only (this fixture's stay never gets a priced night — same calendar day):
+		// onward stays at its default 5000; solo = 4000 + 5000, group = (4000 + 5000) * 3.
+		expect(soloResult.itinerary.totalPrice.minorUnits).toBe(4000 + 5000);
+		expect(groupResult.itinerary.totalPrice.minorUnits).toBe((4000 + 5000) * 3);
+	});
+
 	it('leaves every other field untouched when only one transfer is overridden', () => {
 		const itinerary = baseItinerary();
 		const newHotelTransfer = makeTransfer(15, 200, 'taxi');

@@ -18,7 +18,7 @@
  * used; it does not silently re-open how long the traveller waits at the gate.
  */
 
-import { addLocalMinutes, minutesBetween, nightsBetween, sumDurations, sumMoney } from './build';
+import { addLocalMinutes, minutesBetween, nightsBetween, scaleMoney, sumDurations, sumMoney } from './build';
 import type { Duration, FlightOffer, Itinerary, ItineraryTimes, Money, Transfer } from '../domain';
 import { DEFAULT_MIN_LAYOVER_TIME_MINUTES } from '../domain';
 
@@ -119,12 +119,15 @@ export function recomputeItinerarySelection(
 	// A negative gap has no meaningful night count; clamped to 0 rather than handed to
 	// `nightsBetween` and left to produce a number nobody asked for, since the accompanying
 	// warning above is already what tells the caller this result is not a bookable trip.
-	// No stay booked is the same "0 nights" outcome, never a guess.
-	const nightsInConnection = freeDuration < 0 || !stay ? 0 : nightsBetween(freeStart, freeEnd);
+	// Issue #105: NOT gated on `stay` otherwise — a real stopover's night count comes from
+	// the free-time window alone, same as `build.ts`'s own `buildItineraries`.
+	const nightsInConnection = freeDuration < 0 ? 0 : nightsBetween(freeStart, freeEnd);
 
+	// Issue #106: `itinerary.travellers` carries over from the itinerary being edited (a
+	// picker swap changes which flight is used, never the party size), so the flight fares
+	// scale by it exactly as `build.ts` itself does.
 	const totalPrice: Money = sumMoney(
-		outboundFlight.price,
-		onwardFlight.price,
+		scaleMoney(sumMoney(outboundFlight.price, onwardFlight.price), itinerary.travellers),
 		stay && nightsInConnection > 0
 			? {
 					minorUnits: stay.pricePerNight.minorUnits * nightsInConnection,

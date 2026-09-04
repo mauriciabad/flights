@@ -129,6 +129,7 @@ function twoHourLayover(flightCarrier: Carrier = carrier('AB', 'Air Baseline')):
 		onwardFlight: flight('VIE', 'TLL', '2026-09-10T15:00:00', '2026-09-10T17:30:00', 150, flightCarrier),
 		destinationAirport,
 		totalPrice: { minorUnits: 20000, currency: 'EUR' },
+		travellers: 1,
 		times: {
 			inFlight: 300 as Duration, // both flights: 150 + 150
 			airportWaiting: 240 as Duration, // originWaitingTime + connectionWaitingTime
@@ -158,6 +159,7 @@ function threeNightStopover(flightCarrier: Carrier = carrier('AB', 'Air Baseline
 		onwardFlight: flight('VIE', 'TLL', '2026-09-13T15:00:00', '2026-09-13T17:30:00', 150, flightCarrier),
 		destinationAirport,
 		totalPrice: { minorUnits: 20800, currency: 'EUR' }, // 8 EUR more, per the brief's own example
+		travellers: 1,
 		times: {
 			inFlight: 300 as Duration,
 			airportWaiting: 240 as Duration,
@@ -205,6 +207,33 @@ describe('scoreItinerary / rankItineraries', () => {
 		expect(stopover.breakdown.nights).toBeGreaterThan(0);
 		expect(stopover.breakdown.nights).toBeGreaterThan(
 			Math.abs(stopover.breakdown.price - layover.breakdown.price)
+		);
+	});
+
+	it('ranks a long stopover above a short layover on the nights bonus alone, with no stay priced at all (issue #105)', () => {
+		// Exactly the app's default, keyless first-time-visitor state: no stay provider had
+		// a key, so `stay` and its transfers are all `undefined` on both itineraries — the
+		// nights bonus must still fire from the flight schedule alone.
+		const layover: Itinerary = {
+			...twoHourLayover(),
+			stay: undefined,
+			transferToHotel: undefined,
+			transferToConnectionAirport: undefined
+		};
+		const stopover: Itinerary = {
+			...threeNightStopover(),
+			stay: undefined,
+			transferToHotel: undefined,
+			transferToConnectionAirport: undefined
+		};
+
+		const layoverScore = scoreItinerary(layover);
+		const stopoverScore = scoreItinerary(stopover);
+
+		expect(stopoverScore.total).toBeGreaterThan(layoverScore.total);
+		expect(stopoverScore.breakdown.nights).toBeGreaterThan(0);
+		expect(stopoverScore.breakdown.nights).toBeGreaterThan(
+			Math.abs(stopoverScore.breakdown.price - layoverScore.breakdown.price)
 		);
 	});
 

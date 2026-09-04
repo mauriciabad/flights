@@ -22,15 +22,21 @@ export function describeWhyGood(result: ScoredResult): string {
 	const nights = itinerary.nightsInConnection;
 	const usableHours = Math.round(usableFreeHours(itinerary.freeTime));
 
-	// Issue #94: with no stay priced, `nights` is always 0 by convention, not because the
-	// layover is genuinely a day trip — say that plainly rather than let a "no overnight
-	// stay needed" line below imply a fact nobody checked.
-	if (!itinerary.stay) {
-		return 'No stay priced for this stopover yet — showing flights and free time only.';
-	}
+	// Issue #105: `nights` comes from the flight schedule alone (build.ts's own
+	// `nightsBetween`), never from whether a bed got priced, so a real stopover still
+	// leads with it even with no stay provider configured — the default state for every
+	// first-time visitor. The missing bed is a separate, honest note layered on top,
+	// never a reason to hide a real night count behind "no stay priced".
 	if (nights >= 1) {
 		const nightsLabel = nights === 1 ? '1 night' : `${nights} nights`;
-		return `${nightsLabel} in the stopover city, most of it free time.`;
+		const stayNote = itinerary.stay ? '' : ' — no bed priced for it yet';
+		return `${nightsLabel} in the stopover city, most of it free time${stayNote}.`;
+	}
+	// Issue #94: with no stay AND no nights, this genuinely is a same-day connection with
+	// nothing priced — say both plainly rather than let the "no overnight needed" line
+	// below imply a fact (a short layover) this itinerary never actually checked.
+	if (!itinerary.stay) {
+		return 'No stay priced for this stopover yet — showing flights and free time only.';
 	}
 	if (usableHours >= 4) {
 		return `About ${usableHours}h free in the stopover during the day, no overnight stay needed.`;

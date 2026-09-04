@@ -99,6 +99,7 @@ function baseItinerary(): Itinerary {
 		onwardFlight: flight('VIE', 'TLL', 'AB200'),
 		destinationAirport,
 		totalPrice: { minorUnits: 20000, currency: 'EUR' },
+		travellers: 1,
 		times: {
 			inFlight: 300 as Duration,
 			airportWaiting: 240 as Duration,

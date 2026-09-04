@@ -68,6 +68,7 @@ export function makeItinerary(
 		freeTimeMinutes?: number;
 		freeTimeStart?: string;
 		freeTimeEnd?: string;
+		travellers?: number;
 	} = {}
 ): Itinerary {
 	const connectionCode = overrides.connectionAirportCode ?? 'VIE';
@@ -101,6 +102,7 @@ export function makeItinerary(
 		onwardFlight,
 		destinationAirport: airport('OTP', 'Bucharest'),
 		totalPrice: money(priceMinorUnits),
+		travellers: overrides.travellers ?? 1,
 		times: {
 			inFlight: (outboundFlight.duration + onwardFlight.duration) as Duration,
 			airportWaiting: 240 as Duration,
