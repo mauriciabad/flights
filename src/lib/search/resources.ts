@@ -9,6 +9,15 @@
  * `walk` and `transit`). Picking one representative of each is this module's job — `build.ts`
  * itself is explicit that this choice happens upstream of it ("a connection with no entry
  * here simply never produces an itinerary"), not something it decides.
+ *
+ * Issue #80: the one `Stay` picked here has to be one the party can actually book, not
+ * merely the cheapest one a provider happened to return — a `female-dorm` a group has no
+ * female travellers for is not a cheaper option, it is a wrong total. `fetchCheapestStay`
+ * filters by `stays/female-dorm-fit.ts` (issue #27's own rule, reused rather than
+ * re-derived) before ranking, and `fetchConnectionResources` keeps every candidate found
+ * alongside the pick (`ConnectionResourcesWithStayCandidates.stayCandidates`) so a caller
+ * still has real alternatives to offer once a stay picker is wired up, instead of only this
+ * pipeline's already-decided choice.
  */
 
 import { contextFor, isProviderUsable } from '../providers/registry';
@@ -24,6 +33,7 @@ import type {
 	TransferMode
 } from '../domain';
 import type { ConnectionResources } from '../algorithm/build';
+import { femaleDormFit, isFemaleDormSelectable } from '../stays/female-dorm-fit';
 import { flattenOk, stayCostAwareSources } from './cost-aware';
 import type { RecordProviderCall, SourceTracker } from './provenance';
 
@@ -45,6 +55,21 @@ export const DEFAULT_STAY_RADIUS_KM = 100;
  */
 export function rankStaysByPrice(stays: readonly Stay[]): Stay[] {
 	return [...stays].sort((a, b) => a.pricePerNight.minorUnits - b.pricePerNight.minorUnits);
+}
+
+/**
+ * Whether this `Stay` can be booked as the whole party's one stay — issue #80. Every
+ * non-`female-dorm` room kind always qualifies; a `female-dorm` goes through
+ * `stays/female-dorm-fit.ts`'s rule, built for issue #27's picker and reused here rather
+ * than re-derived, so the pipeline and the picker can never disagree about what counts as
+ * bookable. A zero-female group excludes it outright, and so does a mixed group — `Stay`
+ * is priced as one flat per-night figure for the whole party, and there is no way to book
+ * a female-only dorm for 1 of 4 travellers as "the" stay without inventing a formula
+ * nobody asked for, the same call #27's picker already made and documents in its own UI.
+ */
+function isStaySelectable(stay: Stay, travellers: number | undefined, females: number | undefined): boolean {
+	if (stay.roomKind !== 'female-dorm') return true;
+	return isFemaleDormSelectable(femaleDormFit(travellers, females));
 }
 
 /** Preference order when more than one `Transfer` mode is on offer for the same A-to-B:
@@ -138,13 +163,31 @@ export async function fetchBestTransfer(
 	return pickBestTransfer(perProvider.flat());
 }
 
+/** One candidate's stay search, resolved into everything downstream needs: every `Stay`
+ * found (unfiltered, cheapest first — issue #80's "keep the candidate list" so a future
+ * picker (#27) has alternatives, ineligible ones included, to show rather than silently
+ * drop) and, separately, the cheapest one this party can actually book. */
+interface StaySearchOutcome {
+	/** Every `Stay` returned, cheapest first, gender-eligibility NOT applied. */
+	candidates: Stay[];
+	/** The cheapest candidate that is also `isStaySelectable` for this party, or
+	 * `undefined` when every candidate found is a `female-dorm` this party cannot fully
+	 * use — never a stay nobody in the group can book, no matter how cheap. */
+	selected: Stay | undefined;
+}
+
 /**
  * Runs every FREE stay provider (issue #22's `runCostAwareSearch`, `providers/budget`,
- * merged) for one candidate's stay search and picks the cheapest result. Never widens to a
- * metered stay provider (Agoda/Booking) — see `pipeline.ts`'s own scope note on why stay
- * widening is out of this PR's scope — so `widenTo` is always omitted here, which is also
- * what guarantees this call can never spend a metered request no matter which candidate it
- * runs for.
+ * merged) for one candidate's stay search and picks the cheapest result THIS PARTY CAN
+ * ACTUALLY BOOK. Never widens to a metered stay provider (Agoda/Booking) — see
+ * `pipeline.ts`'s own scope note on why stay widening is out of this PR's scope — so
+ * `widenTo` is always omitted here, which is also what guarantees this call can never
+ * spend a metered request no matter which candidate it runs for.
+ *
+ * Issue #80: filtering by `isStaySelectable` happens BEFORE picking the cheapest, not
+ * after — the previous version ranked by raw price alone and returned index `[0]`, which
+ * could and did hand a female-only dorm to a group with no female travellers. A price for
+ * a bed nobody in the party can book is not a cheaper option, it is a wrong answer.
  */
 async function fetchCheapestStay(
 	query: StaySearchQuery,
@@ -152,10 +195,14 @@ async function fetchCheapestStay(
 	keys: AvailableKeys,
 	signal: AbortSignal,
 	sources: SourceTracker,
-	record: RecordProviderCall
-): Promise<Stay | undefined> {
+	record: RecordProviderCall,
+	travellers: number | undefined,
+	females: number | undefined
+): Promise<StaySearchOutcome> {
 	const result = await runCostAwareSearch(stayCostAwareSources(providers, query, keys, signal, sources, record));
-	return rankStaysByPrice(flattenOk(result))[0];
+	const candidates = rankStaysByPrice(flattenOk(result));
+	const selected = candidates.find((stay) => isStaySelectable(stay, travellers, females));
+	return { candidates, selected };
 }
 
 export interface FetchConnectionResourcesInput {
@@ -173,18 +220,36 @@ export interface FetchConnectionResourcesInput {
 	landingToTransportRules: readonly LandingToTransportRule[];
 	sources: SourceTracker;
 	record: RecordProviderCall;
+	/** `SearchQuery.travellers`/`.females` — the only two fields this module needs from the
+	 * whole query, threaded down rather than passing the query object itself so this stays
+	 * a narrow interface (AGENTS.md). An absent `females` is NOT the same as `0` — see
+	 * `stays/female-dorm-fit.ts`'s own doc comment, which this module matches rather than
+	 * inventing a third interpretation. */
+	travellers?: number;
+	females?: number;
 }
 
 /**
  * Full resource bundle for one connection candidate, or `undefined` the moment any one part
  * is unavailable — matching `ConnectionResources`'s own all-or-nothing shape in `build.ts`:
  * a stay with no way to get there, or a stopover with no bed at all, is not a usable
- * itinerary leg no matter how good the flights are.
+ * itinerary leg no matter how good the flights are. Widens `ConnectionResources` with
+ * `stayCandidates` (issue #80) rather than changing that type itself, which
+ * `algorithm/build.ts` owns and already ships merged — see this module's own doc comment.
  */
+export interface ConnectionResourcesWithStayCandidates extends ConnectionResources {
+	/** Every `Stay` found near this connection, cheapest first, gender-eligibility NOT
+	 * applied — the candidate list issue #80 exists to stop discarding, so a results page
+	 * has real alternatives to hand issue #27's `StayPicker` instead of only this
+	 * pipeline's already-decided pick. `stay` above is this list's cheapest entry that also
+	 * passes `isStaySelectable` for this party. */
+	stayCandidates: Stay[];
+}
+
 export async function fetchConnectionResources(
 	input: FetchConnectionResourcesInput
-): Promise<ConnectionResources | undefined> {
-	const stay = await fetchCheapestStay(
+): Promise<ConnectionResourcesWithStayCandidates | undefined> {
+	const { candidates: stayCandidates, selected: stay } = await fetchCheapestStay(
 		{
 			near: input.connectionCoordinates,
 			radiusKm: input.stayRadiusKm,
@@ -195,7 +260,9 @@ export async function fetchConnectionResources(
 		input.keys,
 		input.signal,
 		input.sources,
-		input.record
+		input.record,
+		input.travellers,
+		input.females
 	);
 	if (!stay) return undefined;
 
@@ -222,5 +289,5 @@ export async function fetchConnectionResources(
 	const landingBuffer = pickLandingToTransportTime(input.landingToTransportRules, input.connectionAirportSize);
 	const transferToHotel = applyLandingBuffer(transferToHotelRaw, landingBuffer, input.sources);
 
-	return { stay, transferToHotel, transferToConnectionAirport };
+	return { stay, transferToHotel, transferToConnectionAirport, stayCandidates };
 }

@@ -484,6 +484,97 @@ describe('runSearch: grouping and provenance', () => {
 	});
 });
 
+describe('runSearch: stay gender-fit filtering and candidate survival (issue #80)', () => {
+	/** Returns a fixed female-dorm-plus-mixed-dorm pair for every stay query, regardless of
+	 * `near` — these tests only care about the room-kind/price mix, not geography. */
+	function fakeGenderMixStayProvider(): StayProvider {
+		const stays: Stay[] = [
+			{
+				property: { name: 'Cheap Female Dorm', coordinates: { latitude: 48.2, longitude: 16.37 }, images: [] },
+				roomKind: 'female-dorm',
+				pricePerNight: { minorUnits: 1000, currency: 'EUR' }
+			},
+			{
+				property: { name: 'Pricier Mixed Dorm', coordinates: { latitude: 48.2, longitude: 16.37 }, images: [] },
+				roomKind: 'dorm',
+				pricePerNight: { minorUnits: 2200, currency: 'EUR' }
+			}
+		];
+		return {
+			kind: 'stay',
+			id: 'gender-mix-stays',
+			label: 'Fixture stays (gender mix)',
+			needsKey: false,
+			keyFields: [],
+			async healthCheck() {
+				return { ok: true, data: {}, source: source('gender-mix-stays'), requestsUsed: 0 };
+			},
+			estimateSearchStaysCost: () => 0,
+			async searchStays(_query, ctx: ProviderContext): Promise<ProviderResult<Stay[]>> {
+				if (ctx.signal.aborted) {
+					return { ok: false, error: { code: 'cancelled', message: 'aborted' }, source: source('gender-mix-stays'), requestsUsed: 0 };
+				}
+				return { ok: true, data: stays, source: source('gender-mix-stays'), requestsUsed: 1 };
+			}
+		};
+	}
+
+	it('never lets a zero-female group\'s itinerary total rest on a female-only dorm, even though it is cheapest', async () => {
+		const free = createFakeFlightProvider({
+			id: 'free-flights',
+			routes: { [ORIGIN]: [FAST], [FAST]: [DEST] },
+			offerBuilder: standardOfferBuilder
+		});
+		const registry = new ProviderRegistry([free.provider, fakeGenderMixStayProvider(), createFakeTransferProvider()]);
+		const deps: SearchDependencies = { registry, keys: {}, resolveAirport, currency: 'EUR' };
+		const query: SearchQuery = { ...BASE_QUERY, travellers: 4, females: 0 };
+
+		const snapshots = await drain(runSearch(query, deps));
+		const final = snapshots.at(-1)!;
+
+		const stayUsed = final.itineraryGroups[0]?.best.score.itinerary.stay;
+		expect(stayUsed?.roomKind).not.toBe('female-dorm');
+		expect(stayUsed?.property.name).toBe('Pricier Mixed Dorm');
+	});
+
+	it('keeps every stay found for a connection in the snapshot, not just the one picked', async () => {
+		const free = createFakeFlightProvider({
+			id: 'free-flights',
+			routes: { [ORIGIN]: [FAST], [FAST]: [DEST] },
+			offerBuilder: standardOfferBuilder
+		});
+		const registry = new ProviderRegistry([free.provider, fakeGenderMixStayProvider(), createFakeTransferProvider()]);
+		const deps: SearchDependencies = { registry, keys: {}, resolveAirport, currency: 'EUR' };
+		const query: SearchQuery = { ...BASE_QUERY, travellers: 4, females: 0 };
+
+		const snapshots = await drain(runSearch(query, deps));
+		const final = snapshots.at(-1)!;
+
+		const candidatesForFast = final.stayCandidatesByConnection[FAST];
+		expect(candidatesForFast).toBeDefined();
+		expect(candidatesForFast.map((s) => s.property.name).sort()).toEqual(['Cheap Female Dorm', 'Pricier Mixed Dorm']);
+	});
+
+	it('still allows a female-only dorm as the pick when females is unspecified', async () => {
+		const free = createFakeFlightProvider({
+			id: 'free-flights',
+			routes: { [ORIGIN]: [FAST], [FAST]: [DEST] },
+			offerBuilder: standardOfferBuilder
+		});
+		const registry = new ProviderRegistry([free.provider, fakeGenderMixStayProvider(), createFakeTransferProvider()]);
+		const deps: SearchDependencies = { registry, keys: {}, resolveAirport, currency: 'EUR' };
+		// females omitted entirely — absent means "do not filter", not the same as 0.
+		const query: SearchQuery = { ...BASE_QUERY, travellers: 4 };
+
+		const snapshots = await drain(runSearch(query, deps));
+		const final = snapshots.at(-1)!;
+
+		const stayUsed = final.itineraryGroups[0]?.best.score.itinerary.stay;
+		expect(stayUsed?.roomKind).toBe('female-dorm');
+		expect(stayUsed?.property.name).toBe('Cheap Female Dorm');
+	});
+});
+
 describe('widenSearch', () => {
 	it('spends metered requests only for the targeted candidate, capped at the confirmed budget', async () => {
 		const free = createFakeFlightProvider({
