@@ -49,8 +49,10 @@
 		if (!expanded) return;
 		// Focus the region rather than its first input: on a phone, focusing a text field
 		// throws the keyboard up over the results the traveller just asked to keep in view.
+		// `preventScroll` keeps the query line and the Close button on screen, which the
+		// default scroll-into-view pushes off the top.
 		await tick();
-		editorEl?.focus();
+		editorEl?.focus({ preventScroll: true });
 	}
 </script>
 

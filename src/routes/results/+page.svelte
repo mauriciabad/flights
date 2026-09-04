@@ -685,6 +685,15 @@
 		display: flex;
 		flex-direction: column;
 		gap: var(--space-4);
+		min-width: 0;
+	}
+
+	/* A grid item's `min-width` is `auto`, so the widest thing inside a result card (a
+	   route line with three airports and their flags) was stretching this column past the
+	   viewport and clipping every card's right-hand edge on a phone. `0` lets the column
+	   take the track's width and the content inside wrap or scroll on its own terms. */
+	.results-list-column {
+		min-width: 0;
 	}
 
 	.filters-toggle {
