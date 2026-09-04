@@ -13,6 +13,7 @@ import type {
 } from '../domain';
 import { buildItineraries } from '../algorithm/build';
 import ItineraryTimeline from './ItineraryTimeline.svelte';
+import ItineraryTimelineSelectionHarness from './ItineraryTimelineSelectionHarness.svelte';
 
 /**
  * Mounted with Svelte 5's own `mount`/`flushSync` rather than @testing-library/svelte,
@@ -113,6 +114,19 @@ function renderTimeline(itinerary: Itinerary) {
 	instance = mount(ItineraryTimeline, { target, props: { itinerary } });
 	flushSync();
 	return target;
+}
+
+/** Exercises the `selectedSegmentId` binding (issue #73) through a real `bind:`, which a
+ * `.ts` test file cannot write directly — Svelte's own testing docs call for a small
+ * wrapper component for exactly this. `externalSelect` plays the part `ItineraryMap`
+ * (issue #26) will play for real: writing to the shared bound variable from outside. */
+function renderSelectionHarness(itinerary: Itinerary) {
+	target = document.createElement('div');
+	document.body.appendChild(target);
+	const harness = mount(ItineraryTimelineSelectionHarness, { target, props: { itinerary } });
+	instance = harness;
+	flushSync();
+	return { root: target, harness };
 }
 
 /** Reads one row of the totals `<dl>` by its label, rather than searching the whole
@@ -262,5 +276,111 @@ describe('ItineraryTimeline, overnight local-time correctness', () => {
 		const root = renderTimeline(itinerary);
 		const outboundRow = root.querySelector('[data-segment="outbound-flight"]');
 		expect(outboundRow!.querySelector('.tl-note-plusday')).toBeNull();
+	});
+});
+
+describe('ItineraryTimeline, selection binding for the map (issue #73)', () => {
+	it('clicking a row selects that segment and marks the row selected', () => {
+		const itinerary = makeItinerary();
+		const { root, harness } = renderSelectionHarness(itinerary);
+
+		const row = root.querySelector<HTMLLIElement>('[data-segment="outbound-flight"]');
+		expect(row).not.toBeNull();
+		expect(row!.getAttribute('aria-selected')).toBe('false');
+
+		row!.click();
+		flushSync();
+
+		expect(harness.currentSelection()).toBe('outbound-flight');
+		expect(row!.getAttribute('aria-selected')).toBe('true');
+		expect(row!.classList.contains('is-selected')).toBe(true);
+	});
+
+	it('selecting a different row moves the highlight, leaving only one row selected', () => {
+		const itinerary = makeItinerary();
+		const { root, harness } = renderSelectionHarness(itinerary);
+
+		root.querySelector<HTMLLIElement>('[data-segment="origin-waiting"]')!.click();
+		flushSync();
+		expect(harness.currentSelection()).toBe('origin-waiting');
+
+		root.querySelector<HTMLLIElement>('[data-segment="onward-flight"]')!.click();
+		flushSync();
+
+		expect(harness.currentSelection()).toBe('onward-flight');
+		expect(
+			root.querySelector('[data-segment="origin-waiting"]')!.getAttribute('aria-selected')
+		).toBe('false');
+		expect(root.querySelector('[data-segment="onward-flight"]')!.getAttribute('aria-selected')).toBe(
+			'true'
+		);
+	});
+
+	it('a selection written from outside (as ItineraryMap does) highlights the matching row', () => {
+		const itinerary = makeItinerary();
+		const { root, harness } = renderSelectionHarness(itinerary);
+
+		harness.externalSelect('connection-waiting');
+		flushSync();
+
+		expect(
+			root.querySelector('[data-segment="connection-waiting"]')!.getAttribute('aria-selected')
+		).toBe('true');
+		expect(root.querySelector('[data-segment="outbound-flight"]')!.getAttribute('aria-selected')).toBe(
+			'false'
+		);
+	});
+
+	it('Enter and Space activate a focused row the same way a click does', () => {
+		const itinerary = makeItinerary();
+		const { root, harness } = renderSelectionHarness(itinerary);
+
+		const row = root.querySelector<HTMLLIElement>('[data-segment="free-time"]')!;
+		row.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+		flushSync();
+		expect(harness.currentSelection()).toBe('free-time');
+
+		const other = root.querySelector<HTMLLIElement>('[data-segment="onward-flight"]')!;
+		other.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }));
+		flushSync();
+		expect(harness.currentSelection()).toBe('onward-flight');
+	});
+
+	it('a Space press on the nested waiting-time stepper button does not hijack that button', () => {
+		// Regression guard for the row's own onkeydown: without checking that the row itself
+		// (not a descendant) is the event's target, this handler's preventDefault() on a
+		// bubbled Space press would suppress the native button's own space-triggered click
+		// before the browser gets to fire it.
+		const itinerary = makeItinerary();
+		const { root, harness } = renderSelectionHarness(itinerary);
+
+		const row = root.querySelector<HTMLLIElement>('[data-segment="origin-waiting"]')!;
+		const stepperButton = row.querySelector('button')!;
+		stepperButton.focus();
+		stepperButton.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }));
+		flushSync();
+
+		// The row's handler saw a bubbled event whose target was the button, not the row, so
+		// it left selection untouched instead of claiming the segment on the button's behalf.
+		expect(harness.currentSelection()).toBeNull();
+	});
+
+	it('the ol root and flat li row structure are unchanged by the added interactivity', () => {
+		// The mount target itself is a plain test-harness <div>, not part of the component;
+		// its first child is this component's actual root, per the DOM contract issue #25
+		// depends on (the <ol> itself, with no wrapper).
+		const itinerary = makeItinerary();
+		const root = renderTimeline(itinerary);
+
+		const ol = root.firstElementChild;
+		expect(ol?.tagName).toBe('OL');
+		const rows = Array.from(ol!.querySelectorAll(':scope > li'));
+		expect(rows.length).toBeGreaterThan(0);
+		for (const row of rows) {
+			expect(row.classList.contains('tl-row')).toBe(true);
+			expect(row.getAttribute('data-segment')).not.toBeNull();
+			// No wrapper: the rail and content are still the row's only two direct children.
+			expect(row.children.length).toBe(2);
+		}
 	});
 });
