@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { monthKeyFor } from './month-key';
+import { monthKeyFor, secondsUntilNextMonthUtc } from './month-key';
 
 describe('monthKeyFor', () => {
 	it('formats a UTC calendar month as YYYY-MM', () => {
@@ -25,5 +25,26 @@ describe('monthKeyFor', () => {
 
 	it('defaults to the current time', () => {
 		expect(monthKeyFor()).toBe(monthKeyFor(Date.now()));
+	});
+});
+
+describe('secondsUntilNextMonthUtc', () => {
+	it('counts down to the first instant of next month', () => {
+		const oneHourBeforeSeptember = Date.UTC(2026, 7, 31, 23, 0, 0);
+		expect(secondsUntilNextMonthUtc(oneHourBeforeSeptember)).toBe(60 * 60);
+	});
+
+	it('wraps December into January of the next year', () => {
+		const oneMinuteBeforeNewYear = Date.UTC(2026, 11, 31, 23, 59, 0);
+		expect(secondsUntilNextMonthUtc(oneMinuteBeforeNewYear)).toBe(60);
+	});
+
+	it('is never negative, right up to the last millisecond of the month', () => {
+		const lastMillisecondOfAugust = Date.UTC(2026, 7, 31, 23, 59, 59, 999);
+		expect(secondsUntilNextMonthUtc(lastMillisecondOfAugust)).toBe(0);
+	});
+
+	it('defaults to the current time', () => {
+		expect(secondsUntilNextMonthUtc()).toBeGreaterThanOrEqual(0);
 	});
 });

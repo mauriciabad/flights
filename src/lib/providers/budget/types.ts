@@ -1,68 +1,20 @@
-import type { ProviderId } from '$lib/keys';
+// Issue #2's provider interface (../types.ts) is the merged contract every
+// adapter and every caller programs against: providers never throw, they
+// resolve a ProviderResult carrying a ProviderError from a fixed, exhaustive
+// code union. This module used to define its own parallel vocabulary before
+// that interface merged (AGENTS.md "main moves while you work") — it now
+// reuses the real thing instead, so an adapter never has to translate
+// between "the budget module's opinion of an error" and "the interface's
+// opinion of an error."
+import type { ProviderError } from '../types';
 
-// Re-exported rather than redefined: `src/lib/keys/types.ts` already treats a
-// provider id as a plain string on purpose, so the eventual registry (issue
-// #2) has room to define the canonical list without every module that came
-// before it needing a rewrite. This module follows the same rule.
-export type { ProviderId };
-
-/**
- * Why a call was refused or failed, coarse enough for a caller to decide what
- * to do next without parsing a message string:
- * - `quota-exceeded`: refused locally, before any network request — the
- *   monthly cap is already spent.
- * - `not-subscribed`: the RapidAPI account has no plan for this provider.
- *   Permanent for the session; see `permanent-failures.ts`.
- * - `rate-limited`: HTTP 429, the provider's short hourly window is full.
- *   Worth retrying after a backoff.
- * - `network-error`: the request never reached the provider (offline, CORS,
- *   DNS). Worth a limited retry.
- * - `cancelled`: the caller's own `AbortSignal` fired. Never retried.
- * - `unknown`: anything else. Not retried, since retrying a failure this
- *   layer does not understand risks spending quota on repeats of the same
- *   mistake.
- */
-export type ProviderFailureKind =
-	| 'quota-exceeded'
-	| 'not-subscribed'
-	| 'rate-limited'
-	| 'network-error'
-	| 'cancelled'
-	| 'unknown';
-
-export interface ProviderCallError {
-	kind: ProviderFailureKind;
-	providerId: ProviderId;
-	/** Human-readable, safe to show in the UI — never the raw provider response. */
-	message: string;
-	/** Set only for `quota-exceeded`, so a caller can show "12 of 15 used" without re-deriving it. */
-	quota?: { cap: number; used: number; monthKey: string };
-	/** The original thrown value, kept for logging. Never rendered directly — it may echo request details. */
-	cause?: unknown;
-}
-
-export interface ProviderCallSuccess<T> {
-	ok: true;
-	providerId: ProviderId;
-	value: T;
-	/** Real network attempts spent, retries included. */
-	requestsUsed: number;
-	attempts: number;
-}
-
-export interface ProviderCallFailure {
-	ok: false;
-	providerId: ProviderId;
-	error: ProviderCallError;
-	/** 0 when refused before any fetch (quota-exceeded, or already known not-subscribed). */
-	requestsUsed: number;
-	attempts: number;
-}
+export type { ProviderError, ProviderId, ProviderResult, ProviderSource } from '../types';
 
 /**
- * Never a thrown exception for the failure cases this module already
- * understands — a search pipeline fanning out across a dozen providers needs
- * one bad provider to produce a value it can inspect, not a rejected promise
- * that takes `Promise.all` down with it.
+ * Just the `code` field of `ProviderError`, extracted rather than
+ * hand-copied, so this module's classifier and retry logic stay in lockstep
+ * with whatever codes the provider interface defines — a new code added
+ * there shows up here as a type error at every `switch` that isn't updated
+ * to handle it, instead of silently falling through.
  */
-export type ProviderCallOutcome<T> = ProviderCallSuccess<T> | ProviderCallFailure;
+export type ProviderErrorCode = ProviderError['code'];

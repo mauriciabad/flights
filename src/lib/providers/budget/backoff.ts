@@ -8,7 +8,8 @@ export interface BackoffOptions {
 }
 
 const DEFAULT_BASE_DELAY_MS = 500;
-const DEFAULT_MAX_DELAY_MS = 8_000;
+/** Exported so a caller honouring a provider's own `Retry-After` hint can still cap it — a search the user is watching should not freeze for however long a provider asks. */
+export const DEFAULT_MAX_DELAY_MS = 8_000;
 
 /**
  * Delay before retry attempt N (1-indexed: `attempt` is the number of the

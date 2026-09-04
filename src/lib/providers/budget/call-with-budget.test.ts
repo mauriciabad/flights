@@ -29,9 +29,9 @@ describe('callProviderWithBudget — hard quota stop', () => {
 		expect(outcome).toMatchObject({
 			ok: false,
 			requestsUsed: 0,
-			attempts: 0,
-			error: { kind: 'quota-exceeded' }
+			error: { code: 'quota-exceeded', status: 429 }
 		});
+		if (!outcome.ok) expect(outcome.error.code === 'quota-exceeded' && typeof outcome.error.retryAfterSeconds).toBe('number');
 	});
 
 	it('refuses once the cap is reached by prior calls in the same month', async () => {
@@ -54,7 +54,7 @@ describe('callProviderWithBudget — hard quota stop', () => {
 
 		expect(execute).toHaveBeenCalledTimes(1); // only the first call actually fired
 		expect(second.ok).toBe(false);
-		if (!second.ok) expect(second.error.kind).toBe('quota-exceeded');
+		if (!second.ok) expect(second.error.code).toBe('quota-exceeded');
 	});
 });
 
@@ -83,8 +83,8 @@ describe('callProviderWithBudget — in-flight deduplication', () => {
 		resolveExecute('fare-result');
 		const [outcomeA, outcomeB] = await Promise.all([first, second]);
 
-		expect(outcomeA).toMatchObject({ ok: true, value: 'fare-result', requestsUsed: 1 });
-		expect(outcomeB).toMatchObject({ ok: true, value: 'fare-result', requestsUsed: 1 });
+		expect(outcomeA).toMatchObject({ ok: true, data: 'fare-result', requestsUsed: 1 });
+		expect(outcomeB).toMatchObject({ ok: true, data: 'fare-result', requestsUsed: 1 });
 	});
 
 	it('reserves quota once, not twice, for the deduplicated pair', async () => {
@@ -107,8 +107,8 @@ describe('callProviderWithBudget — in-flight deduplication', () => {
 			})
 		]);
 
-		// If both had reserved separately, a third call under the (now-exhausted) cap of 1 would still be refused either way —
-		// what this actually proves is only one real attempt happened, checked above via `execute`.
+		// If both had reserved separately, this would still not distinguish the cases on its own —
+		// what actually proves it is `execute` (the real network attempt) firing only once, checked above.
 		expect(execute).toHaveBeenCalledTimes(1);
 	});
 });
@@ -129,7 +129,7 @@ describe('callProviderWithBudget — not-subscribed is permanent for the session
 		});
 
 		expect(execute).toHaveBeenCalledTimes(1); // not retried, unlike a 429
-		expect(outcome).toMatchObject({ ok: false, error: { kind: 'not-subscribed' } });
+		expect(outcome).toMatchObject({ ok: false, error: { code: 'not-subscribed', status: 403 } });
 		expect(isPermanentlyUnsubscribed('sky-scrapper')).toBe(true);
 	});
 
@@ -157,7 +157,7 @@ describe('callProviderWithBudget — not-subscribed is permanent for the session
 		});
 
 		expect(execute).toHaveBeenCalledTimes(1); // the second call never touched the network at all
-		expect(secondOutcome).toMatchObject({ ok: false, requestsUsed: 0, attempts: 0, error: { kind: 'not-subscribed' } });
+		expect(secondOutcome).toMatchObject({ ok: false, requestsUsed: 0, error: { code: 'not-subscribed' } });
 	});
 });
 
@@ -183,7 +183,48 @@ describe('callProviderWithBudget — exponential backoff on 429', () => {
 
 		expect(execute).toHaveBeenCalledTimes(3);
 		expect(sleep).toHaveBeenCalledTimes(2); // backed off before attempt 2 and attempt 3
-		expect(outcome).toMatchObject({ ok: true, value: 'ok-on-third-try', requestsUsed: 3, attempts: 3 });
+		expect(outcome).toMatchObject({ ok: true, data: 'ok-on-third-try', requestsUsed: 3 });
+	});
+
+	it('honours a Retry-After hint instead of guessing a backoff', async () => {
+		let call = 0;
+		const execute = vi.fn(async () => {
+			call++;
+			if (call < 2) throw new ProviderHttpError(429, 'Too Many Requests', 3); // Retry-After: 3s
+			return 'ok';
+		});
+		const sleep = vi.fn(instantSleep);
+
+		await callProviderWithBudget({
+			providerId: 'sky-scrapper',
+			cap: 15,
+			dedupeKey: 'sky-scrapper:retry-after-test',
+			execute,
+			sleep,
+			now: () => SEP_2026
+		});
+
+		expect(sleep).toHaveBeenCalledWith(3_000); // 3s from the header, not a computed exponential guess
+	});
+
+	it('caps an outsized Retry-After hint rather than freezing the search', async () => {
+		const execute = vi.fn(async () => {
+			throw new ProviderHttpError(429, 'Too Many Requests', 3_600); // an hour
+		});
+		const sleep = vi.fn(instantSleep);
+
+		await callProviderWithBudget({
+			providerId: 'sky-scrapper',
+			cap: 15,
+			dedupeKey: 'sky-scrapper:retry-after-cap-test',
+			execute,
+			sleep,
+			maxAttempts: 2,
+			backoff: { maxDelayMs: 8_000 },
+			now: () => SEP_2026
+		});
+
+		expect(sleep).toHaveBeenCalledWith(8_000);
 	});
 
 	it('gives up after maxAttempts and reports the failure, still counting every real attempt', async () => {
@@ -202,7 +243,7 @@ describe('callProviderWithBudget — exponential backoff on 429', () => {
 		});
 
 		expect(execute).toHaveBeenCalledTimes(3);
-		expect(outcome).toMatchObject({ ok: false, requestsUsed: 3, attempts: 3, error: { kind: 'rate-limited' } });
+		expect(outcome).toMatchObject({ ok: false, requestsUsed: 3, error: { code: 'quota-exceeded' } });
 	});
 
 	it('re-checks the quota before every retry, so a retry storm cannot exceed the cap', async () => {
@@ -221,7 +262,7 @@ describe('callProviderWithBudget — exponential backoff on 429', () => {
 		});
 
 		expect(execute).toHaveBeenCalledTimes(2);
-		expect(outcome).toMatchObject({ ok: false, requestsUsed: 2, error: { kind: 'quota-exceeded' } });
+		expect(outcome).toMatchObject({ ok: false, requestsUsed: 2, error: { code: 'quota-exceeded' } });
 	});
 });
 
@@ -241,6 +282,25 @@ describe('callProviderWithBudget — cancellation and unclassified failures', ()
 		});
 
 		expect(execute).toHaveBeenCalledTimes(1);
-		expect(outcome).toMatchObject({ ok: false, error: { kind: 'cancelled' } });
+		expect(outcome).toMatchObject({ ok: false, error: { code: 'cancelled' } });
+	});
+
+	it('does not retry an unclassified failure, since retrying what this layer does not understand risks the rest of the budget', async () => {
+		const execute = vi.fn(async () => {
+			throw new Error('the provider changed its response shape');
+		});
+
+		const outcome = await callProviderWithBudget({
+			providerId: 'sky-scrapper',
+			cap: 15,
+			dedupeKey: 'sky-scrapper:unknown-failure',
+			execute,
+			sleep: instantSleep,
+			maxAttempts: 5,
+			now: () => SEP_2026
+		});
+
+		expect(execute).toHaveBeenCalledTimes(1);
+		expect(outcome).toMatchObject({ ok: false, requestsUsed: 1, error: { code: 'unknown' } });
 	});
 });

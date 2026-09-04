@@ -1,4 +1,4 @@
-import type { ProviderCallOutcome, ProviderId } from './types';
+import type { ProviderId, ProviderResult } from './types';
 
 export type ProviderTier = 'free' | 'metered';
 
@@ -9,13 +9,13 @@ export interface CostAwareSource<T> {
 	/** Requests this source spends if it runs, so a caller can show the cost before the user opts in. */
 	estimatedCost: number;
 	/** Should route through `callProviderWithBudget` so quota, dedup and retry are already handled — this module only decides *whether* to call it. */
-	run: () => Promise<ProviderCallOutcome<T>>;
+	run: () => Promise<ProviderResult<T>>;
 }
 
 export interface CostAwareResultEntry<T> {
 	providerId: ProviderId;
 	tier: ProviderTier;
-	outcome: ProviderCallOutcome<T>;
+	outcome: ProviderResult<T>;
 }
 
 export interface CostAwareSkip {

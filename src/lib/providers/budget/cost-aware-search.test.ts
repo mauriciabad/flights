@@ -1,10 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 import { estimateWidenCost, runCostAwareSearch } from './cost-aware-search';
 import type { CostAwareSource } from './cost-aware-search';
-import type { ProviderCallOutcome } from './types';
+import type { ProviderResult } from './types';
 
-function success<T>(providerId: string, value: T, requestsUsed = 1): ProviderCallOutcome<T> {
-	return { ok: true, providerId, value, requestsUsed, attempts: 1 };
+function success<T>(providerId: string, data: T, requestsUsed = 1): ProviderResult<T> {
+	return { ok: true, data, requestsUsed, source: { providerId, fetchedAt: '2026-09-04T00:00:00.000Z' } };
 }
 
 describe('runCostAwareSearch', () => {
@@ -78,10 +78,9 @@ describe('runCostAwareSearch', () => {
 				estimatedCost: 1,
 				run: async () => ({
 					ok: false,
-					providerId: 'sky-scrapper',
 					requestsUsed: 1,
-					attempts: 1,
-					error: { kind: 'unknown', providerId: 'sky-scrapper', message: 'boom' }
+					source: { providerId: 'sky-scrapper', fetchedAt: '2026-09-04T00:00:00.000Z' },
+					error: { code: 'unknown', message: 'boom' }
 				})
 			}
 		];

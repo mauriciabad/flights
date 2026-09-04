@@ -3,18 +3,28 @@ import type { ProviderId } from './types';
 /**
  * Defaults sit below the measured free-tier limit (docs/PROVIDERS.md), not at
  * it, so a search that misjudges how many candidates are worth a call still
- * leaves a reserve for whatever comes later in the month.
+ * leaves a reserve for whatever comes later in the month. One policy per
+ * provider on purpose — docs/PROVIDERS.md is explicit that flight lookups
+ * must be hoarded while Agoda's much larger allowance is "worth exploiting,"
+ * so a single shared cap across every metered provider would either starve
+ * Agoda or, worse, undersell how little Sky Scrapper actually has.
  *
- *   Sky Scrapper measured limit: 20 requests / month  -> default cap 15 (25% held back)
- *   Flights Sky measured limit:  50 requests / month  -> default cap 40 (20% held back)
+ *   Sky Scrapper  measured limit:  20 requests / month  -> default cap  15 (25% held back)
+ *   Flights Sky   measured limit:  50 requests / month  -> default cap  40 (20% held back)
+ *   Agoda         measured limit: 500 requests / month  -> default cap 400 (20% held back)
+ *   Booking.com   measured limit:  50 requests / month  -> default cap  40 (20% held back)
  *
- * Keyed by the same provider id strings the registry will use once issue #2
- * lands. Re-verify against docs/PROVIDERS.md before changing these — they
- * are measured numbers, not guesses.
+ * Keyed by the RapidAPI host slugs docs/PROVIDERS.md records
+ * (`sky-scrapper`, `flights-sky`, `agoda-com`, `booking-com15`), which is
+ * also what an adapter's own `id` (../types.ts ProviderBase) is expected to
+ * be once issue #2's adapters land. Re-verify against docs/PROVIDERS.md
+ * before changing these — they are measured numbers, not guesses.
  */
 export const DEFAULT_PROVIDER_CAPS: Readonly<Record<string, number>> = Object.freeze({
 	'sky-scrapper': 15,
-	'flights-sky': 40
+	'flights-sky': 40,
+	'agoda-com': 400,
+	'booking-com15': 40
 });
 
 /** Applied to a metered provider with no entry above. Conservative on purpose: an unlisted metered provider still gets a hard stop rather than none. */

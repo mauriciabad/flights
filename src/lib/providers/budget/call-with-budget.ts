@@ -1,10 +1,11 @@
-import { computeBackoffDelayMs, defaultSleep } from './backoff';
+import { DEFAULT_MAX_DELAY_MS, computeBackoffDelayMs, defaultSleep } from './backoff';
 import type { BackoffOptions } from './backoff';
-import { defaultClassifyError } from './classify-error';
+import { defaultClassifyError, retryAfterSecondsOf } from './classify-error';
 import { dedupeInFlight } from './dedupe';
+import { secondsUntilNextMonthUtc } from './month-key';
 import { isPermanentlyUnsubscribed, markNotSubscribed } from './permanent-failures';
 import { reserveProviderRequests } from './quota';
-import type { ProviderCallOutcome, ProviderFailureKind, ProviderId } from './types';
+import type { ProviderError, ProviderErrorCode, ProviderId, ProviderResult } from './types';
 
 export interface CallProviderWithBudgetOptions<T> {
 	providerId: ProviderId;
@@ -14,10 +15,10 @@ export interface CallProviderWithBudgetOptions<T> {
 	cap?: number;
 	/** Calls sharing a key while one is in flight share its outcome instead of firing twice. Build it from the provider id plus the query, e.g. the same key used for caching. */
 	dedupeKey: string;
-	/** Performs one real attempt. Throw to signal failure; `classifyError` decides what kind. */
+	/** Performs one real attempt and returns the adapter's `data`. Throw to signal failure — `classifyError` decides which `ProviderError` code it becomes. */
 	execute: () => Promise<T>;
 	/** Defaults to `defaultClassifyError`. Override when an adapter already knows more about its own errors than a generic classifier can. */
-	classifyError?: (error: unknown) => ProviderFailureKind;
+	classifyError?: (error: unknown) => ProviderErrorCode;
 	/** Total attempts allowed, the first one included. Default 3. */
 	maxAttempts?: number;
 	backoff?: BackoffOptions;
@@ -27,98 +28,126 @@ export interface CallProviderWithBudgetOptions<T> {
 	now?: () => number;
 }
 
-const RETRYABLE: ReadonlySet<ProviderFailureKind> = new Set(['rate-limited', 'network-error', 'unknown']);
+// `quota-exceeded` here only ever means an upstream 429 — a local pre-flight
+// refusal (the cap already spent) returns immediately, before this set is
+// consulted at all. `network-error` is worth one more try; `unknown` is
+// deliberately NOT retried, because retrying a failure this layer does not
+// understand risks spending the rest of the month's budget on repeats of the
+// same mistake instead of surfacing it.
+const RETRYABLE: ReadonlySet<ProviderErrorCode> = new Set(['quota-exceeded', 'network-error']);
 
 /**
  * The one function a provider adapter is expected to route every request
- * through. Ties together, in order: a permanent "not subscribed" short
- * circuit, in-flight deduplication, a hard quota stop before any fetch, and
- * exponential backoff on 429 — so an adapter's job shrinks to "how do I make
- * one HTTP call and turn the response into `T`", with the free-tier survival
- * logic living in exactly one place instead of copy-pasted into every
- * provider that needs it.
+ * through, returning exactly the `ProviderResult<T>` (../types.ts) an
+ * adapter method is contracted to resolve — so an adapter never hand-rolls
+ * the conversion from "what actually happened" to "what the interface
+ * promises callers." Ties together, in order: a permanent "not subscribed"
+ * short circuit, in-flight deduplication, a hard quota stop before any
+ * fetch, and exponential backoff on a 429 (re-checking quota before every
+ * retry, so a retry storm cannot itself exceed the cap).
+ *
+ * Adapter usage:
+ * ```ts
+ * async searchOffers(query, ctx) {
+ *   return callProviderWithBudget({
+ *     providerId: this.id,
+ *     dedupeKey: `${this.id}:searchOffers:${JSON.stringify(query)}`,
+ *     execute: () => fetchOffers(query, ctx) // throws ProviderHttpError, or lets fetch's own errors through
+ *   });
+ * }
+ * ```
  */
-export function callProviderWithBudget<T>(options: CallProviderWithBudgetOptions<T>): Promise<ProviderCallOutcome<T>> {
+export function callProviderWithBudget<T>(
+	options: CallProviderWithBudgetOptions<T>
+): Promise<ProviderResult<T>> {
 	return dedupeInFlight(options.dedupeKey, () => runWithBudget(options));
 }
 
-async function runWithBudget<T>(options: CallProviderWithBudgetOptions<T>): Promise<ProviderCallOutcome<T>> {
+async function runWithBudget<T>(options: CallProviderWithBudgetOptions<T>): Promise<ProviderResult<T>> {
 	const { providerId } = options;
 	const cost = options.cost ?? 1;
 	const classify = options.classifyError ?? defaultClassifyError;
 	const maxAttempts = options.maxAttempts ?? 3;
 	const sleep = options.sleep ?? defaultSleep;
 	const now = options.now ?? Date.now;
+	const maxDelayMs = options.backoff?.maxDelayMs ?? DEFAULT_MAX_DELAY_MS;
+	const source = () => ({ providerId, fetchedAt: new Date(now()).toISOString() });
 
 	if (isPermanentlyUnsubscribed(providerId)) {
 		return {
 			ok: false,
-			providerId,
 			requestsUsed: 0,
-			attempts: 0,
+			source: source(),
 			error: {
-				kind: 'not-subscribed',
-				providerId,
+				code: 'not-subscribed',
+				status: 403,
 				message: `${providerId} rejected an earlier call this session with "not subscribed" — retrying wastes a request on an answer that cannot change until the account is subscribed on RapidAPI.`
 			}
 		};
 	}
 
-	let attempts = 0;
 	let requestsUsed = 0;
 
-	for (;;) {
+	for (let attempt = 1; ; attempt++) {
 		const reservation = reserveProviderRequests(providerId, cost, { cap: options.cap, now });
 		if (!reservation.ok) {
 			return {
 				ok: false,
-				providerId,
 				requestsUsed,
-				attempts,
+				source: source(),
 				error: {
-					kind: 'quota-exceeded',
-					providerId,
+					code: 'quota-exceeded',
+					status: 429,
 					message: `${providerId} is at ${reservation.used}/${reservation.cap} requests for ${reservation.monthKey}; refusing to spend ${cost} more rather than collect a 403.`,
-					quota: { cap: reservation.cap, used: reservation.used, monthKey: reservation.monthKey }
+					retryAfterSeconds: secondsUntilNextMonthUtc(now())
 				}
 			};
 		}
 
-		attempts++;
 		requestsUsed += cost;
 
 		try {
-			const value = await options.execute();
-			return { ok: true, providerId, value, requestsUsed, attempts };
+			const data = await options.execute();
+			return { ok: true, data, requestsUsed, source: source() };
 		} catch (rawError) {
-			const kind = classify(rawError);
+			const code = classify(rawError);
 
-			if (kind === 'not-subscribed') {
-				markNotSubscribed(providerId);
-				return {
-					ok: false,
-					providerId,
-					requestsUsed,
-					attempts,
-					error: { kind, providerId, message: describeError(rawError, `${providerId} is not subscribed to this API.`), cause: rawError }
-				};
-			}
+			if (code === 'not-subscribed') markNotSubscribed(providerId);
 
-			const canRetry = RETRYABLE.has(kind) && attempts < maxAttempts;
+			const canRetry = RETRYABLE.has(code) && attempt < maxAttempts;
 			if (!canRetry) {
-				return {
-					ok: false,
-					providerId,
-					requestsUsed,
-					attempts,
-					error: { kind, providerId, message: describeError(rawError, `${providerId} call failed.`), cause: rawError }
-				};
+				return { ok: false, requestsUsed, source: source(), error: toProviderError(code, rawError, providerId) };
 			}
 
-			await sleep(computeBackoffDelayMs(attempts, options.backoff));
-			// Loop again: the next iteration reserves budget for the retry too,
-			// so a retry storm still cannot spend past the cap.
+			const retryAfterSeconds = retryAfterSecondsOf(rawError);
+			const delayMs =
+				retryAfterSeconds !== undefined
+					? Math.min(retryAfterSeconds * 1000, maxDelayMs)
+					: computeBackoffDelayMs(attempt, options.backoff);
+			await sleep(delayMs);
+			// Loop again: the next iteration reserves budget for the retry too.
 		}
+	}
+}
+
+/** Builds the exact `ProviderError` shape (../types.ts) each code requires — a discriminated union whose members carry different fields, so this cannot be one shared object literal. */
+function toProviderError(code: ProviderErrorCode, rawError: unknown, providerId: ProviderId): ProviderError {
+	const message = describeError(rawError, `${providerId} call failed.`);
+	switch (code) {
+		case 'missing-key':
+			return { code, message };
+		case 'not-subscribed':
+			return { code, message, status: 403 };
+		case 'quota-exceeded':
+			return { code, message, status: 429, retryAfterSeconds: retryAfterSecondsOf(rawError) };
+		case 'network-error':
+			return { code, message, cause: rawError };
+		case 'malformed-response':
+			return { code, message, cause: rawError };
+		case 'cancelled':
+			return { code, message };
+		case 'unknown':
+			return { code, message, cause: rawError };
 	}
 }
 
