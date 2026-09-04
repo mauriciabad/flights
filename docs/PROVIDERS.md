@@ -92,7 +92,7 @@ know":
 | Sky Scrapper | No. v1 `searchFlightEverywhere` is deprecated; v2 returns country-level results only |
 | Flights Sky | No. It has no such endpoint |
 | Kiwi (RapidAPI listing) | No. Its backend has been 402 since before it was written |
-| Ryanair | Only for Ryanair's own ~220 airports. `404` for everything else |
+| Ryanair | Only for the 224 airports in its own network snapshot. Boa Vista, Sal and Praia are in none of them |
 | Travelpayouts cheap routes | Only for the origins in the build-time list, and thinly |
 
 So for an origin outside Ryanair's network the connection graph had nothing to rank, and
@@ -575,11 +575,15 @@ https://services-api.ryanair.com/farfnd/v4/oneWayFares?departureAirportIataCode=
 ```
 
 An earlier version of this line said "direct destinations from any airport", which is wrong
-and cost real time — the route endpoint `404`s every airport Ryanair does not serve, which
-is most of them. A live search for Boa Vista on 2026-09-04 produced **7 such 404s in one
-run** (BVC itself, plus ORY, MUC, FRA, STR, DUS and one more probed as a candidate). Those
-404s are handled correctly as "no routes" rather than as errors (`ryanair.ts`
-`isRouteNotFound`), so nothing breaks — the search just quietly has nothing to work with.
+and cost real time. Counted from the bundled snapshot issue #145 now ships
+(`data/ryanair-network.generated.json`): **224 origins**, and Boa Vista is not one of them.
+Neither is Sal or Praia — Ryanair does not serve Cape Verde at all.
+
+Which half of the route that breaks is worth being precise about, because it is not the
+obvious one. Ryanair reaches Pafos from plenty of airports (AMM, ATH, BER, BGY, BHX, BTS,
+BUD, BVA, CGN, CHQ and more), so the inbound leg was always answerable. It is the outbound
+leg from an airport outside the network that returns nothing, and one missing half is enough
+for the connection graph to produce no candidate at all.
 
 It is one airline, so it is not a substitute for an aggregator. Its real value is as
 ground truth: these fares come from the airline itself, so when an aggregator quotes a

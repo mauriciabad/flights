@@ -12,12 +12,18 @@
  * The failure it fixes, precisely. `algorithm/connections.ts` builds its candidate stopover
  * list from `listDirectDestinations`. Sky Scrapper's implementation returns a failure (its
  * v1 endpoint is deprecated and v2 answers at country level); Flights Sky's returns a
- * failure (no such endpoint); Ryanair's answers for Ryanair's ~220 airports and `404`s
- * everything else; the build-time Travelpayouts dataset held exactly ONE route for Boa
- * Vista. So for the owner's own trip, BVC to PFO, the connection graph had no candidate to
- * rank, produced nothing, and the search reported "No itineraries found" — with every
+ * failure (no such endpoint); Ryanair's answers only for the 224 airports in its own
+ * bundled network snapshot, which does not include Boa Vista, Sal or Praia — Ryanair does
+ * not serve Cape Verde; and the build-time Travelpayouts dataset held exactly ONE route for
+ * Boa Vista. So for the owner's own trip, BVC to PFO, the connection graph had no candidate
+ * to rank, produced nothing, and the search reported "No itineraries found" — with every
  * RapidAPI key correctly configured, because no key was ever the problem. This adapter
  * answers that question for any airport, so the pipeline finally has somewhere to start.
+ *
+ * Worth noting which half fails, since it is not the obvious one: Ryanair reaches Pafos
+ * from a dozen airports, so the inbound leg was always answerable. It is the outbound leg
+ * from an airport outside its network that returns nothing, and one missing half is enough
+ * to produce no candidate at all.
  *
  * Keyless and unmetered, so it follows ryanair.ts's shape rather than flights-sky.ts's:
  * `estimateSearchOffersCost` reports 0 (there is no quota to protect, and 0 is the exact
