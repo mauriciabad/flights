@@ -17,3 +17,6 @@ export { default as Comparator } from './Comparator.svelte';
 export type { ComparedItinerary } from './comparator-types';
 export { default as FlightPicker } from './FlightPicker.svelte';
 export { default as TransportPicker } from './TransportPicker.svelte';
+export { default as SegmentIcon } from './SegmentIcon.svelte';
+export type { SegmentKind } from './SegmentIcon.svelte';
+export { default as AirlineLogo } from './AirlineLogo.svelte';

@@ -386,3 +386,19 @@ describe('ItineraryTimeline, selection binding for the map (issue #73)', () => {
 		}
 	});
 });
+
+describe('ItineraryTimeline, a fare-less transfer never renders as free (issue #119)', () => {
+	it('shows "price n/a" for a walk with no price, never a literal €0', () => {
+		// makeTransfer's walk carries no `price` field at all — Transfer.price is `Money |
+		// undefined`, and walking genuinely has no fare (domain/transfer.ts's own doc
+		// comment). That is not the same fact as costing zero: printing €0 next to a
+		// priced flight or stay would invite comparing them as if the numbers meant the
+		// same thing.
+		const itinerary = makeItinerary();
+		const root = renderTimeline(itinerary);
+
+		const text = root.textContent ?? '';
+		expect(text).toContain('price n/a');
+		expect(text).not.toMatch(/€\s?0(?:[.,]0+)?(?!\d)/);
+	});
+});

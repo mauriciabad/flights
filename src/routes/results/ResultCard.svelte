@@ -5,7 +5,7 @@
 	 * tested), this component only arranges markup and picks CSS classes, nothing here
 	 * recomputes a duration or a price from scratch.
 	 */
-	import { Card, Chip } from '$lib/components';
+	import { AirlineLogo, Card, Chip } from '$lib/components';
 	import { iconForAirport } from '$lib/data/airports';
 	import type { Airport } from '$lib/domain';
 	import { formatAge, formatClockTime, formatDayLabel, formatDuration, formatMoney } from '$lib/results/format';
@@ -70,6 +70,7 @@
 		<div class="route">
 			<span class="route-leg">
 				<span class="flag" aria-hidden="true">{originIcon.glyph}</span>
+				<span class="city">{itinerary.originAirport.city.name}</span>
 				<span class="iata font-mono tabular-nums">{itinerary.originAirport.iataCode}</span>
 			</span>
 			<span class="route-arrow" aria-hidden="true">→</span>
@@ -81,6 +82,7 @@
 			<span class="route-arrow" aria-hidden="true">→</span>
 			<span class="route-leg">
 				<span class="flag" aria-hidden="true">{destinationIcon.glyph}</span>
+				<span class="city">{itinerary.destinationAirport.city.name}</span>
 				<span class="iata font-mono tabular-nums">{itinerary.destinationAirport.iataCode}</span>
 			</span>
 		</div>
@@ -140,8 +142,24 @@
 		</p>
 
 		<div class="airlines">
-			<Chip label={itinerary.outboundFlight.carrier.name} deprioritized={isDeprioritized} />
-			<Chip label={itinerary.onwardFlight.carrier.name} deprioritized={isDeprioritized} />
+			<Chip deprioritized={isDeprioritized}>
+				<span class="airline-chip-body">
+					<AirlineLogo
+						iataCode={itinerary.outboundFlight.carrier.iataCode}
+						name={itinerary.outboundFlight.carrier.name}
+					/>
+					{itinerary.outboundFlight.carrier.name}
+				</span>
+			</Chip>
+			<Chip deprioritized={isDeprioritized}>
+				<span class="airline-chip-body">
+					<AirlineLogo
+						iataCode={itinerary.onwardFlight.carrier.iataCode}
+						name={itinerary.onwardFlight.carrier.name}
+					/>
+					{itinerary.onwardFlight.carrier.name}
+				</span>
+			</Chip>
 		</div>
 
 		<p class="why-good">{whyGood}</p>
@@ -234,6 +252,11 @@
 		gap: var(--space-1);
 	}
 
+	.city {
+		color: var(--color-text-muted);
+		font-size: var(--font-size-sm);
+	}
+
 	.route-leg-stopover .city {
 		color: var(--color-stopover);
 		font-weight: var(--font-weight-semibold);
@@ -252,9 +275,25 @@
 		line-height: 1;
 	}
 
+	/* A stamped code tag, not plain mono text — issue #119's "place mark beyond flags":
+	   the one identifier every leg already carries (an airport code, unlike a city name,
+	   is total — every airport in the dataset has one), given the same visual weight a
+	   luggage tag or boarding pass gives it. Background only, no border: a border here
+	   would need to clear WCAG 1.4.11's 3:1 non-text contrast against `--color-bg-inset`,
+	   which `--color-border-strong` only just clears in the dark palette and misses
+	   outright in the light one (checked with a throwaway contrast script, matching
+	   app.css's own verification method) — the same problem `.freshness-badge` above
+	   already avoids by using background colour alone. */
 	.iata {
-		font-size: var(--font-size-sm);
+		display: inline-flex;
+		align-items: center;
+		padding: 0.0625rem 0.375rem;
+		border-radius: var(--radius-sm);
+		font-size: var(--font-size-xs);
+		font-weight: var(--font-weight-semibold);
+		letter-spacing: var(--tracking-wide);
 		color: var(--color-text-muted);
+		background: var(--color-bg-inset);
 	}
 
 	.route-arrow {
@@ -383,6 +422,15 @@
 		display: flex;
 		flex-wrap: wrap;
 		gap: var(--space-2);
+	}
+
+	.airline-chip-body {
+		display: inline-flex;
+		align-items: center;
+		gap: var(--space-1);
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
 	}
 
 	.why-good {

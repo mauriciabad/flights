@@ -163,6 +163,17 @@
 	   areas (not DOM order) move the nav from "own row at the bottom" to
 	   "beside the brand" at the desktop breakpoint, so there is exactly
 	   one <nav>, not a mobile copy and a desktop copy. */
+	/* `height`, not `min-height` (issue #119): a grid container's block size has to be
+	   DEFINITE for `1fr` to mean "whatever is left after the other rows," per the CSS
+	   Grid sizing algorithm. `min-height: 100dvh` only sets a floor — the container's
+	   real size is still "auto," so with no definite size to divide up, the `main` row
+	   stretches to fit its own content instead of stopping at the viewport edge. That
+	   silently turns off `.app-content`'s `overflow-y: auto` (there is nothing left
+	   for it to overflow) and hands scrolling to the whole document instead, taking
+	   this header and nav along for the ride rather than leaving them pinned. Results
+	   is the one page long enough to ever scroll past a phone screen, which is why the
+	   bug only ever showed up there: scroll (or jump to a control below the fold, e.g.
+	   "Show details") and the header was gone, not merely stuck. */
 	.app-shell {
 		display: grid;
 		grid-template-columns: 1fr;
@@ -171,7 +182,7 @@
 			'header'
 			'main'
 			'nav';
-		min-height: 100dvh;
+		height: 100dvh;
 		background: var(--color-bg);
 	}
 

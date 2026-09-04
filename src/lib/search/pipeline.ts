@@ -81,6 +81,7 @@ import {
 	estimateTaxiFareForLeg,
 	fetchBestTransfer,
 	fetchConnectionResources,
+	isPlausibleTransfer,
 	pickBestTransfer,
 	pickLandingToTransportTime
 } from './resources';
@@ -161,9 +162,16 @@ async function fetchOuterTransfers(
 	// transferToHotel: a traveller who picks a different mode via TransportPicker still needs
 	// this padding, and re-deriving the pick from the buffered list keeps one code path
 	// deciding "which is best" instead of two that could disagree.
-	const destinationCandidates = (destinationOutcome?.candidates ?? []).map((transfer) =>
-		applyLandingBuffer(transfer, pickLandingToTransportTime(landingToTransportRules, destinationAirport.sizeClass), sources)
-	);
+	//
+	// Issue #119: re-filtered by isPlausibleTransfer after buffering, same reasoning as
+	// resources.ts's own transferToHotelCandidates — fetchBestTransfer already dropped
+	// anything implausible before the buffer ran, but the buffer only adds minutes, so a walk
+	// just under the threshold pre-buffer can cross it once landing time is added on top.
+	const destinationCandidates = (destinationOutcome?.candidates ?? [])
+		.map((transfer) =>
+			applyLandingBuffer(transfer, pickLandingToTransportTime(landingToTransportRules, destinationAirport.sizeClass), sources)
+		)
+		.filter(isPlausibleTransfer);
 	const transferToDestinationLocation = pickBestTransfer(destinationCandidates);
 
 	// Sequenced after both `fetchBestTransfer` calls above resolve, never alongside them —

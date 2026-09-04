@@ -26,6 +26,8 @@
 	import type { Airport, Duration, FlightOffer, Itinerary, LocalDateTime, Location, Transfer } from '../domain';
 	import { recomputeItineraryWaitingTimes } from '../algorithm/build';
 	import type { ItinerarySegmentId } from '../itinerary-map/segment-id';
+	import AirlineLogo from './AirlineLogo.svelte';
+	import SegmentIcon from './SegmentIcon.svelte';
 	import {
 		formatCalendarDate,
 		formatClockTime,
@@ -317,7 +319,8 @@
 			<div class="tl-transfer-info">
 				<p class="tl-label">{label}</p>
 				{#if transfer}
-					<p class="tl-detail">
+					<p class="tl-detail tl-detail-mode">
+						<SegmentIcon kind={transfer.mode} class="tl-mode-icon" />
 						{transferModeLabel(transfer.mode)}
 						{#if transfer.legs.some((leg) => leg.description)}
 							&middot; {transfer.legs
@@ -446,7 +449,8 @@
 		<div class="tl-content tl-content-row">
 			<div class="tl-flight-info">
 				<p class="tl-label">{label}</p>
-				<p class="tl-detail">
+				<p class="tl-detail tl-detail-mode">
+					<AirlineLogo iataCode={flight.carrier.iataCode} name={flight.carrier.name} />
 					{flight.carrier.name} {flight.flightNumber}
 					{#if flight.aircraft}&middot; {flight.aircraft}{/if}
 				</p>
@@ -540,8 +544,9 @@
 					<span class="tl-stopover-sameday">Day stopover in {connectionLabel}, no overnight stay</span>
 				{/if}
 			</p>
-			<p class="tl-detail">
+			<p class="tl-detail" class:tl-detail-mode={shown.stay}>
 				{#if shown.stay}
+					<SegmentIcon kind="hotel" class="tl-mode-icon" />
 					{shown.stay.property.name} &middot; {shown.stay.roomKind}
 					{#if shown.stay.property.rating}&middot; rated {shown.stay.property.rating}/5{/if}
 				{:else if shown.nightsInConnection > 0}
@@ -782,6 +787,22 @@
 		margin-top: var(--space-1);
 		font-size: var(--font-size-sm);
 		color: var(--color-text-muted);
+	}
+
+	/* A mode/carrier/hotel glyph sits inline with its own detail line rather than in a
+	   separate column: this is still one fact ("how" or "with whom"), just spelled with a
+	   mark first (issue #119) instead of only the word. */
+	.tl-detail-mode {
+		display: flex;
+		align-items: center;
+		gap: var(--space-1);
+	}
+
+	:global(.tl-mode-icon) {
+		width: 1rem;
+		height: 1rem;
+		flex-shrink: 0;
+		color: var(--color-text-faint);
 	}
 
 	.tl-note {

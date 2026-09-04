@@ -32,6 +32,7 @@
 		transferModeLabel
 	} from './itinerary-timeline-format';
 	import Chip from './Chip.svelte';
+	import SegmentIcon from './SegmentIcon.svelte';
 
 	type TransferLegField =
 		| 'transferToOriginAirport'
@@ -175,7 +176,10 @@
 					onchange={() => handleSelect(row)}
 				/>
 				<span class="row-mode">
-					<span class="row-mode-label">{transferModeLabel(row.transfer.mode)}</span>
+					<span class="row-mode-label">
+						<SegmentIcon kind={row.transfer.mode} class="row-mode-icon" />
+						{transferModeLabel(row.transfer.mode)}
+					</span>
 					<span class="row-duration font-mono tabular-nums">{formatDuration(row.transfer.duration)}</span>
 				</span>
 				<span class="row-price font-mono tabular-nums">
@@ -337,7 +341,17 @@
 	}
 
 	.row-mode-label {
+		display: flex;
+		align-items: center;
+		gap: var(--space-1);
 		font-weight: var(--font-weight-medium);
+	}
+
+	:global(.row-mode-icon) {
+		width: 1.125rem;
+		height: 1.125rem;
+		flex-shrink: 0;
+		color: var(--color-text-muted);
 	}
 
 	.row-duration {

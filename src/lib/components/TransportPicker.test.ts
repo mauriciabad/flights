@@ -293,9 +293,16 @@ describe('TransportPicker: selection', () => {
 
 		const radios = [...root.querySelectorAll<HTMLInputElement>('input[type="radio"]')];
 		const stillCheckedRadio = radios.find((radio) => radio.checked);
-		expect(stillCheckedRadio?.closest('.picker-row')?.querySelector('.row-mode-label')?.textContent).toBe(
-			'Walk'
-		);
+		// Trimmed and collapsed: the row-mode-label now also carries a leading SegmentIcon
+		// (issue #119), so the raw textContent includes the whitespace between it and the
+		// label text, same reasoning as this file's own normalizedText() helper.
+		expect(
+			stillCheckedRadio
+				?.closest('.picker-row')
+				?.querySelector('.row-mode-label')
+				?.textContent?.replace(/\s+/g, ' ')
+				.trim()
+		).toBe('Walk');
 		expect(selectCount).toBe(0); // opening the citation must never fire onselect
 		expect(root.querySelector('.taxi-citation')?.hasAttribute('open')).toBe(true); // it did open
 	});

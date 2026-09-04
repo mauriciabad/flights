@@ -98,11 +98,50 @@ function isStaySelectable(stay: Stay, travellers: number | undefined, females: n
  * then walking (free, always available if the distance allows it), then paid options. */
 const TRANSFER_MODE_PREFERENCE: readonly TransferMode[] = ['transit', 'walk', 'taxi', 'drive'];
 
-/** Picks one `Transfer` to represent an A-to-B leg out of everything usable providers
- * returned, by mode preference and then by shortest duration within the same mode. */
+/**
+ * Issue #119: a real session had this pick a walk of 11h 42m for a leg, because nothing
+ * before this filter ever asked whether a duration was plausible before offering it — it
+ * only ranked whatever came back. Nobody walks half a day with luggage; 60 minutes is
+ * generous for someone who is. Below the threshold, walking is still preferred over transit
+ * (see TRANSFER_MODE_PREFERENCE above) — a 12-minute walk genuinely beats a bus, which is
+ * exactly the case this filter must not take away.
+ */
+export const MAX_PLAUSIBLE_WALK_MINUTES = 60 as Duration;
+
+/**
+ * Same reasoning for driving and taxi (issue #119: "the same reasoning applies to any
+ * absurd driving duration"). Every leg this pipeline routes is one hop within a single
+ * metro area — a connection airport to its nearest hotel, or a traveller's own start/end
+ * point to their own airport — never a cross-country trip, so a road route past half a
+ * working day is far more likely a routing artefact (a strait with no bridge, a ferry link
+ * OSRM's road graph can't see) than a real option worth putting next to transit.
+ */
+export const MAX_PLAUSIBLE_DRIVE_MINUTES = 240 as Duration;
+
+/** Exported so `pipeline.ts` can re-apply the same rule to `transferToDestinationLocation`'s
+ * candidates after its own landing buffer runs — see that file's own comment on why a
+ * buffer applied only after this module's own filtering needs a second pass. */
+export function isPlausibleTransfer(transfer: Transfer): boolean {
+	if (transfer.mode === 'walk') return transfer.duration <= MAX_PLAUSIBLE_WALK_MINUTES;
+	if (transfer.mode === 'drive' || transfer.mode === 'taxi') {
+		return transfer.duration <= MAX_PLAUSIBLE_DRIVE_MINUTES;
+	}
+	return true;
+}
+
+/**
+ * Picks one `Transfer` to represent an A-to-B leg out of everything usable providers
+ * returned: implausible options (MAX_PLAUSIBLE_WALK_MINUTES / MAX_PLAUSIBLE_DRIVE_MINUTES
+ * above) are dropped first, then the rest are ranked by mode preference and, within the
+ * same mode, by shortest duration. `undefined` when every candidate found was implausible
+ * — the same "no usable transfer" outcome as finding none at all, which every caller
+ * already treats as a leg to degrade gracefully rather than a fatal error (issue #119:
+ * offering an absurd option is worse than admitting there isn't a good one).
+ */
 export function pickBestTransfer(transfers: readonly Transfer[]): Transfer | undefined {
-	if (transfers.length === 0) return undefined;
-	return [...transfers].sort((a, b) => {
+	const plausible = transfers.filter(isPlausibleTransfer);
+	if (plausible.length === 0) return undefined;
+	return [...plausible].sort((a, b) => {
 		const modeRank = TRANSFER_MODE_PREFERENCE.indexOf(a.mode) - TRANSFER_MODE_PREFERENCE.indexOf(b.mode);
 		return modeRank !== 0 ? modeRank : a.duration - b.duration;
 	})[0];
@@ -161,11 +200,17 @@ export function applyLandingBuffer(transfer: Transfer, buffer: Duration, sources
 /**
  * Issue #114: `fetchBestTransfer`'s full answer, not just its pick — mirrors
  * `StaySearchOutcome` below (issue #80's pattern applied to transfers instead of stays).
- * `candidates` is every `Transfer` any usable provider returned for this A-to-B (walk,
- * transit, drive, taxi — whatever the providers queried actually cover), which is exactly
- * what a `TransportPicker` needs as its `alternatives`; `pickBestTransfer(candidates)` is
- * still `build.ts`'s own single pick, unchanged. Unlike stays, there is no eligibility filter
- * to apply here — every transfer found is equally offerable to the traveller.
+ * `candidates` is every PLAUSIBLE `Transfer` any usable provider returned for this A-to-B
+ * (walk, transit, drive, taxi — whatever the providers queried actually cover), which is
+ * exactly what a `TransportPicker` needs as its `alternatives`; `pickBestTransfer(candidates)`
+ * is still `build.ts`'s own single pick, unchanged.
+ *
+ * Issue #119: this used to read "there is no eligibility filter to apply here — every
+ * transfer found is equally offerable to the traveller," which was true right up until an
+ * 11h42m walk showed up as a real option. `candidates` is filtered by `isPlausibleTransfer`
+ * (MAX_PLAUSIBLE_WALK_MINUTES / MAX_PLAUSIBLE_DRIVE_MINUTES above) before it is ever handed
+ * back, not only at the `pickBestTransfer` step: the issue's own wording is "don't even show
+ * this," and a `TransportPicker` alternative a traveller could still click into is showing it.
  */
 export interface TransferSearchOutcome {
 	candidates: Transfer[];
@@ -173,12 +218,12 @@ export interface TransferSearchOutcome {
 }
 
 /** Queries every given (already usability-filtered) transfer provider for one A-to-B leg,
- * merges what comes back, tags each with its provenance, and returns both every candidate
- * found and the one representative `build.ts` builds with — the shared implementation
- * behind both the per-connection legs below and the origin/destination legs `pipeline.ts`
- * fetches once per search. Issues exactly the same provider calls as before this candidate
- * list existed (issue #114: "no increase in provider requests") — this only changes what the
- * merged results are handed back as. */
+ * merges what comes back, tags each with its provenance, drops anything `isPlausibleTransfer`
+ * rejects, and returns both every remaining candidate and the one representative `build.ts`
+ * builds with — the shared implementation behind both the per-connection legs below and the
+ * origin/destination legs `pipeline.ts` fetches once per search. Issues exactly the same
+ * provider calls as before this candidate list existed (issue #114: "no increase in provider
+ * requests") — this only changes what the merged results are handed back as. */
 export async function fetchBestTransfer(
 	query: TransferSearchQuery,
 	providers: readonly TransferProvider[],
@@ -197,7 +242,7 @@ export async function fetchBestTransfer(
 			return result.data;
 		})
 	);
-	const candidates = perProvider.flat();
+	const candidates = perProvider.flat().filter(isPlausibleTransfer);
 	return { candidates, selected: pickBestTransfer(candidates) };
 }
 
@@ -458,11 +503,20 @@ export async function fetchConnectionResources(
 	// street" padding the pipeline's own choice gets (issue #114). Re-deriving `transferToHotel`
 	// from the buffered list (rather than buffering the already-picked transfer separately)
 	// keeps exactly one code path decide "which one is best", never two that could disagree.
-	const transferToHotelCandidates = transferToHotelOutcome.candidates.map((transfer) =>
-		applyLandingBuffer(transfer, landingBuffer, input.sources)
-	);
+	//
+	// Issue #119: `fetchBestTransfer` already dropped anything implausible before buffering,
+	// but the buffer only ever adds minutes, so a walk sitting just under
+	// MAX_PLAUSIBLE_WALK_MINUTES pre-buffer can cross it once the buffer lands — re-filtering
+	// here is what stops that walk from still showing up as a clickable TransportPicker row
+	// even though `pickBestTransfer` below would never auto-select it.
+	const transferToHotelCandidates = transferToHotelOutcome.candidates
+		.map((transfer) => applyLandingBuffer(transfer, landingBuffer, input.sources))
+		.filter(isPlausibleTransfer);
 	const transferToHotel = pickBestTransfer(transferToHotelCandidates);
-	if (!transferToHotel) return withoutStay(stayCandidates); // unreachable: buffering cannot empty a non-empty list
+	// Reachable now, unlike before issue #119: buffering never emptied a non-empty list back
+	// when every candidate here was automatically "plausible", but it can push every one of
+	// them past the threshold this leg's own buffer just added on top of.
+	if (!transferToHotel) return withoutStay(stayCandidates);
 
 	const transferToConnectionAirportCandidates = transferToConnectionAirportOutcome.candidates;
 	const transferToConnectionAirport = transferToConnectionAirportOutcome.selected;

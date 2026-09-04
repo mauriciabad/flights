@@ -34,8 +34,12 @@ vi.mock('../providers/transfers/osrm', async (importOriginal) => {
 });
 
 // Imported after the mock is registered, per vitest's hoisting contract for vi.mock (same
-// pattern as providers-adapter.test.ts).
-const { fetchConnectionResources } = await import('./resources');
+// pattern as providers-adapter.test.ts). Every named export this file needs from
+// resources.ts has to come through here, not a static `import` above: a static import
+// would load resources.ts (and transitively osrm.ts, which `vi.mock` above intercepts)
+// before the `getTaxiFareEstimate` mock it closes over is even assigned, a TDZ error.
+const { fetchConnectionResources, MAX_PLAUSIBLE_DRIVE_MINUTES, MAX_PLAUSIBLE_WALK_MINUTES, pickBestTransfer } =
+	await import('./resources');
 
 // Every id passed through here is a fixture-only stand-in, not a real registered adapter —
 // cast rather than widening ProviderSource.providerId itself, which is exactly the closed
@@ -113,6 +117,10 @@ function configurableTransferProvider(transfers: Transfer[], idString = 'transfe
 			return { ok: true, data: transfers, source: source(idString), requestsUsed: 1 };
 		}
 	};
+}
+
+function transfer(mode: Transfer['mode'], duration: number): Transfer {
+	return { mode, duration: duration as Duration, legs: [] };
 }
 
 function stay(name: string, roomKind: Stay['roomKind'], minorUnits: number): Stay {
@@ -636,5 +644,97 @@ describe('fetchConnectionResources: one search cannot spend a month (issue #148)
 
 		expect(second.stay).toBeUndefined();
 		expect(second.stayCandidates).toEqual([]);
+	});
+});
+
+describe('pickBestTransfer: plausibility filtering (issue #119)', () => {
+	it('never picks a walk past MAX_PLAUSIBLE_WALK_MINUTES, even with nothing else on offer', () => {
+		// The exact real-session bug: transit never answered, and the only walk found
+		// (11h42m = 702 minutes) was still ranked above a plausible 15-minute drive on
+		// mode preference alone, with nothing questioning whether it was a real option.
+		const absurdWalk = transfer('walk', 702);
+		const drive = transfer('drive', 15);
+
+		expect(pickBestTransfer([absurdWalk, drive])).toEqual(drive);
+	});
+
+	it('still picks a short walk over a taxi, exactly the case the filter must not break', () => {
+		// TRANSFER_MODE_PREFERENCE already ranks real transit above walking unconditionally
+		// (this function's own doc comment) — untouched by this filter. What the filter
+		// must never do is knock out a walk that is genuinely short just because walking,
+		// as a mode, was once capable of being absurd.
+		const shortWalk = transfer('walk', 12);
+		const taxi = transfer('taxi', 8);
+
+		expect(pickBestTransfer([shortWalk, taxi])).toEqual(shortWalk);
+	});
+
+	it('keeps a walk at exactly the threshold and drops one minute past it', () => {
+		const atThreshold = transfer('walk', MAX_PLAUSIBLE_WALK_MINUTES);
+		expect(pickBestTransfer([atThreshold])).toEqual(atThreshold);
+
+		const pastThreshold = transfer('walk', MAX_PLAUSIBLE_WALK_MINUTES + 1);
+		expect(pickBestTransfer([pastThreshold])).toBeUndefined();
+	});
+
+	it('applies the same reasoning to an absurd driving/taxi duration', () => {
+		const absurdDrive = transfer('drive', MAX_PLAUSIBLE_DRIVE_MINUTES + 30);
+		const absurdTaxi = transfer('taxi', MAX_PLAUSIBLE_DRIVE_MINUTES + 30);
+
+		expect(pickBestTransfer([absurdDrive])).toBeUndefined();
+		expect(pickBestTransfer([absurdTaxi])).toBeUndefined();
+	});
+
+	it('returns undefined, not a fallback guess, when every candidate is implausible', () => {
+		const absurdWalk = transfer('walk', 900);
+		const absurdDrive = transfer('drive', 500);
+
+		expect(pickBestTransfer([absurdWalk, absurdDrive])).toBeUndefined();
+	});
+
+	it('leaves transit and other plausible options untouched regardless of duration', () => {
+		// Transit's own duration is a real schedule fact (and can legitimately run long
+		// for a rare, far-flung connection); this filter only exists for walk/drive/taxi,
+		// modes this pipeline computes itself from raw distance rather than a timetable.
+		const longTransit = transfer('transit', 600);
+		expect(pickBestTransfer([longTransit])).toEqual(longTransit);
+	});
+});
+
+describe('fetchConnectionResources: an implausible transfer degrades like no transfer at all (issue #119)', () => {
+	it('never hands back an 11h42m walk as the connection-to-hotel transfer', async () => {
+		const stayProviders = [fakeStayProvider('stays', [stay('Only Hostel', 'dorm', 2000)])];
+		// Only OSRM-shaped provider registered — no transit — the exact real-session setup
+		// that let an implausible walk through before this fix.
+		const input = baseInput(stayProviders, {
+			transferProviders: [configurableTransferProvider([transfer('walk', 702), transfer('drive', 15)])]
+		});
+
+		const resources = await fetchConnectionResources(input);
+
+		// The plausible 15-minute drive wins once the absurd walk is filtered out —
+		// never the walk, and never a silent crash. Filtered out of the candidate list
+		// TransportPicker sees too, not only the pick.
+		expect(resources.transferToHotel?.mode).toBe('drive');
+		expect(resources.transferToConnectionAirport?.mode).toBe('drive');
+		expect(resources.transferToHotelCandidates.map((t) => t.mode)).toEqual(['drive']);
+		expect(resources.transferToConnectionAirportCandidates.map((t) => t.mode)).toEqual(['drive']);
+	});
+
+	it('degrades to no priced stay, not a bogus transfer, when every option found is implausible', async () => {
+		const stayProviders = [fakeStayProvider('stays', [stay('Only Hostel', 'dorm', 2000)])];
+		const input = baseInput(stayProviders, {
+			transferProviders: [configurableTransferProvider([transfer('walk', 900)])]
+		});
+
+		const resources = await fetchConnectionResources(input);
+
+		// Same "no usable bed" outcome as finding no stay at all (issue #94's own
+		// contract) — a stay nothing can plausibly reach is not a cheaper option.
+		expect(resources.stay).toBeUndefined();
+		expect(resources.transferToHotel).toBeUndefined();
+		expect(resources.transferToConnectionAirport).toBeUndefined();
+		// The candidate is still surfaced, same as any other "no usable bed" case.
+		expect(resources.stayCandidates).toHaveLength(1);
 	});
 });
