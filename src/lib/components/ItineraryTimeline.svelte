@@ -23,7 +23,7 @@
 	 * #26), but only by adding attributes and handlers directly to that same `<li>` — no
 	 * wrapping element, so the contract above still holds.
 	 */
-	import type { Duration, FlightOffer, Itinerary, LocalDateTime, Location, Transfer } from '../domain';
+	import type { Airport, Duration, FlightOffer, Itinerary, LocalDateTime, Location, Transfer } from '../domain';
 	import { recomputeItineraryWaitingTimes } from '../algorithm/build';
 	import type { ItinerarySegmentId } from '../itinerary-map/segment-id';
 	import {
@@ -33,8 +33,10 @@
 		formatMoney,
 		formatUtcOffset,
 		isDifferentCalendarDate,
-		transferModeLabel
+		transferModeLabel,
+		unroutedLegNote
 	} from './itinerary-timeline-format';
+	import type { UnroutedLeg } from './itinerary-timeline-format';
 
 	interface Props {
 		itinerary: Itinerary;
@@ -56,6 +58,15 @@
 		 * their `data-segment` attribute, checked directly against the map's source.
 		 */
 		selectedSegmentId?: ItinerarySegmentId | null;
+		/**
+		 * Issue #136: the connection airport's full record, when the caller has resolved it
+		 * (`getAirport` is async, so the results page has it a beat after the itinerary).
+		 * `Itinerary` itself only ever carries the connection as the two flights' IATA
+		 * codes, which is why this component used to print "Stopover in BGY" rather than
+		 * fabricate a name. Given the record it can say the city; without it, it still says
+		 * the code and never guesses.
+		 */
+		connectionAirport?: Airport;
 		/** Applied to the row list; the totals block keeps its own fixed class. */
 		class?: string;
 	}
@@ -65,6 +76,7 @@
 		subgrid = false,
 		showTotals = true,
 		selectedSegmentId = $bindable(null),
+		connectionAirport,
 		class: className
 	}: Props = $props();
 
@@ -94,6 +106,12 @@
 			originWaitingTime: originWaitingTimeOverride,
 			connectionWaitingTime: connectionWaitingTimeOverride
 		})
+	);
+
+	/** "Bergamo", or "BGY" until the airport record resolves. Never both, and never a
+	 * guess: the code is a fact this component always has. */
+	const connectionLabel = $derived(
+		connectionAirport?.city.name ?? shown.outboundFlight.arrivalAirport
 	);
 
 	// The connection buffer can grow only as far as the *original* free time allows before
@@ -275,7 +293,12 @@
 	</li>
 {/snippet}
 
-{#snippet transferRow(transfer: Transfer | undefined, label: string, segment: ItinerarySegmentId)}
+{#snippet transferRow(
+	transfer: Transfer | undefined,
+	label: string,
+	segment: ItinerarySegmentId,
+	leg: UnroutedLeg
+)}
 	<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 	<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 	<li
@@ -316,7 +339,14 @@
 						{/if}
 					{/if}
 				{:else}
-					<p class="tl-note">Transfer details not available yet.</p>
+					<!-- Issue #140: why this leg has no route, never "not available yet".
+					     See unroutedLegNote for what each case actually observed. -->
+					<p class="tl-note">
+						{unroutedLegNote(leg, {
+							hasStay: shown.stay !== undefined,
+							nightsInConnection: shown.nightsInConnection
+						})}
+					</p>
 				{/if}
 			</div>
 			{#if transfer}
@@ -453,7 +483,12 @@
 >
 	{#if shown.originLocation}
 		{@render locationRow(shown.originLocation, 'Starting point', 'origin-location')}
-		{@render transferRow(shown.transferToOriginAirport, 'Travel to the airport', 'transfer-to-origin-airport')}
+		{@render transferRow(
+			shown.transferToOriginAirport,
+			'Travel to the airport',
+			'transfer-to-origin-airport',
+			'to-origin-airport'
+		)}
 	{/if}
 
 	{@render waitingRow(
@@ -471,7 +506,8 @@
 	{@render transferRow(
 		shown.transferToHotel,
 		shown.stay ? `Travel to ${shown.stay.property.name}` : 'Travel to the stopover',
-		'transfer-to-hotel'
+		'transfer-to-hotel',
+		'to-hotel'
 	)}
 
 	<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
@@ -482,7 +518,7 @@
 		data-segment="free-time"
 		tabindex="0"
 		aria-roledescription="selectable step"
-		aria-label={`The stopover, in ${shown.outboundFlight.arrivalAirport}`}
+		aria-label={`The stopover, in ${connectionLabel}`}
 		aria-current={selectedSegmentId === 'free-time' ? 'true' : undefined}
 		onclick={() => selectSegment('free-time')}
 		onkeydown={(event) => handleRowKeydown(event, 'free-time')}
@@ -491,21 +527,27 @@
 		<div class="tl-content tl-stopover">
 			<p class="tl-stopover-eyebrow">The stopover</p>
 			<p class="tl-stopover-nights">
-				{#if !shown.stay}
-					Stopover in {shown.outboundFlight.arrivalAirport}
-				{:else if shown.nightsInConnection > 0}
+				<!-- Issue #140: the night count comes off the flight schedule alone (build.ts's
+				     `nightsBetween`, issue #105), never off whether a bed was priced, so it leads
+				     here whether or not a stay provider is configured. Branching on the stay
+				     first used to hide a real six-night stopover behind a bare "Stopover in
+				     BGY". Zero nights is a same-day connection, a fact about the schedule, not
+				     a missing purchase. -->
+				{#if shown.nightsInConnection > 0}
 					{shown.nightsInConnection}
-					{shown.nightsInConnection === 1 ? 'night' : 'nights'} in {shown.outboundFlight.arrivalAirport}
+					{shown.nightsInConnection === 1 ? 'night' : 'nights'} in {connectionLabel}
 				{:else}
-					Day stopover in {shown.outboundFlight.arrivalAirport}, no overnight stay
+					<span class="tl-stopover-sameday">Day stopover in {connectionLabel}, no overnight stay</span>
 				{/if}
 			</p>
 			<p class="tl-detail">
 				{#if shown.stay}
 					{shown.stay.property.name} &middot; {shown.stay.roomKind}
 					{#if shown.stay.property.rating}&middot; rated {shown.stay.property.rating}/5{/if}
-				{:else}
+				{:else if shown.nightsInConnection > 0}
 					No bed priced yet. Add an Agoda or Booking.com key, or widen the search, to price one here.
+				{:else}
+					No night spent here, so there is no bed to price.
 				{/if}
 			</p>
 			<div class="tl-free-window">
@@ -530,7 +572,8 @@
 	{@render transferRow(
 		shown.transferToConnectionAirport,
 		'Travel to the connection airport',
-		'transfer-to-connection-airport'
+		'transfer-to-connection-airport',
+		'from-hotel'
 	)}
 
 	{@render waitingRow(
@@ -552,7 +595,8 @@
 		{@render transferRow(
 			shown.transferToDestinationLocation,
 			'Travel to the destination',
-			'transfer-to-destination-location'
+			'transfer-to-destination-location',
+			'to-destination-location'
 		)}
 		{@render locationRow(shown.destinationLocation, 'Final destination', 'destination-location')}
 	{/if}
@@ -583,7 +627,10 @@
 		<div class="tl-total tl-total-primary">
 			<dt>Total price</dt>
 			<dd class="font-mono tabular-nums">{formatMoney(shown.totalPrice)}</dd>
-			{#if !shown.stay}
+			<!-- Issue #140: only a stopover that actually spends a night is missing
+			     anything. On a same-day connection this total is complete, and warning that
+			     it excludes a stay would invent a cost the trip never had. -->
+			{#if !shown.stay && shown.nightsInConnection > 0}
 				<p class="tl-note tl-note-warning">Excludes an unpriced stopover stay</p>
 			{/if}
 		</div>
@@ -950,6 +997,15 @@
 		font-size: var(--font-size-xl);
 		font-weight: var(--font-weight-bold);
 		color: var(--color-text);
+	}
+
+	/* The night count is a number, so it earns the big mono departure-board treatment.
+	   "Day stopover in Bergamo, no overnight stay" is a sentence, and set at the same
+	   size it wraps to three lines on a 390px screen and reads as shouting. Same slot,
+	   same weight, sentence size. */
+	.tl-stopover-sameday {
+		font-family: var(--font-sans);
+		font-size: var(--font-size-base);
 	}
 
 	.tl-free-window {

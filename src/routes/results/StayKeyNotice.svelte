@@ -23,11 +23,11 @@
 	 */
 	import { ErrorState } from '$lib/components';
 	import { keyStore } from '$lib/keys';
-	import { getProviderRegistry } from '$lib/results/provider-setup';
+	import { hasUsableStayProvider } from '$lib/results/provider-setup';
 
-	const hasStayProvider = $derived(
-		getProviderRegistry().usable('stay', keyStore.availableKeys).length > 0
-	);
+	// Issue #140: the same expression the expanded card's stay picker uses, so the two can
+	// never contradict each other about whether a bed was ever searched for.
+	const hasStayProvider = $derived(hasUsableStayProvider(keyStore.availableKeys));
 </script>
 
 {#if !hasStayProvider}

@@ -91,10 +91,13 @@
 			<span class="price font-mono tabular-nums">{formatMoney(itinerary.totalPrice)}</span>
 			<span class={['freshness-badge', `freshness-${freshness.tone}`]}>{freshness.label}</span>
 		</div>
-		{#if !itinerary.stay}
+		{#if !itinerary.stay && itinerary.nightsInConnection > 0}
 			<!-- Issue #117: a plain per-itinerary fact, deliberately without "add a key"
 			     advice repeated card after card — `StayKeyNotice` (`+page.svelte`, above
-			     the whole list) is the one place that names the cause and the fix, once. -->
+			     the whole list) is the one place that names the cause and the fix, once.
+			     Issue #140 gates it on a night actually being spent here: on a same-day
+			     connection nothing is missing from the total, so warning about it would
+			     invent a cost this trip never had. -->
 			<p class="no-stay-note">No bed priced for this stopover. Total excludes a stay.</p>
 		{/if}
 
@@ -104,21 +107,22 @@
 				<dd class="font-mono tabular-nums">{formatDuration(itinerary.times.total)}</dd>
 			</div>
 			<div class="stat stat-stopover">
-				<dt>Nights in {connectionLabel}</dt>
+				<dt>{itinerary.nightsInConnection > 0 ? `Nights in ${connectionLabel}` : `Stopover in ${connectionLabel}`}</dt>
 				<dd class="text-stopover">
 					<!-- Issue #108: nights (build.ts's own nightsBetween, issue #105) reads off
 					     the free-time window alone since #110, no longer gated on a priced stay,
 					     so a real night count and "no bed priced yet" are two separate facts, both
 					     true at once — never one instead of the other. Checking nights first,
 					     matching view-model.ts's describeWhyGood, is what stops a real 12-night
-					     stopover reading as "No stay priced" the way it did before this fix. -->
+					     stopover reading as "No stay priced" the way it did before this fix.
+					     Issue #140 removed the other half of the same mistake: zero nights is a
+					     same-day connection whether or not a bed was priced, and a trip that
+					     lands and leaves the same afternoon has no stay to be missing. -->
 					{#if itinerary.nightsInConnection > 0}
 						{itinerary.nightsInConnection}
 						{#if !itinerary.stay}
 							<span class="stat-caveat">no bed priced for it yet</span>
 						{/if}
-					{:else if !itinerary.stay}
-						No stay priced
 					{:else}
 						Same-day connection
 					{/if}

@@ -43,19 +43,22 @@
  * (agoda-client.ts) for any coordinate that is not one of this app's own known airports —
  * that path keeps its original, already-documented Fischamend-style limitation unchanged.
  *
- * ## The known remaining gap: Milan's satellite airports
+ * ## Milan's satellite airports: the gap this file used to document, now closed elsewhere
  *
  * OurAirports' own `city` field is not always the marketed "serves this metro area" name —
  * it is the literal municipality the airport sits in, same failure mode as a geocoder's
  * default leaf. Bergamo (BGY) reads "Orio al Serio (BG)"; Malpensa (MXP) reads "Ferno (VA)";
  * Linate (LIN) reads "Segrate (MI)". None says "Milano". Transitous's own admin trail
  * confirms Milan is not an ancestor of any of the three at any level either (Ferno sits in
- * Varese province, not Milano's) — so this is not a parsing bug this file could fix by
- * reading a different field, it is a real, product-level "Milan's satellite airports have no
- * available signal pointing at Milan" gap. `docs/PROVIDERS.md` documents it rather than
- * hiding it behind a heuristic that only sometimes works; closing it for real needs the small
- * curated airport-to-city table issue #65 named as an alternative, which is out of scope
- * here (this file's job was the coordinate-driven mechanism, not a hand-maintained list).
+ * Varese province, not Milano's), so no amount of reading a different field would have fixed
+ * it: the fix had to be the small curated airport-to-city table issue #65 named as the
+ * alternative, and issue #136 built it at `data/airport-city-names.ts`.
+ *
+ * That table is upstream of this file now. `Airport.city.name` arrives already cleaned and
+ * already curated, so this function stops massaging the value it reads. It had its own copy
+ * of the "strip the parenthetical, then the region suffix" rule (`primaryCityName`); keeping
+ * a second copy would let the label sent to Agoda drift from the name printed on the result
+ * card for the same airport, which is exactly the split issue #136 found.
  */
 
 import { loadAirports } from '../../data/airports';
@@ -67,28 +70,6 @@ import type { Coordinates } from '../../domain';
  * enough that no two distinct scheduled-service airports in this dataset are ever this close
  * to each other. */
 const COORDINATE_MATCH_TOLERANCE_DEGREES = 1e-4;
-
-/**
- * OurAirports' `municipality` column, as shipped through `Airport.city.name`, sometimes
- * carries more than a bare city name:
- *
- * - A parenthetical qualifier: "Paris (Roissy-en-France, Val-d'Oise)", "Orio al Serio (BG)".
- *   The real name always comes before the paren.
- * - A "City, Region" pair: "Birmingham, West Midlands", "London, Essex". The real name
- *   always comes before the comma.
- *
- * Both conventions were checked against the 241 of 4,133 rows that use either (issue #65's
- * PR body has the full list) before trusting this as a general rule rather than something
- * fitted to the seven airports this issue names — the first segment is the city in every one
- * of them. A parenthetical is stripped before the comma split, not after, because at least
- * one real row (`CDG`: "Paris (Roissy-en-France, Val-d'Oise)") has its only comma INSIDE the
- * parenthetical — splitting on comma first would cut "Paris (Roissy-en-France" in half.
- */
-export function primaryCityName(rawCityName: string): string {
-	const withoutParenthetical = rawCityName.replace(/\s*\(.*$/, '');
-	const [primary] = withoutParenthetical.split(',');
-	return primary.trim();
-}
 
 /**
  * The "City, Country" text Agoda's free-text search wants (agoda-mapper.ts
@@ -108,6 +89,6 @@ export async function resolveAirportCityLabel(coordinates: Coordinates): Promise
 	);
 	if (!match) return undefined;
 
-	const city = primaryCityName(match.city.name);
+	const city = match.city.name;
 	return city ? `${city}, ${match.country.name}` : undefined;
 }

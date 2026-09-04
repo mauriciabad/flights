@@ -55,8 +55,17 @@ describe('describeWhyGood', () => {
 		expect(text).not.toMatch(/showing flights and free time only/i);
 	});
 
-	it('says plainly that no stay was priced, rather than reading a fabricated zero as "no overnight needed" (issue #94)', () => {
-		const result = makeScoredResult({ nightsInConnection: 0 });
+	it('never mentions a missing stay on a same-day connection (issue #140)', () => {
+		// Issue #94 put a "No stay priced for this stopover yet" line here, back when a
+		// zero night count could be a fabricated zero rather than a real schedule fact.
+		// Since #110 nights come straight off the free-time window, so zero means the
+		// traveller lands and leaves the same day: nothing is missing, nothing is coming,
+		// and "yet" was a promise about a future that does not exist.
+		const result = makeScoredResult({
+			nightsInConnection: 0,
+			freeTimeStart: '2026-10-14T14:35:00',
+			freeTimeEnd: '2026-10-14T16:15:00'
+		});
 		// `makeItinerary` (test-support.ts) always includes a stay — this is the one case
 		// `fetchConnectionResources` produces with none, degraded here rather than adding a
 		// second fixture builder for one field.
@@ -66,10 +75,9 @@ describe('describeWhyGood', () => {
 		};
 
 		const text = describeWhyGood(withoutStay);
-		expect(text).toMatch(/no stay priced/i);
-		// Never the "no overnight stay needed" line below it: that claims a fact (a short
-		// layover) this itinerary never actually checked.
-		expect(text).not.toMatch(/no overnight stay needed/i);
+		expect(text).not.toMatch(/stay priced/i);
+		expect(text).not.toMatch(/bed priced/i);
+		expect(text).not.toMatch(/yet/i);
 	});
 });
 

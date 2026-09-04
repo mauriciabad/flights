@@ -41,6 +41,9 @@
 	import { sumMoney } from '$lib/algorithm/build';
 	import type { RecomputedSelection } from '$lib/algorithm/recompute-selection';
 	import { FlightPicker, ItineraryMap, ItineraryTimeline, Skeleton, TransportPicker } from '$lib/components';
+	import { hasSwappableAlternatives } from '$lib/components/picker-alternatives';
+	import { keyStore } from '$lib/keys';
+	import { hasUsableStayProvider } from '$lib/results/provider-setup';
 	import { StayPicker, groupByProperty } from '$lib/stays';
 
 	interface Props {
@@ -65,6 +68,12 @@
 		travellers?: number;
 		females?: number;
 		minLayoverTime?: Duration;
+		/** Issue #140: whether the search behind these options has finished. An empty stay
+		 * list means "still arriving" while it is true and "nothing came back" once it is
+		 * not, and the picker below has to say which. Unlike `itinerary`, this is NOT
+		 * frozen at expand time: a card left open while the search completes must stop
+		 * saying it is still looking. */
+		searchDone?: boolean;
 	}
 
 	/** Issue #114: no alternatives yet — the default for `transferOptions`/
@@ -82,7 +91,8 @@
 		connectionAirport,
 		travellers,
 		females,
-		minLayoverTime
+		minLayoverTime,
+		searchDone = false
 	}: Props = $props();
 
 	// Deliberately a one-time read, not a reactive derivation — see this file's header
@@ -128,18 +138,54 @@
 	const destinationLocationTransferOptions = $derived(
 		outerTransferOptions?.transferToDestinationLocation ?? NO_TRANSFER_LEG_OPTIONS
 	);
+
+	// Issue #140: is there anything below to try? The hint at the top of this view claimed
+	// there was on every card, including the ordinary free-tier result with one flight per
+	// leg, no transport options and no stays. `picker-alternatives.ts` counts the rows the
+	// pickers would actually draw, sharing `FlightPicker`'s own dedupe so the two cannot
+	// disagree.
+	const canSwapSomething = $derived(
+		hasSwappableAlternatives({
+			outboundFlights: outboundAlternatives,
+			onwardFlights: onwardAlternatives,
+			transferCandidateCounts: [
+				originAirportTransferOptions.candidates.length,
+				hotelTransferOptions.candidates.length,
+				connectionAirportTransferOptions.candidates.length,
+				destinationLocationTransferOptions.candidates.length
+			],
+			stayPropertyCount: stayProperties.length
+		})
+	);
+
+	// The same expression the banner above the results list uses (`StayKeyNotice`), so the
+	// two cannot say different things about whether a bed was ever searched for.
+	const stayProviderConfigured = $derived(hasUsableStayProvider(keyStore.availableKeys));
+
+	// A stopover that ends the same day has no night to book. Showing a stay picker there
+	// invites a purchase the trip cannot use, and every empty-state sentence it could
+	// print would be about a search that should never run. An already-picked stay keeps
+	// its picker regardless, so a traveller is never shown a total they cannot inspect.
+	const stayIsRelevant = $derived(itinerary.nightsInConnection > 0 || itinerary.stay !== undefined);
 </script>
 
 <div class="result-detail">
-	<p class="result-detail-hint">
-		Trying an alternative below previews this trip. It does not change your saved results.
+	<!-- aria-live: this sentence flips when a provider answers, not when the traveller does
+	     anything, so a screen reader would otherwise never learn that alternatives arrived. -->
+	<p class="result-detail-hint" aria-live="polite">
+		{#if canSwapSomething}
+			Trying an alternative below previews this trip. It does not change your saved results.
+		{:else}
+			Every leg came back with one option, so there is nothing to swap below. The waiting
+			times are still yours to adjust.
+		{/if}
 	</p>
 
 	<div class="result-detail-map">
 		<ItineraryMap {itinerary} bind:selectedSegmentId />
 	</div>
 
-	<ItineraryTimeline {itinerary} bind:selectedSegmentId />
+	<ItineraryTimeline {itinerary} {connectionAirport} bind:selectedSegmentId />
 
 	<section class="result-detail-editor" aria-label="Adjust this itinerary">
 		<h3 class="result-detail-heading">Adjust this trip</h3>
@@ -179,22 +225,26 @@
 			/>
 		{/if}
 
-		<div class="result-detail-stay">
-			<h4 class="result-detail-subheading">The stopover stay</h4>
-			{#if connectionAirport}
-				<StayPicker
-					properties={stayProperties}
-					{connectionAirport}
-					nights={itinerary.nightsInConnection}
-					{travellers}
-					{females}
-					selected={itinerary.stay}
-					onchange={applyStaySelection}
-				/>
-			{:else}
-				<Skeleton height="12rem" />
-			{/if}
-		</div>
+		{#if stayIsRelevant}
+			<div class="result-detail-stay">
+				<h4 class="result-detail-subheading">The stopover stay</h4>
+				{#if connectionAirport}
+					<StayPicker
+						properties={stayProperties}
+						{connectionAirport}
+						nights={itinerary.nightsInConnection}
+						{travellers}
+						{females}
+						selected={itinerary.stay}
+						onchange={applyStaySelection}
+						{stayProviderConfigured}
+						{searchDone}
+					/>
+				{:else}
+					<Skeleton height="12rem" />
+				{/if}
+			</div>
+		{/if}
 
 		{#if itinerary.transferToConnectionAirport}
 			<TransportPicker

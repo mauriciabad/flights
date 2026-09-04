@@ -12,6 +12,7 @@
  */
 
 import type { Airport, AirportSizeClass, City, Coordinates, Country } from '$lib/domain';
+import { citySearchAliases, displayCityName } from './airport-city-names';
 
 /**
  * One row of the generated dataset: OurAirports filtered to airports with an IATA code
@@ -41,7 +42,8 @@ interface AirportDatasetRow {
 	 * for PFO — the names travellers actually type, which `name` and `city` often are
 	 * not (issue #116). Absent, not `[]`, when OurAirports has none for this airport.
 	 * Search-only: it never reaches the domain `Airport` type `toAirport` builds below,
-	 * since nothing outside search needs it. */
+	 * since nothing outside search needs it. `airport-city-names.ts` adds more of the
+	 * same kind (issue #136), which is why the search index below merges the two. */
 	keywords?: string[];
 }
 
@@ -183,7 +185,10 @@ function toAirport(row: AirportDatasetRow): Airport {
 		name: countryName(row.countryCode) ?? row.countryCode
 	};
 	const city: City = {
-		name: row.city,
+		// Issue #136: the name a traveller would say, not the municipality the runway
+		// sits in. `airport-city-names.ts` is the one place that decides this, and the
+		// search index below draws its alternates from the same module.
+		name: displayCityName(row.iataCode, row.city),
 		// OurAirports has no separate city geometry, only the airport's. That is close
 		// enough for this app's proximity checks (e.g. "hotels within 100km" in the
 		// brief), which already operate at city/airport granularity rather than needing
@@ -305,7 +310,12 @@ function loadSearchIndex(): Promise<SearchEntry[]> {
 			const countryAliases = (COUNTRY_NAME_ALIASES[row.countryCode] ?? []).map(
 				normalizeForSearch
 			);
-			const keywords = (row.keywords ?? []).map(normalizeForSearch);
+			// OurAirports' own alternates plus this app's (issue #136), deduped because
+			// a re-run of `pnpm run data:airports` removes the marketed names from the
+			// generated file while a dataset generated before that still carries them.
+			const keywords = Array.from(
+				new Set([...(row.keywords ?? []), ...citySearchAliases(row.iataCode, row.city)])
+			).map(normalizeForSearch);
 			const iata = normalizeForSearch(airport.iataCode);
 			const city = normalizeForSearch(airport.city.name);
 			const name = normalizeForSearch(airport.name);

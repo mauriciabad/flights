@@ -246,15 +246,21 @@ zero request cost. Checked live against eight airports on 2026-09-04:
 | GRO (Girona-Costa Brava) | "Girona" | Girona, Spain — fixed |
 | LTN (London Luton) | "Luton, Luton" | Luton, United Kingdom — fixed once the duplicate is collapsed |
 | STN (London Stansted) | "London, Essex" | London, United Kingdom — fixed |
-| BGY (Bergamo, one of Milan's satellites) | "Orio al Serio (BG)" | Orio al Serio, Italy — still wrong |
-| MXP (Malpensa, Milan's other satellite) | "Ferno (VA)" | Ferno, Italy — still wrong |
+| BGY (Bergamo, one of Milan's satellites) | "Orio al Serio (BG)" | Bergamo, Italy — fixed by #136, was "Orio al Serio, Italy" |
+| MXP (Malpensa, Milan's other satellite) | "Ferno (VA)" | Milan, Italy — fixed by #136, was "Ferno, Italy" |
 
-Six of eight resolve correctly, VIE included, which is the exact case this issue was filed
-over. The two Milan misses are a real, documented gap, not an oversight: OurAirports'
-municipality field names the literal small comune each airport sits in, never "Milan", and
-nothing else in this app says otherwise. Closing that specific gap needs a hand-curated
-airport-to-city table (the alternative this issue itself named as a fallback) and is left
-for a future issue.
+Six of eight resolved correctly on the day this was written, VIE included, which is the
+exact case this issue was filed over. The two Milan misses were a real gap, not an
+oversight: OurAirports' municipality names the literal small comune each airport sits in,
+never "Milan". Closing it needed the hand-curated airport-to-city table this issue itself
+named as the fallback, and **issue #136 built it**: `src/lib/data/airport-city-names.ts`.
+
+That table now decides `Airport.city.name` for the whole app, so it fixes the name printed
+on a result card, the connection-city filter chips and the empty-results copy at the same
+time as the label Agoda searches by. `geocode/airport-city.ts` no longer massages the value
+it reads; it reads the one this app already decided. The table's own header explains why a
+marketed name (Girona sold as "Barcelona", Beauvais as "Paris") stays searchable without
+ever being displayed, which is the distinction that kept CRL as Charleroi in the row above.
 
 **The admin-level heuristic this issue asked about was tried and rejected.** Transitous's
 `areas[]` trail (`adminLevel` plus `unique`/`default` flags, added by issue #64) looked like
