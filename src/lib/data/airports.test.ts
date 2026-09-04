@@ -54,6 +54,26 @@ describe('getAirport', () => {
 		expect(airport?.sizeClass).toBe('large');
 	});
 
+	it('names the city a traveller would say, not the municipality the runway sits in', async () => {
+		// Issue #136, straight off the real dataset: every one of these read as an
+		// OurAirports municipality on a result card headed "Nights in ...".
+		expect((await getAirport('BGY'))?.city.name).toBe('Bergamo');
+		expect((await getAirport('MXP'))?.city.name).toBe('Milan');
+		expect((await getAirport('MRS'))?.city.name).toBe('Marseille');
+		expect((await getAirport('OTP'))?.city.name).toBe('Bucharest');
+		expect((await getAirport('BVC'))?.city.name).toBe('Boa Vista');
+		// Fixed by the structural cleanup alone, with no entry in the curated table.
+		expect((await getAirport('STN'))?.city.name).toBe('London');
+		expect((await getAirport('PSA'))?.city.name).toBe('Pisa');
+		expect((await getAirport('CDG'))?.city.name).toBe('Paris');
+	});
+
+	it('leaves an airport that really is in its own town alone', async () => {
+		expect((await getAirport('GRO'))?.city.name).toBe('Girona');
+		expect((await getAirport('CRL'))?.city.name).toBe('Charleroi');
+		expect((await getAirport('BCN'))?.city.name).toBe('Barcelona');
+	});
+
 	it('returns undefined rather than throwing for an unknown code', async () => {
 		await expect(getAirport('ZZZ')).resolves.toBeUndefined();
 		await expect(getAirport('')).resolves.toBeUndefined();
@@ -179,6 +199,23 @@ describe('searchAirports', () => {
 		// Treviso's OurAirports `keywords` already includes "Venice-Treviso".
 		const venice = await searchAirports('Venice');
 		expect(venice.some((a) => a.iataCode === 'TSF')).toBe(true);
+	});
+
+	it('still finds a renamed airport by the municipality it used to be listed under', async () => {
+		// Issue #136 changed what these airports are CALLED. Nothing that used to find
+		// them may stop working, so every replaced municipality stays in the search index.
+		const orio = await searchAirports('Orio al Serio');
+		expect(orio.map((a) => a.iataCode)).toContain('BGY');
+		const rabil = await searchAirports('Rabil');
+		expect(rabil.map((a) => a.iataCode)).toContain('BVC');
+		const ferno = await searchAirports('Ferno');
+		expect(ferno.map((a) => a.iataCode)).toContain('MXP');
+	});
+
+	it('finds an airport by the city it is now named after', async () => {
+		expect((await searchAirports('Bergamo')).map((a) => a.iataCode)).toContain('BGY');
+		expect((await searchAirports('Bucharest')).map((a) => a.iataCode)).toContain('OTP');
+		expect((await searchAirports('Marseille')).map((a) => a.iataCode)).toContain('MRS');
 	});
 
 	it('never lets a keyword hit outrank a real city or name match', async () => {

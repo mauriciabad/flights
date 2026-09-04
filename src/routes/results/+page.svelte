@@ -147,6 +147,15 @@
 	const providerStatusList = $derived(Object.values(providerStatuses));
 	const stillSearching = $derived(searchesInFlight > 0);
 
+	/** Issue #136: the city name behind each connection code, for the "Connection city"
+	 * filter chips. Derived from the same `connectionAirports` records the cards already
+	 * use, so a chip and the card it filters can never name the same airport differently. */
+	const connectionCityNames = $derived(
+		Object.fromEntries(
+			Object.entries(connectionAirports).map(([code, airport]) => [code, airport.city.name])
+		)
+	);
+
 	/** Issue #130: the city name behind each endpoint code, so the empty-results copy can say
 	 * "Boa Vista (BVC)" instead of only "BVC". Undefined until the dataset resolves, and the
 	 * copy falls back to the bare code rather than waiting or guessing. */
@@ -432,6 +441,7 @@
 					bind:sortMode
 					{currency}
 					avoidedAirlines={query.airlinesToAvoid}
+					{connectionCityNames}
 				/>
 				<WidenOptionsPanel options={widenOptions} onWiden={handleWiden} pendingKey={pendingWidenKey} />
 				{#if calendarSummaries.length > 0}
@@ -495,6 +505,7 @@
 									travellers={query.travellers}
 									females={query.females}
 									minLayoverTime={query.minLayoverTime}
+									searchDone={primarySearchDone && !stillSearching}
 								/>
 							{/if}
 						</li>

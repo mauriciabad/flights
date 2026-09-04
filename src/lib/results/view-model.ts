@@ -32,12 +32,11 @@ export function describeWhyGood(result: ScoredResult): string {
 		const stayNote = itinerary.stay ? '' : ' — no bed priced for it yet';
 		return `${nightsLabel} in the stopover city, most of it free time${stayNote}.`;
 	}
-	// Issue #94: with no stay AND no nights, this genuinely is a same-day connection with
-	// nothing priced — say both plainly rather than let the "no overnight needed" line
-	// below imply a fact (a short layover) this itinerary never actually checked.
-	if (!itinerary.stay) {
-		return 'No stay priced for this stopover yet — showing flights and free time only.';
-	}
+	// Issue #94 added a "No stay priced for this stopover yet" line here for the no-nights,
+	// no-stay case. Issue #140 removed it: zero nights means the traveller lands and leaves
+	// the same day, so no stay is missing and none is coming. "Yet" promised one. What is
+	// actually true about a same-day connection is how much of the day it leaves free,
+	// which is what the branches below already say.
 	if (usableHours >= 4) {
 		return `About ${usableHours}h free in the stopover during the day, no overnight stay needed.`;
 	}

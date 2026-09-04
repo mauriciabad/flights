@@ -50,6 +50,7 @@ import { bookingStayProvider } from '$lib/providers/stays/booking';
 import { osrmTransferProvider } from '$lib/providers/transfers/osrm';
 import { transitousTransferProvider } from '$lib/providers/transfers/transitous';
 import { ProviderRegistry } from '$lib/providers/registry';
+import type { ProviderKeys } from '$lib/keys';
 
 let registry: ProviderRegistry | undefined;
 
@@ -70,4 +71,22 @@ export function getProviderRegistry(): ProviderRegistry {
 		transitousTransferProvider
 	]);
 	return registry;
+}
+
+/**
+ * Whether a bed can be priced at all with the keys currently held.
+ *
+ * Both stay adapters are `needsKey: true`, so with nothing pasted in `search/resources.ts`
+ * filters them out before a single request goes out and every stopover comes back with no
+ * stay and, because the connection-side transfers are fetched only after a stay is priced,
+ * no ground transport either.
+ *
+ * Issue #140: `StayKeyNotice` (the banner above the results list) and `ResultDetail` (the
+ * expanded card, screens below it) were each answering that question their own way, and
+ * the page ended up saying "No stay provider configured" at the top and "try again once
+ * the search finishes" further down. One expression, two callers, so they cannot disagree
+ * about the same fact again.
+ */
+export function hasUsableStayProvider(keys: ProviderKeys): boolean {
+	return getProviderRegistry().usable('stay', keys).length > 0;
 }

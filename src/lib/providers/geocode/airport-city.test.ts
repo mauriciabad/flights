@@ -1,31 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { primaryCityName, resolveAirportCityLabel } from './airport-city';
+import { resolveAirportCityLabel } from './airport-city';
 
-describe('primaryCityName', () => {
-	it('passes through a plain name unchanged', () => {
-		expect(primaryCityName('Vienna')).toBe('Vienna');
-	});
-
-	it('takes the segment before a "City, Region" comma', () => {
-		expect(primaryCityName('Birmingham, West Midlands')).toBe('Birmingham');
-		expect(primaryCityName('London, Essex')).toBe('London');
-	});
-
-	it('collapses a duplicated "City, City" pair (OurAirports data for LTN)', () => {
-		expect(primaryCityName('Luton, Luton')).toBe('Luton');
-	});
-
-	it('strips a parenthetical qualifier', () => {
-		expect(primaryCityName('Orio al Serio (BG)')).toBe('Orio al Serio');
-		expect(primaryCityName('Ferno (VA)')).toBe('Ferno');
-	});
-
-	it('strips the parenthetical before splitting on comma, not after — CDG has a comma INSIDE its parenthetical', () => {
-		// Splitting on comma first would cut this to "Paris (Roissy-en-France", which is not
-		// a name Agoda's free-text search should ever see.
-		expect(primaryCityName("Paris (Roissy-en-France, Val-d'Oise)")).toBe('Paris');
-	});
-});
+// The "strip the parenthetical, then the region suffix" rule this file used to own moved
+// to `$lib/data/airport-city-names.ts` (issue #136), and is tested there. It runs once, on
+// the way into `Airport.city.name`, so the label sent to Agoda and the name printed on the
+// result card are now the same string by construction.
 
 describe('resolveAirportCityLabel', () => {
 	// Coordinates and city fields below are copied from data/airports.generated.json (issue
@@ -57,17 +36,16 @@ describe('resolveAirportCityLabel', () => {
 		expect(label).toBe('Luton, United Kingdom');
 	});
 
-	it('does NOT resolve BGY (Bergamo/Milan) or MXP (Malpensa/Milan) to Milan — a known, documented gap', async () => {
-		// OurAirports' own municipality field names the literal small comune each airport
-		// sits in ("Orio al Serio", "Ferno"), never Milan, and Transitous's admin trail
-		// doesn't reach "Milano" from either coordinate at any level either (see this file's
-		// header) — there is no signal this function could read to produce "Milan" without a
-		// hand-curated table, which is out of scope for this fix. Asserted here so a future
-		// change to this heuristic gets caught if it silently starts guessing.
+	it('resolves BGY and MXP to the cities they serve, the gap this test used to pin open', async () => {
+		// This assertion used to read 'Orio al Serio, Italy' / 'Ferno, Italy', with a comment
+		// saying the fix needed a hand-curated table that was out of scope. Issue #136 built
+		// that table (`$lib/data/airport-city-names.ts`), so a stay search anchored on either
+		// airport now looks for beds in a city a traveller would spend an evening in rather
+		// than in a village beside the runway.
 		const bgy = await resolveAirportCityLabel({ latitude: 45.669362, longitude: 9.708851 });
 		const mxp = await resolveAirportCityLabel({ latitude: 45.6306, longitude: 8.72811 });
-		expect(bgy).toBe('Orio al Serio, Italy');
-		expect(mxp).toBe('Ferno, Italy');
+		expect(bgy).toBe('Bergamo, Italy');
+		expect(mxp).toBe('Milan, Italy');
 	});
 
 	it('returns undefined for a coordinate that matches no known airport', async () => {

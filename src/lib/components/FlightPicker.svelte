@@ -36,6 +36,9 @@
 		formatTimeDelta
 	} from './itinerary-timeline-format';
 	import Chip from './Chip.svelte';
+	// Shared with ResultDetail's "is there anything to swap" check (issue #140), so the
+	// hint above the pickers can never claim a choice this list collapses into one row.
+	import { flightKey } from './picker-alternatives';
 
 	type FlightLeg = 'outbound' | 'onward';
 
@@ -66,10 +69,6 @@
 	const groupName = `flight-picker-${uid}`;
 
 	const selected = $derived(leg === 'outbound' ? itinerary.outboundFlight : itinerary.onwardFlight);
-
-	function flightKey(flight: FlightOffer): string {
-		return `${flight.carrier.iataCode}${flight.flightNumber}@${flight.departure.local}`;
-	}
 
 	interface FlightRow {
 		flight: FlightOffer;

@@ -10,13 +10,14 @@
 	 * shape of delta regardless of which list the click came from.
 	 */
 	import type { Airport, Money, Stay } from '$lib/domain';
-	import { Card, EmptyState } from '$lib/components';
+	import { Button, Card, EmptyState } from '$lib/components';
 	import RoomKindTile from './RoomKindTile.svelte';
 	import StayAlternativeCard from './StayAlternativeCard.svelte';
 	import { femaleDormFit, femaleDormFitMessage } from './female-dorm-fit';
 	import { formatDistanceKm, haversineDistanceKm } from './distance';
 	import { stayTotalDelta, stayTotalForNights } from './pricing';
 	import { cheapestSelectableOption, isOptionSelectable, rankProperties } from './rank';
+	import { describeNoStays } from './no-stays-reason';
 	import { propertyOf, type PropertyStayOptions } from './types';
 
 	interface Props {
@@ -43,6 +44,11 @@
 		 * already multiplied by `nights`, so a caller holding an `Itinerary.totalPrice`
 		 * can add this directly instead of recomputing the whole total. */
 		onchange?: (stay: Stay, deltaForStay: Money) => void;
+		/** Issue #140: the two facts that turn an empty list from "nothing yet" into a
+		 * statement of what happened. Defaults describe a search that has not started, the
+		 * only state in which "still looking" is true without either being supplied. */
+		stayProviderConfigured?: boolean;
+		searchDone?: boolean;
 	}
 
 	let {
@@ -52,8 +58,15 @@
 		travellers,
 		females,
 		selected = $bindable(),
-		onchange
+		onchange,
+		stayProviderConfigured = true,
+		searchDone = false
 	}: Props = $props();
+
+	// Issue #140: why this list is empty, never "not yet". See no-stays-reason.ts.
+	const noStays = $derived(
+		describeNoStays({ stayProviderConfigured, searchDone, cityName: connectionAirport.city.name })
+	);
 
 	const ranked = $derived(rankProperties(properties, travellers, females));
 
@@ -96,10 +109,22 @@
 	}
 </script>
 
+{#snippet noStaysAction()}
+	{#if noStays.action}
+		<!-- `md`, not `sm`: Button's own comment says only md and lg clear the 44px touch
+		     minimum, and this is the single action in a centred empty state with room for it. -->
+		<Button href={noStays.action.href} size="md">{noStays.action.label}</Button>
+	{/if}
+{/snippet}
+
 {#if properties.length === 0}
+	<!-- The action snippet is passed only when there is a control that changes the
+	     outcome, so an empty state with nothing to offer does not render a bare action
+	     slot below its text. -->
 	<EmptyState
-		title="No stays found yet"
-		description="Nothing has come back for this connection so far - try again once the search finishes, or widen the search radius."
+		title={noStays.title}
+		description={noStays.description}
+		action={noStays.action ? noStaysAction : undefined}
 	/>
 {:else if nothingBookable}
 	<EmptyState

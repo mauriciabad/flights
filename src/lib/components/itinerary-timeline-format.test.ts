@@ -9,7 +9,8 @@ import {
 	formatMoneyRange,
 	formatTimeDelta,
 	formatUtcOffset,
-	isDifferentCalendarDate
+	isDifferentCalendarDate,
+	unroutedLegNote
 } from './itinerary-timeline-format';
 
 function localDateTime(local: string, timeZone: string, utcOffsetMinutes: number): LocalDateTime {
@@ -137,5 +138,53 @@ describe('formatTimeDelta', () => {
 
 	it('accepts custom later/earlier wording', () => {
 		expect(formatTimeDelta(15, 'after you land', 'before you land')).toBe('15m after you land');
+	});
+});
+
+describe('unroutedLegNote', () => {
+	it('names the missing bed, in the direction the row is describing', () => {
+		const overnight = { hasStay: false, nightsInConnection: 6 };
+		expect(unroutedLegNote('to-hotel', overnight)).toBe(
+			'No bed priced for this stopover, so there is nowhere to travel to.'
+		);
+		expect(unroutedLegNote('from-hotel', overnight)).toBe(
+			'No bed priced for this stopover, so there is nowhere to travel back from.'
+		);
+	});
+
+	it('says a same-day connection has no hotel leg at all, rather than one that has not arrived', () => {
+		const sameDay = { hasStay: false, nightsInConnection: 0 };
+		expect(unroutedLegNote('to-hotel', sameDay)).toBe(
+			'Same-day connection, so there is no hotel leg here.'
+		);
+		expect(unroutedLegNote('from-hotel', sameDay)).toBe(
+			'Same-day connection, so there is no hotel leg here.'
+		);
+	});
+
+	it('reports an empty outer leg as providers answering with nothing, which is what happened', () => {
+		// These two are gated on the query carrying a location, not on a stay, and their
+		// rows only render when it does — so reaching here means a request was made.
+		const context = { hasStay: false, nightsInConnection: 6 };
+		expect(unroutedLegNote('to-origin-airport', context)).toBe(
+			'No route came back from the transport providers for this leg.'
+		);
+		expect(unroutedLegNote('to-destination-location', context)).toBe(
+			'No route came back from the transport providers for this leg.'
+		);
+	});
+
+	it('never says "yet" about a leg nothing is coming for (issue #140)', () => {
+		const legs = ['to-hotel', 'from-hotel', 'to-origin-airport', 'to-destination-location'] as const;
+		const contexts = [
+			{ hasStay: false, nightsInConnection: 0 },
+			{ hasStay: false, nightsInConnection: 6 },
+			{ hasStay: true, nightsInConnection: 6 }
+		];
+		for (const leg of legs) {
+			for (const context of contexts) {
+				expect(unroutedLegNote(leg, context)).not.toMatch(/\byet\b/i);
+			}
+		}
 	});
 });

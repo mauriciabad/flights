@@ -22,9 +22,22 @@
 		 * chip so a traveller can tell "greyed by avoid" apart from "just unchecked," never
 		 * used to pre-exclude anything (that would turn a soft preference into a filter). */
 		avoidedAirlines?: readonly IataAirlineCode[];
+		/** Issue #136: connection airport code to the city a traveller would name, so a
+		 * control headed "Connection city" says Bergamo rather than BGY. The page resolves
+		 * these asynchronously (`getAirport`), so a code missing from this map is the
+		 * ordinary state for the first frame, not an error: the chip falls back to the
+		 * code alone rather than blocking or guessing. */
+		connectionCityNames?: Readonly<Record<IataAirportCode, string>>;
 	}
 
-	let { options, filters = $bindable(), sortMode = $bindable(), currency = 'EUR', avoidedAirlines = [] }: Props = $props();
+	let {
+		options,
+		filters = $bindable(),
+		sortMode = $bindable(),
+		currency = 'EUR',
+		avoidedAirlines = [],
+		connectionCityNames = {}
+	}: Props = $props();
 
 	const avoidedSet = $derived(new Set(avoidedAirlines.map((code) => code.toUpperCase())));
 
@@ -192,12 +205,30 @@
 			<div class="chip-row">
 				{#key filtersGeneration}
 					{#each options.connectionAirports as option (option.value)}
+						{@const city = connectionCityNames[option.value]}
 						<Chip
 							interactive
 							selected={!filters.excludedConnectionAirports.has(option.value)}
 							onclick={() => toggleAirport(option.value)}
 						>
-							{option.value} ({option.count})
+							<!-- City first, because that is what the traveller is choosing
+							     between. The code stays alongside it in mono, the same ticket-stub
+							     pairing the result card header uses, since two airports can serve
+							     one city and the code is what tells them apart.
+							     `title` because Chip truncates its label at 16rem: a long city
+							     name would otherwise take the count away with it, leaving no way
+							     to read how many results the chip stands for.
+							     `translate="no"` so a browser's page translation leaves the IATA
+							     code alone. It is an identifier, not a word. -->
+							<span title={city ? `${city} (${option.value}), ${option.count}` : undefined}>
+								{#if city}
+									{city}
+									<span class="chip-code font-mono" translate="no">{option.value}</span>
+								{:else}
+									<span translate="no">{option.value}</span>
+								{/if}
+								<span class="tabular-nums">({option.count})</span>
+							</span>
 						</Chip>
 					{/each}
 				{/key}
@@ -283,5 +314,16 @@
 		display: flex;
 		flex-wrap: wrap;
 		gap: var(--space-2);
+	}
+
+	/* The code is the ticket-stub half of the pair, so it reads as one: mono, tracked out,
+	   a shade smaller than the city name beside it. Deliberately NOT dimmed with a fixed
+	   grey or an opacity: a chip's own background changes between unselected, selected and
+	   deprioritized, so any colour picked against one of those three fails the contrast
+	   check on another. Inheriting `currentColor` is the only treatment that holds in all
+	   three, and the typographic contrast does the separating instead. */
+	.chip-code {
+		font-size: 0.9em;
+		letter-spacing: var(--tracking-wide);
 	}
 </style>
