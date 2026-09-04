@@ -1,0 +1,254 @@
+/**
+ * Issue #56: the search pipeline's public shape. Everything a caller (the search form,
+ * issue #16; the results list, issue #23) needs to drive a search and render what comes
+ * back, without either of them importing anything from `providers/`, `algorithm/`, or
+ * `cache/` directly.
+ *
+ * Types only, same rule as `providers/types.ts` and `domain/index.ts`: this is the
+ * chokepoint two UI issues get written against in parallel without seeing this file's
+ * implementation, so it stays a stable contract. Runtime logic lives in `pipeline.ts` and
+ * its siblings.
+ *
+ * ## Why an async generator of snapshots, not a rune-based store
+ *
+ * A `$state`-backed store would tie this module to Svelte and to being called from inside
+ * component/effect context. `runSearch` and `widenSearch` below are plain async generator
+ * functions instead: `for await (const snapshot of runSearch(...))` works identically from a
+ * `.svelte.ts` module's `$effect`, a plain script, or a Vitest file with no network and no
+ * Svelte runtime at all (see `pipeline.test.ts`). A component that wants rune-reactive state
+ * wraps the loop in three lines (`let snapshot = $state(initial); for await (const s of
+ * runSearch(...)) snapshot = s;`) — going the other direction, unwrapping a store back into a
+ * plain async sequence a non-Svelte caller could consume, is not something either UI issue
+ * should have to do. Reversing this later means rewriting both #16 and #23's consumption
+ * code, so it is chosen deliberately here rather than by default.
+ *
+ * ## Why a cumulative snapshot, not an incremental delta
+ *
+ * Each yielded `SearchSnapshot` is the complete, current picture — candidates, itineraries,
+ * provider status, all of it — not a patch to apply to the previous one. A consumer that
+ * missed a tick (a paused tab, a slow re-render) never has to reconcile a partial diff: it
+ * just renders whatever snapshot it has. The cost is copying a few arrays per tick, which is
+ * cheap next to a network round trip and is the same trade `staleWhileRevalidate`
+ * (`cache/stale-while-revalidate.ts`) already makes by yielding a whole value each time
+ * rather than a diff.
+ */
+
+import type { ConnectionCandidate as AlgorithmConnectionCandidate } from '../algorithm/connections';
+import type { ItineraryScore } from '../algorithm/score';
+import type { Airport, IataAirportCode, IsoCalendarDate, IsoCurrencyCode, SearchQuery } from '../domain';
+import type { ProviderRegistry } from '../providers/registry';
+import type { AvailableKeys, ProviderError, ProviderId, ProviderKind, ProviderSource } from '../providers/types';
+
+export type { Airport };
+export type ConnectionCandidate = AlgorithmConnectionCandidate;
+
+/**
+ * Everything the pipeline needs from the outside world, gathered in one place so
+ * `runSearch`/`widenSearch` take exactly one options bag instead of a growing parameter
+ * list. Not a class: a plain object a caller assembles once (typically at app start, from
+ * `keyStore` and a module-level `ProviderRegistry`) and passes to every search.
+ */
+export interface SearchDependencies {
+	registry: ProviderRegistry;
+	keys: AvailableKeys;
+	/**
+	 * Resolves an IATA code to the dataset's full `Airport` record. Defaults to
+	 * `getAirport` from `src/lib/data/airports.ts` (issue #11) when omitted — injectable so
+	 * tests never trigger that module's dynamic `import()` of the 165KB generated dataset,
+	 * and so a caller with a different airport source (e.g. a registered
+	 * `AirportDataProvider`, once one exists) can supply it without this module knowing
+	 * that interface exists.
+	 */
+	resolveAirport?: (iataCode: IataAirportCode) => Airport | undefined | Promise<Airport | undefined>;
+	/**
+	 * Currency every provider is asked to quote in. Every fixture and test in this codebase
+	 * uses EUR (docs/PROVIDERS.md's own Travelpayouts sample: `"currency": "eur"`), and
+	 * `SearchQuery` has no currency field of its own — the brief never asks the traveller to
+	 * pick one. Providers may still ignore this and answer in their own default currency;
+	 * `buildItineraries` (issue #13) throws if two of a candidate's parts disagree, which
+	 * `runSearch` catches per-candidate (see pipeline.ts) so one currency mismatch degrades
+	 * that one candidate rather than the whole search.
+	 */
+	currency?: IsoCurrencyCode;
+}
+
+export interface SearchRunOptions {
+	/** Cancels the search — see the module doc comment on cancellation semantics in
+	 * pipeline.ts. Every provider call this pipeline makes carries this signal through. */
+	signal?: AbortSignal;
+	/** Forwarded to `findConnectionCandidates`. Default is that function's own
+	 * `DEFAULT_MAX_CANDIDATES`. */
+	maxCandidates?: number;
+	/** Radius used for the near-connection stay search, brief line 76: "within 100km". */
+	stayRadiusKm?: number;
+}
+
+/** One provider's running status for the lifetime of one search — enough for a settings-
+ * adjacent panel to show "Booking.com: not subscribed" or a result card to badge "via
+ * Skyscanner, 2 minutes ago" without either consumer re-deriving it from raw provider
+ * calls. */
+export interface ProviderStatus {
+	providerId: ProviderId;
+	kind: ProviderKind;
+	label: string;
+	/** Requests actually spent by this provider so far in this search, summed across every
+	 * call made — the number a "you have N left this month" display would subtract from a
+	 * quota. */
+	requestsUsed: number;
+	/** The most recent failure, if the provider's last call for this search did not
+	 * succeed. Cleared on a subsequent success: a blip five seconds ago that then recovered
+	 * is not still true "now" (AGENTS.md: "Say what you do not know rather than guessing",
+	 * which cuts both ways — a resolved problem shouldn't be reported as ongoing either). */
+	lastError?: ProviderError;
+	/** ISO instant of the most recent successful response from this provider, for a
+	 * "fetched 2 minutes ago" style badge. */
+	lastFetchedAt?: string;
+}
+
+/** Where one itinerary's numbers came from, keyed the same way as `Itinerary`'s own fields
+ * so a UI can render "flight via Ryanair, stay via Agoda (12 min ago)" per part. Domain
+ * types (`FlightOffer`, `Stay`, `Transfer`) carry no provenance of their own — see
+ * `resources.ts`'s `SourceTracker` for how this gets attached without changing them. */
+export interface ItinerarySources {
+	outboundFlight: ProviderSource;
+	onwardFlight: ProviderSource;
+	stay?: ProviderSource;
+	transferToHotel?: ProviderSource;
+	transferToConnectionAirport?: ProviderSource;
+	transferToOriginAirport?: ProviderSource;
+	transferToDestinationLocation?: ProviderSource;
+}
+
+/** One scored itinerary plus where its numbers came from. */
+export interface ItineraryResult {
+	score: ItineraryScore;
+	sources: ItinerarySources;
+}
+
+/**
+ * Every scored pairing through one connection airport, grouped — brief line 83: "Group
+ * results into variants for same itinerary"; line 67: "user can see alternative flights for
+ * same location with their price and difference from selected one, selecting updates ui."
+ * `best` is a convenience (`variants[0]`) so a caller that only wants the headline card per
+ * stopover doesn't have to know `variants` is pre-sorted.
+ */
+export interface ItineraryGroup {
+	connectionAirportCode: IataAirportCode;
+	best: ItineraryResult;
+	/** Sorted best-first, `best` included. Length 1 is the common case (one viable flight
+	 * pairing through this stopover); more than one means the traveller has a real choice
+	 * of times or fares through the same city. */
+	variants: ItineraryResult[];
+}
+
+/**
+ * Where one `runSearch`/`widenSearch` call is in its own lifecycle — NOT which of the three
+ * cost tiers is active (see `WidenTier` below for that, a separate axis entirely). Both
+ * `runSearch` (free tier only) and `widenSearch` (confirm tier) progress through the same
+ * four values: `'candidates'` once ranked, `'stage1'`/`'stage2'` respectively as each
+ * candidate's data arrives, then `'done'`.
+ */
+export type SearchStage = 'candidates' | 'stage1' | 'stage2' | 'done';
+
+/**
+ * Mid-task finding (docs/PROVIDERS.md, "Flights Sky has a price calendar"): flight cost is
+ * three tiers, not two, and a widen prompt has to say which one it's offering, because they
+ * differ by an order of magnitude in both price and what they buy:
+ *
+ * - `'calendar'` — cheap and broad. One request answers "which dates are cheap" for a whole
+ *   route over roughly a month (`price-calendar.ts`). Good for exploring where/when.
+ * - `'confirm'` — expensive and narrow. One request per route per exact date
+ *   (`cost-aware.ts` + `providers/budget`'s `estimateWidenCost`). Spent once the traveller
+ *   has picked a specific candidate and date.
+ *
+ * Stay widening (Agoda/Booking) only ever needs `'confirm'` — those providers have no
+ * calendar-shaped capability in this codebase, so this field is meaningful mainly for
+ * `kind: 'flight'` options.
+ */
+export type WidenTier = 'calendar' | 'confirm';
+
+/**
+ * What spending a metered request would cost right now, without spending it — the answer
+ * to "the caller can ask what widening would cost in requests" (issue #56). Computed for
+ * every provider whose estimate is non-zero for the query at hand, usable or not: a
+ * provider with `requiresKey: true` still gets listed, so a settings nudge ("add a
+ * Skyscanner key to widen for ~2 requests") is possible before the user has configured
+ * anything.
+ */
+export interface WidenOption {
+	providerId: ProviderId;
+	kind: ProviderKind;
+	tier: WidenTier;
+	label: string;
+	/** Which connection candidate this estimate is for. Absent for an estimate that isn't
+	 * tied to one candidate (there are none of those yet, but a future whole-search widen
+	 * estimate would be modelled this way rather than by adding a second, parallel type). */
+	candidateAirportCode?: IataAirportCode;
+	/** Requests this provider's own cost-estimate method reports for the query described —
+	 * `providers/budget`'s `estimateWidenCost` for `'confirm'`, `price-calendar.ts`'s
+	 * `estimatePriceCalendarWidenCost` for `'calendar'`. */
+	requests: number;
+	/** True when this provider has no usable key yet, so `requests` is what widening would
+	 * cost once one is added, not something `widenSearch` can spend right now. */
+	requiresKey: boolean;
+}
+
+/**
+ * The complete, current picture of one search, cumulative — see the module doc comment for
+ * why this is a whole snapshot rather than a delta. `runSearch`/`widenSearch` (pipeline.ts)
+ * yield a new one of these each time meaningful new information is available.
+ */
+export interface SearchSnapshot {
+	/** Increases by one on every yield from the same search; a superseded search's snapshots
+	 * can be told apart from a fresh one's without comparing object identity. Never
+	 * meaningful to compare across two different `runSearch` calls. */
+	sequence: number;
+	stage: SearchStage;
+	/** True on the last snapshot this search will ever produce — the generator returns
+	 * immediately after (or, for the `for await` form, the loop simply ends). */
+	done: boolean;
+	/** Ranked stopover candidates from `findConnectionCandidates` (`algorithm/connections.ts`),
+	 * present from the first snapshot onward. Useful on its own before any flight has
+	 * resolved: a UI can show "considering Vienna, Milan, ..." immediately. */
+	candidates: ConnectionCandidate[];
+	/** Every itinerary built and scored so far, grouped by stopover and sorted best-first by
+	 * group. Replaces the previous snapshot's value entirely (see module doc comment). */
+	itineraryGroups: ItineraryGroup[];
+	/** Per-provider status for every provider this search has called at least once, keyed
+	 * by `ProviderId`. */
+	providers: Record<ProviderId, ProviderStatus>;
+	/** What widening to a metered provider would cost, for the top-ranked candidates, at the
+	 * query's full date range — see `WidenOption`. Narrows to a specific date only once the
+	 * caller invokes `widenSearch` with one. */
+	widenOptions: WidenOption[];
+}
+
+/** One connection candidate the caller wants confirmed with a metered provider, for a
+ * specific (ideally narrow — PROVIDERS.md: "Skyscanner is spent, deliberately and visibly,
+ * on that one route and date") departure window. Narrower than the original `SearchQuery`'s
+ * whole range on purpose: `widenSearch` never re-derives a date range on its own, so a
+ * caller cannot accidentally re-trigger the exact fan-out that burns the monthly quota in
+ * one search (docs/PROVIDERS.md: "A ten-day window over two legs is 20 requests"). */
+export interface WidenTarget {
+	candidateAirportCode: IataAirportCode;
+	earliestDeparture: IsoCalendarDate;
+	latestDeparture: IsoCalendarDate;
+}
+
+/**
+ * Issue #56: "A search must never silently spend metered requests." This is the one call
+ * that can — everything else in this module guarantees it never does — so it requires an
+ * explicit, caller-supplied ceiling every time, exactly like `ProviderContext.maxRequests`
+ * and `ConnectionGraphOptions.meteredRequestBudget` require one at their own layer. There is
+ * no default.
+ */
+export interface WidenRequest {
+	targets: WidenTarget[];
+	/** Hard ceiling on total metered requests this one `widenSearch` call may spend, across
+	 * every provider and target combined. Once reached, remaining providers/targets are
+	 * skipped and reported as an ordinary partial result (`ProviderContext.maxRequests`'s own
+	 * contract), never exceeded. */
+	maxMeteredRequests: number;
+}
+
+export type { SearchQuery };
