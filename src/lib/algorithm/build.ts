@@ -88,8 +88,11 @@ function toEpochMs(dateTime: LocalDateTime): number {
 
 /** Real elapsed time between two LocalDateTimes, DST-correct per `toEpochMs` above. This is
  * how layover and free time are computed — never by subtracting the `local` strings
- * directly, which is exactly the bug that makes an overnight connection lose an hour. */
-function minutesBetween(from: LocalDateTime, to: LocalDateTime): Duration {
+ * directly, which is exactly the bug that makes an overnight connection lose an hour.
+ * Exported so issue #24's inline waiting-time editor (ItineraryTimeline.svelte) can
+ * recompute free time on an edit with the exact same arithmetic that produced it here,
+ * rather than a second implementation that could quietly disagree with this one. */
+export function minutesBetween(from: LocalDateTime, to: LocalDateTime): Duration {
 	return Math.round((toEpochMs(to) - toEpochMs(from)) / 60_000) as Duration;
 }
 
@@ -102,8 +105,9 @@ function minutesBetween(from: LocalDateTime, to: LocalDateTime): Duration {
  * multi-hour, potentially DST-crossing gap between the two flights is handled the other way
  * round, by subtracting each flight's own already-correct LocalDateTime (`minutesBetween`),
  * never by walking forward minute-by-minute through this one.
+ * Exported for the same reason as `minutesBetween` above.
  */
-function addLocalMinutes(dateTime: LocalDateTime, minutes: number): LocalDateTime {
+export function addLocalMinutes(dateTime: LocalDateTime, minutes: number): LocalDateTime {
 	const shiftedMs = Date.parse(`${dateTime.local}Z`) + minutes * 60_000;
 	return {
 		local: new Date(shiftedMs).toISOString().slice(0, 19),
@@ -119,21 +123,23 @@ function addLocalMinutes(dateTime: LocalDateTime, minutes: number): LocalDateTim
  * the same calendar date is zero nights even at twenty. Comparing calendar dates directly
  * (ignoring both clock time and UTC offset) is safe here because check-in and check-out are
  * the same place, so both dates are already in that place's own calendar.
+ * Exported for the same reason as `minutesBetween` above.
  */
-function nightsBetween(start: LocalDateTime, end: LocalDateTime): number {
+export function nightsBetween(start: LocalDateTime, end: LocalDateTime): number {
 	const startDateMs = Date.parse(`${start.local.slice(0, 10)}T00:00:00Z`);
 	const endDateMs = Date.parse(`${end.local.slice(0, 10)}T00:00:00Z`);
 	return Math.round((endDateMs - startDateMs) / 86_400_000);
 }
 
-function sumDurations(...durations: (Duration | undefined)[]): Duration {
+/** Exported for the same reason as `minutesBetween` above. */
+export function sumDurations(...durations: (Duration | undefined)[]): Duration {
 	return durations.reduce<number>((total, duration) => total + (duration ?? 0), 0) as Duration;
 }
 
 /** Totals Money values that must already share one currency — converting between
  * currencies is out of scope here, left to whichever module normalises provider prices
- * before they reach the builder. */
-function sumMoney(first: Money, ...rest: (Money | undefined)[]): Money {
+ * before they reach the builder. Exported for the same reason as `minutesBetween` above. */
+export function sumMoney(first: Money, ...rest: (Money | undefined)[]): Money {
 	let total = first.minorUnits;
 	for (const part of rest) {
 		if (part === undefined) continue;
@@ -302,4 +308,100 @@ export function buildItineraries(input: BuildItinerariesInput): Itinerary[] {
 	}
 
 	return itineraries;
+}
+
+/** Either buffer, in minutes. Omitting one leaves that side of the itinerary untouched. */
+export interface WaitingTimeOverrides {
+	originWaitingTime?: Duration;
+	connectionWaitingTime?: Duration;
+}
+
+/**
+ * Issue #24: "Airport waiting times editable inline, with every affected total
+ * recomputing" (brief lines 39 and 69, called out twice). Takes an already-built Itinerary
+ * plus a hand-edited waiting time on either side and returns a new Itinerary with every
+ * dependent field recomputed. It never leaves a partial patch that skips one total.
+ *
+ * Reuses this module's own arithmetic (`addLocalMinutes`, `minutesBetween`, `nightsBetween`,
+ * `sumMoney`) rather than a second implementation in the UI layer, so a hand edit can never
+ * disagree with how `buildItineraries` would have computed the same itinerary from scratch.
+ * Every value this needs (both flights' price/duration, the stay's nightly rate, both
+ * connection-side transfers) already lives on the Itinerary itself, so this takes no other
+ * input, unlike `buildItineraries`, which needs the wider candidate pool.
+ *
+ * `originWaitingTime` only ever affects `airportWaiting` and `total`: it is time spent
+ * before a flight whose schedule is already fixed, so it cannot move anything else.
+ * `connectionWaitingTime` additionally shifts `freeTime.end` backward (the buffer eats into
+ * the same layover free time draws from), which is why `nightsInConnection` and the
+ * nights-priced part of `totalPrice` can also change. `total` stays put when only
+ * `connectionWaitingTime` moves: the free-time minutes it removes are exactly the minutes
+ * `airportWaiting` gains, since both are carved from one fixed layover.
+ */
+export function recomputeItineraryWaitingTimes(
+	itinerary: Itinerary,
+	overrides: WaitingTimeOverrides
+): Itinerary {
+	const originWaitingTime = overrides.originWaitingTime ?? itinerary.originWaitingTime;
+	const connectionWaitingTime = overrides.connectionWaitingTime ?? itinerary.connectionWaitingTime;
+
+	if (
+		originWaitingTime === itinerary.originWaitingTime &&
+		connectionWaitingTime === itinerary.connectionWaitingTime
+	) {
+		return itinerary; // nothing actually changed, so skip rebuilding every derived field
+	}
+
+	// RULE: free time's start never moves on this edit. Only originWaitingTime or
+	// connectionWaitingTime changed, and neither touches the outbound arrival or the
+	// hotel-bound transfer that anchors freeStart.
+	const freeStart = addLocalMinutes(itinerary.outboundFlight.arrival, itinerary.transferToHotel.duration);
+	const freeEnd = addLocalMinutes(
+		itinerary.onwardFlight.departure,
+		-(itinerary.transferToConnectionAirport.duration + connectionWaitingTime)
+	);
+	const freeDuration = minutesBetween(freeStart, freeEnd);
+	const freeTime = { start: freeStart, end: freeEnd, duration: freeDuration };
+	const nightsInConnection = nightsBetween(freeStart, freeEnd);
+
+	const totalPrice = sumMoney(
+		itinerary.outboundFlight.price,
+		itinerary.onwardFlight.price,
+		nightsInConnection > 0
+			? {
+					minorUnits: itinerary.stay.pricePerNight.minorUnits * nightsInConnection,
+					currency: itinerary.stay.pricePerNight.currency
+				}
+			: undefined,
+		itinerary.transferToHotel.price,
+		itinerary.transferToConnectionAirport.price,
+		itinerary.transferToOriginAirport?.price,
+		itinerary.transferToDestinationLocation?.price
+	);
+
+	const times: ItineraryTimes = {
+		inFlight: itinerary.times.inFlight,
+		airportWaiting: sumDurations(originWaitingTime, connectionWaitingTime),
+		free: freeDuration,
+		total: sumDurations(
+			itinerary.transferToOriginAirport?.duration,
+			originWaitingTime,
+			itinerary.outboundFlight.duration,
+			itinerary.transferToHotel.duration,
+			freeDuration,
+			itinerary.transferToConnectionAirport.duration,
+			connectionWaitingTime,
+			itinerary.onwardFlight.duration,
+			itinerary.transferToDestinationLocation?.duration
+		)
+	};
+
+	return {
+		...itinerary,
+		originWaitingTime,
+		connectionWaitingTime,
+		freeTime,
+		nightsInConnection,
+		totalPrice,
+		times
+	};
 }

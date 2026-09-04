@@ -11,3 +11,4 @@ export { default as Skeleton } from './Skeleton.svelte';
 export { default as EmptyState } from './EmptyState.svelte';
 export { default as ErrorState, PROVIDER_ISSUE_COPY } from './ErrorState.svelte';
 export type { ProviderIssueReason } from './ErrorState.svelte';
+export { default as ItineraryTimeline } from './ItineraryTimeline.svelte';

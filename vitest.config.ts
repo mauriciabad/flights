@@ -16,6 +16,12 @@ process.env.NODE_OPTIONS = `${process.env.NODE_OPTIONS ?? ''} --no-experimental-
 // `.svelte.ts` modules.
 export default defineConfig({
 	plugins: [sveltekit()],
+	// Vite otherwise resolves the `svelte` package's server-only export condition even
+	// under jsdom, so `mount`/`unmount` (issue #24's ItineraryTimeline.test.ts, which mounts
+	// the real component rather than only testing its pure helpers) throw
+	// "lifecycle_function_unavailable" instead of rendering. `process.env.VITEST` scopes
+	// this to test runs only, so `pnpm dev` and `pnpm build` resolve exactly as before.
+	resolve: process.env.VITEST ? { conditions: ['browser'] } : undefined,
 	test: {
 		environment: 'jsdom',
 		// scripts/**: build-time scripts (issue #52's Travelpayouts fetch) get the

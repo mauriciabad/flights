@@ -10,7 +10,7 @@ import type {
 	Transfer,
 	WaitingTimeRule
 } from '../domain';
-import { buildItineraries, type BuildItinerariesInput } from './build';
+import { buildItineraries, recomputeItineraryWaitingTimes, type BuildItinerariesInput } from './build';
 
 const country: Country = { isoCode: 'AT', name: 'Austria' };
 const city: City = { name: 'Vienna', coordinates: { latitude: 48.2, longitude: 16.37 }, country };
@@ -229,3 +229,139 @@ describe('buildItineraries — airport waiting time vs layover', () => {
 		expect(itinerary.times.airportWaiting).not.toBe(itinerary.freeTime.duration);
 	});
 });
+
+describe('recomputeItineraryWaitingTimes, issue #24 inline editing', () => {
+	// One fixed itinerary, rebuilt fresh in each test rather than shared, so a mutation in
+	// one test (there shouldn't be any: the function returns a new object) can never leak
+	// into another.
+	function baseItinerary() {
+		const arrival = localDateTime('2026-06-01T10:00:00', 'Europe/Vienna', 120);
+		const departure = localDateTime('2026-06-03T14:00:00', 'Europe/Vienna', 120);
+		const outbound = makeFlight('LGW', 'VIE', arrival, arrival, 150, 5000);
+		const onward = makeFlight('VIE', 'IST', departure, departure, 90, 6000);
+
+		const [itinerary] = buildItineraries(
+			baseInput({
+				outboundOffers: [outbound],
+				onwardOffers: [onward],
+				connectionResources: {
+					VIE: {
+						stay: makeStay(3000),
+						transferToHotel: makeTransfer(45),
+						transferToConnectionAirport: makeTransfer(45)
+					}
+				},
+				waitingTimeRules: flatWaitingTime(120) // 2h at both ends
+			})
+		);
+		return itinerary;
+	}
+
+	it('raising the origin waiting time only grows airportWaiting and total, nothing else', () => {
+		const before = baseItinerary();
+		const after = recomputeItineraryWaitingTimes(before, { originWaitingTime: 180 as Duration });
+
+		expect(after.originWaitingTime).toBe(180);
+		expect(after.times.airportWaiting).toBe(before.times.airportWaiting + 60);
+		expect(after.times.total).toBe(before.times.total + 60);
+		// Nothing on the connection side moved: origin waiting time happens before a flight
+		// whose schedule is already fixed, so it cannot touch free time, nights or price.
+		expect(after.freeTime).toEqual(before.freeTime);
+		expect(after.nightsInConnection).toBe(before.nightsInConnection);
+		expect(after.totalPrice).toEqual(before.totalPrice);
+	});
+
+	it('raising the connection waiting time eats into free time but leaves total unchanged', () => {
+		const before = baseItinerary();
+		const after = recomputeItineraryWaitingTimes(before, { connectionWaitingTime: 180 as Duration });
+
+		expect(after.connectionWaitingTime).toBe(180);
+		expect(after.times.airportWaiting).toBe(before.times.airportWaiting + 60);
+		// The hour the buffer grew by is exactly the hour free time shrank by, so total,
+		// the door-to-door figure, does not move.
+		expect(after.freeTime.duration).toBe(before.freeTime.duration - 60);
+		expect(after.times.total).toBe(before.times.total);
+		expect(after.freeTime.end).toEqual(addMinutesForTest(before.freeTime.end, -60));
+		expect(after.freeTime.start).toEqual(before.freeTime.start); // anchored to outbound arrival, untouched
+	});
+
+	it('shrinking the connection waiting time can push checkout past midnight, changing nights and price together', () => {
+		// nightsBetween counts calendar dates crossed, not hours, so this needs a departure
+		// close enough to midnight that trimming the buffer moves free time's end onto a
+		// different date. The base itinerary above never crosses one, on purpose, to keep
+		// the other cases from depending on this behaviour too.
+		const arrival = localDateTime('2026-06-01T10:00:00', 'Europe/Vienna', 120);
+		const departure = localDateTime('2026-06-03T02:00:00', 'Europe/Vienna', 120);
+		const outbound = makeFlight('LGW', 'VIE', arrival, arrival, 150, 5000);
+		const onward = makeFlight('VIE', 'IST', departure, departure, 90, 6000);
+
+		const [before] = buildItineraries(
+			baseInput({
+				outboundOffers: [outbound],
+				onwardOffers: [onward],
+				connectionResources: {
+					VIE: {
+						stay: makeStay(3000),
+						transferToHotel: makeTransfer(30),
+						transferToConnectionAirport: makeTransfer(30)
+					}
+				},
+				waitingTimeRules: flatWaitingTime(120)
+			})
+		);
+		// freeEnd = 02:00 − (30min transfer + 120min buffer) = 23:30 the night before, so
+		// checkout is still on the 2nd: one night.
+		expect(before.nightsInConnection).toBe(1);
+
+		// Shrinking the buffer to nothing moves freeEnd to 01:30 on the 3rd instead,
+		// checkout has crossed into the next calendar day, so the front desk counts a
+		// second night even though free time only grew by two hours.
+		const after = recomputeItineraryWaitingTimes(before, { connectionWaitingTime: 0 as Duration });
+
+		expect(after.nightsInConnection).toBe(2);
+		// One extra night at 3000 minor units.
+		expect(after.totalPrice.minorUnits).toBe(before.totalPrice.minorUnits + 3000);
+		expect(after.totalPrice.currency).toBe(before.totalPrice.currency);
+	});
+
+	it('editing both buffers at once recomputes every affected total in one pass', () => {
+		const before = baseItinerary();
+		const after = recomputeItineraryWaitingTimes(before, {
+			originWaitingTime: 90 as Duration,
+			connectionWaitingTime: 60 as Duration
+		});
+
+		expect(after.times.airportWaiting).toBe(150); // 90 + 60
+		expect(after.times.total).toBe(before.times.total - 30); // origin −30, connection ±0
+		expect(after.freeTime.duration).toBe(before.freeTime.duration + 60);
+	});
+
+	it('passing the same values back is a no-op: same reference, not just equal totals', () => {
+		const before = baseItinerary();
+		const after = recomputeItineraryWaitingTimes(before, {
+			originWaitingTime: before.originWaitingTime,
+			connectionWaitingTime: before.connectionWaitingTime
+		});
+
+		expect(after).toBe(before);
+	});
+
+	it('omitting one override leaves that side exactly as it was on the itinerary', () => {
+		const before = baseItinerary();
+		const after = recomputeItineraryWaitingTimes(before, { originWaitingTime: 240 as Duration });
+
+		expect(after.connectionWaitingTime).toBe(before.connectionWaitingTime);
+	});
+});
+
+/** Test-only helper: shifts a LocalDateTime by whole minutes for asserting against, kept
+ * separate from (and deliberately simpler than) build.ts's own `addLocalMinutes` so this
+ * test isn't just checking the implementation against itself. */
+function addMinutesForTest(dateTime: LocalDateTime, minutes: number): LocalDateTime {
+	const ms = Date.parse(`${dateTime.local}Z`) + minutes * 60_000;
+	return {
+		local: new Date(ms).toISOString().slice(0, 19),
+		timeZone: dateTime.timeZone,
+		utcOffsetMinutes: dateTime.utcOffsetMinutes
+	};
+}
