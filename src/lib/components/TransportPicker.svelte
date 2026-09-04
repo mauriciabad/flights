@@ -18,6 +18,10 @@
 	 * the next one and how far away, "nothing later at all", or "nothing later arrives in
 	 * time" for a leg with a check-in deadline — and, through `transitAnswer`, it
 	 * distinguishes a place with no timetable from a lookup that never happened.
+	 *
+	 * These rows render inside the timeline step they belong to, which is why the list
+	 * carries no heading and no card chrome of its own: the step already names the leg,
+	 * and a bordered card inside a bordered row was the box-in-a-box look this replaces.
 	 */
 	import type { Duration, Itinerary, LocalDateTime, Transfer, TransferMode } from '../domain';
 	import {
@@ -42,7 +46,6 @@
 		transferModeLabel,
 		unpricedTransferNote
 	} from './itinerary-timeline-format';
-	import Chip from './Chip.svelte';
 
 	type TransferLegField =
 		| 'transferToOriginAirport'
@@ -223,7 +226,6 @@
 </script>
 
 <section class="transport-picker">
-	<h3 class="picker-title">{legLabel}</h3>
 	<div role="radiogroup" aria-label={legLabel} class="picker-list">
 		{#each rows as row (transferKey(row.transfer))}
 			{@const isTaxiEstimate = row.transfer.mode === 'taxi' && taxiFareEstimate}
@@ -258,7 +260,7 @@
 				</span>
 				<span class="row-delta">
 					{#if row.isSelected}
-						<Chip variant="accent" label="Current pick" />
+						<span class="row-current">Current pick</span>
 					{:else if row.delta}
 						<span class="delta-text">
 							{#if isTaxiEstimate}
@@ -381,32 +383,32 @@
 		gap: var(--space-3);
 	}
 
-	.picker-title {
-		font-size: var(--font-size-sm);
-		font-weight: var(--font-weight-semibold);
-		color: var(--color-text-muted);
-	}
-
 	.picker-list {
 		display: flex;
 		flex-direction: column;
-		gap: var(--space-2);
+		gap: 0;
 	}
 
+	/* Hairlines between rows, not a border around each: inside a timeline step this list
+	   is a timetable, and a bordered card per option was a box inside a box. */
+	.picker-row + .picker-row {
+		border-top: 1px solid var(--color-border);
+	}
+
+	/* 2.75rem keeps every row a full-size touch target now that the type inside it is
+	   smaller than it was. */
 	.picker-row {
 		display: grid;
 		grid-template-columns: 1fr auto auto;
 		align-items: center;
-		gap: var(--space-1) var(--space-4);
-		padding: var(--space-3) var(--space-4);
-		min-height: 3.5rem;
-		border: 1px solid var(--color-border-strong);
-		border-radius: var(--radius-md);
-		background: var(--color-surface);
+		gap: var(--space-1) var(--space-3);
+		padding: var(--space-2);
+		min-height: 2.75rem;
+		border-radius: var(--radius-sm);
 		cursor: pointer;
 		transition:
-			border-color var(--transition-fast),
-			background-color var(--transition-fast);
+			background-color var(--transition-fast),
+			box-shadow var(--transition-fast);
 	}
 
 	.picker-row:hover {
@@ -418,13 +420,15 @@
 		outline-offset: 2px;
 	}
 
+	/* The same inset bar ItineraryTimeline draws on its selected step, so the picked
+	   option and the picked step share one mark. */
 	.picker-row.is-selected {
-		border-color: var(--color-accent);
 		background: var(--color-accent-muted);
+		box-shadow: inset 3px 0 0 var(--color-accent);
 	}
 
 	.picker-row.has-warning:not(.is-selected) {
-		border-color: var(--color-warning);
+		box-shadow: inset 3px 0 0 var(--color-warning);
 	}
 
 	.row-mode {
@@ -434,16 +438,17 @@
 	}
 
 	.row-mode-label {
+		font-size: var(--font-size-sm);
 		font-weight: var(--font-weight-medium);
 	}
 
 	.row-duration {
-		font-size: var(--font-size-sm);
+		font-size: var(--font-size-xs);
 		color: var(--color-text-muted);
 	}
 
 	.row-price {
-		font-size: var(--font-size-base);
+		font-size: var(--font-size-sm);
 		font-weight: var(--font-weight-semibold);
 		white-space: nowrap;
 		text-align: right;
@@ -469,11 +474,23 @@
 	.row-delta {
 		display: flex;
 		justify-content: flex-end;
-		min-width: 6rem;
+		min-width: 5rem;
+	}
+
+	/* Mono caps at the size TimeCell and MetricRail use for their labels, so "current
+	   pick" reads as a stamp on the timetable rather than a chip floating over it. */
+	.row-current {
+		font-family: var(--font-mono);
+		font-size: 0.625rem;
+		font-weight: var(--font-weight-semibold);
+		text-transform: uppercase;
+		letter-spacing: var(--tracking-wide);
+		color: var(--color-accent);
+		white-space: nowrap;
 	}
 
 	.delta-text {
-		font-size: var(--font-size-sm);
+		font-size: var(--font-size-xs);
 		color: var(--color-text-muted);
 		white-space: nowrap;
 	}
@@ -544,7 +561,7 @@
 	.transit-notice {
 		padding: var(--space-2) var(--space-3);
 		border-left: 2px solid var(--color-border-strong);
-		font-size: var(--font-size-sm);
+		font-size: var(--font-size-xs);
 		color: var(--color-text-muted);
 	}
 
@@ -576,12 +593,12 @@
 		display: flex;
 		flex-direction: column;
 		gap: var(--space-1);
-		padding: var(--space-3) var(--space-4);
+		padding: var(--space-2) var(--space-3);
 		border: 1px solid var(--color-warning);
 		border-radius: var(--radius-md);
 		background: var(--color-warning-bg);
 		color: var(--color-warning);
-		font-size: var(--font-size-sm);
+		font-size: var(--font-size-xs);
 	}
 
 	@media (max-width: 32rem) {

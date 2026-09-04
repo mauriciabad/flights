@@ -14,10 +14,16 @@
 	 * - **The trip strip** (`TripStrip`), roughly proportional to real time. The shape of
 	 *   the trip is the fastest thing on the card to read, and it carries the two figures
 	 *   that matter most (nights, and how long the stopover runs) in the place where they
-	 *   mean something spatially.
-	 * - **In flight, airport wait, door to door** (`MetricRail`). The three that decide
-	 *   whether a cheap itinerary is actually cheap. Airport waiting in particular is the
-	 *   cost nobody quotes.
+	 *   mean something spatially. Nights ride here and nowhere else on the card: the
+	 *   strip's caption already prints "2 nights in Vienna" in bold teal.
+	 * - **Free time, in flight, airport wait, door to door** (`MetricRail`, the four in
+	 *   `CARD_METRIC_IDS`). The figures that decide whether a cheap itinerary is actually
+	 *   cheap. Airport waiting in particular is the cost nobody quotes.
+	 *
+	 * The header's freshness badge renders only when its tone is not neutral. "Current
+	 * price" and "Priced 3m ago" said the same thing as the footer's "fetched 3m ago" one
+	 * line apart, and on a 375px screen the badge wrapped under the route and cost the
+	 * card a row it could not spare: 635px of card against 620px of screen.
 	 *
 	 * What was cut, deliberately: per-flight prices and per-leg times (they are in the
 	 * expanded panel, where a leg can also be swapped, and five prices on a card is a
@@ -55,6 +61,9 @@
 	const connectionCode = $derived(connectionAirportCode(itinerary));
 	const isDeprioritized = $derived(result.score.avoidedAirlineFlightCount > 0);
 	const freshness = $derived(describePriceFreshness(result.price.freshness));
+	// A neutral badge repeats the footer's "fetched 3m ago" one line down, so only a tone
+	// with something to warn about earns the header row (see the file header).
+	const showFreshness = $derived(freshness.tone !== 'neutral');
 
 	const connectionLabel = $derived(connectionAirport?.city.name ?? connectionCode);
 	// The owner's report was one line reading "Velika Gorica ZAG": the wrong city name
@@ -75,6 +84,11 @@
 			: undefined
 	);
 	const fetchedAgo = $derived(oldestFetchedAt !== undefined ? formatAge(Date.now() - oldestFetchedAt) : undefined);
+	// One string for both the footer text and its `title`: the footer is a single line
+	// and this end of it ellipsises on a phone, so the full sentence is one hover away.
+	const sourceText = $derived(
+		`via ${providerLabels.join(' & ')}${fetchedAgo ? `, fetched ${fetchedAgo}` : ''}`
+	);
 
 	// Both carriers, deduped: a single-airline itinerary should say the airline once. The
 	// strip already shows each leg's mark, so this row is the names, in the footer where
@@ -119,17 +133,21 @@
 				<Flag country={itinerary.destinationAirport.country} />
 				<span class="iata font-mono tabular-nums">{itinerary.destinationAirport.iataCode}</span>
 			</span>
-			<span class="header-badges">
-				{#if isDeprioritized}
-					<!-- The one fact `describeWhyGood`'s sentence carried that no number on this
-					     card does. It has to be a word, not the greyed-out treatment alone:
-					     colour is the only other channel carrying it, and WCAG 1.4.1 is
-					     explicit that colour is never the sole means of conveying
-					     information. -->
-					<span class="avoid-badge">Airline you avoid</span>
-				{/if}
-				<span class={['freshness-badge', `freshness-${freshness.tone}`]}>{freshness.label}</span>
-			</span>
+			{#if isDeprioritized || showFreshness}
+				<span class="header-badges">
+					{#if isDeprioritized}
+						<!-- The one fact `describeWhyGood`'s sentence carried that no number on
+						     this card does. It has to be a word, not the greyed-out treatment
+						     alone: colour is the only other channel carrying it, and WCAG 1.4.1
+						     is explicit that colour is never the sole means of conveying
+						     information. -->
+						<span class="avoid-badge">Airline you avoid</span>
+					{/if}
+					{#if showFreshness}
+						<span class={['freshness-badge', `freshness-${freshness.tone}`]}>{freshness.label}</span>
+					{/if}
+				</span>
+			{/if}
 		</div>
 	{/snippet}
 
@@ -184,9 +202,7 @@
 					</span>
 				{/each}
 			</span>
-			<span class="provenance-source"
-				>via {providerLabels.join(' & ')}{#if fetchedAgo}, fetched {fetchedAgo}{/if}</span
-			>
+			<span class="provenance-source" title={sourceText}>{sourceText}</span>
 		</p>
 	{/snippet}
 </Card>
@@ -194,11 +210,10 @@
 <style>
 	.result-card {
 		/* Reserve-space: every card, real or skeleton, commits to this minimum height so
-		   a card replacing a skeleton (or a price freshness badge changing width) never
-		   reflows the cards below it. Lower than it was: the card itself is now denser
-		   than the one it replaces, and an over-generous floor would put the difference
-		   straight back as empty space. */
-		min-height: 13rem;
+		   a card replacing a skeleton never reflows the cards below it. That is the
+		   floor's only job, so it sits just under the shortest real card rather than
+		   handing the phone card back the height this file just took off it. */
+		min-height: 11rem;
 	}
 
 	.result-card.is-deprioritized {
@@ -277,10 +292,6 @@
 		font-weight: var(--font-weight-medium);
 	}
 
-	.freshness-neutral {
-		color: var(--color-text-faint);
-	}
-
 	.freshness-info {
 		color: var(--color-info);
 		background: var(--color-info-bg);
@@ -356,9 +367,12 @@
 		transform: rotate(180deg);
 	}
 
+	/* One line, always. On a phone this footer spent three on "ZZ" and "via Ryanair (no
+	   key required) & OSRM (walking & driving), fetched this minute"; the carriers keep
+	   their full width and the source text gives way, its full sentence on `title`. */
 	.provenance {
 		display: flex;
-		flex-wrap: wrap;
+		flex-wrap: nowrap;
 		align-items: center;
 		justify-content: space-between;
 		gap: var(--space-2) var(--space-4);
@@ -370,8 +384,16 @@
 	.carriers {
 		display: flex;
 		flex-wrap: wrap;
+		flex-shrink: 0;
 		align-items: center;
 		gap: var(--space-3);
+	}
+
+	.provenance-source {
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 
 	.carrier {
@@ -383,5 +405,26 @@
 
 	:global(.is-deprioritized) .carrier {
 		color: var(--color-text-deprioritized);
+	}
+
+	/* Desktop-sized padding and gaps were a third of what put the phone card over the
+	   620px it has under the header and tab bar; one card per screen means no comparing. */
+	@media (max-width: 34rem) {
+		.card-main {
+			padding: var(--space-3) var(--space-4);
+			gap: var(--space-3);
+		}
+
+		.card-controls {
+			padding-top: var(--space-2);
+		}
+
+		/* MetricRail's auto-fit grid seats three cells at this width, which leaves the
+		   fourth figure alone on a second row: two by two reads as two pairs, three plus
+		   one reads as a leftover. Scoped to this card because the timeline's totals
+		   rail has six cells and three-up is right for it. */
+		.result-card :global(.metric-rail-rail) {
+			grid-template-columns: repeat(2, 1fr);
+		}
 	}
 </style>

@@ -55,19 +55,19 @@ export const ALL_METRIC_IDS: readonly ItineraryMetricId[] = [
 ];
 
 /**
- * The five figures a results card carries, and the argument for each one.
+ * The four figures a results card carries, and the argument for each one.
  *
- * Nights leads: it is the product's whole pitch, and it is the number that separates "a
- * connection" from "a second city". Free time is what that night is actually worth.
- * In-flight and airport waiting are the two halves of "how much of this trip is spent
- * travelling", and they are the pair the traveller trades against price. Door to door
- * closes it.
+ * Free time is what the stopover is actually worth. In-flight and airport waiting are
+ * the two halves of "how much of this trip is spent travelling", and they are the pair
+ * the traveller trades against price. Door to door closes it.
  *
- * Total price is deliberately absent: it is the card's headline, printed once at the top
- * with its own breakdown, not one cell in a rail of five.
+ * Nights is deliberately absent: the trip strip above this rail already prints "2 nights
+ * in Vienna" in bold teal, so a NIGHTS cell repeated the one figure the card shows as a
+ * shape. Total price is absent for the same reason: it is the card's headline, printed
+ * once at the top with its own breakdown. Four cells also fit a 375px card in two rows of
+ * two, where five left a dangling cell and an empty slot.
  */
 export const CARD_METRIC_IDS: readonly ItineraryMetricId[] = [
-	'nights',
 	'free-time',
 	'in-flight',
 	'airport-waiting',
@@ -107,8 +107,11 @@ function buildMetric(itinerary: Itinerary, id: ItineraryMetricId): ItineraryMetr
 				// priced. A 12-night stopover is 12 nights with no stay provider configured,
 				// which is every first-time visitor's state.
 				value: String(itinerary.nightsInConnection),
-				tone: 'stopover',
-				note: itinerary.nightsInConnection > 0 && !itinerary.stay ? 'no bed priced' : undefined
+				// No "no bed priced" caveat here: the count is a fact about the schedule and
+				// the missing bed is a fact about the price, so the caveat rides on
+				// `total-price` below and on `PriceLine`. Printing it under both figures put
+				// the same warning twice on one card, a few centimetres apart.
+				tone: 'stopover'
 			};
 		case 'total-time':
 			return {

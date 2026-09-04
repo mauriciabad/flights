@@ -11,4 +11,6 @@ export { moneyDifference, stayTotalDelta, stayTotalForNights, formatMoney } from
 export { formatDistanceKm, haversineDistanceKm } from './distance';
 export { cheapestSelectableOption, isOptionSelectable, rankProperties, selectableOptions } from './rank';
 export { groupByProperty, propertyOf } from './types';
+export { describeNoStays } from './no-stays-reason';
+export type { NoStaysContext, NoStaysNotice } from './no-stays-reason';
 export type { PropertyStayOptions, StayOption } from './types';
