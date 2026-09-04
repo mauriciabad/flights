@@ -11,27 +11,30 @@
  * score.ts, issues #13 and #14 — neither owned by this file). A naive search that tried
  * every airport on earth would exhaust a month's quota on its first run. This module is
  * what makes the difference between an app that answers a question and one that dies on
- * search one, so it spends nothing metered itself unless explicitly told it may (see
- * `meteredSource` below), and even then only as a last resort for candidates the caller
- * named explicitly.
+ * search one, so it spends nothing metered itself unless a caller-supplied `FlightProvider`
+ * turns out to actually be metered, and even then only as a last resort for candidates the
+ * caller named explicitly.
  *
  * Sources, cheapest first (brief line 73: "Get flight connections (flightconnections.com
  * or similar)"):
- *   1. A keyless, unlimited route-graph source — Ryanair's own route endpoint
- *      (`https://www.ryanair.com/api/views/locate/searchWidget/routes/en/airport/{IATA}`).
- *      Another agent is building that adapter (issue #2's `FlightProvider.listDirectDestinations`,
- *      not merged into main as of this writing). This file does not import it: it defines
- *      the narrow `DirectDestinationSource` shape below instead, so wiring the real
- *      adapter in later is a one-line call-site change, not a rewrite. See "Follow-up"
- *      at the bottom of this file.
+ *   1. Real `FlightProvider` adapters (issue #2, `../providers/types`), passed in via
+ *      `options.flightProviders` — Ryanair's keyless route graph is the intended one, once
+ *      an adapter implementing `FlightProvider` for it exists (none is on `main` as of this
+ *      writing; only the interface is). Each is classified free-to-call or metered by
+ *      probing `estimateSearchOffersCost` — see `isFreeProvider` — rather than the caller
+ *      having to say which is which.
  *   2. `FALLBACK_ROUTES` (./connections-fallback-data.ts), a small bundled table, always
  *      included so first paint and offline both produce a plausible answer.
- *   3. `meteredSource`, a metered aggregator's own "direct destinations from X" call
- *      (docs/prompts/004: "the Skyscanner adapter's direct-destination call"). Never used
- *      unless the caller supplies both a source AND a positive `meteredRequestBudget` —
- *      the two places this module would ever spend one are marked "SPENDS A METERED
- *      REQUEST" below, and both are last resorts for cases the free sources could not
- *      resolve.
+ *   3. Whichever of `flightProviders` classified as metered, used only as a last resort:
+ *      never for broad discovery, only for candidates the caller explicitly allow-listed,
+ *      and budgeted by `meteredRequestBudget`. The two places this module would ever spend
+ *      one are marked "SPENDS A METERED REQUEST" below.
+ *
+ * A provider's `{ ok: false }` result (a network error, a 429, a missing key) is never
+ * thrown or allowed to fail the whole search — it's treated as "this source doesn't know,"
+ * exactly like an empty answer, and the algorithm falls through to whatever source runs
+ * next (ultimately the bundled table for the free path). Same contract every other caller
+ * of a `ProviderResult` in this codebase follows.
  */
 
 import type {
@@ -41,49 +44,50 @@ import type {
 	IsoCountryCode,
 	SearchQuery
 } from '../domain';
+import { getAirport } from '../data/airports';
+import type { AvailableKeys, FlightProvider, FlightSearchQuery } from '../providers/types';
+import { contextFor } from '../providers/registry';
 import { FALLBACK_AIRPORTS, FALLBACK_ROUTES } from './connections-fallback-data';
 
 /**
- * The only thing this module needs from a route-graph adapter: given an airport, which
- * airports does it fly to directly. Deliberately narrower than issue #2's `FlightProvider`
- * (which wraps this in `ProviderResult`, an `AbortSignal`-carrying `ProviderContext`, and
- * request-cost accounting of its own) — this file has no dependency on that interface
- * existing, and a caller who does have a real `FlightProvider` adapts it in one line:
- * `{ id: 'ryanair', getDirectDestinations: (code, signal) =>
- *     ryanair.listDirectDestinations(code, { signal }).then(r => r.ok ? r.data : []) }`.
+ * This module's own internal shape for "given an airport, which airports does it fly to
+ * directly" — what the bundled fallback table looks like once wrapped, and what a real
+ * `FlightProvider` looks like once adapted (see `sourceFromProvider`). Kept distinct from
+ * `FlightProvider` itself because the fallback table isn't one (no key fields, no health
+ * check, no cost estimate — it's a plain lookup table) and doesn't need to pretend to be.
  */
-export interface DirectDestinationSource {
+interface DirectDestinationSource {
 	/** Stable id, surfaced on each candidate's `confirmedBy` so a wrong candidate can be
-	 * traced back to the source that vouched for it. */
+	 * traced back to the source that vouched for it — a `FlightProvider`'s own `id` for an
+	 * adapted one, `'fallback-table'` for the bundled table. */
 	readonly id: string;
-	getDirectDestinations(
-		iataCode: IataAirportCode,
-		signal?: AbortSignal
-	): Promise<IataAirportCode[]>;
+	getDirectDestinations(iataCode: IataAirportCode): Promise<IataAirportCode[]>;
 }
 
 /** What this module needs to rank a candidate: where it is, how big it is, and which
  * country it's in (for the forbidden-country filter). A subset of the domain `Airport`
- * shape on purpose, so a real airport dataset (issue #11, not merged into main as of this
- * writing) can satisfy this with `{ coordinates: a.coordinates, sizeClass: a.sizeClass,
- * countryCode: a.country.isoCode }` once it exists, without this file importing it. */
+ * shape, so both the real airport dataset (issue #11, `../data/airports`) and a
+ * caller-supplied override lookup satisfy it with `{ coordinates: a.coordinates, sizeClass:
+ * a.sizeClass, countryCode: a.country.isoCode }`. */
 export interface ConnectionAirportInfo {
 	coordinates: Coordinates;
 	sizeClass: AirportSizeClass;
 	countryCode: IsoCountryCode;
 }
 
-/** May return synchronously (the bundled fallback table does) or asynchronously (a real
- * dataset lookup would). `undefined` means "this lookup has no record for that code",
- * never a throw — see the graceful-degradation notes on `scoreCandidate` below. */
+/** May return synchronously or asynchronously. `undefined` means "this lookup has no
+ * record for that code", never a throw — see the graceful-degradation notes on
+ * `scoreCandidate` below. Consulted before the real airport dataset (`../data/airports`),
+ * so a caller can override specific codes (mainly useful for tests) without that dataset
+ * ever being consulted for them. */
 export type AirportLookup = (
 	iataCode: IataAirportCode
 ) => ConnectionAirportInfo | undefined | Promise<ConnectionAirportInfo | undefined>;
 
-/** Score components before weighting, each in `[0, 1]` (`detour` is `null` when neither
- * `airportLookup` nor the bundled fallback had geography for A, B, or the candidate — see
- * `scoreCandidate`). Exposed mainly so a UI or a test can explain *why* a candidate ranked
- * where it did, rather than trusting a single opaque number. */
+/** Score components before weighting, each in `[0, 1]` (`detour` is `null` when geography
+ * for A, B, or the candidate is unknown to every lookup tier — see `scoreCandidate`).
+ * Exposed mainly so a UI or a test can explain *why* a candidate ranked where it did,
+ * rather than trusting a single opaque number. */
 export interface ConnectionScoreBreakdown {
 	connectivity: number;
 	sizeClass: number;
@@ -96,12 +100,12 @@ export interface ConnectionCandidate {
 	 * descending. */
 	score: number;
 	breakdown: ConnectionScoreBreakdown;
-	/** Which source confirmed each leg — the id from whichever `DirectDestinationSource`
-	 * (or `meteredSource`) first reported it, in source-preference order. */
+	/** Which source confirmed each leg — a `FlightProvider`'s `id`, or `'fallback-table'`,
+	 * in source-preference order. */
 	confirmedBy: { outbound: string; inbound: string };
-	/** True when confirming this candidate's `C -> destination` leg spent one of
-	 * `meteredRequestBudget`'s requests. Always false when a free source already covered
-	 * it, which is the common case. */
+	/** True when confirming this candidate's `C -> destination` leg spent a request
+	 * against a metered `FlightProvider`. Always false when a free source (or the bundled
+	 * table) already covered it, which is the common case. */
 	meteredRequestSpent: boolean;
 }
 
@@ -109,6 +113,8 @@ export interface ConnectionCandidate {
  * The subset of `SearchQuery` this module reads. Kept as a `Pick` rather than a bespoke
  * type so the field names, defaults and semantics stay defined in exactly one place
  * (domain/search-query.ts) — this file adds no meaning of its own to any of them.
+ * `soonestDeparture` is read only to build the minimal probe query `isFreeProvider` uses to
+ * classify a `FlightProvider`, never to actually search anything.
  */
 export type ConnectionQuery = Pick<
 	SearchQuery,
@@ -117,6 +123,7 @@ export type ConnectionQuery = Pick<
 	| 'forbiddenConnectionCountries'
 	| 'forbiddenConnectionAirports'
 	| 'allowedConnectionAirports'
+	| 'soonestDeparture'
 >;
 
 export interface ConnectionWeights {
@@ -126,25 +133,27 @@ export interface ConnectionWeights {
 }
 
 export interface ConnectionGraphOptions {
-	/** Keyless/unlimited route-graph sources, most preferred first (e.g. a Ryanair
-	 * adapter once one is wired in). `FALLBACK_ROUTES` is always unioned in after these,
-	 * so offline and first-paint work even when this is omitted entirely. */
-	routeGraphSources?: DirectDestinationSource[];
-	/** A metered aggregator's own direct-destination call, used only as a last resort —
-	 * see the module doc comment and the two "SPENDS A METERED REQUEST" sites below.
-	 * Omit to guarantee this module never spends a metered request, regardless of
-	 * `meteredRequestBudget`. */
-	meteredSource?: DirectDestinationSource;
-	/** Hard ceiling on how many requests `meteredSource` may be called, across this one
-	 * call to `findConnectionCandidates`. Default `0`: metered spending is opt-in, never
-	 * a silent default, exactly like `ProviderContext.maxRequests` elsewhere in this
-	 * codebase (issue #2's provider interface) exists to prevent a "convenient" method
-	 * from quietly burning a monthly quota. */
+	/** Real flight adapters (issue #2's `FlightProvider`) to source route-graph edges
+	 * from — a Ryanair adapter once one exists, and eventually a metered aggregator's.
+	 * Each is classified free-to-call or metered by probing `estimateSearchOffersCost`
+	 * (see `isFreeProvider`); free ones are unioned with the bundled fallback table and
+	 * always queried, metered ones are used only as a last resort. Omit entirely and this
+	 * module still works from the bundled table alone. */
+	flightProviders?: FlightProvider[];
+	/** This call's own slice of provider keys, for building each provider's
+	 * `ProviderContext` (registry.ts's `contextFor`). Omit when every provider in
+	 * `flightProviders` is keyless. */
+	providerKeys?: AvailableKeys;
+	/** Hard ceiling on how many requests the metered providers in `flightProviders`
+	 * (combined) may spend, across this one call. Default `0`: metered spending is
+	 * opt-in, never a silent default, exactly like `ProviderContext.maxRequests`
+	 * elsewhere in this codebase exists to prevent a "convenient" method from quietly
+	 * burning a monthly quota. */
 	meteredRequestBudget?: number;
-	/** Geography lookup for ranking and the forbidden-country filter. Consulted before
-	 * `FALLBACK_AIRPORTS`, so a real dataset (once wired in) takes priority over the
-	 * bundled snapshot for any code it actually has. Omit to rank using only the bundled
-	 * fallback's ~18 airports; codes outside it degrade as described on `scoreCandidate`. */
+	/** Geography override for ranking and the forbidden-country filter, consulted before
+	 * the real airport dataset (`../data/airports`) and the bundled fallback table, in
+	 * that order. Mainly useful for tests; a normal caller can omit this entirely and get
+	 * real-world geography for free. */
 	airportLookup?: AirportLookup;
 	/** How many ranked candidates to return. Default `DEFAULT_MAX_CANDIDATES`. */
 	maxCandidates?: number;
@@ -184,13 +193,14 @@ export const DEFAULT_MAX_DETOUR_RATIO = 2.5;
 
 /**
  * Detour weighted highest: geographic sanity is the one failure mode the issue names
- * explicitly. Connectivity and size class both proxy for "would a person actually want to
- * stop here", which matters, but a backwards detour is disqualifying in a way neither of
- * those should be able to outweigh.
+ * explicitly. Connectivity gets most of the rest, because it measures something this
+ * module can actually observe (does this airport have onward routes at all). `sizeClass`
+ * gets a smaller share on purpose — see the honest disclaimer on `SIZE_CLASS_SCORES`
+ * below for why it isn't trusted with more than that.
  */
 export const DEFAULT_WEIGHTS: ConnectionWeights = {
-	connectivity: 0.3,
-	sizeClass: 0.25,
+	connectivity: 0.4,
+	sizeClass: 0.15,
 	detour: 0.45
 };
 
@@ -200,10 +210,22 @@ export const DEFAULT_WEIGHTS: ConnectionWeights = {
 const CONNECTIVITY_SATURATION = 20;
 
 /**
- * Airport size as a (weak, acknowledged) proxy for "somewhere a person would want to
- * spend a few days" — this module has no tourism data to ask that question directly, and
- * a bigger airport at least correlates with a bigger city and more onward options if a
- * flight gets cancelled. Also doubles as a served-well signal in its own right.
+ * Airport size does NOT proxy "somewhere a person would want to spend a few days" — a
+ * large airport means well-connected, not interesting. Vienna and Frankfurt are both
+ * `large`; only one of them is a city worth lingering in, and this module has no way to
+ * tell them apart on size alone. An "is this a national capital" stand-in was considered
+ * and rejected for the same reason: Barcelona is one of Europe's best short-break cities
+ * and is not Spain's capital, so that signal would just trade one wrong bias for another.
+ * No tourism, population or points-of-interest data exists anywhere in this codebase
+ * (the airport dataset, issue #11, carries none), and hand-picking a list of "nice
+ * cities" would be a taste judgement dressed up as a data source, not a fix.
+ *
+ * So this component is scored honestly for what size class actually does tell us: a
+ * bigger airport has more rebooking options if a flight is cancelled and is generally
+ * simpler to get in and out of. That's real value, just a narrower and weaker claim than
+ * "worth visiting" — which is why it carries the smallest weight in `DEFAULT_WEIGHTS`,
+ * not the largest. A genuine stopover-appeal signal is a data problem for a future issue,
+ * not something to fake here.
  */
 const SIZE_CLASS_SCORES: Record<AirportSizeClass, number> = {
 	large: 1,
@@ -241,6 +263,54 @@ function fallbackRouteSource(): DirectDestinationSource {
 	};
 }
 
+/**
+ * Adapts a free (cost-0) `FlightProvider` into this module's own `DirectDestinationSource`
+ * shape, so it can be unioned alongside the bundled fallback table through the exact same
+ * code path (`unionDirectDestinations`). A `{ ok: false }` result becomes an empty
+ * destination list rather than a thrown error, so a failing provider falls through to
+ * whatever source runs next — ultimately the bundled table — the same as if it had simply
+ * never heard of the airport. Never a search failure.
+ */
+function sourceFromProvider(
+	provider: FlightProvider,
+	providerKeys: AvailableKeys,
+	signal: AbortSignal
+): DirectDestinationSource {
+	return {
+		id: provider.id,
+		async getDirectDestinations(iataCode) {
+			const ctx = contextFor(provider.id, providerKeys, signal);
+			const result = await provider.listDirectDestinations(iataCode, ctx);
+			return result.ok ? result.data : [];
+		}
+	};
+}
+
+/**
+ * `FlightProvider` has no cost estimator for `listDirectDestinations` specifically — only
+ * `estimateSearchOffersCost`, for `searchOffers`. Every adapter that has a native one-shot
+ * route-graph endpoint (a keyless provider like Ryanair) also has a native date-range
+ * `searchOffers` endpoint and reports 0 for both; every adapter that has to fan out into
+ * individually metered requests reports non-zero for both. So probing
+ * `estimateSearchOffersCost` with a minimal single-day query is a real, already-available
+ * signal for "is this adapter free to call as much as this module needs" — no separate
+ * cost method needed just for this file, and no out-of-band "trust me, this one's
+ * metered" flag for a caller to get wrong. `estimateSearchOffersCost` is synchronous and
+ * makes no network call, so this classification costs nothing.
+ */
+function isFreeProvider(provider: FlightProvider, query: ConnectionQuery): boolean {
+	const probe: FlightSearchQuery = {
+		origin: query.originAirport,
+		destination: query.destinationAirport,
+		// A single day is enough to tell "0" from "not 0" — the only thing this probe
+		// needs to establish. The real search dates (build.ts / score.ts) are never
+		// influenced by this call.
+		earliestDeparture: query.soonestDeparture,
+		latestDeparture: query.soonestDeparture
+	};
+	return provider.estimateSearchOffersCost(probe) === 0;
+}
+
 async function resolveAirportInfo(
 	iataCode: IataAirportCode,
 	customLookup?: AirportLookup
@@ -248,6 +318,17 @@ async function resolveAirportInfo(
 	if (customLookup) {
 		const result = await customLookup(iataCode);
 		if (result) return result;
+	}
+	// The real dataset (issue #11) is a bundled, lazily-loaded JSON import, not a network
+	// call — consulting it here keeps this module offline-safe while giving real-world
+	// geography for any airport, not just the ~18 in the bundled fallback below.
+	const fromDataset = await getAirport(iataCode);
+	if (fromDataset) {
+		return {
+			coordinates: fromDataset.coordinates,
+			sizeClass: fromDataset.sizeClass,
+			countryCode: fromDataset.country.isoCode
+		};
 	}
 	return FALLBACK_AIRPORTS.get(iataCode);
 }
@@ -257,24 +338,58 @@ async function resolveAirportInfo(
  * keeping the id of whichever source (in `sources` order, i.e. cheapest/most-preferred
  * first) reported each destination first. Union rather than "first source that answers
  * wins" on purpose: these are all free-to-query sources at this point in the algorithm
- * (the metered one is never passed in here — see the two call sites below), so more
+ * (metered providers are never passed in here — see the two call sites below), so more
  * recall never costs anything, and Ryanair being one airline (docs/prompts/004: "a
  * source that queries one carrier is not acceptable as the primary engine") means it
  * alone would under-count real candidates.
  */
 async function unionDirectDestinations(
 	sources: DirectDestinationSource[],
-	iataCode: IataAirportCode,
-	signal?: AbortSignal
+	iataCode: IataAirportCode
 ): Promise<Map<IataAirportCode, string>> {
 	const byCode = new Map<IataAirportCode, string>();
 	for (const source of sources) {
-		const destinations = await source.getDirectDestinations(iataCode, signal);
+		const destinations = await source.getDirectDestinations(iataCode);
 		for (const code of destinations) {
 			if (!byCode.has(code)) byCode.set(code, source.id);
 		}
 	}
 	return byCode;
+}
+
+/** What one attempt at the metered, last-resort path produced. `sourceId` is `undefined`
+ * when every provider tried either failed (`{ ok: false }`) or ran out of budget before
+ * confirming anything — never a thrown error. `spent` is always accurate (a rejected
+ * request still cost quota — `ProviderResult.requestsUsed` says so per adapter), so the
+ * caller's budget accounting is correct even on total failure. */
+interface MeteredQueryResult {
+	destinations: IataAirportCode[];
+	sourceId: string | undefined;
+	spent: number;
+}
+
+/**
+ * Tries each metered provider in turn, stopping as soon as one confirms `iataCode`'s
+ * direct destinations or `budget` runs out. A provider's `{ ok: false }` falls through to
+ * the next metered provider exactly like a free source's empty answer falls through to
+ * the next free source — never a search failure.
+ */
+async function queryMeteredProviders(
+	providers: FlightProvider[],
+	iataCode: IataAirportCode,
+	providerKeys: AvailableKeys,
+	signal: AbortSignal,
+	budget: number
+): Promise<MeteredQueryResult> {
+	let spent = 0;
+	for (const provider of providers) {
+		if (spent >= budget) break;
+		const ctx = contextFor(provider.id, providerKeys, signal);
+		const result = await provider.listDirectDestinations(iataCode, ctx);
+		spent += result.requestsUsed;
+		if (result.ok) return { destinations: result.data, sourceId: provider.id, spent };
+	}
+	return { destinations: [], sourceId: undefined, spent };
 }
 
 interface ScoredCandidate {
@@ -353,8 +468,8 @@ export async function findConnectionCandidates(
 	if (origin === destination) return [];
 
 	const {
-		routeGraphSources = [],
-		meteredSource,
+		flightProviders = [],
+		providerKeys = {},
 		meteredRequestBudget = 0,
 		airportLookup,
 		maxCandidates = DEFAULT_MAX_CANDIDATES,
@@ -363,10 +478,23 @@ export async function findConnectionCandidates(
 		signal
 	} = options;
 
+	const effectiveSignal = signal ?? new AbortController().signal;
+
+	// Classified once per provider, not once per candidate: estimateSearchOffersCost is
+	// pure and depends only on the provider and this one probe query.
+	const freeProviders: FlightProvider[] = [];
+	const meteredProviders: FlightProvider[] = [];
+	for (const provider of flightProviders) {
+		(isFreeProvider(provider, query) ? freeProviders : meteredProviders).push(provider);
+	}
+
 	// The fallback table is always unioned in last so it never shadows a better source's
 	// answer, but it always contributes something — this is what "first paint and
 	// offline both work" (issue #12) actually means in code.
-	const sources = [...routeGraphSources, fallbackRouteSource()];
+	const freeSources: DirectDestinationSource[] = [
+		...freeProviders.map((p) => sourceFromProvider(p, providerKeys, effectiveSignal)),
+		fallbackRouteSource()
+	];
 
 	const forbiddenAirports = new Set(query.forbiddenConnectionAirports ?? []);
 	const forbiddenCountries = new Set(query.forbiddenConnectionCountries ?? []);
@@ -382,17 +510,25 @@ export async function findConnectionCandidates(
 	]);
 
 	// Step 1: which airports does the origin fly to directly, from free sources only.
-	const outboundEdges = await unionDirectDestinations(sources, origin, signal);
+	const outboundEdges = await unionDirectDestinations(freeSources, origin);
 
-	if (outboundEdges.size === 0 && meteredSource && remainingMeteredBudget > 0) {
-		if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+	if (outboundEdges.size === 0 && meteredProviders.length > 0 && remainingMeteredBudget > 0) {
+		if (effectiveSignal.aborted) throw new DOMException('Aborted', 'AbortError');
 		// SPENDS A METERED REQUEST: free sources have nothing at all for the origin
 		// airport (not even the bundled fallback covers it), so candidate discovery has
 		// no other way to start. This runs at most once per call, never once per
 		// candidate.
-		const destinationsFromOrigin = await meteredSource.getDirectDestinations(origin, signal);
-		remainingMeteredBudget -= 1;
-		for (const code of destinationsFromOrigin) outboundEdges.set(code, meteredSource.id);
+		const result = await queryMeteredProviders(
+			meteredProviders,
+			origin,
+			providerKeys,
+			effectiveSignal,
+			remainingMeteredBudget
+		);
+		remainingMeteredBudget -= result.spent;
+		if (result.sourceId) {
+			for (const code of result.destinations) outboundEdges.set(code, result.sourceId);
+		}
 	}
 
 	let candidateCodes = [...outboundEdges.keys()].filter(
@@ -403,7 +539,7 @@ export async function findConnectionCandidates(
 		// allowed airport the origin has no known outbound edge to at all still isn't
 		// addressable here without a metered call per allow-listed code just to test
 		// reachability, which would defeat "last resort" for a list that could be long.
-		// A caller who needs that supplies a source with better outbound coverage.
+		// A caller who needs that supplies a provider with better outbound coverage.
 		candidateCodes = candidateCodes.filter((code) => allowList.has(code));
 	}
 
@@ -426,24 +562,37 @@ export async function findConnectionCandidates(
 			if (!candidateGeo || forbiddenCountries.has(candidateGeo.countryCode)) continue;
 		}
 
-		const inboundEdges = await unionDirectDestinations(sources, code, signal);
+		const inboundEdges = await unionDirectDestinations(freeSources, code);
 		let inboundSourceId = inboundEdges.get(destination);
 		let meteredRequestSpent = false;
 
-		if (!inboundSourceId && meteredSource && remainingMeteredBudget > 0 && allowList?.has(code)) {
-			if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+		if (
+			!inboundSourceId &&
+			meteredProviders.length > 0 &&
+			remainingMeteredBudget > 0 &&
+			allowList?.has(code)
+		) {
+			if (effectiveSignal.aborted) throw new DOMException('Aborted', 'AbortError');
 			// SPENDS A METERED REQUEST: only reached for a candidate the caller explicitly
 			// allow-listed (so it's known to matter to this search) and only when every
 			// free source came back without a C -> destination edge. Never reached during
 			// broad, un-allow-listed discovery, where the candidate count could be large
 			// enough to burn the whole monthly quota checking reachability alone.
-			const destinationsFromCandidate = await meteredSource.getDirectDestinations(code, signal);
-			remainingMeteredBudget -= 1;
-			meteredRequestSpent = true;
-			for (const c of destinationsFromCandidate) {
-				if (!inboundEdges.has(c)) inboundEdges.set(c, meteredSource.id);
+			const result = await queryMeteredProviders(
+				meteredProviders,
+				code,
+				providerKeys,
+				effectiveSignal,
+				remainingMeteredBudget
+			);
+			remainingMeteredBudget -= result.spent;
+			meteredRequestSpent = result.spent > 0;
+			if (result.sourceId) {
+				for (const c of result.destinations) {
+					if (!inboundEdges.has(c)) inboundEdges.set(c, result.sourceId);
+				}
+				inboundSourceId = result.destinations.includes(destination) ? result.sourceId : undefined;
 			}
-			inboundSourceId = destinationsFromCandidate.includes(destination) ? meteredSource.id : undefined;
 		}
 
 		if (!inboundSourceId) continue; // No source, free or metered, confirms C -> destination.
@@ -473,11 +622,13 @@ export async function findConnectionCandidates(
 
 /*
  * Follow-up (out of this issue's scope, per AGENTS.md "work only on your issue"):
- *   - Wire a real Ryanair-backed `DirectDestinationSource` into `routeGraphSources` once
- *     issue #2's provider interface and its Ryanair adapter land on main.
- *   - Wire the real airport dataset (issue #11) in as `airportLookup` once it lands, e.g.
- *     `(code) => getAirport(code).then((a) => a && { coordinates: a.coordinates,
- *     sizeClass: a.sizeClass, countryCode: a.country.isoCode })`.
- *   - Wire a metered aggregator's direct-destination call in as `meteredSource` with a
- *     caller-chosen `meteredRequestBudget`, once such an adapter exists.
+ *   - A real Ryanair `FlightProvider` now exists (issue #6, `../providers/flights/ryanair`
+ *     — `createRyanairFlightProvider()`) and is proven to interoperate with this module in
+ *     `connections.test.ts`. Actually passing it into `flightProviders` for a live search
+ *     is the search pipeline's job (issue #22), not this file's — this module stays
+ *     injectable rather than importing and instantiating a network-calling adapter itself,
+ *     the same way build.ts and score.ts stay pure and take data in rather than fetching
+ *     it.
+ *   - Wire a metered aggregator's `FlightProvider` in as another `flightProviders` entry
+ *     with a caller-chosen `meteredRequestBudget`, once such an adapter exists.
  */
