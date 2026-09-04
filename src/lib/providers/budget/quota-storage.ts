@@ -1,3 +1,12 @@
+/**
+ * How many requests **this browser profile** has spent this month. Issue #146 demoted it
+ * to exactly that: a pre-flight estimate, and a lower bound on the truth.
+ *
+ * The allowance belongs to the RapidAPI key, not to a browser, so this number cannot see
+ * a second device, a private window, a cleared profile or another agent's fresh Chromium
+ * spending from the same key. `reported-quota.ts` holds the provider's own count, which
+ * can; `quota.ts` prefers it wherever the two disagree.
+ */
 export interface ProviderQuotaRecord {
 	monthKey: string;
 	used: number;

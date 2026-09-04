@@ -153,12 +153,26 @@ export interface KiwiPublicProviderOptions {
 	maxRouteLookups?: number;
 }
 
-function source(): ProviderSource {
-	return { providerId: KIWI_PUBLIC_PROVIDER_ID, fetchedAt: new Date().toISOString() };
+/**
+ * `storedAt` is the epoch millis this data actually came off Kiwi's wire. Omitted means
+ * "just now", i.e. this call did the fetch.
+ *
+ * `ProviderSource.fetchedAt` is documented as "the instant the adapter finished fetching
+ * this, NOT when a caller later reads it out of a cache", and ResultCard renders it as
+ * "via Kiwi · fetched 2 minutes ago". Stamping `new Date()` on a cache hit says a fare
+ * read out of a fifteen-minute-old entry came off the wire this second — AGENTS.md's
+ * "never present an estimate as a fact", in the one place the UI was already built to be
+ * honest. Issue #151, the same shape as ryanair.ts (#147) and transfers/transitous.ts.
+ */
+function source(storedAt?: number): ProviderSource {
+	return {
+		providerId: KIWI_PUBLIC_PROVIDER_ID,
+		fetchedAt: new Date(storedAt ?? Date.now()).toISOString()
+	};
 }
 
-function ok<T>(data: T, requestsUsed: number): ProviderResult<T> {
-	return { ok: true, data, source: source(), requestsUsed };
+function ok<T>(data: T, requestsUsed: number, storedAt?: number): ProviderResult<T> {
+	return { ok: true, data, source: source(storedAt), requestsUsed };
 }
 
 function fail<T>(error: ProviderError, requestsUsed: number): ProviderResult<T> {
@@ -196,14 +210,24 @@ async function resolveStore(options: KiwiPublicProviderOptions): Promise<CacheSt
 	return options.store ?? (await getDefaultStore());
 }
 
+/** One cached value and the instant it came off the wire, which `source()` needs and the
+ * old `readCache` threw away by returning `entry.value` alone (issue #151). */
+interface FreshCacheEntry<T> {
+	value: T;
+	storedAt: number;
+}
+
 /** Cache-aside against `CacheStore` directly, for the reason ryanair.ts's own `readCache`
  * spells out: `staleWhileRevalidate` always calls its fetcher, which is the wrong shape for
- * a method resolving one `ProviderResult` with no consumer able to see a provisional yield. */
-async function readCache<T>(store: CacheStore, key: CacheKey): Promise<T | undefined> {
+ * a method resolving one `ProviderResult` with no consumer able to see a provisional yield.
+ *
+ * Returns the entry rather than `entry.value` alone: `storedAt` is `source()`'s input, and
+ * dropping it is what made a cache hit claim it had just been fetched (issue #151). */
+async function readCache<T>(store: CacheStore, key: CacheKey): Promise<FreshCacheEntry<T> | undefined> {
 	const entry = await store.get(key.raw);
 	if (entry === undefined) return undefined;
 	if (Date.now() - entry.storedAt >= entry.ttlMs) return undefined;
-	return entry.value as T;
+	return { value: entry.value as T, storedAt: entry.storedAt };
 }
 
 // Mirrors cache/size.ts's internal `estimateByteSize`, which that module deliberately does
@@ -267,7 +291,7 @@ function createKiwiPublicFlightProvider(options: KiwiPublicProviderOptions = {})
 		);
 
 		const cached = await readCache<FlightOffer[]>(store, cacheKey);
-		if (cached) return ok(cached, 0);
+		if (cached) return ok(cached.value, 0, cached.storedAt);
 
 		if (ctx.maxRequests !== undefined && ctx.maxRequests < 1) {
 			// Out of budget before spending anything. An empty ok result, never an error —
@@ -332,7 +356,7 @@ function createKiwiPublicFlightProvider(options: KiwiPublicProviderOptions = {})
 		);
 
 		const cached = await readCache<IataAirportCode[]>(store, cacheKey);
-		if (cached) return ok(cached, 0);
+		if (cached) return ok(cached.value, 0, cached.storedAt);
 
 		if (ctx.maxRequests !== undefined && ctx.maxRequests < 1) return ok([], 0);
 

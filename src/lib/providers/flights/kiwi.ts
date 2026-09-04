@@ -142,8 +142,20 @@ export interface KiwiFlightProvider extends FlightProvider {
 	readonly unverifiedAgainstLiveResponse: boolean;
 }
 
-function source(): ProviderSource {
-	return { providerId: KIWI_PROVIDER_ID, fetchedAt: new Date().toISOString() };
+/**
+ * `storedAt` is the epoch millis this data actually came off Kiwi's wire. Omitted means
+ * "just now", i.e. this call did the fetch.
+ *
+ * `ProviderSource.fetchedAt` is documented as "the instant the adapter finished fetching
+ * this, NOT when a caller later reads it out of a cache", and ResultCard already renders it
+ * as "via Kiwi · fetched 2 minutes ago". Stamping `new Date()` on a cache hit, which is
+ * what this function used to do unconditionally, made that footer say "fetched just now"
+ * about a fare read out of a quarter-hour-old entry. That breaks AGENTS.md's "never
+ * present an estimate as a fact" in the one place the UI was already built to be honest.
+ * Issue #151, the same shape as ryanair.ts (#147) and transfers/transitous.ts.
+ */
+function source(storedAt?: number): ProviderSource {
+	return { providerId: KIWI_PROVIDER_ID, fetchedAt: new Date(storedAt ?? Date.now()).toISOString() };
 }
 
 function toProviderError(error: KiwiFetchError): ProviderError {
@@ -177,11 +189,18 @@ async function resolveStore(options: KiwiProviderOptions): Promise<CacheStore> {
 	return options.store ?? (await getDefaultStore());
 }
 
-async function readCache<T>(store: CacheStore, key: CacheKey): Promise<T | undefined> {
+/** One cached value and the instant it came off the wire, which is `source()`'s input and
+ * the thing `readCache` used to throw away by returning `entry.value` alone (issue #151). */
+interface FreshCacheEntry<T> {
+	value: T;
+	storedAt: number;
+}
+
+async function readCache<T>(store: CacheStore, key: CacheKey): Promise<FreshCacheEntry<T> | undefined> {
 	const entry = await store.get(key.raw);
 	if (entry === undefined) return undefined;
 	if (Date.now() - entry.storedAt >= entry.ttlMs) return undefined;
-	return entry.value as T;
+	return { value: entry.value as T, storedAt: entry.storedAt };
 }
 
 // Mirrors ryanair.ts's own copy of this, which mirrors cache/size.ts's internal
@@ -277,7 +296,7 @@ function createKiwiFlightProvider(options: KiwiProviderOptions = {}): KiwiFlight
 
 		const cached = await readCache<FlightOffer[]>(store, cacheKey);
 		if (cached) {
-			return { ok: true, data: cached, source: source(), requestsUsed: 0 };
+			return { ok: true, data: cached.value, source: source(cached.storedAt), requestsUsed: 0 };
 		}
 
 		if (ctx.maxRequests !== undefined && ctx.maxRequests < 1) {
@@ -375,7 +394,7 @@ function createKiwiFlightProvider(options: KiwiProviderOptions = {}): KiwiFlight
 
 		const cached = await readCache<IataAirportCode[]>(store, cacheKey);
 		if (cached) {
-			return { ok: true, data: cached, source: source(), requestsUsed: 0 };
+			return { ok: true, data: cached.value, source: source(cached.storedAt), requestsUsed: 0 };
 		}
 
 		if (ctx.maxRequests !== undefined && ctx.maxRequests < 1) {

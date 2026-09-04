@@ -207,6 +207,35 @@ describe('createSkyscannerFlightProvider', () => {
 			expect(fetchImpl).toHaveBeenCalledTimes(1);
 		});
 
+		it('dates a multi-date search with its oldest fare response, not with the moment it returned (issue #151)', async () => {
+			const cacheStore = new MemoryCacheStore();
+			await setCachedAirportEntity('BCN', { skyId: 'BCN', entityId: '95565085' }, cacheStore);
+			await setCachedAirportEntity('VIE', { skyId: 'VIE', entityId: '95673444' }, cacheStore);
+			// An hour between the two fare responses is absurd for a real request and exact
+			// for a test. It makes the difference between "when the first price was read"
+			// and "when the call happened to finish" impossible to miss.
+			const start = Date.parse('2026-10-15T09:00:00.000Z');
+			const hour = 60 * 60_000;
+			let clock = start;
+			const fetchImpl = fakeFetch({
+				searchFlights: () => {
+					clock += hour;
+					return jsonResponse(200, searchFlightsBcnVie);
+				}
+			});
+			const provider = createSkyscannerFlightProvider({ fetchImpl, cacheStore, now: () => clock });
+
+			const result = await provider.searchOffers(
+				{ ...baseQuery, earliestDeparture: '2026-10-15', latestDeparture: '2026-10-16' },
+				contextWithKey()
+			);
+
+			expect(result.ok).toBe(true);
+			if (!result.ok) return;
+			expect(result.data).toHaveLength(4); // 2 dates x the fixture's 2 direct offers
+			expect(result.source.fetchedAt).toBe(new Date(start + hour).toISOString());
+		});
+
 		it('refuses the call before firing any fetch once the monthly cap is already spent', async () => {
 			// Issue #69's own scenario: Sky Scrapper's real cap is 20/month and one careless
 			// search must not be able to spend it all. `cap: 0` simulates the month's budget

@@ -138,6 +138,41 @@ async function warmEntityCache(cacheStore: MemoryCacheStore) {
 	await setCachedEntity('VIE', { skyId: 'VIE', entityId: '95673444' }, cacheStore);
 }
 
+/**
+ * Runs `seed`, rewinds `storedAt` by `ms` on every entry it wrote, and hands back those
+ * rewound instants so a test can assert the exact one rather than "older than now".
+ *
+ * Rewinding the entries beats faking the clock, for the reason ryanair.test.ts gives for
+ * its own copy: the adapter reads `Date.now()` both for its TTL check and through the cache
+ * store, and moving the clock under both leaves the test asserting against its own mock.
+ * The keys are discovered rather than hardcoded because `defineCacheKey` hashes the query
+ * and that hash is not this test's business.
+ */
+async function ageEntriesWrittenBy(
+	store: MemoryCacheStore,
+	ms: number,
+	seed: () => Promise<unknown>
+): Promise<number[]> {
+	const written: string[] = [];
+	const realSet = store.set.bind(store);
+	store.set = async (entry) => {
+		written.push(entry.key);
+		return realSet(entry);
+	};
+	await seed();
+	store.set = realSet;
+
+	const storedAts: number[] = [];
+	for (const key of written) {
+		const entry = await store.get(key);
+		if (entry === undefined) continue;
+		const storedAt = entry.storedAt - ms;
+		await realSet({ ...entry, storedAt });
+		storedAts.push(storedAt);
+	}
+	return storedAts;
+}
+
 describe('createFlightsSkyFlightProvider', () => {
 	it('declares itself as a keyed flight provider with the calendar capability', () => {
 		const provider = createFlightsSkyFlightProvider();
@@ -227,6 +262,62 @@ describe('createFlightsSkyFlightProvider', () => {
 				expect(second.data).toHaveLength(6);
 			}
 			expect(fetchImpl).not.toHaveBeenCalled();
+		});
+
+		it('dates a cached day with when that day was really fetched, not with now (issue #151)', async () => {
+			const cacheStore = new MemoryCacheStore();
+			await warmEntityCache(cacheStore);
+			const fetchImpl = fakeFetch({ searchOneWay: () => jsonResponse(200, searchOneWayBcnVie) });
+			const provider = createFlightsSkyFlightProvider({ fetchImpl, cacheStore, sleep: instantSleep });
+			// Ten minutes rather than hours. OFFERS_TTL_MS is 15 minutes, so this is an entry
+			// that is still perfectly servable being mislabelled, not an expired one.
+			const [storedAt] = await ageEntriesWrittenBy(cacheStore, 10 * 60_000, () =>
+				provider.searchOffers(baseQuery, contextWithKey())
+			);
+
+			const second = await provider.searchOffers(baseQuery, contextWithKey());
+
+			expect(second.requestsUsed).toBe(0);
+			expect(second.source.fetchedAt).toBe(new Date(storedAt).toISOString());
+		});
+
+		it('dates a part-cached, part-fetched range with its oldest day (issue #151)', async () => {
+			const cacheStore = new MemoryCacheStore();
+			await warmEntityCache(cacheStore);
+			const fetchImpl = fakeFetch({ searchOneWay: () => jsonResponse(200, searchOneWayBcnVie) });
+			const provider = createFlightsSkyFlightProvider({ fetchImpl, cacheStore, sleep: instantSleep });
+			const [storedAt] = await ageEntriesWrittenBy(cacheStore, 10 * 60_000, () =>
+				provider.searchOffers(baseQuery, contextWithKey())
+			);
+
+			const result = await provider.searchOffers(
+				{ ...baseQuery, latestDeparture: '2026-09-20' },
+				contextWithKey()
+			);
+
+			expect(result.ok).toBe(true);
+			if (!result.ok) return;
+			expect(result.data).toHaveLength(12); // the cached day's 6 offers plus the fetched day's 6
+			expect(result.requestsUsed).toBe(1); // only the uncached day cost anything
+			// One array, one stamp, two ages in it. The older of the two is the only claim
+			// that is true of the whole result.
+			expect(result.source.fetchedAt).toBe(new Date(storedAt).toISOString());
+		});
+
+		it('dates a range it fetched in full with now', async () => {
+			const cacheStore = new MemoryCacheStore();
+			await warmEntityCache(cacheStore);
+			const fetchImpl = fakeFetch({ searchOneWay: () => jsonResponse(200, searchOneWayBcnVie) });
+			const provider = createFlightsSkyFlightProvider({ fetchImpl, cacheStore, sleep: instantSleep });
+
+			const result = await provider.searchOffers(
+				{ ...baseQuery, latestDeparture: '2026-09-20' },
+				contextWithKey()
+			);
+
+			expect(result.ok).toBe(true);
+			if (!result.ok) return;
+			expect(Date.now() - Date.parse(result.source.fetchedAt)).toBeLessThan(5_000);
 		});
 
 		it('spends one search request per day across a multi-day range, up to the budget', async () => {
@@ -422,6 +513,23 @@ describe('createFlightsSkyFlightProvider', () => {
 				expect(second.data).toHaveLength(366);
 			}
 			expect(fetchImpl).not.toHaveBeenCalled();
+		});
+
+		it('dates a cached calendar with when it was really fetched, not with now (issue #151)', async () => {
+			const cacheStore = new MemoryCacheStore();
+			await warmEntityCache(cacheStore);
+			const fetchImpl = fakeFetch({ priceCalendar: () => jsonResponse(200, priceCalendarBcnVie) });
+			const provider = createFlightsSkyFlightProvider({ fetchImpl, cacheStore, sleep: instantSleep });
+			// Two hours is well inside PRICE_CALENDAR_TTL_MS (six), which is exactly the
+			// window in which this adapter re-serves a calendar it fetched earlier.
+			const [storedAt] = await ageEntriesWrittenBy(cacheStore, 2 * 60 * 60_000, () =>
+				provider.getPriceCalendar(baseCalendarQuery, contextWithKey())
+			);
+
+			const second = await provider.getPriceCalendar(baseCalendarQuery, contextWithKey());
+
+			expect(second.requestsUsed).toBe(0);
+			expect(second.source.fetchedAt).toBe(new Date(storedAt).toISOString());
 		});
 
 		it('returns an ok empty result, not an error, when the per-call budget cannot afford the calendar request', async () => {

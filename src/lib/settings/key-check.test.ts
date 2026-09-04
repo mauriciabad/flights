@@ -1,6 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { PROVIDER_ISSUE_COPY } from '$lib/components';
-import { clearInFlightForTests, resetPermanentFailuresForTests, setProviderCapOverride } from '$lib/providers/budget';
+import {
+	clearInFlightForTests,
+	getProviderQuotaSnapshot,
+	getReportedProviderQuota,
+	resetPermanentFailuresForTests,
+	setProviderCapOverride
+} from '$lib/providers/budget';
 import { checkProviderKey } from './key-check';
 import { SETTINGS_PROVIDERS } from './provider-catalog';
 
@@ -258,5 +264,64 @@ describe('checkProviderKey', () => {
 			.mockResolvedValue(jsonResponse(403, { message: 'You are not subscribed to this API.' }));
 		const outcome = await checkProviderKey(skyscanner, 'sk-super-secret-value', new AbortController().signal, fetchImpl);
 		expect(JSON.stringify(outcome)).not.toContain('sk-super-secret-value');
+	});
+});
+
+/**
+ * Issue #146. Pressing Test is the one moment a person deliberately asks "where does my
+ * key stand", and it is also the moment this app spends one of the requests it is asking
+ * about — so a check that throws away RapidAPI's own answer wastes the most informative
+ * response the app ever receives.
+ */
+describe('checkProviderKey and the account’s own quota', () => {
+	it('records the remaining quota the provider reported on the check response', async () => {
+		const fetchImpl = vi.fn().mockResolvedValue(
+			jsonResponse(
+				200,
+				{ status: true, data: [] },
+				{
+					'x-ratelimit-requests-limit': '20',
+					'x-ratelimit-requests-remaining': '19',
+					'x-ratelimit-requests-reset': '1209600'
+				}
+			)
+		);
+		const outcome = await checkProviderKey(skyscanner, 'sk-1', new AbortController().signal, fetchImpl);
+
+		expect(outcome.ok).toBe(true);
+		expect(getReportedProviderQuota('skyscanner')).toMatchObject({ limit: 20, remaining: 19 });
+	});
+
+	it('lets a check on a fresh browser learn the month is already gone', async () => {
+		// The whole point of the issue: this profile has counted nothing, so its own cap
+		// would happily allow another 15 requests. Sky Scrapper says 2 of its 20 are left.
+		const fetchImpl = vi
+			.fn()
+			.mockResolvedValue(
+				jsonResponse(200, { status: true }, { 'x-ratelimit-requests-limit': '20', 'x-ratelimit-requests-remaining': '2' })
+			);
+		await checkProviderKey(skyscanner, 'sk-1', new AbortController().signal, fetchImpl);
+
+		const snapshot = getProviderQuotaSnapshot('skyscanner');
+		expect(snapshot.locallyCounted).toBe(1);
+		expect(snapshot.used).toBe(18);
+		expect(snapshot.remaining).toBe(0);
+	});
+
+	it('refuses the next check once the provider has said the key is empty', async () => {
+		const emptied = vi
+			.fn()
+			.mockResolvedValue(
+				jsonResponse(200, { status: true }, { 'x-ratelimit-requests-limit': '20', 'x-ratelimit-requests-remaining': '0' })
+			);
+		await checkProviderKey(skyscanner, 'sk-1', new AbortController().signal, emptied);
+		clearInFlightForTests();
+
+		const secondFetch = vi.fn();
+		const outcome = await checkProviderKey(skyscanner, 'sk-1', new AbortController().signal, secondFetch);
+
+		expect(secondFetch).not.toHaveBeenCalled();
+		expect(outcome).toMatchObject({ ok: false, reason: 'quota-exceeded' });
+		expect(outcome.ok === false && outcome.message).toContain('itself reported 0 of 20 requests left');
 	});
 });

@@ -66,10 +66,24 @@ export interface PriceFreshnessDisplay {
 	tone: 'neutral' | 'info' | 'warning';
 }
 
+/**
+ * The finest unit `formatAge` resolves, so it is also the only age this badge can call
+ * "current" without saying something `formatAge` would immediately contradict in the
+ * footer beneath it. Not a policy anyone chose about how long a price stays good — that
+ * would be exactly the invented number this whole change exists to remove.
+ */
+const CURRENT_WITHIN_MS = 60_000;
+
 export function describePriceFreshness(freshness: PriceFreshness): PriceFreshnessDisplay {
 	switch (freshness.tier) {
 		case 'fresh':
-			return { label: 'Current price', tone: 'neutral' };
+			// A finished search does not make an hour-old cached price current, and since
+			// #151 the adapters report that hour honestly. Saying "Current price" over it
+			// was the last place the app still preferred a fact about itself (the search
+			// finished) to a fact it was handed (when the price was fetched).
+			return freshness.ageMs < CURRENT_WITHIN_MS
+				? { label: 'Current price', tone: 'neutral' }
+				: { label: `Priced ${formatAge(freshness.ageMs)}`, tone: 'neutral' };
 		case 'stale':
 			// The search itself is still running (SearchSnapshot.done is false), this
 			// number is real, just not yet the pipeline's final word on it.

@@ -5,6 +5,7 @@ import { dedupeInFlight } from './dedupe';
 import { secondsUntilNextMonthUtc } from './month-key';
 import { isPermanentlyUnsubscribed, markNotSubscribed } from './permanent-failures';
 import { reserveProviderRequests } from './quota';
+import type { ReserveResult } from './quota';
 import type { ProviderError, ProviderErrorCode, ProviderId, ProviderResult } from './types';
 
 export interface CallProviderWithBudgetOptions<T> {
@@ -98,7 +99,7 @@ async function runWithBudget<T>(options: CallProviderWithBudgetOptions<T>): Prom
 				error: {
 					code: 'quota-exceeded',
 					status: 429,
-					message: `${providerId} is at ${reservation.used}/${reservation.cap} requests for ${reservation.monthKey}; refusing to spend ${cost} more rather than collect a 403.`,
+					message: describeRefusal(providerId, cost, reservation),
 					retryAfterSeconds: secondsUntilNextMonthUtc(now())
 				}
 			};
@@ -144,6 +145,22 @@ async function runWithBudget<T>(options: CallProviderWithBudgetOptions<T>): Prom
 			// Loop again: the next iteration reserves budget for the retry too.
 		}
 	}
+}
+
+/**
+ * Names the limit that actually refused this call. AGENTS.md: show the answer you got.
+ * "This app's own cap is spent" and "the provider says the key has nothing left" call for
+ * different responses from the person reading it — the first can be raised in settings,
+ * the second cannot be argued with — and reporting both as the same sentence is how the
+ * settings screen came to claim "0 of 40 spent" about a month that was 85% gone (#146).
+ */
+function describeRefusal(providerId: ProviderId, cost: number, reservation: ReserveResult): string {
+	if (reservation.refusal === 'provider-reported-empty' && reservation.reported !== undefined) {
+		const { remaining, limit, observedAt } = reservation.reported;
+		const plan = limit === undefined ? '' : ` of ${limit}`;
+		return `${providerId} itself reported ${remaining}${plan} requests left on this key, as of ${new Date(observedAt).toISOString()}; refusing to spend ${cost} more.`;
+	}
+	return `${providerId} is at ${reservation.used}/${reservation.cap} requests for ${reservation.monthKey}; refusing to spend ${cost} more rather than collect a 403.`;
 }
 
 /** Builds the exact `ProviderError` shape (../types.ts) each code requires — a discriminated union whose members carry different fields, so this cannot be one shared object literal. */

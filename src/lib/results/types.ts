@@ -36,20 +36,28 @@ export type { ItineraryGroup, ProviderStatus, SearchSnapshot, WidenOption } from
  * (see this file's header for why the pipeline itself doesn't carry this):
  *
  * - `'fresh'`: the search has finished (`SearchSnapshot.done`) and every provider behind
- *   this price answered without error. Safe to show as a plain, current number.
+ *   this price answered without error.
  * - `'stale'`: the search is still running. This price is real (it came from an actual
  *   provider response, never a guess), but a later snapshot could still refine it.
  *   AGENTS.md's "never present an estimate as a fact" is answered by marking it, not by
  *   hiding the number.
  * - `'expired-fallback'`: at least one provider behind this price has a CURRENT failure
  *   (`ProviderStatus.lastError`). The number shown is the last one that provider actually
- *   returned, not a live figure, `ageMs` and `reason` are required, mirroring
+ *   returned, not a live figure, `reason` is required, mirroring
  *   `cache/stale-while-revalidate.ts`'s own `ExpiredFallbackResult` for the identical
  *   reason: a component cannot read `.value` here without also having the caveat in scope.
+ *
+ * `ageMs` is now on every tier, and that is the point. It used to sit only on
+ * `expired-fallback`, so the other two answered "how old is this price" with a fact about
+ * the search rather than a fact about the price, and `'fresh'` was rendered as the words
+ * "Current price". Once #151 made adapters report a cached price's real age, a card could
+ * show "Current price" beside "via Ryanair · fetched 58 minutes ago" — a hit at 59 minutes
+ * is an ordinary outcome under ryanair.ts's one-hour fare TTL. Both lines are now derived
+ * from this one number, so they cannot contradict each other.
  */
 export type PriceFreshness =
-	| { tier: 'fresh' }
-	| { tier: 'stale' }
+	| { tier: 'fresh'; ageMs: number }
+	| { tier: 'stale'; ageMs: number }
 	| { tier: 'expired-fallback'; ageMs: number; reason: ProviderIssueReason; message: string };
 
 /** One part of an itinerary and which provider supplied it, issue #23: "Show provenance:
@@ -137,18 +145,27 @@ function buildProvenance(
 		parts.push({ part, providerId: source.providerId, providerLabel, fetchedAt: source.fetchedAt });
 	}
 
+	// The oldest contributing part decides, on every tier: a total assembled from a flight
+	// priced a minute ago and a bed priced an hour ago is an hour-old total.
+	const ageMs = oldestPartAgeMs(parts);
+
 	const failingPart = parts.find((part) => providers[part.providerId]?.lastError !== undefined);
 	if (failingPart) {
 		const error = providers[failingPart.providerId]?.lastError as ProviderError;
 		const { reason, message } = describeProviderError(error);
-		const oldestFetchedAtMs = Math.min(...parts.map((part) => new Date(part.fetchedAt).getTime()));
-		return {
-			parts,
-			freshness: { tier: 'expired-fallback', ageMs: Math.max(0, Date.now() - oldestFetchedAtMs), reason, message }
-		};
+		return { parts, freshness: { tier: 'expired-fallback', ageMs, reason, message } };
 	}
 
-	return { parts, freshness: done ? { tier: 'fresh' } : { tier: 'stale' } };
+	return { parts, freshness: done ? { tier: 'fresh', ageMs } : { tier: 'stale', ageMs } };
+}
+
+/** Zero when there is nothing to age, which is the honest answer for an itinerary whose
+ * parts carry no tracked source at all — `Math.min` of an empty list is `Infinity`, and an
+ * infinitely old price is a worse lie than a brand new one. */
+function oldestPartAgeMs(parts: readonly ProvenancePart[]): number {
+	if (parts.length === 0) return 0;
+	const oldestFetchedAtMs = Math.min(...parts.map((part) => new Date(part.fetchedAt).getTime()));
+	return Math.max(0, Date.now() - oldestFetchedAtMs);
 }
 
 /**

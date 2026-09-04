@@ -1,7 +1,9 @@
-import type { ProviderError } from '../types';
+import { recordRateLimitHeaders } from '../budget';
+import type { ProviderError, ProviderId } from '../types';
 
 /** `sky-scrapper.p.rapidapi.com` is the only host this adapter is built and verified
  * against (issue #5's brief; docs/PROVIDERS.md). */
+const PROVIDER_ID: ProviderId = 'skyscanner';
 const HOST = 'sky-scrapper.p.rapidapi.com';
 const BASE_URL = `https://${HOST}`;
 
@@ -64,6 +66,10 @@ export async function callSkyscanner<T>(
 			}
 		};
 	}
+
+	// Before any status branching: RapidAPI sends its quota headers on a 429 and a 403 too,
+	// and those are exactly the responses where the real remaining count matters (#146).
+	recordRateLimitHeaders(PROVIDER_ID, response.headers);
 
 	if (response.status === 403) {
 		const body = await safeReadJson(response);

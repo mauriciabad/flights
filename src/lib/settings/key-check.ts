@@ -1,5 +1,5 @@
 import type { ProviderIssueReason } from '$lib/components';
-import { callProviderWithBudget, ProviderHttpError } from '$lib/providers/budget';
+import { callProviderWithBudget, ProviderHttpError, recordRateLimitHeaders } from '$lib/providers/budget';
 import type { ProviderError } from '$lib/providers/budget';
 import type { KeyCheckSpec, SettingsProviderDescriptor } from './provider-catalog';
 
@@ -135,6 +135,11 @@ async function performCheck(
 		},
 		signal
 	});
+	// Before anything is decided about this response: RapidAPI reports the account's real
+	// remaining quota in its own headers, and a key check is the one call a user makes
+	// deliberately to find out where they stand (#146). A 403 or a 429 carries them too.
+	recordRateLimitHeaders(descriptor.id, response.headers);
+
 	const body = await safeReadJson(response);
 
 	if (isApplicationError(body)) {

@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryCacheStore } from '../../cache';
+import type { CacheStore, StoredCacheEntry } from '../../cache';
 import { clearInFlightForTests, clearProviderQuotaStateForTests, resetPermanentFailuresForTests } from '../budget';
 import { createAgodaStayProvider } from './agoda';
 import agodaGetPricesWombats from './fixtures/agoda-get-prices-wombats-hostel.json';
@@ -56,6 +57,53 @@ const query = {
 };
 
 const apiKeys = { apiKey: 'test-key' };
+
+const MINUTE_MS = 60_000;
+
+/**
+ * A cache store whose entries can be back-dated once they are written. Seeding a cache hit
+ * by hand would mean rebuilding the adapter's hashed cache keys (`defineCacheKey`) inside
+ * the test, which rots silently the moment one of those keys gains a field; warming the
+ * cache through a real fixture-fed search and then rewinding `storedAt` ages whatever keys
+ * the adapter actually writes.
+ */
+class RewindableCacheStore implements CacheStore {
+	private readonly entries = new Map<string, StoredCacheEntry>();
+	/** Keys in the order the adapter first wrote them: the search, then one per drill-down. */
+	readonly writeOrder: string[] = [];
+
+	async get(key: string): Promise<StoredCacheEntry | undefined> {
+		const entry = this.entries.get(key);
+		return entry ? { ...entry } : undefined;
+	}
+
+	async set(entry: StoredCacheEntry): Promise<void> {
+		if (!this.entries.has(entry.key)) this.writeOrder.push(entry.key);
+		this.entries.set(entry.key, { ...entry });
+	}
+
+	async deleteByProvider(providerId: string): Promise<void> {
+		for (const [key, entry] of this.entries) {
+			if (entry.providerId === providerId) this.entries.delete(key);
+		}
+	}
+
+	async clear(): Promise<void> {
+		this.entries.clear();
+		this.writeOrder.length = 0;
+	}
+
+	/** Makes the entry claim it came off the wire at `storedAt`. */
+	rewind(key: string, storedAt: number): void {
+		const entry = this.entries.get(key);
+		if (!entry) throw new Error(`rewind: nothing cached under ${key}`);
+		this.entries.set(key, { ...entry, storedAt });
+	}
+
+	forget(key: string): void {
+		this.entries.delete(key);
+	}
+}
 
 beforeEach(() => {
 	fetchCallCount = 0;
@@ -226,5 +274,61 @@ describe('estimateSearchStaysCost', () => {
 	it('reports the worst case: one search plus a drill-down per candidate it would expand', () => {
 		const provider = createAgodaStayProvider();
 		expect(provider.estimateSearchStaysCost(query)).toBe(6);
+	});
+});
+
+/**
+ * Issue #151. ResultCard renders `source.fetchedAt` as "via Agoda · fetched 40 minutes
+ * ago", so a cache hit that stamps `new Date()` tells the traveller an hour-old price was
+ * just checked. A search here is assembled from two independently cached pieces (the
+ * candidate list and each candidate's prices), which is why the third test exists: the
+ * pair can only honestly claim the age of its older half.
+ */
+describe('source.fetchedAt', () => {
+	async function warmCache(store: RewindableCacheStore) {
+		const provider = createAgodaStayProvider({ store, fetchImpl: fixtureFetch() });
+		const warm = await provider.searchStays(query, { signal: new AbortController().signal, keys: apiKeys });
+		expect(warm.ok).toBe(true);
+		const [searchKey, ...priceKeys] = store.writeOrder;
+		expect(priceKeys).toHaveLength(3);
+		return { provider, searchKey, priceKeys };
+	}
+
+	it('reports when the cached data came off the wire, not when it was read back out', async () => {
+		const store = new RewindableCacheStore();
+		const { provider, searchKey, priceKeys } = await warmCache(store);
+		const fetchedAt = Date.now() - 40 * MINUTE_MS;
+		for (const key of [searchKey, ...priceKeys]) store.rewind(key, fetchedAt);
+
+		const result = await provider.searchStays(query, { signal: new AbortController().signal, keys: apiKeys });
+
+		expect(result.requestsUsed).toBe(0);
+		expect(result.source.fetchedAt).toBe(new Date(fetchedAt).toISOString());
+	});
+
+	it('dates prices fetched now by the cached candidate list they were chosen from', async () => {
+		const store = new RewindableCacheStore();
+		const { provider, searchKey, priceKeys } = await warmCache(store);
+		const searchFetchedAt = Date.now() - 55 * MINUTE_MS;
+		store.rewind(searchKey, searchFetchedAt);
+		for (const key of priceKeys) store.forget(key);
+
+		const result = await provider.searchStays(query, { signal: new AbortController().signal, keys: apiKeys });
+
+		expect(result.requestsUsed).toBe(3);
+		expect(result.source.fetchedAt).toBe(new Date(searchFetchedAt).toISOString());
+	});
+
+	it('dates a fresh candidate list by its older cached prices', async () => {
+		const store = new RewindableCacheStore();
+		const { provider, searchKey, priceKeys } = await warmCache(store);
+		const pricesFetchedAt = Date.now() - 50 * MINUTE_MS;
+		store.rewind(searchKey, Date.now() - 2 * MINUTE_MS);
+		for (const key of priceKeys) store.rewind(key, pricesFetchedAt);
+
+		const result = await provider.searchStays(query, { signal: new AbortController().signal, keys: apiKeys });
+
+		expect(result.requestsUsed).toBe(0);
+		expect(result.source.fetchedAt).toBe(new Date(pricesFetchedAt).toISOString());
 	});
 });

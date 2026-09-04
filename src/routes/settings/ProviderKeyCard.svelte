@@ -15,6 +15,7 @@
 	import type { ProviderIssueReason } from '$lib/components';
 	import { getProviderQuotaSnapshot } from '$lib/providers/budget';
 	import type { ProviderQuotaSnapshot } from '$lib/providers/budget';
+	import { formatAge } from '$lib/results/format';
 	import { checkProviderKey } from '$lib/settings/key-check';
 	import type { KeyCheckOutcome } from '$lib/settings/key-check';
 	import type { SettingsProviderDescriptor } from '$lib/settings/provider-catalog';
@@ -44,6 +45,15 @@
 
 	const allFieldsFilled = $derived(
 		provider.keyFields.every((field) => (keyStore.getFieldValue(provider.id, field.id) ?? '').length > 0)
+	);
+
+	// Issue #146. The provider's own count is the authoritative one — it belongs to the
+	// RapidAPI key, so it already includes every request this browser cannot see — and the
+	// card has to be able to say which number it is showing and when it last heard it.
+	// `Date.now()` is read inside the `$derived` so the age re-renders whenever `quota`
+	// does, which in this component means right after a Test spends a request.
+	const reportedAge = $derived(
+		quota.reported === undefined ? undefined : formatAge(Date.now() - quota.reported.observedAt)
 	);
 
 	let editing = $state(false);
@@ -186,11 +196,37 @@
 
 	<p class="provider-card-blurb">{provider.blurb}</p>
 
+	{#if quota.reported !== undefined}
+		<p class="provider-card-quota-reported">
+			<strong>{provider.label} says</strong>
+			<span class="font-mono tabular-nums">{quota.reported.remaining}</span>
+			{#if quota.reported.limit !== undefined}
+				of <span class="font-mono tabular-nums">{quota.reported.limit}</span>
+			{/if}
+			requests are left on this key, as of {reportedAge}. That count is the account's, not this
+			browser's, so it already includes anything spent on another device.
+		</p>
+	{/if}
+
 	<p class="provider-card-quota-note">
-		<span class="font-mono tabular-nums">{quota.used} of {quota.cap}</span> requests spent this month
-		through this app's own safety cap, held below the provider's real
-		<span class="font-mono tabular-nums">{provider.monthlyQuota}</span>/month free tier so a miscount still
-		leaves a reserve. Resets on the 1st.
+		{#if quota.used > quota.cap}
+			<!-- Reachable only through the reported figure: this app's own counter stops at the
+			     cap, the account's real spending does not. "42 of 40" would read as a bug. -->
+			Already past this app's own safety cap of
+			<span class="font-mono tabular-nums">{quota.cap}</span>, held below the provider's real
+			<span class="font-mono tabular-nums">{provider.monthlyQuota}</span>/month free tier so a miscount
+			still leaves a reserve. No search will spend here again until the 1st.
+		{:else}
+			<span class="font-mono tabular-nums">{quota.used} of {quota.cap}</span> requests spent this month
+			against this app's own safety cap, held below the provider's real
+			<span class="font-mono tabular-nums">{provider.monthlyQuota}</span>/month free tier so a miscount
+			still leaves a reserve. Resets on the 1st.
+		{/if}
+		{#if quota.reported === undefined}
+			That is this browser's own count. {provider.label} has not reported the account's figure yet,
+			so another device or a cleared browser starts this tally again at zero while the key's real
+			allowance keeps going down.
+		{/if}
 	</p>
 
 	{#if editing || !allFieldsFilled}
@@ -348,6 +384,25 @@
 		margin: 0;
 		font-size: var(--font-size-xs);
 		color: var(--color-text-faint);
+	}
+
+	/* Deliberately louder than `.provider-card-quota-note` below it, and the only line on
+	   this card that carries an accent rule: one of these two numbers is a fact from the
+	   provider and the other is this browser's guess at it, and the traveller has to be
+	   able to tell which is which at a glance. */
+	.provider-card-quota-reported {
+		margin: 0;
+		padding: var(--space-2) var(--space-3);
+		border-left: 2px solid var(--color-accent);
+		border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+		background: var(--color-bg-inset);
+		font-size: var(--font-size-sm);
+		color: var(--color-text-muted);
+	}
+
+	.provider-card-quota-reported strong {
+		color: var(--color-text);
+		font-weight: var(--font-weight-medium);
 	}
 
 	.provider-card-form,
