@@ -10,7 +10,7 @@
 	import { Chip, Select } from '$lib/components';
 	import type { Duration, IataAirlineCode, IataAirportCode, IsoCurrencyCode } from '$lib/domain';
 	import { isEmptyFilters, type FilterOptions, type ResultFilters } from '$lib/results/filters';
-	import { formatDuration, formatMoney } from '$lib/results/format';
+	import { formatDuration, formatMoney } from '$lib/format';
 	import { SORT_MODES, SORT_MODE_LABELS, type SortMode } from '$lib/results/sort';
 
 	interface Props {

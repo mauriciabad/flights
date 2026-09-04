@@ -353,8 +353,8 @@ describe('free time earns diminishing returns too (issue #167)', () => {
 	});
 
 	it('leaves the undiscounted usableFreeHours alone, since the UI reports it as a fact', () => {
-		// `describeWhyGood` tells the traveller "about Nh free in the stopover". That is a
-		// plain count of hours, not a scoring opinion, so it must not decay.
+		// The UI reports this as a plain count of hours in the stopover, not as a scoring
+		// opinion, so it must not decay the way the ranking credit for those hours does.
 		const oneDay = freeTime('2026-09-10T09:00:00', '2026-09-11T09:00:00', 1440);
 		const fourDays = freeTime('2026-09-10T09:00:00', '2026-09-14T09:00:00', 5760);
 		expect(usableFreeHours(fourDays)).toBeGreaterThan(usableFreeHours(oneDay) * 3.5);

@@ -1,53 +1,21 @@
 /**
  * Pure derivations from a ScoredResult that ResultCard.svelte renders directly, kept out
- * of the component so the reasoning behind "why this is good" and how a price's age reads
- * to a traveller is unit-testable without mounting Svelte (this repo has no
- * @testing-library/svelte; AGENTS.md still asks for tests on "anything with logic in it,"
- * which this module is and the component around it deliberately is not).
+ * of the component so how a price's age reads to a traveller is unit-testable without
+ * mounting Svelte (this repo has no @testing-library/svelte; AGENTS.md still asks for
+ * tests on "anything with logic in it," which this module is and the component around it
+ * deliberately is not).
+ *
+ * `describeWhyGood` used to live here too: one sentence per card, picked from a ladder of
+ * conditions, saying things like "3 nights in the stopover city, most of it free time."
+ * It is gone because the card now prints the night count and the free time as numbers, in
+ * their own cells, next to the trip strip that shows the same fact as a shape. A sentence
+ * restating two numbers that are already on screen is a row that carries nothing, and the
+ * one thing it said that no number carries, "on an airline you asked to avoid", is now a
+ * marker on the card itself rather than the fifth branch of a paragraph.
  */
 
-import { usableFreeHours } from '$lib/algorithm/score';
-import { formatAge } from './format';
+import { formatAge } from '$lib/format';
 import type { PriceFreshness, ScoredResult } from './types';
-
-/**
- * The brief's "a one-line why this is good," grounded in the same breakdown
- * `algorithm/score.ts` computed rather than a separate, possibly-contradictory heuristic.
- * Checked in the order that matches DEFAULT_SCORING_WEIGHTS' own priority (nights is by
- * far the largest weight, so it leads when present), never invents a number the score
- * breakdown doesn't already contain.
- */
-export function describeWhyGood(result: ScoredResult): string {
-	const { itinerary, score } = result;
-	const nights = itinerary.nightsInConnection;
-	const usableHours = Math.round(usableFreeHours(itinerary.freeTime));
-
-	// Issue #105: `nights` comes from the flight schedule alone (build.ts's own
-	// `nightsBetween`), never from whether a bed got priced, so a real stopover still
-	// leads with it even with no stay provider configured — the default state for every
-	// first-time visitor. The missing bed is a separate, honest note layered on top,
-	// never a reason to hide a real night count behind "no stay priced".
-	if (nights >= 1) {
-		const nightsLabel = nights === 1 ? '1 night' : `${nights} nights`;
-		const stayNote = itinerary.stay ? '' : ' — no bed priced for it yet';
-		return `${nightsLabel} in the stopover city, most of it free time${stayNote}.`;
-	}
-	// Issue #94 added a "No stay priced for this stopover yet" line here for the no-nights,
-	// no-stay case. Issue #140 removed it: zero nights means the traveller lands and leaves
-	// the same day, so no stay is missing and none is coming. "Yet" promised one. What is
-	// actually true about a same-day connection is how much of the day it leaves free,
-	// which is what the branches below already say.
-	if (usableHours >= 4) {
-		return `About ${usableHours}h free in the stopover during the day, no overnight stay needed.`;
-	}
-	if (score.avoidedAirlineFlightCount > 0) {
-		return 'The cheapest option here, on an airline you asked to avoid.';
-	}
-	if (score.breakdown.airportWaiting > score.breakdown.travelTime) {
-		return 'A quick connection with little time stuck waiting at either airport.';
-	}
-	return 'A straightforward connection with no long layover either way.';
-}
 
 /** "+2 more flight times through here", brief line 67: "user can see alternative
  * flights for same location with their price and difference from selected one." Picking
