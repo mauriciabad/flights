@@ -404,3 +404,74 @@ describe('request shape', () => {
 		expect(seenInit?.credentials).toBeUndefined();
 	});
 });
+
+/**
+ * Issue #151. This adapter landed the same day the sweep did, carrying the same bug the
+ * other eight had: `source()` stamped `new Date()` on a cache hit, so a fifteen-minute-old
+ * fare claimed on screen to have just come off Kiwi's wire.
+ */
+describe('how old a cached answer says it is', () => {
+	/**
+	 * Warms the cache through the adapter itself, then rewinds every entry it wrote by
+	 * `ms`. Recording the keys the adapter really used beats rebuilding them here: a
+	 * hardcoded key would quietly start testing a cache miss the day a key's shape changes,
+	 * and this file's own comments show that shape has changed before.
+	 */
+	async function ageEntriesWrittenBy(
+		store: MemoryCacheStore,
+		ms: number,
+		seed: () => Promise<unknown>
+	): Promise<number[]> {
+		const written: string[] = [];
+		const realSet = store.set.bind(store);
+		store.set = async (entry) => {
+			written.push(entry.key);
+			return realSet(entry);
+		};
+		await seed();
+		store.set = realSet;
+
+		const storedAts: number[] = [];
+		for (const key of written) {
+			const entry = await store.get(key);
+			if (entry === undefined) continue;
+			const storedAt = entry.storedAt - ms;
+			await realSet({ ...entry, storedAt });
+			storedAts.push(storedAt);
+		}
+		return storedAts;
+	}
+
+	it('dates a cached fare by when Kiwi really answered, not by when the cache was read', async () => {
+		const store = new MemoryCacheStore();
+		const provider = makeProvider(fixtureFetch(), store);
+		const [storedAt] = await ageEntriesWrittenBy(store, 10 * 60_000, () =>
+			provider.searchOffers(query, ctx())
+		);
+
+		const second = await provider.searchOffers(query, ctx());
+
+		expect(second.requestsUsed).toBe(0);
+		// ResultCard renders this as "via Kiwi · fetched 10 minutes ago".
+		expect(second.source.fetchedAt).toBe(new Date(storedAt).toISOString());
+	});
+
+	it('dates a cached route list the same way', async () => {
+		const store = new MemoryCacheStore();
+		const provider = makeProvider(fixtureFetch(), store);
+		const [storedAt] = await ageEntriesWrittenBy(store, 45 * 60_000, () =>
+			provider.listDirectDestinations('BVC', ctx())
+		);
+
+		const second = await provider.listDirectDestinations('BVC', ctx());
+
+		expect(second.requestsUsed).toBe(0);
+		expect(second.source.fetchedAt).toBe(new Date(storedAt).toISOString());
+	});
+
+	it('still stamps a freshly fetched answer with now', async () => {
+		const before = Date.now();
+		const result = await makeProvider(fixtureFetch()).searchOffers(query, ctx());
+		expect(new Date(result.source.fetchedAt).getTime()).toBeGreaterThanOrEqual(before);
+	});
+});
