@@ -305,6 +305,36 @@ function networkSnapshotKey(): CacheKey {
 }
 
 /**
+ * The cache entry one leg-month of `cheapestPerDay` lives under. Exported, and used by
+ * `fetchOffers` below rather than duplicated there, because a second reader now exists:
+ * `ryanair-month-grid.ts` (issue #71) reads exactly these entries to answer "what does this
+ * route cost across the next year" out of what previous searches already paid for, at zero
+ * requests. Two modules deriving the same key by hand is how #131's cache-shape bug
+ * happened. One place, one shape, or the reader silently sees nothing forever.
+ *
+ * Keyed by calendar month rather than by a search's exact dates, so two searches over the
+ * same month share one entry and nudging a date is a cache hit.
+ */
+export function cheapestPerDayCacheKey(params: {
+	origin: string;
+	destination: string;
+	monthStart: string;
+	currency?: string;
+}): CacheKey {
+	return defineCacheKey(
+		RYANAIR_PROVIDER_ID,
+		{
+			op: 'cheapestPerDay',
+			origin: params.origin,
+			destination: params.destination,
+			monthStart: params.monthStart,
+			currency: params.currency
+		},
+		FARES_TTL_MS
+	);
+}
+
+/**
  * Refetches the network snapshot and reports the best answer available afterwards, never
  * throwing and never leaving the caller with nothing.
  *
@@ -478,11 +508,12 @@ function createRyanairFlightProvider(options: RyanairProviderOptions = {}): Flig
 			// Keyed by calendar month, not by this query's exact dates, so two searches over
 			// the same month share one entry and nudging a date is a cache hit rather than a
 			// fresh sweep.
-			const faresKey = defineCacheKey(
-				RYANAIR_PROVIDER_ID,
-				{ op: 'cheapestPerDay', origin: query.origin, destination: query.destination, monthStart, currency: query.currency },
-				FARES_TTL_MS
-			);
+			const faresKey = cheapestPerDayCacheKey({
+				origin: query.origin,
+				destination: query.destination,
+				monthStart,
+				currency: query.currency
+			});
 			const scheduleKey = defineCacheKey(
 				RYANAIR_PROVIDER_ID,
 				{ op: 'monthlySchedule', origin: query.origin, destination: query.destination, year, month },

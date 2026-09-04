@@ -88,7 +88,7 @@ function isParsableLocalIsoString(value: unknown): value is string {
  * missing or the wrong type (issue #93).
  * `valueFractionalUnit` may legitimately be `""`; `valueMainUnit` may not, since an empty
  * whole-unit string has no honest reading. */
-function toMoney(price: RyanairPrice | null): Money | undefined {
+export function toMoney(price: RyanairPrice | null): Money | undefined {
 	if (
 		!isRecord(price) ||
 		!isNonEmptyString(price.valueMainUnit) ||
