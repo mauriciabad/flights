@@ -6,17 +6,21 @@
 	 * streamed itinerary; this file owns none of their internals (AGENTS.md: "this issue
 	 * is wiring, not rebuilding").
 	 *
-	 * ## Why the pickers sit in their own section below the timeline, not inside it
+	 * ## Why the pickers unfold inside the timeline row, not in a section below it
 	 *
-	 * Issue #104 asks for a picker "next to each leg." Doing that literally means adding a
-	 * picker INSIDE one of `ItineraryTimeline`'s own `<li class="tl-row">` snippets, and a
-	 * wrapper there would need its own `grid-template-columns: subgrid`, breaking the
-	 * two-column contract every row in that file relies on. Editing it is also exactly what
-	 * AGENTS.md's "do not rebuild" list forbids. Instead, the read-only timeline stays
-	 * exactly as-is, and a second, editing-focused section below it mirrors the timeline's
-	 * own row labels ("Outbound flight", "Travel to the connection airport", ...) in the
-	 * same schedule order, so the correspondence between "this row" and "this picker" is
-	 * visual and positional even though it isn't a shared DOM node.
+	 * Issue #104 asks for a picker "next to each leg." The first version of this file
+	 * printed every leg's alternatives again in a second list under the timeline, headed
+	 * "Adjust this trip", because this comment once claimed a picker inside a timeline row
+	 * would need a wrapper and a wrapper would break the row's subgrid. That list was 1594
+	 * of the panel's 2932 desktop pixels, and the owner's verdict on the panel was
+	 * "pathetic". The claim was wrong. `ItineraryTimeline` renders its `expansion` snippet
+	 * as a fifth child of the selected `<li>`, spanning the row's four subgrid columns, so
+	 * nothing about the timetable alignment changes and the picker sits under the leg it
+	 * changes. `stepOptions` below is that snippet: one branch per segment, the same
+	 * components with the same props and guards the old section had. `optionMarks` is the
+	 * only other thing the timeline needs from here, a short "2 flights" or "3 options" on
+	 * the rows where a swap exists. Selecting a row already drove the map; it now also
+	 * unfolds that row's choices, and selecting it again folds them away.
 	 *
 	 * ## Why edits here are a frozen, local "what if" preview
 	 *
@@ -33,16 +37,17 @@
 	 * (the picker just grows more rows), it never overwrites the traveller's current pick the
 	 * way replacing `itinerary` would.
 	 */
+	import { base } from '$app/paths';
 	import type { Airport, Duration, Itinerary, Money, Stay } from '$lib/domain';
 	import type { ConnectionTransferOptions, ItineraryGroup, OuterTransferOptions, TransferLegOptions } from '$lib/search';
 	import type { ItinerarySegmentId } from '$lib/itinerary-map/segment-id';
 	import { sumMoney } from '$lib/algorithm/build';
 	import type { RecomputedSelection } from '$lib/algorithm/recompute-selection';
 	import { FlightPicker, ItineraryMap, ItineraryTimeline, Skeleton, TransportPicker } from '$lib/components';
-	import { hasSwappableAlternatives } from '$lib/components/picker-alternatives';
+	import { distinctFlightCount, hasSwappableAlternatives } from '$lib/components/picker-alternatives';
 	import { keyStore } from '$lib/keys';
 	import { hasUsableStayProvider } from '$lib/results/provider-setup';
-	import { StayPicker, groupByProperty } from '$lib/stays';
+	import { StayPicker, describeNoStays, groupByProperty } from '$lib/stays';
 
 	interface Props {
 		itinerary: Itinerary;
@@ -137,11 +142,10 @@
 		outerTransferOptions?.transferToDestinationLocation ?? NO_TRANSFER_LEG_OPTIONS
 	);
 
-	// Issue #140: is there anything below to try? The hint at the top of this view claimed
-	// there was on every card, including the ordinary free-tier result with one flight per
-	// leg, no transport options and no stays. `picker-alternatives.ts` counts the rows the
-	// pickers would actually draw, sharing `FlightPicker`'s own dedupe so the two cannot
-	// disagree.
+	// Issue #140: is there anything to try? The hint above the timeline claimed there was
+	// on every card, including the ordinary free-tier result with one flight per leg, no
+	// transport options and no stays. `picker-alternatives.ts` counts the rows the pickers
+	// would actually draw, sharing `FlightPicker`'s own dedupe so the two cannot disagree.
 	const canSwapSomething = $derived(
 		hasSwappableAlternatives({
 			outboundFlights: outboundAlternatives,
@@ -174,29 +178,43 @@
 	// alternative was never the one these lookups were planned for, and pretending otherwise
 	// is the defect this issue is about.
 	const transitAnswers = $derived(itinerary === initialItinerary ? group?.best.transit : undefined);
+
+	// The timeline's "2 flights" / "3 options" marks: only rows whose fold offers more than
+	// one thing to pick, gated on the same conditions the fold itself renders under, so a
+	// mark never promises a choice the row cannot open. A stay list counts from one
+	// property, the same reasoning as `hasSwappableAlternatives`: with no bed on the
+	// itinerary, one property is still the choice between pricing it in and leaving it out.
+	const optionMarks = $derived.by(() => {
+		const marks: Partial<Record<ItinerarySegmentId, string>> = {};
+		const outbound = distinctFlightCount(outboundAlternatives);
+		if (outbound > 1) marks['outbound-flight'] = `${outbound} flights`;
+		const onward = distinctFlightCount(onwardAlternatives);
+		if (onward > 1) marks['onward-flight'] = `${onward} flights`;
+		const transferLegs = [
+			['transfer-to-origin-airport', itinerary.transferToOriginAirport, originAirportTransferOptions],
+			['transfer-to-hotel', itinerary.transferToHotel, hotelTransferOptions],
+			['transfer-to-connection-airport', itinerary.transferToConnectionAirport, connectionAirportTransferOptions],
+			['transfer-to-destination-location', itinerary.transferToDestinationLocation, destinationLocationTransferOptions]
+		] as const;
+		for (const [segment, transfer, options] of transferLegs) {
+			if (transfer && options.candidates.length > 1) marks[segment] = `${options.candidates.length} options`;
+		}
+		if (stayIsRelevant && stayProperties.length > 0) {
+			const count = stayProperties.length;
+			marks['free-time'] = `${count} ${count === 1 ? 'stay' : 'stays'}`;
+		}
+		return marks;
+	});
+
+	// `describeNoStays` titles are headings, and one of them ("Looking for stays in X…")
+	// already ends in punctuation. Inline in a sentence, only the bare ones need a full stop.
+	function asSentence(title: string): string {
+		return /[.!?…]$/.test(title) ? title : `${title}.`;
+	}
 </script>
 
-<div class="result-detail">
-	<!-- aria-live: this sentence flips when a provider answers, not when the traveller does
-	     anything, so a screen reader would otherwise never learn that alternatives arrived. -->
-	<p class="result-detail-hint" aria-live="polite">
-		{#if canSwapSomething}
-			Trying an alternative below previews this trip. It does not change your saved results.
-		{:else}
-			Every leg came back with one option, so there is nothing to swap below. The waiting
-			times are still yours to adjust.
-		{/if}
-	</p>
-
-	<div class="result-detail-map">
-		<ItineraryMap {itinerary} bind:selectedSegmentId />
-	</div>
-
-	<ItineraryTimeline {itinerary} {connectionAirport} bind:selectedSegmentId />
-
-	<section class="result-detail-editor" aria-label="Adjust this itinerary">
-		<h3 class="result-detail-heading">Adjust this trip</h3>
-
+{#snippet stepOptions(segment: ItinerarySegmentId)}
+	{#if segment === 'transfer-to-origin-airport'}
 		{#if itinerary.originLocation && itinerary.transferToOriginAirport}
 			<TransportPicker
 				legLabel="Travel to the airport"
@@ -209,7 +227,7 @@
 				onselect={applySelection}
 			/>
 		{/if}
-
+	{:else if segment === 'outbound-flight'}
 		<FlightPicker
 			legLabel={`Outbound: ${itinerary.originAirport.iataCode} to ${itinerary.outboundFlight.arrivalAirport}`}
 			{itinerary}
@@ -218,7 +236,7 @@
 			{minLayoverTime}
 			onselect={applySelection}
 		/>
-
+	{:else if segment === 'transfer-to-hotel'}
 		{#if itinerary.transferToHotel}
 			<TransportPicker
 				legLabel={itinerary.stay ? `Travel to ${itinerary.stay.property.name}` : 'Travel to the stopover'}
@@ -233,28 +251,35 @@
 				onselect={applySelection}
 			/>
 		{/if}
-
+	{:else if segment === 'free-time'}
 		{#if stayIsRelevant}
-			<div class="result-detail-stay">
-				<h4 class="result-detail-subheading">The stopover stay</h4>
-				{#if connectionAirport}
-					<StayPicker
-						properties={stayProperties}
-						{connectionAirport}
-						nights={itinerary.nightsInConnection}
-						{travellers}
-						{females}
-						selected={itinerary.stay}
-						onchange={applyStaySelection}
-						{stayProviderConfigured}
-						{searchDone}
-					/>
-				{:else}
-					<Skeleton height="12rem" />
-				{/if}
-			</div>
+			{#if !connectionAirport}
+				<Skeleton height="6rem" />
+			{:else if stayProperties.length === 0}
+				<!-- StayPicker's own empty state is a 250px hero. Inside a timeline row the
+				     reason a bed is missing is a note, not a scene, so the same wording
+				     (`describeNoStays`, issue #140) goes on one line. -->
+				{@const notice = describeNoStays({ stayProviderConfigured, searchDone, cityName: connectionAirport.city.name })}
+				<p class="stay-notice">
+					<strong>{asSentence(notice.title)}</strong>
+					{notice.description}{#if notice.action}
+						<a href="{base}{notice.action.href}">{notice.action.label}</a>{/if}
+				</p>
+			{:else}
+				<StayPicker
+					properties={stayProperties}
+					{connectionAirport}
+					nights={itinerary.nightsInConnection}
+					{travellers}
+					{females}
+					selected={itinerary.stay}
+					onchange={applyStaySelection}
+					{stayProviderConfigured}
+					{searchDone}
+				/>
+			{/if}
 		{/if}
-
+	{:else if segment === 'transfer-to-connection-airport'}
 		{#if itinerary.transferToConnectionAirport}
 			<TransportPicker
 				legLabel="Travel to the connection airport"
@@ -267,7 +292,7 @@
 				onselect={applySelection}
 			/>
 		{/if}
-
+	{:else if segment === 'onward-flight'}
 		<FlightPicker
 			legLabel={`Onward: ${itinerary.outboundFlight.arrivalAirport} to ${itinerary.destinationAirport.iataCode}`}
 			{itinerary}
@@ -276,7 +301,7 @@
 			{minLayoverTime}
 			onselect={applySelection}
 		/>
-
+	{:else if segment === 'transfer-to-destination-location'}
 		{#if itinerary.destinationLocation && itinerary.transferToDestinationLocation}
 			<TransportPicker
 				legLabel="Travel to the destination"
@@ -291,14 +316,34 @@
 				onselect={applySelection}
 			/>
 		{/if}
-	</section>
+	{/if}
+{/snippet}
+
+<div class="result-detail">
+	<div class="result-detail-map">
+		<ItineraryMap {itinerary} bind:selectedSegmentId />
+	</div>
+
+	<!-- aria-live: this sentence flips when a provider answers, not when the traveller does
+	     anything, so a screen reader would otherwise never learn that alternatives arrived. -->
+	<p class="result-detail-hint" aria-live="polite">
+		{#if canSwapSomething}
+			Tap a step to see its alternatives. Picking one previews this trip and does not change
+			your saved results.
+		{:else}
+			Every leg came back with one option, so there is nothing to swap. The waiting times are
+			still yours to adjust.
+		{/if}
+	</p>
+
+	<ItineraryTimeline {itinerary} {connectionAirport} bind:selectedSegmentId expansion={stepOptions} {optionMarks} />
 </div>
 
 <style>
 	.result-detail {
 		display: flex;
 		flex-direction: column;
-		gap: var(--space-6);
+		gap: var(--space-4);
 		/* Reads as the ticket above unfolding, the same dashed "tear line" the timeline's
 		   own totals divider and this card's control row both already use. */
 		margin-top: var(--space-3);
@@ -312,26 +357,17 @@
 		color: var(--color-text-faint);
 	}
 
-	.result-detail-editor {
-		display: flex;
-		flex-direction: column;
-		gap: var(--space-5);
-	}
-
-	.result-detail-heading {
-		font-size: var(--font-size-base);
-		font-weight: var(--font-weight-semibold);
-	}
-
-	.result-detail-stay {
-		display: flex;
-		flex-direction: column;
-		gap: var(--space-3);
-	}
-
-	.result-detail-subheading {
+	.stay-notice {
+		margin: 0;
 		font-size: var(--font-size-sm);
-		font-weight: var(--font-weight-semibold);
 		color: var(--color-text-muted);
+	}
+
+	.stay-notice strong {
+		color: var(--color-text);
+	}
+
+	.stay-notice a {
+		color: var(--color-accent);
 	}
 </style>

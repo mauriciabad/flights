@@ -17,15 +17,17 @@
 import { formatAge } from '$lib/format';
 import type { PriceFreshness, ScoredResult } from './types';
 
-/** "+2 more flight times through here", brief line 67: "user can see alternative
- * flights for same location with their price and difference from selected one." Picking
- * a specific alternate and swapping it in is `FlightPicker`'s job in the expanded card
- * detail; this list only says how many exist. `undefined` when there is nothing but the
- * headline card. */
+/** "+2 more flight times", brief line 67: "user can see alternative flights for same
+ * location with their price and difference from selected one." Picking a specific
+ * alternate and swapping it in is `FlightPicker`'s job in the expanded card detail; this
+ * list only says how many exist. `undefined` when there is nothing but the headline card.
+ *
+ * No "through here" on the end: the card is about one connection, so the words carried
+ * nothing, and at 375px they were what pushed "Show details" onto a line of its own. */
 export function describeVariants(result: ScoredResult): string | undefined {
 	const extra = result.variantCount - 1;
 	if (extra <= 0) return undefined;
-	return `+${extra} more flight time${extra === 1 ? '' : 's'} through here`;
+	return `+${extra} more flight time${extra === 1 ? '' : 's'}`;
 }
 
 /** Short label plus a semantic tone for the price badge, so ResultCard only has to pick a

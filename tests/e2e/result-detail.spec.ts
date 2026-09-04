@@ -96,6 +96,11 @@ test.describe('result detail (issue #104)', () => {
 		// Switch to the pricier outbound option through the flight picker and confirm the
 		// total follows it exactly — brief line 67's "selecting updates ui", proven against
 		// a real, wired control rather than FlightPicker's own isolated unit tests.
+		// The picker lives inside the timeline row it belongs to and unfolds when that row
+		// is selected, so the row is tapped first, the way a traveller reaches it.
+		const outboundRow = detail.locator('.itinerary-timeline [data-segment="outbound-flight"]');
+		await expect(outboundRow).toContainText('2 flights');
+		await outboundRow.click();
 		const outboundPicker = detail.getByRole('radiogroup', { name: /Outbound/ });
 		const alternativeRow = outboundPicker.locator('.picker-row', { hasText: '€9,222.22' });
 		await expect(alternativeRow).toBeVisible();

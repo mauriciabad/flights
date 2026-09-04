@@ -30,11 +30,14 @@ describe('itineraryMetrics', () => {
 		expect(valueOf(unpriced, 'nights')).toBe('12');
 	});
 
-	it('adds the missing-bed caveat alongside the night count, never instead of it', () => {
+	it('keeps the missing-bed caveat on the price, not under the night count', () => {
+		// The count is a fact about the schedule; the missing bed is a fact about the
+		// price. Noting it under both put the same warning twice on one card.
 		const unpriced = withoutStay(makeItinerary({ nightsInConnection: 3 }));
 		const [nights] = itineraryMetrics(unpriced, ['nights']);
 		expect(nights!.value).toBe('3');
-		expect(nights!.note).toBe('no bed priced');
+		expect(nights!.note).toBeUndefined();
+		expect(itineraryMetrics(unpriced, ['total-price'])[0]!.note).toBe('excludes an unpriced stay');
 	});
 
 	it('says nothing about a missing bed on a same-day connection, which has none to miss', () => {

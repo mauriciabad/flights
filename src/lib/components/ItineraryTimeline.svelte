@@ -42,7 +42,24 @@
 	 * Issue #73 makes each `<li>` clickable (to drive `ItineraryMap`'s selection, issue
 	 * #26), by adding attributes and handlers directly to that same `<li>`, no wrapping
 	 * element, so the shape above still holds.
+	 *
+	 * ## The expansion: a leg's alternatives unfold under the leg
+	 *
+	 * Issue #104's brief asks for a picker "next to each leg". `ResultDetail` used to print
+	 * every leg's alternatives in a second list under this timeline, on the belief that a
+	 * picker inside a row would need a wrapper and a wrapper would break the subgrid. It
+	 * does not. The `expansion` snippet renders as a fifth child of the selected `<li>`,
+	 * spanning all four columns (`grid-column: 1 / -1`), so the four cells above it keep
+	 * their tracks and the picker sits directly under the step it changes. Rows stay flat,
+	 * and the four-column contract above is untouched.
+	 *
+	 * Selecting is therefore a toggle: clicking the selected row again clears
+	 * `selectedSegmentId`, which folds its expansion away and lets the map show the whole
+	 * route again. A click that lands on a control inside the row, the waiting-time stepper
+	 * or anything in the expansion, leaves the selection alone, or picking an alternative
+	 * would fold away the picker that offered it.
 	 */
+	import type { Snippet } from 'svelte';
 	import type { Airport, Duration, FlightOffer, Itinerary, LocalDateTime, Location, Transfer } from '../domain';
 	import { recomputeItineraryWaitingTimes } from '../algorithm/build';
 	import { readMissedService } from '../algorithm/transit-schedule';
@@ -84,6 +101,17 @@
 		 * the code and never guesses.
 		 */
 		connectionAirport?: Airport;
+		/** Rendered inside every row as a fifth, full-width grid child below the four
+		 * columns, only while that row is selected. ResultDetail hands in the picker for
+		 * that step, so a leg's alternatives unfold under the leg instead of being printed
+		 * again in a second list below the timeline. */
+		expansion?: Snippet<[ItinerarySegmentId]>;
+		/** A short mark printed at the end of a row's first content line when the step has
+		 * something to swap, e.g. "2 flights" or "3 options". The caller decides the wording
+		 * and which rows get one; this component only makes the affordance visible. On the
+		 * label's own line rather than in the HOW MUCH column, where it cost every flight
+		 * and transfer row a third line. */
+		optionMarks?: Partial<Record<ItinerarySegmentId, string>>;
 		/** Applied to the row list; the totals block keeps its own fixed class. */
 		class?: string;
 	}
@@ -92,6 +120,8 @@
 		itinerary,
 		selectedSegmentId = $bindable(null),
 		connectionAirport,
+		expansion,
+		optionMarks,
 		class: className
 	}: Props = $props();
 
@@ -183,8 +213,20 @@
 		connectionWaitingTimeOverride = clamp(minutes, 0, maxConnectionWaitingTime) as Duration;
 	}
 
+	// A second activation of the selected row clears the selection: that is how a traveller
+	// folds a row's expansion away and hands the map back the whole route.
 	function selectSegment(segment: ItinerarySegmentId) {
-		selectedSegmentId = segment;
+		selectedSegmentId = selectedSegmentId === segment ? null : segment;
+	}
+
+	// The row's onclick fires for any click inside the `<li>`, and once a picker is unfolded
+	// in it that includes every radio, button and link the picker draws. Picking an
+	// alternative must not also fold the picker that offered it, and a press on the
+	// waiting-time stepper never meant "show me this on the map" either.
+	function handleRowClick(event: MouseEvent, segment: ItinerarySegmentId) {
+		const target = event.target as Element | null;
+		if (target?.closest('.tl-expansion, button, input, label, a, select, summary, details')) return;
+		selectSegment(segment);
 	}
 
 	// Every row's selectable state lives on the `<li>` itself rather than a wrapping
@@ -293,6 +335,31 @@
 	></span>
 {/snippet}
 
+{#snippet optionMark(segment: ItinerarySegmentId)}
+	{@const mark = optionMarks?.[segment]}
+	{#if mark}
+		<span class="tl-options">
+			{mark}
+			<svg class="tl-options-chevron" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+				<path
+					d="M4 6l4 4 4-4"
+					fill="none"
+					stroke="currentColor"
+					stroke-width="1.5"
+					stroke-linecap="round"
+					stroke-linejoin="round"
+				/>
+			</svg>
+		</span>
+	{/if}
+{/snippet}
+
+{#snippet rowExpansion(segment: ItinerarySegmentId)}
+	{#if expansion && selectedSegmentId === segment}
+		<div class="tl-expansion">{@render expansion(segment)}</div>
+	{/if}
+{/snippet}
+
 {#snippet locationRow(location: Location, label: string, segment: ItinerarySegmentId)}
 	<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 	<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
@@ -304,15 +371,18 @@
 		aria-roledescription="selectable step"
 		aria-label={`${label}: ${location.label}`}
 		aria-current={selectedSegmentId === segment ? 'true' : undefined}
-		onclick={() => selectSegment(segment)}
+		onclick={(event) => handleRowClick(event, segment)}
 		onkeydown={(event) => handleRowKeydown(event, segment)}
 	>
 		<span class="tl-when"></span>
 		<span class="tl-rail">{@render dot('point')}</span>
 		<div class="tl-content">
-			<p class="tl-label">{label}<span class="tl-detail-inline">{location.label}</span></p>
+			<p class="tl-label">
+				{label}<span class="tl-detail-inline">{location.label}</span>{@render optionMark(segment)}
+			</p>
 		</div>
 		<div class="tl-meta"></div>
+		{@render rowExpansion(segment)}
 	</li>
 {/snippet}
 
@@ -327,7 +397,7 @@
 		aria-roledescription="selectable step"
 		aria-label={label}
 		aria-current={selectedSegmentId === segment ? 'true' : undefined}
-		onclick={() => selectSegment(segment)}
+		onclick={(event) => handleRowClick(event, segment)}
 		onkeydown={(event) => handleRowKeydown(event, segment)}
 	>
 		<span class="tl-when">
@@ -347,7 +417,7 @@
 								.map((leg) => leg.description)
 								.filter(Boolean)
 								.join(', ')}{/if}
-					</span>
+					</span>{@render optionMark(segment)}
 				</p>
 				{#if transfer.mode === 'transit' && transfer.transitSchedule}
 					{@const schedule = transfer.transitSchedule}
@@ -375,7 +445,7 @@
 							hasStay: shown.stay !== undefined,
 							nightsInConnection: shown.nightsInConnection
 						})}
-					</span>
+					</span>{@render optionMark(segment)}
 				</p>
 			{/if}
 		</div>
@@ -391,11 +461,13 @@
 				{/if}
 			{/if}
 		</div>
+		{@render rowExpansion(segment)}
 	</li>
 {/snippet}
 
 {#snippet waitingRow(
 	airportLabel: string,
+	code: string,
 	minutes: Duration,
 	segment: ItinerarySegmentId,
 	onAdjust: (delta: number) => void,
@@ -413,13 +485,15 @@
 		aria-label={`Waiting time at ${airportLabel}`}
 		aria-roledescription="selectable step"
 		aria-current={selectedSegmentId === segment ? 'true' : undefined}
-		onclick={() => selectSegment(segment)}
+		onclick={(event) => handleRowClick(event, segment)}
 		onkeydown={(event) => handleRowKeydown(event, segment)}
 	>
 		<span class="tl-when"></span>
 		<span class="tl-rail">{@render dot('event')}</span>
 		<div class="tl-content tl-content-waiting">
-			<p class="tl-label">Waiting at {airportLabel}</p>
+			<!-- The code, not the airport's name: the flight row directly under this one prints
+			     the same code, and the name is one hover (or one aria-label read) away. -->
+			<p class="tl-label" title={airportLabel}>Waiting at {code}{@render optionMark(segment)}</p>
 			<!-- The stepper sits on the label's own line rather than under it. It is the
 			     only editable thing in the whole timeline (brief lines 39 and 69), so it
 			     stays a real 44px target; what it stopped doing is claiming a third row of
@@ -460,6 +534,7 @@
 		<div class="tl-meta">
 			<span class="tl-duration font-mono tabular-nums">{formatDuration(minutes)}</span>
 		</div>
+		{@render rowExpansion(segment)}
 	</li>
 {/snippet}
 
@@ -480,7 +555,7 @@
 		aria-roledescription="selectable step"
 		aria-label={label}
 		aria-current={selectedSegmentId === segment ? 'true' : undefined}
-		onclick={() => selectSegment(segment)}
+		onclick={(event) => handleRowClick(event, segment)}
 		onkeydown={(event) => handleRowKeydown(event, segment)}
 	>
 		<span class="tl-when tl-when-pair">
@@ -493,6 +568,7 @@
 				<span class="font-mono">{flight.departureAirport}</span>
 				<span class="tl-route-arrow" aria-hidden="true">→</span>
 				<span class="font-mono">{flight.arrivalAirport}</span>
+				{@render optionMark(segment)}
 			</p>
 			<p class="tl-carrier">
 				<AirlineLogo iataCode={flight.carrier.iataCode} name={flight.carrier.name} />
@@ -507,6 +583,7 @@
 			<span class="tl-duration font-mono tabular-nums">{formatDuration(flight.duration)}</span>
 			<span class="tl-price font-mono tabular-nums">{formatMoney(flight.price)}</span>
 		</div>
+		{@render rowExpansion(segment)}
 	</li>
 {/snippet}
 
@@ -529,6 +606,7 @@
 
 	{@render waitingRow(
 		`${shown.originAirport.name} (${shown.originAirport.iataCode})`,
+		shown.originAirport.iataCode,
 		shown.originWaitingTime,
 		'origin-waiting',
 		adjustOriginWaitingTime,
@@ -561,7 +639,7 @@
 		aria-roledescription="selectable step"
 		aria-label={`The stopover, in ${connectionLabel}`}
 		aria-current={selectedSegmentId === 'free-time' ? 'true' : undefined}
-		onclick={() => selectSegment('free-time')}
+		onclick={(event) => handleRowClick(event, 'free-time')}
 		onkeydown={(event) => handleRowKeydown(event, 'free-time')}
 	>
 		<span class="tl-when tl-when-pair">
@@ -581,13 +659,17 @@
 				{:else}
 					Day stopover in {connectionLabel}
 				{/if}
+				{@render optionMark('free-time')}
 			</p>
 			<p class="tl-stopover-stay">
 				{#if shown.stay}
 					{shown.stay.property.name} &middot; {shown.stay.roomKind}{#if shown.stay.property.rating}
 						&middot; rated {shown.stay.property.rating}/5{/if}
 				{:else if shown.nightsInConnection > 0}
-					No bed priced yet. Add an Agoda or Booking.com key, or widen the search.
+					<!-- Just the fact. The fold under this row, and the notice above the results
+					     list, carry the reason and the link; three lines of it here on a phone
+					     repeated both. -->
+					No bed priced yet.
 				{:else}
 					No night spent here, so there is no bed to price.
 				{/if}
@@ -601,6 +683,7 @@
 				<span class="tl-price font-mono tabular-nums">{formatMoney(staySubtotal)}</span>
 			{/if}
 		</div>
+		{@render rowExpansion('free-time')}
 	</li>
 
 	{@render transferRow(
@@ -615,6 +698,7 @@
 		// flights that touch it (see domain/itinerary.ts), so this shows the one fact we
 		// actually have (the IATA code) rather than fabricating a name, city or country.
 		`the connection airport (${shown.outboundFlight.arrivalAirport})`,
+		shown.outboundFlight.arrivalAirport,
 		shown.connectionWaitingTime,
 		'connection-waiting',
 		adjustConnectionWaitingTime,
@@ -654,10 +738,11 @@
 	.itinerary-timeline {
 		position: relative;
 		display: grid;
-		/* 5rem holds "Wed, 10 Mar" on one line at this column's own type size, and a clock
-		   with a "+2" day stamp beside it. Narrower and the date wrapped to two lines,
-		   which made every flight row a third taller than it needed to be. */
-		grid-template-columns: 5rem 0.875rem minmax(0, 1fr) auto;
+		/* 8rem holds "Mon, 8 Mar UTC+1" on one line at this column's own type size, so a
+		   reading is two lines (clock, then date and offset together) rather than three.
+		   The old 5rem fitted the date alone and pushed the offset onto a line of its own,
+		   which made every flight row four lines tall. */
+		grid-template-columns: 8rem 0.875rem minmax(0, 1fr) auto;
 		column-gap: var(--space-2);
 		row-gap: 0;
 	}
@@ -666,6 +751,15 @@
 		display: grid;
 		grid-column: 1 / -1;
 		grid-template-columns: subgrid;
+		/* A second row track, empty on every row but the selected one, holds the expansion.
+		   Declaring it lets the rail span both tracks, so its line runs behind an open fold
+		   instead of stopping above it and restarting at the next dot.
+
+		   Every child below names its column AND its row. Grid placement positions items
+		   with a definite row before it auto-places the rest, so a rail locked to `1 / -1`
+		   with an auto column was placed first, took column 1, and pushed the clocks into
+		   the 0.875rem rail column, where a date wrapped onto three lines. */
+		grid-template-rows: auto auto;
 		align-items: start;
 		/* Dense by default. Hairline rules between rows instead of gaps: a timetable's
 		   rows touch, and the space a gap would have taken is space the panel does not
@@ -700,6 +794,8 @@
 	 * WHEN. The clock column a reader scans straight down.
 	 * ------------------------------------------------------------------- */
 	.tl-when {
+		grid-column: 1;
+		grid-row: 1;
 		display: flex;
 		flex-direction: column;
 		min-width: 0;
@@ -726,6 +822,8 @@
 	 * ------------------------------------------------------------------- */
 	.tl-rail {
 		position: relative;
+		grid-column: 2;
+		grid-row: 1 / -1;
 		display: flex;
 		justify-content: center;
 		height: 100%;
@@ -777,6 +875,8 @@
 	 * WHAT.
 	 * ------------------------------------------------------------------- */
 	.tl-content {
+		grid-column: 3;
+		grid-row: 1;
 		min-width: 0;
 	}
 
@@ -816,7 +916,7 @@
 		display: flex;
 		align-items: center;
 		gap: var(--space-2);
-		margin-top: var(--space-1);
+		margin-top: 2px;
 	}
 
 	.tl-carrier-name {
@@ -838,6 +938,8 @@
 	 * HOW MUCH.
 	 * ------------------------------------------------------------------- */
 	.tl-meta {
+		grid-column: 4;
+		grid-row: 1;
 		display: flex;
 		flex-direction: column;
 		align-items: flex-end;
@@ -868,15 +970,42 @@
 		color: var(--color-text-faint);
 	}
 
+	/* "2 flights", "3 options": the one visible sign that a row unfolds into a choice.
+	   Accent-coloured because it is the only text on the line that invites a click, and
+	   the chevron turns with the row so an open fold reads as open. */
+	.tl-options {
+		display: inline-flex;
+		align-items: center;
+		gap: 2px;
+		margin-left: var(--space-2);
+		font-size: var(--font-size-xs);
+		font-weight: var(--font-weight-medium);
+		color: var(--color-accent);
+		white-space: nowrap;
+	}
+
+	.tl-options-chevron {
+		width: 0.75rem;
+		height: 0.75rem;
+		transition: transform var(--transition-fast);
+	}
+
+	.tl-row.is-selected .tl-options-chevron {
+		transform: rotate(180deg);
+	}
+
 	/* ---------------------------------------------------------------------
 	 * Waiting-time editor (brief lines 39 & 69: editable inline).
 	 * ------------------------------------------------------------------- */
+	/* No wrapping: "Waiting at LGW" plus the stepper fits one line even at 375px, and
+	   letting the stepper drop under the label is what used to make these rows two
+	   stepper-heights tall on a phone. */
 	.tl-content-waiting {
 		display: flex;
-		flex-wrap: wrap;
+		flex-wrap: nowrap;
 		align-items: center;
 		justify-content: space-between;
-		gap: var(--space-2);
+		gap: var(--space-3);
 	}
 
 	.tl-waiting-editor {
@@ -943,19 +1072,40 @@
 
 	/* ---------------------------------------------------------------------
 	 * The stopover row: the emotional payload of the product, so it reads
-	 * as the good part rather than as one row among ten. Keeps the
-	 * torn-ticket dashes, loses the padding that made it three times the
-	 * height of everything around it.
+	 * as the good part rather than as one row among ten. The teal tint
+	 * and the torn-ticket dashes sit on the row itself now, not on a box
+	 * inside the WHAT column: that box paid for a padding ring and four
+	 * borders of its own, while the row already had a left edge and two
+	 * rules waiting to be coloured.
 	 * ------------------------------------------------------------------- */
 	.tl-row-stopover {
-		padding-block: var(--space-3);
+		background: var(--color-stopover-bg);
+		box-shadow: inset 3px 0 0 var(--color-stopover);
+		border-top: 1px dashed var(--color-stopover);
+		border-bottom: 1px dashed var(--color-stopover);
+	}
+
+	/* The row after it would otherwise lay its own solid rule over the dashed one. */
+	.tl-row-stopover + .tl-row {
+		border-top: none;
+	}
+
+	/* Stays teal when hovered or selected; only the edge bar changes colour to say
+	   "selected", since swapping the tint for the accent wash would lose the one row
+	   the whole product is about. */
+	.tl-row-stopover:hover,
+	.tl-row-stopover.is-selected {
+		background: var(--color-stopover-bg);
+	}
+
+	.tl-row-stopover.is-selected {
+		box-shadow: inset 3px 0 0 var(--color-accent);
 	}
 
 	.tl-stopover {
-		padding: var(--space-2) var(--space-3);
-		border: 1px dashed var(--color-stopover);
-		border-radius: var(--radius-md);
-		background: var(--color-stopover-bg);
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
 	}
 
 	.tl-stopover-nights {
@@ -976,6 +1126,40 @@
 	}
 
 	/* ---------------------------------------------------------------------
+	 * The expansion: the selected row's fifth child, under its four cells
+	 * and across all four columns, where ResultDetail unfolds that step's
+	 * picker (see the header comment).
+	 * ------------------------------------------------------------------- */
+	.tl-expansion {
+		grid-column: 1 / -1;
+		grid-row: 2;
+		margin-top: var(--space-2);
+		padding: var(--space-2) var(--space-3);
+		border-top: 1px dashed var(--color-border-strong);
+		border-radius: var(--radius-sm);
+		/* Its own ground, one step darker than the selected row: a picker marks its current
+		   pick with the same accent wash the selected row wears, so on the row's own tint
+		   that pick vanished. */
+		background: var(--color-bg-inset);
+		/* The rail's line is an absolutely positioned pseudo-element, so it paints in the
+		   positioned layer, above an in-flow box's background whatever the DOM order. The
+		   line runs through this box on purpose (.tl-rail spans the row's second track), and
+		   a 2px line crossing a picker's cards reads as a rendering fault, so this box is
+		   positioned too and stacked above it. Level 1 is what .tl-dot uses; the two never
+		   share a row area. */
+		position: relative;
+		z-index: 1;
+		cursor: default;
+	}
+
+	/* The caller's snippet renders nothing for a step with nothing to swap (a location, a
+	   waiting row), and Svelte leaves only comment anchors behind, which `:empty` ignores.
+	   Without this a selected "Start" row would open onto a dashed, padded box of air. */
+	.tl-expansion:empty {
+		display: none;
+	}
+
+	/* ---------------------------------------------------------------------
 	 * Totals. `MetricRail` draws them; this only places the block.
 	 * ------------------------------------------------------------------- */
 	:global(.itinerary-timeline-totals) {
@@ -985,20 +1169,17 @@
 	}
 
 	/* ---------------------------------------------------------------------
-	 * Narrow viewports: 3.5rem of clock column plus a rail plus a price
-	 * column leaves too little for the label under about 24rem, so the
-	 * clock column narrows and the meta column moves under the content.
-	 * ------------------------------------------------------------------- */
-	/* ---------------------------------------------------------------------
 	 * Narrow: four columns stop being a timetable and start being four
-	 * squeezed paragraphs. Below 34rem the row folds to rail plus content,
-	 * with the clocks as a single line above the label and the duration and
-	 * price as a single line below it. Same four children, same order, same
+	 * squeezed paragraphs. Below 34rem the row folds to two lines: the
+	 * clocks on one, then the content with the duration and price kept
+	 * beside it on the right, the way the wide layout has them. A third
+	 * line existed for the duration and price and cost every flight row a
+	 * line for two short figures. Same children, same order, same
 	 * `data-segment` contract, placed differently.
 	 * ------------------------------------------------------------------- */
 	@media (max-width: 34rem) {
 		.itinerary-timeline {
-			grid-template-columns: 0.875rem minmax(0, 1fr);
+			grid-template-columns: 0.875rem minmax(0, 1fr) auto;
 		}
 
 		.tl-row {
@@ -1011,13 +1192,8 @@
 			grid-row: 1 / -1;
 		}
 
-		.tl-when,
-		.tl-content,
-		.tl-meta {
-			grid-column: 2;
-		}
-
 		.tl-when {
+			grid-column: 2 / -1;
 			grid-row: 1;
 			flex-direction: row;
 			flex-wrap: wrap;
@@ -1027,10 +1203,25 @@
 			text-align: left;
 		}
 
+		/* One line per reading: a phone has the width for "08:00 Mon, 8 Mar UTC+1" but not
+		   the height for three lines of it twice per flight. `TimeCell`'s own class, hence
+		   :global. */
+		.tl-when :global(.time-cell) {
+			flex-direction: row;
+			align-items: baseline;
+			gap: var(--space-2);
+		}
+
+		/* Stacked, the order alone said which reading was the departure. Side by side it
+		   needs the arrow. */
+		.tl-when-pair :global(.time-cell + .time-cell)::before {
+			content: '→';
+			color: var(--color-text-faint);
+		}
+
 		/* `TimeCell` is told to hang off its right edge for the wide layout's right-aligned
 		   clock column. Laid out in a row it has to hang off the left instead, or the clock
-		   floats to the right of its own (wider) date line and reads as an indent. The
-		   component's own class, hence :global. */
+		   floats to the right of its own (wider) date line and reads as an indent. */
 		.tl-when :global(.time-cell-end),
 		.tl-when :global(.time-cell-end .time-cell-line),
 		.tl-when :global(.time-cell-end .time-cell-meta) {
@@ -1040,25 +1231,28 @@
 		}
 
 		/* Empty on the rows that carry no clock, and an empty flex box still takes its
-		   row's gap. Collapsing it keeps a waiting row two lines tall, not three. */
+		   row's gap. Collapsing it keeps a waiting row one line tall, not two. */
 		.tl-when:empty {
 			display: none;
 		}
 
 		.tl-content {
+			grid-column: 2;
 			grid-row: 2;
 		}
 
 		.tl-meta {
-			grid-row: 3;
-			flex-direction: row;
-			align-items: baseline;
-			justify-content: flex-start;
-			gap: var(--space-3);
+			grid-column: 3;
+			grid-row: 2;
 		}
 
 		.tl-meta:empty {
 			display: none;
+		}
+
+		.tl-expansion {
+			grid-column: 1 / -1;
+			grid-row: 3;
 		}
 	}
 </style>

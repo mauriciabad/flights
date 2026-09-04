@@ -8,6 +8,10 @@
 	 * that component does when a marker or line is clicked, so a test calling it is
 	 * checking the same "external write highlights the right row" path `ItineraryMap`
 	 * will exercise for real once issue #26 merges.
+	 *
+	 * `withExpansion` covers the second thing a `.ts` file cannot author: a snippet. It
+	 * hands the timeline a probe snippet and one option mark, so a test can check where
+	 * the expansion lands and that a click inside it leaves the selection alone.
 	 */
 	import type { Itinerary } from '../domain';
 	import type { ItinerarySegmentId } from '../itinerary-map/segment-id';
@@ -15,9 +19,10 @@
 
 	interface Props {
 		itinerary: Itinerary;
+		withExpansion?: boolean;
 	}
 
-	let { itinerary }: Props = $props();
+	let { itinerary, withExpansion = false }: Props = $props();
 
 	let selectedSegmentId = $state<ItinerarySegmentId | null>(null);
 
@@ -30,4 +35,13 @@
 	}
 </script>
 
-<ItineraryTimeline {itinerary} bind:selectedSegmentId />
+{#snippet probe(segment: ItinerarySegmentId)}
+	<button type="button" class="probe">probe {segment}</button>
+{/snippet}
+
+<ItineraryTimeline
+	{itinerary}
+	bind:selectedSegmentId
+	expansion={withExpansion ? probe : undefined}
+	optionMarks={withExpansion ? { 'outbound-flight': '2 flights' } : undefined}
+/>
