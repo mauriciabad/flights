@@ -76,12 +76,16 @@
 		gap: var(--space-3);
 	}
 
+	/* `--color-text-muted`, not `--color-text-faint`: app.css records the faint token as
+	   checked against `--color-bg` and `--color-surface`, and re-measuring it here put it
+	   at 4.19:1 on the dark palette's card surface, under WCAG AA. This is a field label,
+	   not decoration, and the totals bar it used to be (`.stat dt`) was muted too. */
 	.metric-label {
 		font-size: 0.625rem;
 		font-weight: var(--font-weight-medium);
 		text-transform: uppercase;
 		letter-spacing: var(--tracking-wide);
-		color: var(--color-text-faint);
+		color: var(--color-text-muted);
 		white-space: nowrap;
 	}
 
@@ -104,12 +108,21 @@
 
 	/* A caveat that is true at the same time as the number, never instead of it (issue
 	   #108). Its own line, small and warning-toned, so the figure stays the thing a glance
-	   reads while the qualifier is still there for anyone reading closer. */
+	   reads while the qualifier is still there for anyone reading closer.
+
+	   The warning-tinted background is not decoration: `--color-warning` on this app's
+	   light card surfaces measures 4.45:1, just under WCAG AA, which is the same finding
+	   the note this replaces recorded. Against its own tint it is 4.51:1 light and 8.31:1
+	   dark, and that pairing holds whatever surface the rail lands on. */
 	.metric-note {
-		display: block;
+		display: inline-block;
+		margin-top: 2px;
+		padding: 0 var(--space-1);
+		border-radius: var(--radius-sm);
+		background: var(--color-warning-bg);
 		font-family: var(--font-sans);
 		font-size: var(--font-size-xs);
-		font-weight: var(--font-weight-regular);
+		font-weight: var(--font-weight-medium);
 		color: var(--color-warning);
 	}
 

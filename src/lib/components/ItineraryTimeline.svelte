@@ -886,11 +886,12 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		/* 44px minimum touch target, matching Button.svelte's own md size: WCAG 2.5.5, and
-		   this app is meant to be used one-handed. The row around it is dense; the control
-		   inside it is not, which is the correct place to spend the pixels. */
+		/* 44px square, matching Button.svelte's own md size: WCAG 2.5.5, and this app is
+		   meant to be used one-handed. The row around it is dense; the control inside it is
+		   not, which is the correct place to spend the pixels. Shrinking the height to
+		   36px did save two rows a few pixels each and it was the wrong trade. */
 		width: 2.75rem;
-		height: 2.25rem;
+		height: 2.75rem;
 		flex-shrink: 0;
 		border: 1px solid var(--color-border-strong);
 		border-radius: var(--radius-md);
@@ -922,7 +923,7 @@
 
 	.tl-stepper-input {
 		width: 3.25rem;
-		height: 2.25rem;
+		height: 2.75rem;
 		padding: 0 var(--space-1);
 		border: 1px solid var(--color-border-strong);
 		border-radius: var(--radius-md);

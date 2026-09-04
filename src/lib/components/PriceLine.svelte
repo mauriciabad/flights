@@ -95,12 +95,21 @@
 	}
 
 	.price-part-label {
-		color: var(--color-text-faint);
+		color: var(--color-text-muted);
 	}
 
 	.price-part-amount {
 		font-weight: var(--font-weight-medium);
 		color: var(--color-text-muted);
+	}
+
+	/* Tinted for the same reason `MetricRail`'s caveat is: `--color-warning` measures
+	   4.45:1 on this app's light card surfaces, under AA, and 4.51:1 against its own
+	   tint. */
+	.price-part-missing {
+		padding: 0 var(--space-1);
+		border-radius: var(--radius-sm);
+		background: var(--color-warning-bg);
 	}
 
 	.price-part-missing .price-part-label,
