@@ -60,4 +60,8 @@ pnpm dev
 
 ## Licence
 
-MIT
+MIT.
+
+The country flags in `static/flags/` are [circle-flags](https://github.com/HatScripts/circle-flags)
+by HatScripts, MIT, vendored by `pnpm run data:flags` for the 234 countries this app has an
+airport in. Its licence sits beside the copies at `static/flags/LICENSE.md`.
