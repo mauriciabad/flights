@@ -221,6 +221,27 @@ export function buildLocalDateTime(localIso: string, timeZone: string): LocalDat
 }
 
 /**
+ * Real elapsed minutes between two `LocalDateTime`s, each read back through its own stored
+ * offset — never by subtracting the two wall-clock strings, which is how an overnight gap
+ * loses an hour (AGENTS.md, "Timezones").
+ *
+ * `algorithm/build.ts` exports `minutesBetween`, which is this same arithmetic. This is a
+ * local copy for the reason `providers/stays/hostelworld-mapper.ts` keeps its own
+ * `nightsBetweenDates` and `agoda-geo.ts` its own haversine: that module sits a layer above
+ * providers in this app's dependency direction, and a mapper importing upwards for one
+ * subtraction would be a layering violation. Kept here rather than inside one mapper so the
+ * next flight adapter that needs it finds it beside `buildLocalDateTime`, instead of
+ * writing a third copy.
+ *
+ * Issue #210 needs it for the minutes an aircraft spends parked at a technical stop.
+ */
+export function elapsedMinutes(from: LocalDateTime, to: LocalDateTime): number {
+	const toEpochMs = (value: LocalDateTime) =>
+		Date.parse(`${value.local}Z`) - value.utcOffsetMinutes * 60_000;
+	return Math.round((toEpochMs(to) - toEpochMs(from)) / 60_000);
+}
+
+/**
  * Builds a domain `LocalDateTime` for `iataCode` by looking its zone up in `timeZones`
  * (every code this response's offers can reference, pre-resolved once per `searchOffers`
  * call — see skyscanner.ts), or `undefined` if that airport's zone could not be resolved.

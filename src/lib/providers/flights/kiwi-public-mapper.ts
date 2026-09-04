@@ -15,7 +15,8 @@ import type {
 	Duration,
 	FlightOffer,
 	IataAirportCode,
-	IsoCalendarDate
+	IsoCalendarDate,
+	TechnicalStop
 } from '../../domain';
 import { moneyFromDecimalString } from '../../domain';
 // buildLocalDateTime is the codebase's existing wall-clock-plus-IANA-zone-to-offset
@@ -23,7 +24,7 @@ import { moneyFromDecimalString } from '../../domain';
 // Skyscanner-prefixed name for historical reasons but is a pure, provider-agnostic helper,
 // and re-implementing the same arithmetic here would be a second place to get a DST
 // boundary wrong.
-import { buildLocalDateTime } from './airport-timezone';
+import { buildLocalDateTime, elapsedMinutes } from './airport-timezone';
 import type {
 	KiwiPublicItinerary,
 	KiwiPublicItinerariesResult,
@@ -107,33 +108,136 @@ export function buildKiwiDeepLink(
 	return `https://www.kiwi.com/en/search/results/${encodeURIComponent(origin)}/${encodeURIComponent(destination)}/${encodeURIComponent(departureDate)}`;
 }
 
-/** The one segment of a direct itinerary, or `undefined` when the itinerary has any other
- * number of them. A `FlightOffer` is one flight; an itinerary Kiwi returned with two legs
- * despite `maxStopsCount: 0` is not one, and flattening it would invent a flight nobody
- * sells — the highest-severity bug this repo names (docs/ACCEPTANCE.md, "Never ship a
- * flight that does not exist"). */
-function soleSegmentOf(itinerary: KiwiPublicItinerary): KiwiPublicSegment | undefined {
-	const segments = itinerary?.sector?.sectorSegments;
-	if (!Array.isArray(segments) || segments.length !== 1) return undefined;
-	const segment = segments[0]?.segment;
-	return isObjectLike(segment) ? segment : undefined;
+/**
+ * True when the passenger stays on the aircraft between `before` and `after` — i.e. the two
+ * are the same flight and the airport between them is a technical stop, not a connection.
+ * Issue #210.
+ *
+ * Both available signals must agree, and that is deliberately stricter than either alone:
+ *
+ * - **Kiwi's own `followingTechnicalStop`** is the primary signal, and it is a real field on
+ *   `Segment` rather than an inference (introspected 2026-09-04; `kiwi-public-types.ts`
+ *   records how its direction was established from a live response). When it is present and
+ *   `false`, that is Kiwi saying "you change planes here", and this returns false even if
+ *   the flight numbers match — an airline can sell one flight NUMBER across a change of
+ *   aircraft, which IATA calls a direct flight and a traveller calls carrying their bag to
+ *   another gate.
+ * - **The same-carrier-same-number rule** is what "one flight" means, and it is the fallback
+ *   for when the field is absent, since an undocumented endpoint is free to drop it. It also
+ *   guards the other direction: without it, a `true` across two different flight numbers
+ *   would let one offer print a flight number that covers only half of itself.
+ *
+ * Absence is never read as `true`. A stop this cannot positively confirm is treated as a
+ * plane change, which loses a route at worst; the opposite error offers a traveller a city
+ * they cannot legally enter, which docs/ACCEPTANCE.md ranks above every feature.
+ */
+function isTechnicalStopBetween(before: KiwiPublicSegment, after: KiwiPublicSegment): boolean {
+	// The stop physically has to be one place: whatever the flags say, an itinerary that
+	// lands at one airport and departs from another is a transfer somebody has to make.
+	const arrivalAirport = before.destination?.station?.code;
+	const departureAirport = after.source?.station?.code;
+	if (!isNonEmptyString(arrivalAirport) || arrivalAirport !== departureAirport) return false;
+
+	const sameFlight =
+		isNonEmptyString(before.code) &&
+		before.code === after.code &&
+		isNonEmptyString(before.carrier?.code) &&
+		before.carrier?.code === after.carrier?.code;
+	if (!sameFlight) return false;
+
+	return typeof before.followingTechnicalStop === 'boolean' ? before.followingTechnicalStop : true;
 }
 
 /**
- * Maps one direct itinerary to a `FlightOffer`, or `undefined` when any field this needs is
- * missing, mistyped, or dishonest to guess at. Deliberately strict about the four things a
- * wrong value would corrupt silently rather than visibly: the price, the two timezones, the
- * flight number (which crosscheck.ts matches offers across providers on) and the segment
- * count.
+ * The segments of an itinerary that is ONE flight the traveller boards once — a single
+ * segment, or several joined only by technical stops — or `undefined` for anything else.
+ *
+ * The `undefined` branch is the one that matters. Kiwi is now asked for itineraries with up
+ * to one stop (`kiwi-public-queries.ts` explains why), so genuine two-flight connections do
+ * arrive here and every one of them must be refused: this app builds its own connections so
+ * it can put a night in the middle, and collapsing somebody else's would either invent a
+ * flight nobody sells or reprice two legs as one — the highest-severity bug this repo names
+ * (docs/ACCEPTANCE.md, "Never ship a flight that does not exist").
+ */
+function singleFlightSegmentsOf(itinerary: KiwiPublicItinerary): KiwiPublicSegment[] | undefined {
+	const sectorSegments = itinerary?.sector?.sectorSegments;
+	if (!Array.isArray(sectorSegments) || sectorSegments.length === 0) return undefined;
+
+	const segments: KiwiPublicSegment[] = [];
+	for (const sectorSegment of sectorSegments) {
+		const segment = sectorSegment?.segment;
+		if (!isObjectLike(segment)) return undefined;
+		segments.push(segment);
+	}
+
+	for (let index = 1; index < segments.length; index += 1) {
+		if (!isTechnicalStopBetween(segments[index - 1], segments[index])) return undefined;
+	}
+	return segments;
+}
+
+/**
+ * The touchdowns between the first segment's departure and the last one's arrival, or
+ * `undefined` when any of them cannot be timed honestly.
+ *
+ * Ground time is real elapsed time between two `LocalDateTime`s, never a subtraction of the
+ * two wall-clock strings: a stop that lands at 23:50 and leaves at 00:40 crosses a date on
+ * the airport clock, and treating a local reading as an instant is the bug AGENTS.md's
+ * "Timezones" section exists to prevent. Both ends are the same airport so they share an
+ * offset in practice, but nothing here depends on that being true.
+ */
+function technicalStopsBetween(segments: KiwiPublicSegment[]): TechnicalStop[] | undefined {
+	const stops: TechnicalStop[] = [];
+	for (let index = 1; index < segments.length; index += 1) {
+		const arriving = segments[index - 1].destination;
+		const leaving = segments[index].source;
+		const airport = arriving?.station?.code;
+		const timeZone = arriving?.station?.timezone;
+		// `isTechnicalStopBetween` already proved both segments name the same airport, so
+		// one zone is enough. A missing one is fatal here for the same reason it is fatal
+		// on the two endpoints: a wrong offset is a wrong itinerary rather than no
+		// itinerary.
+		if (!isNonEmptyString(airport) || !isNonEmptyString(timeZone)) return undefined;
+		if (!isParsableLocalIsoString(arriving?.localTime)) return undefined;
+		if (!isParsableLocalIsoString(leaving?.localTime)) return undefined;
+
+		const arrival = buildLocalDateTime(arriving.localTime, timeZone);
+		const departure = buildLocalDateTime(leaving.localTime, timeZone);
+		const groundTime = elapsedMinutes(arrival, departure);
+		// A stop that leaves before it lands is a response this adapter does not
+		// understand, and a negative ground time would shorten the trip's door-to-door
+		// figure rather than lengthen it.
+		if (groundTime <= 0) return undefined;
+
+		stops.push({ airport, arrival, departure, groundTime: groundTime as Duration });
+	}
+	return stops;
+}
+
+/**
+ * Maps one single-flight itinerary to a `FlightOffer`, or `undefined` when any field this
+ * needs is missing, mistyped, or dishonest to guess at. Deliberately strict about the five
+ * things a wrong value would corrupt silently rather than visibly: the price, the two
+ * timezones, the flight number (which crosscheck.ts matches offers across providers on),
+ * whether the segments really are one flight, and the timing of any stop in between.
  */
 export function mapItineraryToFlightOffer(itinerary: KiwiPublicItinerary): FlightOffer | undefined {
 	if (!isObjectLike(itinerary)) return undefined;
 
-	const segment = soleSegmentOf(itinerary);
-	if (!segment) return undefined;
+	const segments = singleFlightSegmentsOf(itinerary);
+	if (!segments) return undefined;
+
+	// One flight, so its identity, price and baggage come from the first segment while its
+	// arrival comes from the last. Issue #210: for a nonstop these are the same segment and
+	// everything below behaves exactly as it did before.
+	const segment = segments[0];
+	const lastSegment = segments[segments.length - 1];
+
+	const technicalStops = technicalStopsBetween(segments);
+	if (!technicalStops) return undefined;
 
 	const source = segment.source;
-	const destination = segment.destination;
+	const destination = lastSegment.destination;
 	if (!isObjectLike(source) || !isObjectLike(destination)) return undefined;
 
 	const departureAirport = source.station?.code;
@@ -167,8 +271,25 @@ export function mapItineraryToFlightOffer(itinerary: KiwiPublicItinerary): Fligh
 	const price = moneyFromDecimalString(itinerary.price?.amount, itinerary.price?.currency?.code);
 	if (!price) return undefined;
 
-	const duration = parseKiwiDurationMinutes(segment.duration);
-	if (duration === undefined) return undefined;
+	// Gate to gate: every segment's airborne time plus every minute parked in between.
+	//
+	// Built from the parts rather than by subtracting the two endpoints, so the strict
+	// per-segment validation above still applies to each one and a nonstop offer's duration
+	// is byte-identical to what this mapper produced before issue #210. It agrees with
+	// Kiwi's own itinerary total where that was checked: Neos NO4864 reports 25800s, and
+	// 30min BVC-SID + 60min on the ground at Sal + 340min SID-FCO is 430min = 25800s.
+	//
+	// The ground time belongs in here and nowhere else. `algorithm/build.ts` adds the two
+	// legs' durations to reach door-to-door, and it computes free time from this offer's
+	// `arrival` — so an hour left out would shorten the trip, and an hour counted as
+	// layover would offer the traveller a stopover inside an airport they cannot leave.
+	let duration = 0;
+	for (const each of segments) {
+		const segmentDuration = parseKiwiDurationMinutes(each.duration);
+		if (segmentDuration === undefined) return undefined;
+		duration += segmentDuration;
+	}
+	for (const stop of technicalStops) duration += stop.groundTime;
 
 	const carrier: Carrier = {
 		iataCode: carrierCode,
@@ -182,13 +303,16 @@ export function mapItineraryToFlightOffer(itinerary: KiwiPublicItinerary): Fligh
 		arrivalAirport,
 		departure: buildLocalDateTime(source.localTime, departureTimeZone),
 		arrival: buildLocalDateTime(destination.localTime, arrivalTimeZone),
-		duration,
+		duration: duration as Duration,
 		price,
 		// Always one adult's fare, by construction — kiwi-public-queries.ts sends
 		// `adults: 1` regardless of the real party size precisely so this is a fact rather
 		// than an assumption (issue #109).
 		priceScope: 'per-person',
 		baggage: parseBaggage(itinerary.bagsInfo),
+		// Omitted rather than set to `[]` on a nonstop, so a consumer that forgets to check
+		// reads `undefined` (falsy, no stops) instead of an empty array (truthy object).
+		...(technicalStops.length > 0 ? { technicalStops } : {}),
 		deepLink: buildKiwiDeepLink(departureAirport, arrivalAirport, source.localTime.slice(0, 10))
 	};
 }

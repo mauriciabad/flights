@@ -75,6 +75,7 @@
 	} from './itinerary-timeline-format';
 	import type { UnroutedLeg } from './itinerary-timeline-format';
 	import { ALL_METRIC_IDS } from './itinerary-metrics';
+	import { technicalStopDetail } from './technical-stop-note';
 	import AirlineLogo from './AirlineLogo.svelte';
 	import MetricRail from './MetricRail.svelte';
 	import TimeCell from './TimeCell.svelte';
@@ -552,6 +553,7 @@
 	departureReference: LocalDateTime | undefined,
 	arrivalReference: LocalDateTime
 )}
+	{@const technicalStops = technicalStopDetail(flight)}
 	<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 	<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 	<li
@@ -585,6 +587,13 @@
 					>{#if flight.aircraft}&nbsp;&middot; {flight.aircraft}{/if}</span
 				>
 			</p>
+			<!-- Issue #210: this row's two airport codes and one duration would otherwise
+			     read as a nonstop, and the duration silently includes the time parked at
+			     the stop. Saying so is the whole point — a traveller who is not told is
+			     surprised on the ground somewhere they cannot leave. -->
+			{#if technicalStops}
+				<p class="tl-technical-stop">{technicalStops}</p>
+			{/if}
 		</div>
 		<div class="tl-meta">
 			<span class="tl-duration font-mono tabular-nums">{formatDuration(flight.duration)}</span>
@@ -928,6 +937,14 @@
 
 	.tl-carrier-name {
 		font-size: var(--font-size-xs);
+		color: var(--color-text-muted);
+	}
+
+	.tl-technical-stop {
+		margin-top: var(--space-1);
+		font-size: var(--font-size-xs);
+		/* Muted, not faint: this one corrects what the row above it appears to say, so it
+		   has to survive the greyed-out treatment a deprioritised airline gets. */
 		color: var(--color-text-muted);
 	}
 

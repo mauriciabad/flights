@@ -46,6 +46,23 @@ export interface KiwiPublicSegment {
 	carrier?: KiwiPublicCarrier;
 	source?: KiwiPublicStop;
 	destination?: KiwiPublicStop;
+	/**
+	 * Kiwi's own answer to "does the passenger stay on the plane after this segment", and
+	 * the reason issue #210 did not have to settle for guessing from flight numbers.
+	 *
+	 * Found by introspecting the live schema on 2026-09-04 (`__type(name: "Segment")`),
+	 * where it is declared `followingTechnicalStop: Boolean` with no description. The name
+	 * reads either way, so the semantics were taken from a real response rather than from
+	 * the name: on Neos NO4864 BVC→SID→FCO the FIRST segment (BVC→SID) carries `true` and
+	 * the second (SID→FCO) carries `false`. So it describes the stop that FOLLOWS this
+	 * segment, and the last segment of an itinerary is always `false` because nothing
+	 * follows it.
+	 *
+	 * Undocumented like everything else here, hence optional: `kiwi-public-mapper.ts` falls
+	 * back to the carrier-plus-flight-number rule when it is absent, and never treats
+	 * absence as `true`.
+	 */
+	followingTechnicalStop?: boolean;
 }
 
 export interface KiwiPublicSectorSegment {
