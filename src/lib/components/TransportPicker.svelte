@@ -39,7 +39,8 @@
 		formatMoneyRange,
 		formatTimeDelta,
 		isDifferentCalendarDate,
-		transferModeLabel
+		transferModeLabel,
+		unpricedTransferNote
 	} from './itinerary-timeline-format';
 	import Chip from './Chip.svelte';
 
@@ -250,7 +251,9 @@
 					{:else if row.transfer.price}
 						{formatMoney(row.transfer.price)}
 					{:else}
-						<span class="price-unknown">Price not available</span>
+						<!-- Issue #119: a walk says "No fare", which is a fact about walking, not
+						     a gap in what a provider told us. See unpricedTransferNote. -->
+						<span class="price-unknown">{unpricedTransferNote(row.transfer.mode)}</span>
 					{/if}
 				</span>
 				<span class="row-delta">

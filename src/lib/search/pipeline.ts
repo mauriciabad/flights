@@ -458,6 +458,9 @@ async function processCandidate(input: ProcessCandidateInput): Promise<Candidate
 			connectionCoordinates: connectionAirport.coordinates,
 			connectionAirportSize: connectionAirport.sizeClass,
 			connectionCountryCode: connectionAirport.country.isoCode,
+			// Issue #161: `undefined` for every airport without a hand-checked city point
+			// (issue #162), which leaves the two in-city legs exactly as empty as before.
+			connectionCityCentre: connectionAirport.city.coordinates,
 			stayProviders: input.stayProviders,
 			transferProviders: input.transferProviders,
 			keys: input.keys,

@@ -354,7 +354,11 @@ describe('buildItineraryMapModel: a route that crosses the antimeridian', () => 
 			destinationAirport: losAngeles,
 			stay: {
 				...stay,
-				property: { ...stay.property, coordinates: honolulu.city.coordinates }
+				// Downtown Honolulu, the same point `honolulu.city.coordinates` carries above.
+				// Written out rather than read off it because `City.coordinates` is optional
+				// now (issue #162: most airports have no city point at all), and this fixture
+				// needs a definite one.
+				property: { ...stay.property, coordinates: { latitude: 21.3069, longitude: -157.8583 } }
 			}
 		};
 	}

@@ -29,9 +29,13 @@
 	const total = $derived(cheapest ? stayTotalForNights(cheapest.stay.pricePerNight, nights) : undefined);
 
 	const distanceToAirportKm = $derived(haversineDistanceKm(property.coordinates, connectionAirport.coordinates));
-	const distanceToCentreKm = $derived(
-		haversineDistanceKm(property.coordinates, connectionAirport.city.coordinates)
-	);
+	// Issue #162, same fix as StayPicker's own: no hand-checked city point, no second
+	// figure. Both were measured against the airport before, so this row read
+	// "6.0 km from airport · 6.0 km from centre" for every property in the list.
+	const distanceToCentreKm = $derived.by(() => {
+		const centre = connectionAirport.city.coordinates;
+		return centre ? haversineDistanceKm(property.coordinates, centre) : undefined;
+	});
 
 	// Every ineligible option here is a female-only dorm this group can't (fully) use
 	// (rank.ts's `isOptionSelectable`) - reusing that message rather than a generic "not
@@ -73,7 +77,9 @@
 				<span class="alt-card-rating">{property.rating.toFixed(1)} rating</span>
 			{/if}
 			<span>{formatDistanceKm(distanceToAirportKm)} from airport</span>
-			<span>{formatDistanceKm(distanceToCentreKm)} from centre</span>
+			{#if distanceToCentreKm !== undefined}
+				<span>{formatDistanceKm(distanceToCentreKm)} from centre</span>
+			{/if}
 		</span>
 		{#if unavailableReason}
 			<span class="alt-card-unavailable">{unavailableReason}</span>

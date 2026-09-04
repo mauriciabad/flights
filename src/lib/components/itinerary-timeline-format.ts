@@ -40,6 +40,26 @@ export function transferModeLabel(mode: TransferMode): string {
 }
 
 /**
+ * What a transfer row prints where a price would go, when no provider quoted one.
+ *
+ * Issue #119, the owner on a walking option: **"and price of walk is 0€..."**. That zero
+ * is long gone from this codebase — no `TransferProvider` sets `Transfer.price` at all, so
+ * every row already fell through to a "not available" note — but the note itself still put
+ * walking and a bus in the same bucket. They are not the same fact. Walking has no fare:
+ * that is something this app knows, and it is the reason walking is worth offering. A bus
+ * with no price is a gap in what Transitous told us. Printing one sentence for both makes
+ * the known fact look like the missing one, which is the same collapse the €0 made in the
+ * other direction.
+ *
+ * `compact` is the timeline's own price column, which sits under real money on a 375px
+ * screen and cannot take a full sentence. The picker gives the note a row to itself.
+ */
+export function unpricedTransferNote(mode: TransferMode, compact = false): string {
+	if (mode === 'walk') return compact ? 'no fare' : 'No fare';
+	return compact ? 'price n/a' : 'Price not available';
+}
+
+/**
  * Which unrouted leg a timeline row is describing. The two connection-side legs are named
  * separately because they are the same missing hotel seen from opposite ends, and a row
  * that reads "nowhere to travel to" above the stopover and "nowhere to travel back from"
@@ -69,8 +89,12 @@ export type UnroutedLeg =
  *   step in a fixed order, so a row that vanishes for one itinerary and not another makes
  *   two trips harder to read against each other. Saying why it is empty is the fix,
  *   deleting it is not.
- * - Nights but no priced stay means there is no address at either end, so nothing was
- *   looked up.
+ * - Nights but no priced stay used to mean there was no address at either end, so nothing
+ *   was looked up. Issue #161 gave these two legs a second possible destination — the
+ *   connection city's own centre, routed whenever `data/airport-city-names.ts` has a
+ *   hand-checked point for it — so reaching this function with no stay now means neither
+ *   destination was available, and the sentence says both halves rather than blaming the
+ *   bed alone.
  * - The outer legs are gated on the query carrying an origin or destination location
  *   instead, and their rows only render when it does. Reaching this function there means
  *   the providers were asked and came back with nothing.
@@ -88,9 +112,13 @@ export function unroutedLegNote(
 			return 'Same-day connection, so there is no hotel leg here.';
 		}
 		if (!context.hasStay) {
+			// States what this itinerary has, not why. Both halves are readable straight off
+			// it — no bed, and no city-centre route either — and neither claims a cause the
+			// row cannot see. A stopover whose airport does have a checked city point gets a
+			// routed leg instead of this sentence.
 			return leg === 'to-hotel'
-				? 'No bed priced for this stopover, so there is nowhere to travel to.'
-				: 'No bed priced for this stopover, so there is nowhere to travel back from.';
+				? 'No bed priced for this stopover, and nothing routed into the city either.'
+				: 'No bed priced for this stopover, and nothing routed back from the city either.';
 		}
 	}
 	return 'No route came back from the transport providers for this leg.';

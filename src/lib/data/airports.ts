@@ -12,7 +12,7 @@
  */
 
 import type { Airport, AirportSizeClass, City, Coordinates, Country } from '$lib/domain';
-import { citySearchAliases, displayCityName } from './airport-city-names';
+import { citySearchAliases, cityCentreOf, displayCityName } from './airport-city-names';
 
 /**
  * One row of the generated dataset: OurAirports filtered to airports with an IATA code
@@ -189,11 +189,13 @@ function toAirport(row: AirportDatasetRow): Airport {
 		// sits in. `airport-city-names.ts` is the one place that decides this, and the
 		// search index below draws its alternates from the same module.
 		name: displayCityName(row.iataCode, row.city),
-		// OurAirports has no separate city geometry, only the airport's. That is close
-		// enough for this app's proximity checks (e.g. "hotels within 100km" in the
-		// brief), which already operate at city/airport granularity rather than needing
-		// a precise city-centre point.
-		coordinates,
+		// Issue #162: this was `coordinates` — the airport's own point, handed over as if
+		// it were the city's. It read fine as long as nothing measured against it, and
+		// two stay cards did, printing "6.0 km from the airport" directly above "6.0 km
+		// from the city centre" for the same hotel. `cityCentreOf` answers `undefined`
+		// for every airport nobody has hand-checked a centre for, and the readers drop
+		// the line rather than restate the airport distance under a second label.
+		coordinates: cityCentreOf(row.iataCode),
 		country
 	};
 

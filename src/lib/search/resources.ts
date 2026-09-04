@@ -53,7 +53,7 @@ import type {
 	Transfer,
 	TransferMode
 } from '../domain';
-import type { ConnectionResources } from '../algorithm/build';
+import type { ConnectionResources, TransferAnchor } from '../algorithm/build';
 import { femaleDormFit, isFemaleDormSelectable } from '../stays/female-dorm-fit';
 import { getTaxiFareEstimate, OSRM_PROVIDER_ID } from '../providers/transfers/osrm';
 import type { TaxiFareEstimate } from '../providers/transfers/taxi-rate-table';
@@ -105,8 +105,48 @@ function isStaySelectable(stay: Stay, travellers: number | undefined, females: n
  * then walking (free, always available if the distance allows it), then paid options. */
 const TRANSFER_MODE_PREFERENCE: readonly TransferMode[] = ['transit', 'walk', 'taxi', 'drive'];
 
+/**
+ * Issue #119, the owner's own words: **"'Walk 11h 42m' WTF dont even show this, walk is
+ * not an option in this case."** He was right, and nothing here had ever asked whether a
+ * walking duration was plausible before ranking it — `TRANSFER_MODE_PREFERENCE` above puts
+ * walking second, so an eleven-hour walk beat a taxi that took forty minutes.
+ *
+ * 45 minutes, and the number is arguable, so here is the argument. OSRM's foot profile
+ * runs about 4.5 km/h (measured directly, see `providers/transfers/osrm.ts`'s header), so
+ * this is roughly 3.4 km — a walk somebody who has just dragged a suitcase off a flight
+ * might still choose, and past which they will not. It also has to leave the short walks
+ * alone, because a 12-minute walk genuinely beats waiting for a bus, and this cap does:
+ * `TransportPicker` already treats a wait under 20 minutes as one you would have had
+ * anyway, so a typical airport hop of "wait 20, ride 15" is 35 minutes end to end and any
+ * walk that beats it survives this filter with room to spare.
+ *
+ * A single named constant rather than a `SearchQuery` field, deliberately. The brief's
+ * editable waiting time is a preference this app has no grounds to overrule. A twelve-hour
+ * walk is not a preference — it is the router answering a question nobody asked, and the
+ * leg degrades to "no transfer found", which every caller here already handles.
+ *
+ * Driving and taxi are left uncapped on purpose. Issue #119 says the same reasoning
+ * applies to an absurd driving duration and it does, but a road cap needs its own argument
+ * about ferry links and routing artefacts, and it belongs with the rest of that issue.
+ */
+export const MAX_PLAUSIBLE_WALK_MINUTES = 45 as Duration;
+
+/**
+ * Whether this transfer is worth putting in front of a traveller at all.
+ *
+ * Applied to a provider's own answer, before `applyLandingBuffer` runs, and never after —
+ * that buffer is the time it takes to get out of the terminal, not time spent walking, so
+ * measuring a padded duration against a walking cap would drop a 40-minute walk for the
+ * sin of following a landing at a large airport.
+ */
+export function isPlausibleTransfer(transfer: Transfer): boolean {
+	return transfer.mode !== 'walk' || transfer.duration <= MAX_PLAUSIBLE_WALK_MINUTES;
+}
+
 /** Picks one `Transfer` to represent an A-to-B leg out of everything usable providers
- * returned, by mode preference and then by shortest duration within the same mode. */
+ * returned, by mode preference and then by shortest duration within the same mode. Pure
+ * ranking: `fetchBestTransfer` has already dropped whatever `isPlausibleTransfer` rejects,
+ * and this runs on landing-buffered lists too, where re-applying that cap would be wrong. */
 export function pickBestTransfer(transfers: readonly Transfer[]): Transfer | undefined {
 	if (transfers.length === 0) return undefined;
 	return [...transfers].sort((a, b) => {
@@ -171,8 +211,11 @@ export function applyLandingBuffer(transfer: Transfer, buffer: Duration, sources
  * `candidates` is every `Transfer` any usable provider returned for this A-to-B (walk,
  * transit, drive, taxi — whatever the providers queried actually cover), which is exactly
  * what a `TransportPicker` needs as its `alternatives`; `pickBestTransfer(candidates)` is
- * still `build.ts`'s own single pick, unchanged. Unlike stays, there is no eligibility filter
- * to apply here — every transfer found is equally offerable to the traveller.
+ * still `build.ts`'s own single pick, unchanged.
+ *
+ * This used to say "there is no eligibility filter to apply here — every transfer found is
+ * equally offerable to the traveller", which held right up until OSRM answered an airport
+ * run with an 11h 42m walk (issue #119). `candidates` is what `isPlausibleTransfer` left.
  */
 export interface TransferSearchOutcome {
 	candidates: Transfer[];
@@ -228,7 +271,13 @@ export async function fetchBestTransfer(
 			return result;
 		})
 	);
-	const candidates = results.flatMap((result) => (result.ok ? result.data : []));
+	// Issue #119: filtered here, at the one place a provider's raw answer becomes this
+	// app's candidate list, so an implausible walk is gone from `TransportPicker`'s
+	// alternatives too and not merely passed over by `pickBestTransfer`. The issue's own
+	// wording is "dont even show this", and a row a traveller can still click is showing it.
+	const candidates = results
+		.flatMap((result) => (result.ok ? result.data : []))
+		.filter(isPlausibleTransfer);
 	return { candidates, selected: pickBestTransfer(candidates), results };
 }
 
@@ -360,6 +409,22 @@ export interface FetchConnectionResourcesInput {
 	 * connection, never a guess borrowed from the wrong country's rate card. */
 	connectionCountryCode?: IsoCountryCode;
 	/**
+	 * Issue #161: where the two connection-side legs run to when no bed is priced —
+	 * `Airport.city.coordinates`, which is a hand-checked city point or nothing
+	 * (`data/airport-city-names.ts`, issue #162).
+	 *
+	 * With no key for a stay provider this pipeline used to return before requesting a
+	 * single transfer, so a first-run search made zero OSRM and zero Transitous calls for
+	 * the stopover even though both are free and keyless, and the detail view carried two
+	 * rows saying nothing. Routing airport to city centre instead is the whole pitch of the
+	 * app: "six free days in Bergamo" is worth much less without "and the old town is ten
+	 * minutes from the runway".
+	 *
+	 * `undefined` (the normal case — only a handful of airports have a checked centre) puts
+	 * this back exactly where it was: no destination, no request, no row.
+	 */
+	connectionCityCentre?: Coordinates;
+	/**
 	 * Issue #152: the currency every provider in this search is asked to quote in
 	 * (`SearchDependencies.currency`). Threading it here is the actual fix for "No bed
 	 * priced for this stopover" — it never reached the stay query before, so Agoda was
@@ -418,14 +483,14 @@ export interface ConnectionResourcesWithStayCandidates extends ConnectionResourc
 	transferToConnectionAirportTaxiFareEstimate?: TaxiFareEstimate;
 }
 
-/** The "no bed for this connection" outcome shared by both early-outs below — no stay
- * provider found one this party can book, or one was found but no transfer can reach it.
- * Both are the same "no usable stay" fact from a caller's point of view (issue #94): a
- * degraded connection, never a dropped one, and never a stay-shaped hole papered over with
- * a guess. */
-function withoutStay(stayCandidates: Stay[]): ConnectionResourcesWithStayCandidates {
+/** The "nothing to travel to" outcome shared by the early-outs below — no bed this party
+ * can book AND no city point to route to instead (issue #161), or a destination that no
+ * transfer provider could reach. A degraded connection, never a dropped one (issue #94),
+ * and never a stay-shaped hole papered over with a guess. */
+function withoutTransfers(stayCandidates: Stay[]): ConnectionResourcesWithStayCandidates {
 	return {
 		stay: undefined,
+		transferAnchor: undefined,
 		transferToHotel: undefined,
 		transferToConnectionAirport: undefined,
 		stayCandidates,
@@ -460,14 +525,23 @@ export async function fetchConnectionResources(
 		input.females,
 		input.stayLookupBudget
 	);
-	if (!stay) return withoutStay(stayCandidates);
+	// Issue #161: a bed is the best destination for these two legs, and it is not the only
+	// one. With no stay priced — the default state of a first-run search, since both stay
+	// adapters need a key and neither transfer provider does — the city centre is a real
+	// place to route to, and "the old town is a ten-minute bus from the runway" is the fact
+	// the whole stopover pitch rests on. `connectionCityCentre` is `undefined` for every
+	// airport without a hand-checked centre (issue #162), and then there is genuinely
+	// nowhere to go, which is where this returns empty exactly as it did before.
+	const destination = stay?.property.coordinates ?? input.connectionCityCentre;
+	if (!destination) return withoutTransfers(stayCandidates);
+	const transferAnchor: TransferAnchor = stay ? 'stay' : 'city-centre';
 
 	const [transferToHotelOutcome, transferToConnectionAirportOutcome] = await Promise.all([
 		// Roads only: this runs before any flight for this candidate has resolved, so there
 		// is no journey moment to plan a timetable for. `search/transit-schedule.ts` asks
 		// about public transport once there is (issue #135).
 		fetchBestTransfer(
-			{ from: input.connectionCoordinates, to: stay.property.coordinates, modes: [...ROAD_TRANSFER_MODES] },
+			{ from: input.connectionCoordinates, to: destination, modes: [...ROAD_TRANSFER_MODES] },
 			input.transferProviders,
 			input.keys,
 			input.signal,
@@ -475,7 +549,7 @@ export async function fetchConnectionResources(
 			input.record
 		),
 		fetchBestTransfer(
-			{ from: stay.property.coordinates, to: input.connectionCoordinates, modes: [...ROAD_TRANSFER_MODES] },
+			{ from: destination, to: input.connectionCoordinates, modes: [...ROAD_TRANSFER_MODES] },
 			input.transferProviders,
 			input.keys,
 			input.signal,
@@ -483,12 +557,13 @@ export async function fetchConnectionResources(
 			input.record
 		)
 	]);
-	// A stay exists but nothing can get the traveller there and back — the same "no usable
-	// bed" outcome as finding none at all (one provider failing, here a transfer provider,
-	// must never fail the whole search). `stayCandidates` is still returned: a caller
-	// deciding to show alternatives doesn't need a reachable transfer to list them.
+	// A destination exists but nothing can get the traveller there and back — the same "no
+	// usable transfer" outcome as having nowhere to go at all (one provider failing, here a
+	// transfer provider, must never fail the whole search). `stayCandidates` is still
+	// returned: a caller deciding to show alternatives doesn't need a reachable transfer to
+	// list them.
 	if (!transferToHotelOutcome.selected || !transferToConnectionAirportOutcome.selected) {
-		return withoutStay(stayCandidates);
+		return withoutTransfers(stayCandidates);
 	}
 
 	const landingBuffer = pickLandingToTransportTime(input.landingToTransportRules, input.connectionAirportSize);
@@ -501,7 +576,7 @@ export async function fetchConnectionResources(
 		applyLandingBuffer(transfer, landingBuffer, input.sources)
 	);
 	const transferToHotel = pickBestTransfer(transferToHotelCandidates);
-	if (!transferToHotel) return withoutStay(stayCandidates); // unreachable: buffering cannot empty a non-empty list
+	if (!transferToHotel) return withoutTransfers(stayCandidates); // unreachable: buffering cannot empty a non-empty list
 
 	const transferToConnectionAirportCandidates = transferToConnectionAirportOutcome.candidates;
 	const transferToConnectionAirport = transferToConnectionAirportOutcome.selected;
@@ -513,14 +588,14 @@ export async function fetchConnectionResources(
 		estimateTaxiFareForLeg(
 			transferToHotelCandidates,
 			input.connectionCoordinates,
-			stay.property.coordinates,
+			destination,
 			input.connectionCountryCode,
 			input.signal,
 			input.record
 		),
 		estimateTaxiFareForLeg(
 			transferToConnectionAirportCandidates,
-			stay.property.coordinates,
+			destination,
 			input.connectionCoordinates,
 			input.connectionCountryCode,
 			input.signal,
@@ -530,6 +605,7 @@ export async function fetchConnectionResources(
 
 	return {
 		stay,
+		transferAnchor,
 		transferToHotel,
 		transferToConnectionAirport,
 		stayCandidates,

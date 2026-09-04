@@ -6,7 +6,14 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { Duration, IsoCountryCode, LandingToTransportRule, Stay, Transfer } from '../domain';
+import type {
+	Coordinates,
+	Duration,
+	IsoCountryCode,
+	LandingToTransportRule,
+	Stay,
+	Transfer
+} from '../domain';
 import type {
 	AvailableKeys,
 	ProviderContext,
@@ -35,7 +42,8 @@ vi.mock('../providers/transfers/osrm', async (importOriginal) => {
 
 // Imported after the mock is registered, per vitest's hoisting contract for vi.mock (same
 // pattern as providers-adapter.test.ts).
-const { fetchConnectionResources } = await import('./resources');
+const { fetchConnectionResources, isPlausibleTransfer, MAX_PLAUSIBLE_WALK_MINUTES, pickBestTransfer } =
+	await import('./resources');
 
 // Every id passed through here is a fixture-only stand-in, not a real registered adapter —
 // cast rather than widening ProviderSource.providerId itself, which is exactly the closed
@@ -147,6 +155,7 @@ function baseInput(
 		females?: number;
 		transferProviders?: readonly TransferProvider[];
 		connectionCountryCode?: IsoCountryCode;
+		connectionCityCentre?: Coordinates;
 		landingToTransportRules?: readonly LandingToTransportRule[];
 		currency?: string;
 	} = {}
@@ -644,5 +653,139 @@ describe('fetchConnectionResources: one search cannot spend a month (issue #148)
 
 		expect(second.stay).toBeUndefined();
 		expect(second.stayCandidates).toEqual([]);
+	});
+});
+
+/** A `Transfer` of one mode and one duration, with nothing else on it — enough for every
+ * plausibility and anchoring case below, none of which reads a leg breakdown or a price. */
+function transfer(mode: Transfer['mode'], minutes: number): Transfer {
+	return { mode, duration: minutes as Duration, legs: [{ mode, duration: minutes as Duration }] };
+}
+
+describe('walking has to be walkable (issue #119)', () => {
+	it('drops the 11h 42m walk the owner was actually offered', () => {
+		expect(isPlausibleTransfer(transfer('walk', 702))).toBe(false);
+	});
+
+	it('keeps the short walk that genuinely beats waiting for a bus', () => {
+		// The picker treats a wait under 20 minutes as one you would have had anyway, so a
+		// 12-minute walk is the case this filter must never take away.
+		expect(isPlausibleTransfer(transfer('walk', 12))).toBe(true);
+		expect(isPlausibleTransfer(transfer('walk', MAX_PLAUSIBLE_WALK_MINUTES))).toBe(true);
+		expect(isPlausibleTransfer(transfer('walk', MAX_PLAUSIBLE_WALK_MINUTES + 1))).toBe(false);
+	});
+
+	it('caps nothing but walking, since a long drive is a different argument', () => {
+		for (const mode of ['transit', 'drive', 'taxi'] as const) {
+			expect(isPlausibleTransfer(transfer(mode, 702)), mode).toBe(true);
+		}
+	});
+
+	it('leaves an absurd walk out of the alternatives, not merely out of the pick', async () => {
+		// "dont even show this" — a TransportPicker row a traveller can still click is
+		// showing it, so the filter runs on the candidate list, not only on the ranking.
+		const provider = configurableTransferProvider([transfer('walk', 702), transfer('drive', 40)]);
+		const resources = await fetchConnectionResources(
+			baseInput([fakeStayProvider('stays', [stay('Hostel', 'dorm', 2000)])], {
+				transferProviders: [provider],
+				currency: 'EUR'
+			})
+		);
+
+		expect(resources.transferToHotelCandidates.map((t) => t.mode)).toEqual(['drive']);
+		expect(resources.transferToHotel?.mode).toBe('drive');
+	});
+
+	it('ranks a buffered walk without re-measuring it against the cap', () => {
+		// The landing buffer is time spent getting out of the terminal, not time spent
+		// walking. `pickBestTransfer` runs on buffered lists, so applying the walking cap
+		// there too would drop a 40-minute walk for the sin of following a landing.
+		const buffered = [transfer('walk', 40 + 30), transfer('drive', 25 + 30)];
+		expect(pickBestTransfer(buffered)?.mode).toBe('walk');
+	});
+});
+
+describe('fetchConnectionResources: routing to the city centre when no bed is priced (issue #161)', () => {
+	const CITY_CENTRE = { latitude: 48.2, longitude: 16.37 };
+
+	it('routes both in-city legs to the city centre when no stay provider found a bed', async () => {
+		// The default state of a first-run search: both stay adapters need a key, neither
+		// transfer provider does. Before this, the pipeline returned without making a single
+		// OSRM or Transitous request and the two rows carried nothing at all.
+		const resources = await fetchConnectionResources(
+			baseInput([], { connectionCityCentre: CITY_CENTRE, currency: 'EUR' })
+		);
+
+		expect(resources.stay).toBeUndefined();
+		expect(resources.transferAnchor).toBe('city-centre');
+		expect(resources.transferToHotel).toBeDefined();
+		expect(resources.transferToConnectionAirport).toBeDefined();
+	});
+
+	it('asks for a route between the airport and the centre, in both directions', async () => {
+		const queries: TransferSearchQuery[] = [];
+		const spy: TransferProvider = {
+			...configurableTransferProvider([transfer('drive', 18)]),
+			async searchTransfers(query, ctx) {
+				queries.push(query);
+				return configurableTransferProvider([transfer('drive', 18)]).searchTransfers(query, ctx);
+			}
+		};
+
+		await fetchConnectionResources(
+			baseInput([], { transferProviders: [spy], connectionCityCentre: CITY_CENTRE, currency: 'EUR' })
+		);
+
+		expect(queries).toHaveLength(2);
+		expect(queries[0].from).toEqual(CONNECTION_COORDINATES);
+		expect(queries[0].to).toEqual(CITY_CENTRE);
+		expect(queries[1].from).toEqual(CITY_CENTRE);
+		expect(queries[1].to).toEqual(CONNECTION_COORDINATES);
+	});
+
+	it('still prefers a real bed over the city centre when one was priced', async () => {
+		const hostel = stay('Hostel', 'dorm', 2000);
+		const queries: TransferSearchQuery[] = [];
+		const spy: TransferProvider = {
+			...configurableTransferProvider([transfer('drive', 18)]),
+			async searchTransfers(query, ctx) {
+				queries.push(query);
+				return configurableTransferProvider([transfer('drive', 18)]).searchTransfers(query, ctx);
+			}
+		};
+
+		const resources = await fetchConnectionResources(
+			baseInput([fakeStayProvider('stays', [hostel])], {
+				transferProviders: [spy],
+				connectionCityCentre: CITY_CENTRE,
+				currency: 'EUR'
+			})
+		);
+
+		expect(resources.transferAnchor).toBe('stay');
+		expect(queries[0].to).toEqual(hostel.property.coordinates);
+	});
+
+	it('asks for nothing, and carries nothing, for an airport with no checked city point', async () => {
+		// Most airports. `data/airport-city-names.ts` only has a centre for the handful whose
+		// runway genuinely sits outside the city it is named for, and inventing one for the
+		// rest would put the airport's own position back under a second label.
+		const queries: TransferSearchQuery[] = [];
+		const spy: TransferProvider = {
+			...configurableTransferProvider([transfer('drive', 18)]),
+			async searchTransfers(query, ctx) {
+				queries.push(query);
+				return configurableTransferProvider([transfer('drive', 18)]).searchTransfers(query, ctx);
+			}
+		};
+
+		const resources = await fetchConnectionResources(
+			baseInput([], { transferProviders: [spy], currency: 'EUR' })
+		);
+
+		expect(queries).toEqual([]);
+		expect(resources.transferAnchor).toBeUndefined();
+		expect(resources.transferToHotel).toBeUndefined();
+		expect(resources.transferToConnectionAirport).toBeUndefined();
 	});
 });

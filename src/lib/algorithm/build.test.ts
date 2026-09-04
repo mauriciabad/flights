@@ -11,7 +11,12 @@ import type {
 	Transfer,
 	WaitingTimeRule
 } from '../domain';
-import { buildItineraries, recomputeItineraryWaitingTimes, type BuildItinerariesInput } from './build';
+import {
+	buildItineraries,
+	recomputeItineraryWaitingTimes,
+	type BuildItinerariesInput,
+	type ConnectionResources
+} from './build';
 
 const country: Country = { isoCode: 'AT', name: 'Austria' };
 const city: City = { name: 'Vienna', coordinates: { latitude: 48.2, longitude: 16.37 }, country };
@@ -631,5 +636,85 @@ describe('buildItineraries — a wrong-currency stay costs the bed, never the tr
 		expect(itinerary?.stay).toBeDefined();
 		expect(itinerary?.nightsInConnection).toBe(2);
 		expect(itinerary?.totalPrice).toEqual({ minorUnits: 22000 + 3000 * 2, currency: 'EUR' });
+	});
+});
+
+describe('buildItineraries — in-city legs without a bed (issue #161)', () => {
+	const outboundArrival = localDateTime('2026-10-06T18:00:00', 'Europe/Vienna', 120);
+	const onwardDeparture = localDateTime('2026-10-08T10:00:00', 'Europe/Vienna', 120);
+
+	function stopoverInput(resources: ConnectionResources): BuildItinerariesInput {
+		return baseInput({
+			outboundOffers: [makeFlight('LGW', 'VIE', outboundArrival, outboundArrival, 150, 10000)],
+			onwardOffers: [makeFlight('VIE', 'IST', onwardDeparture, onwardDeparture, 90, 12000)],
+			connectionResources: { VIE: resources },
+			waitingTimeRules: flatWaitingTime(60)
+		});
+	}
+
+	it('keeps a city-centre route on the itinerary even though no bed was priced', () => {
+		// The default state of every first visit: no stay-provider key, so no bed, and the
+		// ride into town is the whole reason the stopover is worth anything.
+		const [itinerary] = buildItineraries(
+			stopoverInput({
+				transferAnchor: 'city-centre',
+				transferToHotel: makeTransfer(25),
+				transferToConnectionAirport: makeTransfer(25)
+			})
+		);
+
+		expect(itinerary?.stay).toBeUndefined();
+		expect(itinerary?.transferToHotel?.duration).toBe(25);
+		expect(itinerary?.transferToConnectionAirport?.duration).toBe(25);
+	});
+
+	it('takes the ride into town off free time, the same as a ride to a hotel would', () => {
+		const withRoutes = buildItineraries(
+			stopoverInput({
+				transferAnchor: 'city-centre',
+				transferToHotel: makeTransfer(25),
+				transferToConnectionAirport: makeTransfer(25)
+			})
+		)[0];
+		const withNothing = buildItineraries(stopoverInput({}))[0];
+
+		// 25 minutes each way, plus the same 60-minute pre-boarding buffer on both sides.
+		expect(withNothing.freeTime.duration - withRoutes.freeTime.duration).toBe(50);
+		expect(withRoutes.freeTime.start.local).toBe('2026-10-06T18:25:00');
+	});
+
+	it('drops legs that were routed to a bed this itinerary had to discard', () => {
+		// Issue #152's currency guard still stands: those two legs end at an address that is
+		// no longer part of the trip, unlike a city-centre route, which stands on its own.
+		const usd: Stay = { ...makeStay(), pricePerNight: { minorUnits: 4000, currency: 'USD' } };
+		const [itinerary] = buildItineraries(
+			stopoverInput({
+				stay: usd,
+				transferAnchor: 'stay',
+				transferToHotel: makeTransfer(25),
+				transferToConnectionAirport: makeTransfer(25)
+			})
+		);
+
+		expect(itinerary?.stay).toBeUndefined();
+		expect(itinerary?.transferToHotel).toBeUndefined();
+		expect(itinerary?.transferToConnectionAirport).toBeUndefined();
+	});
+
+	it('keeps free time intact through a waiting-time edit on a bedless itinerary', () => {
+		// `recomputeItineraryWaitingTimes` used to read the transfers only when a stay was
+		// present, so editing a buffer on one of these itineraries would have silently
+		// handed the ride into town back as free time.
+		const [itinerary] = buildItineraries(
+			stopoverInput({
+				transferAnchor: 'city-centre',
+				transferToHotel: makeTransfer(25),
+				transferToConnectionAirport: makeTransfer(25)
+			})
+		);
+		const edited = recomputeItineraryWaitingTimes(itinerary, { connectionWaitingTime: 90 as Duration });
+
+		expect(edited.freeTime.start.local).toBe(itinerary.freeTime.start.local);
+		expect(edited.freeTime.duration).toBe(itinerary.freeTime.duration - 30);
 	});
 });

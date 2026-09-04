@@ -53,6 +53,7 @@
 		formatLongDuration,
 		formatMoney,
 		transferModeLabel,
+		unpricedTransferNote,
 		unroutedLegNote
 	} from './itinerary-timeline-format';
 	import type { UnroutedLeg } from './itinerary-timeline-format';
@@ -384,7 +385,9 @@
 				{#if transfer.price}
 					<span class="tl-price font-mono tabular-nums">{formatMoney(transfer.price)}</span>
 				{:else}
-					<span class="tl-price-unknown">price n/a</span>
+					<!-- Issue #119: "no fare" for a walk, "price n/a" for a mode that has one
+					     and nobody quoted it. See unpricedTransferNote. -->
+					<span class="tl-price-unknown">{unpricedTransferNote(transfer.mode, true)}</span>
 				{/if}
 			{/if}
 		</div>
