@@ -103,12 +103,21 @@
 			<div class="stat stat-stopover">
 				<dt>Nights in {connectionLabel}</dt>
 				<dd class="text-stopover">
-					{#if !itinerary.stay}
-						No stay priced
-					{:else if itinerary.nightsInConnection === 0}
-						Same-day connection
-					{:else}
+					<!-- Issue #108: nights (build.ts's own nightsBetween, issue #105) reads off
+					     the free-time window alone since #110, no longer gated on a priced stay,
+					     so a real night count and "no bed priced yet" are two separate facts, both
+					     true at once — never one instead of the other. Checking nights first,
+					     matching view-model.ts's describeWhyGood, is what stops a real 12-night
+					     stopover reading as "No stay priced" the way it did before this fix. -->
+					{#if itinerary.nightsInConnection > 0}
 						{itinerary.nightsInConnection}
+						{#if !itinerary.stay}
+							<span class="stat-caveat">no bed priced for it yet</span>
+						{/if}
+					{:else if !itinerary.stay}
+						No stay priced
+					{:else}
+						Same-day connection
 					{/if}
 				</dd>
 			</div>
@@ -320,6 +329,16 @@
 		margin: 0;
 		font-size: var(--font-size-lg);
 		font-weight: var(--font-weight-semibold);
+	}
+
+	/* The "no bed priced yet" qualifier next to a real night count (issue #108): its own
+	   line, small and muted, so the number stays the thing a glance actually reads while
+	   the caveat is still there for anyone reading closer. */
+	.stat-caveat {
+		display: block;
+		font-size: var(--font-size-xs);
+		font-weight: var(--font-weight-regular);
+		color: var(--color-text-faint);
 	}
 
 	.free-time {
