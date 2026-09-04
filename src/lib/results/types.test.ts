@@ -83,13 +83,23 @@ describe('deriveScoredResult', () => {
 	it('is fresh once the search is done and no contributing provider has a current error', () => {
 		const g = group();
 		const result = deriveScoredResult(g, { providers: {}, done: true }, 1);
-		expect(result.price.freshness).toEqual({ tier: 'fresh' });
+		expect(result.price.freshness.tier).toBe('fresh');
+	});
+
+	it('carries the oldest part’s real age on a finished search, not only on a failing one', () => {
+		// Issue #146/#151's shared shape, in the results layer: `done` is a fact about the
+		// search, and it used to be the only thing 'fresh' reported. A price served from
+		// an hour-old cache is an hour old whether or not the search that surfaced it has
+		// finished, and `view-model.ts` needs that number to stop calling it "Current".
+		const g = group();
+		const result = deriveScoredResult(g, { providers: {}, done: true }, 1);
+		expect(result.price.freshness.ageMs).toBeGreaterThanOrEqual(59 * 60_000);
 	});
 
 	it('is stale while the search is still running, even with no error', () => {
 		const g = group();
 		const result = deriveScoredResult(g, { providers: {}, done: false }, 1);
-		expect(result.price.freshness).toEqual({ tier: 'stale' });
+		expect(result.price.freshness.tier).toBe('stale');
 	});
 
 	it('is expired-fallback when a contributing provider has a current error, regardless of done', () => {
@@ -123,7 +133,7 @@ describe('deriveScoredResult', () => {
 		};
 
 		const result = deriveScoredResult(g, { providers, done: true }, 1);
-		expect(result.price.freshness).toEqual({ tier: 'fresh' });
+		expect(result.price.freshness.tier).toBe('fresh');
 	});
 });
 
