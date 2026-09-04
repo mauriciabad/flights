@@ -63,6 +63,7 @@ All measured on the owner's account on 2026-09-04, after subscribing.
 |---|---|---|---|
 | Sky Scrapper (flights) | `sky-scrapper.p.rapidapi.com` | **20 / month**, hard limit | yes |
 | Flights Sky (flights) | `flights-sky.p.rapidapi.com` | **50 / month**, hard limit | yes |
+| Kiwi.com Cheap Flights (flights) | `kiwi-com-cheap-flights.p.rapidapi.com` | **300 / month**, hard limit, 1000/hour rate | yes |
 | Agoda (stays) | `agoda-com.p.rapidapi.com` | **500 / month**, hard limit | yes |
 | Booking.com (stays) | `booking-com15.p.rapidapi.com` | **50 / month**, hard limit | yes |
 | Rome2Rio (transport) | `rome2rio.p.rapidapi.com` | unknown | **no, see below** |
@@ -72,7 +73,10 @@ while flight lookups must be hoarded, so do not apply one budget policy across a
 
 Provider slugs, since finding these cost real time:
 `rapidapi.com/apiheya/api/sky-scrapper`, `rapidapi.com/ntd119/api/flights-sky`,
-`rapidapi.com/ntd119/api/agoda-com`, `rapidapi.com/DataCrawler/api/booking-com15`.
+`rapidapi.com/ntd119/api/agoda-com`, `rapidapi.com/DataCrawler/api/booking-com15`,
+`rapidapi.com/emir12/api/kiwi-com-cheap-flights`. The header search box finds Kiwi's
+listing (`/search?term=kiwi`); the bare `/search/<term>` path drops the query string and
+returns an unfiltered list, which cost real time to notice.
 
 ### Flights Sky has a price calendar, and it is the reason this app is affordable
 
@@ -235,6 +239,32 @@ better than the issue's "expect it to be poor" warning suggested, once you stop 
 own `isDormitory` flag and read room names instead. Booking's dorm handling is structurally
 promising (a real, non-broken-looking field) but unconfirmed. Both need re-checking against
 more cities before either is trusted for a booking a traveller actually relies on.
+
+### Kiwi.com Cheap Flights is subscribed but its own backend is down
+
+Subscribing worked exactly as documented above: BASIC is $0/month, 300 requests/month hard
+limit, 1000 requests/hour, no payment method demanded. That is not the problem.
+
+Every call this project made to either of the listing's two endpoints (`/one-way` and
+`/round-trip`), after subscribing with a real key, returned:
+
+```
+HTTP 402  {"error":{"code":"402","message":"Payment required"}}
+x-vercel-error: DEPLOYMENT_DISABLED
+```
+
+`x-vercel-error: DEPLOYMENT_DISABLED` is Vercel's own header for a serverless deployment its
+owner has taken offline, and a genuine `x-rapidapi-request-id` came back alongside it, so
+RapidAPI's gateway really did forward the request to the listing owner's backend, which
+answered with its own outage. This is not a bad key, not a subscription problem, and not
+this project's mistake: it is a third-party API whose implementation is currently dead.
+
+The `src/lib/providers/flights/kiwi.ts` adapter (issue #51) is built and tested against
+this listing's documented request shape (RapidAPI's own generated code snippets, which are
+static regardless of whether the backend answers). Its response-shape types are
+reconstructed from Kiwi's historical public search API schema instead of a captured live
+payload, because no live payload was ever obtainable. Re-verify those types against a real
+response before trusting this adapter in production — see that file's header comment.
 
 ### Rome2Rio cannot be subscribed to
 
