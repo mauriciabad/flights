@@ -319,3 +319,62 @@ describe('mapGetPricesToStays (real fixture)', () => {
 		}
 	});
 });
+
+/**
+ * Issue #152, and the one live request this fix was allowed to spend. Captured
+ * 2026-09-04 from `get-prices` for Hostelle (propertyId 46866744, the cheapest property in
+ * a live "London, United Kingdom" search), 6-8 October 2026, 1 adult, **with
+ * `currency_id=1`** — the parameter `agoda.ts` omitted before this fix because the stay
+ * query carried no currency.
+ *
+ * The point of the request was that both outcomes were informative. EUR back would mean
+ * the parameter had simply been absent and threading it through is the whole fix; USD back
+ * would mean Agoda ignores it and `resources.ts`'s currency filter is load-bearing rather
+ * than a safeguard. It came back **EUR**, so the parameter is honoured and the fix is
+ * sufficient.
+ */
+describe('mapGetPricesToStays against a live EUR response (issue #152)', () => {
+	const property: Property = {
+		name: 'Hostelle - women only hostel London',
+		coordinates: { latitude: 51.5, longitude: -0.12 },
+		images: []
+	};
+
+	it('prices every room in the currency that was actually requested', async () => {
+		const response = (await import('./fixtures/agoda-get-prices-hostelle-london-eur.json')).default;
+		const stays = mapGetPricesToStays(property, response as never);
+
+		expect(stays.length).toBeGreaterThan(0);
+		for (const stay of stays) expect(stay.pricePerNight.currency).toBe('EUR');
+	});
+
+	it('reads the cheapest bed as 22.97 EUR in integer minor units', async () => {
+		const response = (await import('./fixtures/agoda-get-prices-hostelle-london-eur.json')).default;
+		const stays = mapGetPricesToStays(property, response as never);
+		const cheapest = [...stays].sort((a, b) => a.pricePerNight.minorUnits - b.pricePerNight.minorUnits)[0];
+
+		expect(cheapest?.pricePerNight).toEqual({ minorUnits: 2297, currency: 'EUR' });
+	});
+
+	it('classifies a women-only hostel as female-dorm, from the room name', async () => {
+		const response = (await import('./fixtures/agoda-get-prices-hostelle-london-eur.json')).default;
+		const stays = mapGetPricesToStays(property, response as never);
+
+		expect(stays.map((s) => s.roomKind)).toEqual(['female-dorm']);
+	});
+
+	it('is right to ignore isDormitory, which is false on all five real dormitory rows', async () => {
+		// Second independent confirmation of docs/PROVIDERS.md's finding, on a different
+		// property from the Vienna one it was first measured against: every row here is
+		// literally named "N-Bed Dormitory" and every `isDormitory` reads false. The flag is
+		// wrong site-wide, not occasionally.
+		const response = (await import('./fixtures/agoda-get-prices-hostelle-london-eur.json')).default;
+		const rooms = response.data.roomGridData.masterRooms;
+
+		expect(rooms).toHaveLength(5);
+		for (const room of rooms) {
+			expect(room.name).toMatch(/Dormitory/);
+			expect(room.isDormitory).toBe(false);
+		}
+	});
+});

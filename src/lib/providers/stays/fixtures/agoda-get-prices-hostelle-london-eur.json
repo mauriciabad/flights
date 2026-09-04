@@ -1,0 +1,190 @@
+{
+	"status": true,
+	"message": "Successful",
+	"data": {
+		"roomGridData": {
+			"masterRooms": [
+				{
+					"name": "1 Person in 16-Bed Dormitory - Female Only",
+					"isDormitory": false,
+					"rooms": [
+						{
+							"currency": "EUR",
+							"inclusivePricePerNightWithoutExtraBed": {
+								"couponCrossedOut": 0.0,
+								"crossedOut": 0.0,
+								"display": 22.97,
+								"extraBed": 0.0
+							},
+							"inclusivePrice": {
+								"couponCrossedOut": 0.0,
+								"crossedOut": 0.0,
+								"display": 22.97,
+								"extraBed": 0.0
+							}
+						},
+						{
+							"currency": "EUR",
+							"inclusivePricePerNightWithoutExtraBed": {
+								"couponCrossedOut": 0.0,
+								"crossedOut": 0.0,
+								"display": 25.53,
+								"extraBed": 0.0
+							},
+							"inclusivePrice": {
+								"couponCrossedOut": 0.0,
+								"crossedOut": 0.0,
+								"display": 25.53,
+								"extraBed": 0.0
+							}
+						}
+					]
+				},
+				{
+					"name": "1 Person in 12-Bed Dormitory - Female Only",
+					"isDormitory": false,
+					"rooms": [
+						{
+							"currency": "EUR",
+							"inclusivePricePerNightWithoutExtraBed": {
+								"couponCrossedOut": 0.0,
+								"crossedOut": 0.0,
+								"display": 25.9,
+								"extraBed": 0.0
+							},
+							"inclusivePrice": {
+								"couponCrossedOut": 0.0,
+								"crossedOut": 0.0,
+								"display": 25.9,
+								"extraBed": 0.0
+							}
+						},
+						{
+							"currency": "EUR",
+							"inclusivePricePerNightWithoutExtraBed": {
+								"couponCrossedOut": 0.0,
+								"crossedOut": 0.0,
+								"display": 28.78,
+								"extraBed": 0.0
+							},
+							"inclusivePrice": {
+								"couponCrossedOut": 0.0,
+								"crossedOut": 0.0,
+								"display": 28.78,
+								"extraBed": 0.0
+							}
+						}
+					]
+				},
+				{
+					"name": "1 Person in 10-Bed Dormitory - Female Only",
+					"isDormitory": false,
+					"rooms": [
+						{
+							"currency": "EUR",
+							"inclusivePricePerNightWithoutExtraBed": {
+								"couponCrossedOut": 0.0,
+								"crossedOut": 0.0,
+								"display": 27.37,
+								"extraBed": 0.0
+							},
+							"inclusivePrice": {
+								"couponCrossedOut": 0.0,
+								"crossedOut": 0.0,
+								"display": 27.37,
+								"extraBed": 0.0
+							}
+						},
+						{
+							"currency": "EUR",
+							"inclusivePricePerNightWithoutExtraBed": {
+								"couponCrossedOut": 0.0,
+								"crossedOut": 0.0,
+								"display": 30.41,
+								"extraBed": 0.0
+							},
+							"inclusivePrice": {
+								"couponCrossedOut": 0.0,
+								"crossedOut": 0.0,
+								"display": 30.41,
+								"extraBed": 0.0
+							}
+						}
+					]
+				},
+				{
+					"name": "1 Person in 8-Bed Dormitory - Female Only",
+					"isDormitory": false,
+					"rooms": [
+						{
+							"currency": "EUR",
+							"inclusivePricePerNightWithoutExtraBed": {
+								"couponCrossedOut": 0.0,
+								"crossedOut": 0.0,
+								"display": 28.83,
+								"extraBed": 0.0
+							},
+							"inclusivePrice": {
+								"couponCrossedOut": 0.0,
+								"crossedOut": 0.0,
+								"display": 28.83,
+								"extraBed": 0.0
+							}
+						},
+						{
+							"currency": "EUR",
+							"inclusivePricePerNightWithoutExtraBed": {
+								"couponCrossedOut": 0.0,
+								"crossedOut": 0.0,
+								"display": 32.04,
+								"extraBed": 0.0
+							},
+							"inclusivePrice": {
+								"couponCrossedOut": 0.0,
+								"crossedOut": 0.0,
+								"display": 32.04,
+								"extraBed": 0.0
+							}
+						}
+					]
+				},
+				{
+					"name": "1 Person in 6-Bed Dormitory - Female Only",
+					"isDormitory": false,
+					"rooms": [
+						{
+							"currency": "EUR",
+							"inclusivePricePerNightWithoutExtraBed": {
+								"couponCrossedOut": 0.0,
+								"crossedOut": 0.0,
+								"display": 30.3,
+								"extraBed": 0.0
+							},
+							"inclusivePrice": {
+								"couponCrossedOut": 0.0,
+								"crossedOut": 0.0,
+								"display": 30.3,
+								"extraBed": 0.0
+							}
+						},
+						{
+							"currency": "EUR",
+							"inclusivePricePerNightWithoutExtraBed": {
+								"couponCrossedOut": 0.0,
+								"crossedOut": 0.0,
+								"display": 33.67,
+								"extraBed": 0.0
+							},
+							"inclusivePrice": {
+								"couponCrossedOut": 0.0,
+								"crossedOut": 0.0,
+								"display": 33.67,
+								"extraBed": 0.0
+							}
+						}
+					]
+				}
+			]
+		}
+	}
+}
