@@ -1,4 +1,7 @@
 import type { LocalDateTime } from '../../domain';
+import type { GeocodeProviderOptions } from '../geocode/transitous';
+import { lookupAirportTimeZone } from '../geocode/transitous';
+import type { ProviderContext } from '../types';
 
 /**
  * Sky Scrapper's flight search never sends a time zone or a UTC offset. `departure` and
@@ -8,21 +11,38 @@ import type { LocalDateTime } from '../../domain';
  * connection silently loses a night, so this file exists to attach the offset the API will
  * not give us, using the one fact we do have: which airport the time belongs to.
  *
- * There is no airport-to-timezone dataset in this codebase yet (that is issue #11's job,
- * still unmerged as of this adapter). Shipping this adapter without one would mean either
- * inventing a UTC-offset-0 fiction for every flight or blocking on a dataset this issue does
- * not own, so this is a deliberately small, hand-curated table: the airports a traveller
- * routing through Europe (this app's home market, see docs/prompts/002) is actually likely to
- * see, plus the major intercontinental hubs. It is not, and is not meant to be, exhaustive.
+ * Issue #75, replacing what issue #5 originally shipped here: this file no longer answers
+ * "what is this airport's time zone" from a hand-curated table alone. That table silently
+ * dropped every offer for an airport it did not list, and nobody was ever told why a route
+ * came back empty. `resolveAirportTimeZone` below is the live replacement — issue #64's
+ * `lookupAirportTimeZone`, which reverse-geocodes the airport's own OurAirports coordinates
+ * through Transitous rather than trusting a list someone typed by hand.
  *
- * When an airport is missing from this table, `toLocalDateTime` returns `undefined` and
- * callers (skyscanner-map-offers.ts) drop that offer rather than fabricate an offset.
- * AGENTS.md says to report what is unknown rather than guess. Once issue #11's airport
- * dataset lands with real timezone data, this table should be deleted in favour of it.
+ * SEED_TIME_ZONES survives, but demoted from "the whole answer" to "the fast, offline-safe
+ * first guess for the busiest routes." Two reasons, both found while building this:
+ *
+ * 1. Transitous is free, volunteer-run, and will be down or slow sometimes (docs/PROVIDERS.md,
+ *    AGENTS.md "When the data is missing"). A network round trip on every airport this app has
+ *    seen a thousand times before is a needless dependency for something that almost never
+ *    changes.
+ * 2. Transitous's own coverage has real gaps, including for major airports. A live check
+ *    against the reverse-geocode endpoint on the day this was built returned an EMPTY result
+ *    for DXB — Dubai International, one of the busiest airports on Earth, and one of the 16
+ *    issue #64 itself verified against — even though it had answered correctly for the same
+ *    airport before. Whether that is a transient gap or a real coverage hole does not matter
+ *    for a shipped adapter: either way, a seed value for a hub this busy is worth keeping so a
+ *    Transitous outage does not quietly take down every Dubai search.
+ *
+ * So the order is seed table first (no network, cannot be stale in any way that matters — a
+ * time zone assignment changes when a country changes its clocks, which is rare and
+ * newsworthy), live Transitous lookup second for everything the seed does not cover. Either
+ * path, or an outright lookup failure with nothing cached, resolves to `undefined` rather than
+ * a guess, and `skyscanner-map-offers.ts` drops that offer — AGENTS.md: "say what you do not
+ * know rather than guessing."
  */
 
 // prettier-ignore
-const IATA_TIME_ZONES: Readonly<Record<string, string>> = {
+const SEED_TIME_ZONES: Readonly<Record<string, string>> = {
 	// Spain, Portugal, France
 	MAD: 'Europe/Madrid', BCN: 'Europe/Madrid', VLC: 'Europe/Madrid', SVQ: 'Europe/Madrid',
 	AGP: 'Europe/Madrid', BIO: 'Europe/Madrid', ALC: 'Europe/Madrid', IBZ: 'Europe/Madrid',
@@ -93,23 +113,71 @@ const IATA_TIME_ZONES: Readonly<Record<string, string>> = {
 	SCL: 'America/Santiago', BOG: 'America/Bogota', LIM: 'America/Lima'
 };
 
-/** `undefined` when this airport is not in the curated table above. See the file header
- * for why callers must treat that as "unknown", not "UTC". */
-export function timeZoneForAirport(iataCode: string): string | undefined {
-	return IATA_TIME_ZONES[iataCode.toUpperCase()];
+/**
+ * The offline-safe fast path: `undefined` for anything outside this short, deliberately
+ * non-exhaustive list of busy hubs (see this file's header for why a seed still exists at
+ * all). Callers needing an honest "do we actually know this airport's zone" answer should
+ * call `resolveAirportTimeZone` below instead, which falls through to a live lookup rather
+ * than treating a seed miss as a final answer.
+ */
+export function seedTimeZoneForAirport(iataCode: string): string | undefined {
+	return SEED_TIME_ZONES[iataCode.toUpperCase()];
 }
 
 /**
- * Builds a domain `LocalDateTime` from a bare local wall-clock string and the airport it
- * belongs to, or `undefined` when that airport's time zone is not in the curated table.
- * This is the one place skyscanner-map-offers.ts should ever need to reach for a time
- * zone; that keeps the "what happens when we do not know the zone" decision (drop the
- * offer, do not guess) in one function instead of repeated at every call site.
+ * The one place skyscanner.ts should ever need to reach for an airport's time zone. Seed
+ * table first (no network, cannot be stale), then issue #64's live Transitous lookup — which
+ * already caches a resolved zone for 90 days (geocode/transitous.ts `LONG_CACHE_TTL_MS`), so
+ * a cold-seed airport only ever pays the network cost once per its cache window, not once per
+ * search.
+ *
+ * Resolves `undefined`, never a guess, when neither path knows this airport's zone: a
+ * genuine dataset gap (`lookupAirportTimeZone` found no OurAirports coordinates for this
+ * code), a Transitous outage, or a live lookup with an empty result — DXB, one of this app's
+ * own seeded hubs, returned an empty Transitous response on the day this was built despite
+ * issue #64 having verified it correctly before, which is exactly the kind of live gap the
+ * seed table exists to paper over for busy routes and this function still has no way to paper
+ * over for anything outside it. `skyscanner-map-offers.ts` treats `undefined` as "drop this
+ * offer," never as "assume UTC" — AGENTS.md: "say what you do not know rather than guessing."
  */
-export function toLocalDateTime(localIso: string, iataCode: string): LocalDateTime | undefined {
-	const timeZone = timeZoneForAirport(iataCode);
-	if (timeZone === undefined) return undefined;
+export async function resolveAirportTimeZone(
+	iataCode: string,
+	ctx: ProviderContext,
+	options: GeocodeProviderOptions = {}
+): Promise<string | undefined> {
+	const seeded = seedTimeZoneForAirport(iataCode);
+	if (seeded !== undefined) return seeded;
+
+	const result = await lookupAirportTimeZone(iataCode, ctx, options);
+	return result.ok ? result.data : undefined;
+}
+
+/**
+ * Builds a domain `LocalDateTime` from a bare local wall-clock string and an already-resolved
+ * IANA zone. Takes the zone directly, not an airport code, because resolving one needs a
+ * network round trip in the worst case (`resolveAirportTimeZone` above) and this function's
+ * only job is the pure arithmetic of attaching the right offset once that zone is known.
+ */
+export function buildLocalDateTime(localIso: string, timeZone: string): LocalDateTime {
 	return { local: localIso, timeZone, utcOffsetMinutes: utcOffsetMinutesAt(localIso, timeZone) };
+}
+
+/**
+ * Builds a domain `LocalDateTime` for `iataCode` by looking its zone up in `timeZones`
+ * (every code this response's offers can reference, pre-resolved once per `searchOffers`
+ * call — see skyscanner.ts), or `undefined` if that airport's zone could not be resolved.
+ * This is the one place skyscanner-map-offers.ts should ever need to reach for a time zone;
+ * that keeps the "what happens when we do not know the zone" decision (drop the offer, do
+ * not guess) in one function instead of repeated at every call site.
+ */
+export function toLocalDateTime(
+	localIso: string,
+	iataCode: string,
+	timeZones: ReadonlyMap<string, string>
+): LocalDateTime | undefined {
+	const timeZone = timeZones.get(iataCode.toUpperCase());
+	if (timeZone === undefined) return undefined;
+	return buildLocalDateTime(localIso, timeZone);
 }
 
 /**

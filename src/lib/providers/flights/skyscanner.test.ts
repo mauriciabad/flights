@@ -37,6 +37,13 @@ function jsonResponse(status: number, body: unknown, headers: Record<string, str
 interface FakeRoutes {
 	searchAirport?: (query: string) => Response;
 	searchFlights?: (date: string) => Response;
+	/** Issue #75: a non-seeded airport now makes `searchOffers` call out to Transitous's
+	 * `/reverse-geocode` (through this same injected `fetchImpl`, a different host but the
+	 * same mock) before it can map any offer touching that airport. Every route above stays
+	 * seeded in the fixtures this file already uses (BCN, VIE), so leaving this unset is
+	 * exactly right for every pre-existing test: it never fires and the fetch counts below
+	 * are unaffected. */
+	reverseGeocode?: (place: string) => Response;
 }
 
 function fakeFetch(routes: FakeRoutes) {
@@ -55,8 +62,46 @@ function fakeFetch(routes: FakeRoutes) {
 			const date = url.searchParams.get('date') ?? '';
 			if (routes.searchFlights) return routes.searchFlights(date);
 		}
+		if (url.pathname.endsWith('/reverse-geocode')) {
+			const place = url.searchParams.get('place') ?? '';
+			if (routes.reverseGeocode) return routes.reverseGeocode(place);
+		}
 		throw new Error(`unmocked request in test: ${url.toString()}`);
 	});
+}
+
+/** A minimal, structurally valid one-itinerary `searchFlights` response for an arbitrary
+ * origin/destination pair — issue #75's tests need a route through an airport the seed
+ * table (skyscanner-timezone.ts) does not carry, which none of the captured fixtures are. */
+function customItineraryResponse(originCode: string, destinationCode: string) {
+	return {
+		status: true,
+		data: {
+			itineraries: [
+				{
+					price: { raw: 50 },
+					legs: [
+						{
+							stopCount: 0,
+							origin: { id: originCode },
+							destination: { id: destinationCode },
+							departure: '2026-10-15T08:00:00',
+							arrival: '2026-10-15T10:00:00',
+							durationInMinutes: 120,
+							segments: [
+								{
+									departure: '2026-10-15T08:00:00',
+									arrival: '2026-10-15T10:00:00',
+									flightNumber: '100',
+									marketingCarrier: { displayCode: 'XX', name: 'Test Air' }
+								}
+							]
+						}
+					]
+				}
+			]
+		}
+	};
 }
 
 /** Default happy-path routing: BCN and VIE resolve via the real captured airport lookups,
@@ -331,6 +376,100 @@ describe('createSkyscannerFlightProvider', () => {
 			);
 			expect(result.ok).toBe(true);
 			if (result.ok) expect(result.data).toHaveLength(2);
+		});
+
+		// Issue #75: skyscanner-timezone.ts's curated table no longer decides, on its own,
+		// whether an airport's offers survive. A code missing from the seed now falls
+		// through to a live Transitous lookup before an offer through it can be dropped.
+		describe('live time zone lookup for a non-seeded airport', () => {
+			it('resolves the destination\'s zone via Transitous and attaches it to the offer, spending nothing from Skyscanner\'s own budget', async () => {
+				const cacheStore = new MemoryCacheStore();
+				await setCachedAirportEntity('BCN', { skyId: 'BCN', entityId: '95565085' }, cacheStore);
+				// AHO (Alghero-Fertilia): a real airport, not in skyscanner-timezone.ts's seed
+				// table, present in data/airports.generated.json with real coordinates.
+				await setCachedAirportEntity('AHO', { skyId: 'AHO', entityId: '999999' }, cacheStore);
+				const fetchImpl = fakeFetch({
+					searchFlights: () => jsonResponse(200, customItineraryResponse('BCN', 'AHO')),
+					reverseGeocode: () =>
+						jsonResponse(200, [
+							{ type: 'STOP', name: 'Alghero-Fertilia Airport', lat: 40.6321, lon: 8.2908, tz: 'Europe/Rome' }
+						])
+				});
+				const provider = createSkyscannerFlightProvider({ fetchImpl, cacheStore });
+
+				const result = await provider.searchOffers({ ...baseQuery, destination: 'AHO' }, contextWithKey());
+
+				expect(result.ok).toBe(true);
+				if (result.ok) {
+					expect(result.data).toHaveLength(1);
+					expect(result.data[0].arrival).toMatchObject({ timeZone: 'Europe/Rome' });
+					// Both airport entities were pre-cached, so the only Skyscanner request is
+					// the fare search itself — the Transitous lookup is a separate, keyless
+					// provider and must not count against this adapter's own metered budget.
+					expect(result.requestsUsed).toBe(1);
+				}
+			});
+
+			it('resolves the same non-seeded zone once and reuses it across every date in a multi-day search', async () => {
+				const cacheStore = new MemoryCacheStore();
+				await setCachedAirportEntity('BCN', { skyId: 'BCN', entityId: '95565085' }, cacheStore);
+				await setCachedAirportEntity('AHO', { skyId: 'AHO', entityId: '999999' }, cacheStore);
+				const reverseGeocode = vi.fn(() =>
+					jsonResponse(200, [
+						{ type: 'STOP', name: 'Alghero-Fertilia Airport', lat: 40.6321, lon: 8.2908, tz: 'Europe/Rome' }
+					])
+				);
+				const fetchImpl = fakeFetch({
+					searchFlights: () => jsonResponse(200, customItineraryResponse('BCN', 'AHO')),
+					reverseGeocode
+				});
+				const provider = createSkyscannerFlightProvider({ fetchImpl, cacheStore });
+
+				const result = await provider.searchOffers(
+					{ ...baseQuery, destination: 'AHO', earliestDeparture: '2026-10-15', latestDeparture: '2026-10-17' },
+					contextWithKey()
+				);
+
+				expect(result.ok).toBe(true);
+				if (result.ok) expect(result.data).toHaveLength(3); // one offer per day, all mapped
+				expect(reverseGeocode).toHaveBeenCalledTimes(1); // once per searchOffers call, not once per date
+			});
+
+			// Acceptance criterion (issue #75): "A test proves a lookup failure with no cache
+			// does not produce a mistimed offer."
+			it('drops every offer through a non-seeded airport, never mistiming it, when the live lookup finds nothing and nothing is cached', async () => {
+				const cacheStore = new MemoryCacheStore();
+				await setCachedAirportEntity('BCN', { skyId: 'BCN', entityId: '95565085' }, cacheStore);
+				await setCachedAirportEntity('AHO', { skyId: 'AHO', entityId: '999999' }, cacheStore);
+				const fetchImpl = fakeFetch({
+					searchFlights: () => jsonResponse(200, customItineraryResponse('BCN', 'AHO')),
+					// A real, observed Transitous response shape: an empty array, not an error —
+					// see skyscanner-timezone.ts's own header on why the seed table still exists.
+					reverseGeocode: () => jsonResponse(200, [])
+				});
+				const provider = createSkyscannerFlightProvider({ fetchImpl, cacheStore });
+
+				const result = await provider.searchOffers({ ...baseQuery, destination: 'AHO' }, contextWithKey());
+
+				expect(result.ok).toBe(true);
+				if (result.ok) expect(result.data).toEqual([]); // dropped, not defaulted to UTC or any other guess
+			});
+
+			it('drops every offer through a non-seeded airport when the live lookup itself fails outright', async () => {
+				const cacheStore = new MemoryCacheStore();
+				await setCachedAirportEntity('BCN', { skyId: 'BCN', entityId: '95565085' }, cacheStore);
+				await setCachedAirportEntity('AHO', { skyId: 'AHO', entityId: '999999' }, cacheStore);
+				const fetchImpl = fakeFetch({
+					searchFlights: () => jsonResponse(200, customItineraryResponse('BCN', 'AHO')),
+					reverseGeocode: () => jsonResponse(502, { message: 'bad gateway' })
+				});
+				const provider = createSkyscannerFlightProvider({ fetchImpl, cacheStore });
+
+				const result = await provider.searchOffers({ ...baseQuery, destination: 'AHO' }, contextWithKey());
+
+				expect(result.ok).toBe(true);
+				if (result.ok) expect(result.data).toEqual([]);
+			});
 		});
 	});
 

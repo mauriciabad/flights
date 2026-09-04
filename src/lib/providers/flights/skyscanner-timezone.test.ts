@@ -1,16 +1,103 @@
-import { describe, expect, it } from 'vitest';
-import { timeZoneForAirport, toLocalDateTime, utcOffsetMinutesAt } from './skyscanner-timezone';
+import { describe, expect, it, vi } from 'vitest';
+import { MemoryCacheStore } from '../../cache';
+import type { ProviderContext } from '../types';
+import {
+	buildLocalDateTime,
+	resolveAirportTimeZone,
+	seedTimeZoneForAirport,
+	toLocalDateTime,
+	utcOffsetMinutesAt
+} from './skyscanner-timezone';
 
-describe('timeZoneForAirport', () => {
+function jsonResponse(body: unknown): Response {
+	return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
+}
+
+function ctx(signal: AbortSignal = new AbortController().signal): ProviderContext {
+	return { signal };
+}
+
+describe('seedTimeZoneForAirport', () => {
 	it('resolves a known airport regardless of case', () => {
-		expect(timeZoneForAirport('VIE')).toBe('Europe/Vienna');
-		expect(timeZoneForAirport('vie')).toBe('Europe/Vienna');
+		expect(seedTimeZoneForAirport('VIE')).toBe('Europe/Vienna');
+		expect(seedTimeZoneForAirport('vie')).toBe('Europe/Vienna');
 	});
 
-	it('returns undefined for an airport outside the curated table', () => {
-		// A real but obscure regional airport this table does not carry. This is the exact
-		// case skyscanner-map-offers.ts must be able to drop rather than mis-time.
-		expect(timeZoneForAirport('XXX')).toBeUndefined();
+	it('returns undefined for an airport outside the seed table, without touching the network', () => {
+		// A real but obscure regional airport this table does not carry. This is exactly the
+		// case resolveAirportTimeZone below must fall through to a live lookup for, and
+		// skyscanner-map-offers.ts must be able to drop rather than mis-time if that also
+		// comes back empty.
+		expect(seedTimeZoneForAirport('XXX')).toBeUndefined();
+	});
+});
+
+describe('resolveAirportTimeZone', () => {
+	it('answers from the seed table with no network call at all', async () => {
+		const fetchImpl = vi.fn();
+		const result = await resolveAirportTimeZone('VIE', ctx(), { fetchImpl });
+		expect(result).toBe('Europe/Vienna');
+		expect(fetchImpl).not.toHaveBeenCalled();
+	});
+
+	it('falls through to a live Transitous lookup for an airport outside the seed table', async () => {
+		// AHO (Alghero, Sardinia): a real, medium-sized regional airport the seed table was
+		// never meant to carry (this file's own header: "the busiest routes," not every
+		// scheduled airport) — exactly the case issue #75 exists to stop silently dropping.
+		const fetchImpl = vi
+			.fn()
+			.mockResolvedValue(
+				jsonResponse([{ type: 'STOP', name: 'Alghero Airport', lat: 40.632, lon: 8.29, tz: 'Europe/Rome' }])
+			);
+
+		const result = await resolveAirportTimeZone('AHO', ctx(), {
+			fetchImpl,
+			resolveStore: async () => new MemoryCacheStore()
+		});
+
+		expect(result).toBe('Europe/Rome');
+		expect(fetchImpl).toHaveBeenCalledTimes(1);
+	});
+
+	it('resolves undefined, not a guess, when a non-seeded airport has nothing cached and the live lookup finds nothing', async () => {
+		// This is the acceptance-criteria case: a lookup failure with no cache must not
+		// produce a mistimed offer. An empty Transitous response (a real, observed case —
+		// see this file's own header on skyscanner-timezone.ts and DXB) resolves the same
+		// way a network error does: undefined, never a fabricated zone.
+		const fetchImpl = vi.fn().mockResolvedValue(jsonResponse([]));
+
+		const result = await resolveAirportTimeZone('AHO', ctx(), {
+			fetchImpl,
+			resolveStore: async () => new MemoryCacheStore()
+		});
+
+		expect(result).toBeUndefined();
+	});
+
+	it('resolves undefined, not a guess, when the live lookup itself fails outright', async () => {
+		const fetchImpl = vi.fn().mockResolvedValue(new Response('bad gateway', { status: 502 }));
+
+		const result = await resolveAirportTimeZone('AHO', ctx(), {
+			fetchImpl,
+			resolveStore: async () => new MemoryCacheStore()
+		});
+
+		expect(result).toBeUndefined();
+	});
+
+	it('reuses a cached live result and does not hit the network a second time', async () => {
+		const fetchImpl = vi
+			.fn()
+			.mockResolvedValue(jsonResponse([{ type: 'STOP', name: 'Alghero Airport', lat: 40.632, lon: 8.29, tz: 'Europe/Rome' }]));
+		const store = new MemoryCacheStore();
+		const options = { fetchImpl, resolveStore: async () => store };
+
+		const first = await resolveAirportTimeZone('AHO', ctx(), options);
+		const second = await resolveAirportTimeZone('AHO', ctx(), options);
+
+		expect(first).toBe('Europe/Rome');
+		expect(second).toBe('Europe/Rome');
+		expect(fetchImpl).toHaveBeenCalledTimes(1);
 	});
 });
 
@@ -48,16 +135,36 @@ describe('utcOffsetMinutesAt', () => {
 	});
 });
 
+describe('buildLocalDateTime', () => {
+	it('attaches the given zone and computed offset to the local string, unchanged', () => {
+		expect(buildLocalDateTime('2026-10-15T08:05:00', 'Europe/Madrid')).toEqual({
+			local: '2026-10-15T08:05:00',
+			timeZone: 'Europe/Madrid',
+			utcOffsetMinutes: 120
+		});
+	});
+});
+
 describe('toLocalDateTime', () => {
-	it('attaches the airport zone and computed offset to the local string, unchanged', () => {
-		expect(toLocalDateTime('2026-10-15T08:05:00', 'BCN')).toEqual({
+	it('looks the airport up in the resolved-zones map and attaches the computed offset', () => {
+		const timeZones = new Map([['BCN', 'Europe/Madrid']]);
+		expect(toLocalDateTime('2026-10-15T08:05:00', 'BCN', timeZones)).toEqual({
 			local: '2026-10-15T08:05:00',
 			timeZone: 'Europe/Madrid',
 			utcOffsetMinutes: 120
 		});
 	});
 
-	it('returns undefined for an airport this adapter has no zone for, rather than guessing', () => {
-		expect(toLocalDateTime('2026-10-15T08:05:00', 'XXX')).toBeUndefined();
+	it('is case-insensitive on the airport code', () => {
+		const timeZones = new Map([['BCN', 'Europe/Madrid']]);
+		expect(toLocalDateTime('2026-10-15T08:05:00', 'bcn', timeZones)).toEqual({
+			local: '2026-10-15T08:05:00',
+			timeZone: 'Europe/Madrid',
+			utcOffsetMinutes: 120
+		});
+	});
+
+	it('returns undefined for an airport with no entry in the resolved-zones map, rather than guessing', () => {
+		expect(toLocalDateTime('2026-10-15T08:05:00', 'XXX', new Map())).toBeUndefined();
 	});
 });

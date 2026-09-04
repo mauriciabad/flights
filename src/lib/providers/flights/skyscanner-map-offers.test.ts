@@ -7,7 +7,20 @@ import { mapSearchFlightsToOffers, SkyscannerMalformedResponseError } from './sk
 // Ryanair/Lauda-Europe wet-lease flight, and one KLM itinerary connecting through AMS). It
 // is why every test in this file needs no network: the whole point of the 5-request budget
 // this issue was built under is that these fixtures, not live calls, drive the test suite.
-const options = { currency: 'EUR', travellers: 1 };
+//
+// `timeZones` stands in for what skyscanner.ts resolves once per `searchOffers` call (issue
+// #75) before ever reaching this pure mapper — BCN and VIE only, deliberately, so the "drops
+// an itinerary at an unresolved airport" test below stays honest about what "unresolved"
+// means: not present in this map, for whatever reason (seed miss, live lookup failure, or a
+// lookup that was never attempted for a code this response doesn't reference).
+const options = {
+	currency: 'EUR',
+	travellers: 1,
+	timeZones: new Map([
+		['BCN', 'Europe/Madrid'],
+		['VIE', 'Europe/Vienna']
+	])
+};
 
 describe('mapSearchFlightsToOffers', () => {
 	it('maps the real fixture to exactly the two direct offers it contains', () => {
@@ -83,7 +96,7 @@ describe('mapSearchFlightsToOffers', () => {
 		expect(mapSearchFlightsToOffers(allConnections, options)).toEqual([]);
 	});
 
-	it('drops an itinerary landing at an airport outside the curated time zone table', () => {
+	it('drops an itinerary landing at an airport whose time zone could not be resolved', () => {
 		const unknownAirport = {
 			data: {
 				itineraries: [
