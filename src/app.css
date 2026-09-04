@@ -1,0 +1,420 @@
+/*
+ * Design tokens for Layover.
+ *
+ * The visual idea: a departure board at night. This app's whole pitch is
+ * "the layover is the trip", so the palette borrows from split-flap
+ * departure boards and paper boarding passes rather than generic SaaS
+ * blue: a deep night-sky navy (the PWA's own theme colour, #0b1020) with a
+ * warm brass-gold for anything interactive, and a jewel teal reserved for
+ * the "free city" idea itself (the stopover) so that concept reads as its
+ * own thing wherever another screen wants to highlight it.
+ *
+ * Dark-first: the bare `:root` holds the dark palette and
+ * `@media (prefers-color-scheme: light)` overrides only the tokens that
+ * change. This is backwards from the usual "light on :root, dark in a
+ * media query" convention, chosen deliberately so a browser that does not
+ * support `prefers-color-scheme` still gets the dark look the manifest and
+ * splash screen promise.
+ *
+ * Every colour pair below was checked against WCAG 2.1 contrast minimums
+ * (4.5:1 for text, 3:1 for UI components such as borders and focus rings)
+ * with a throwaway script, not eyeballed. `--color-text-deprioritized` is
+ * its own token, not an opacity trick, because reduced opacity on a dark
+ * background loses contrast fast — this is the colour every other agent
+ * should reach for when greying out an avoided airline.
+ *
+ * Every other component in this app should read colour, spacing, type and
+ * radius from these custom properties instead of hardcoding values, so a
+ * palette change here propagates everywhere.
+ */
+
+/* Self-hosted variable fonts, so the app looks like itself instead of the
+   OS default and still works offline once the service worker (#30) has
+   cached it. Latin-subset only. Bricolage Grotesque carries every UI
+   label, including the wordmark — picked over the usual Inter/Geist/Space
+   Grotesk rotation precisely because it isn't the usual rotation, and its
+   optical-size axis means a heading and a button label are subtly
+   different letterforms, not just different sizes of the same one.
+   JetBrains Mono is reserved for things that belong on a departure board:
+   prices, clock times, IATA codes, dates. Reach for `--font-mono` for
+   those, not the default. */
+@font-face {
+	font-family: 'Bricolage Grotesque';
+	font-style: normal;
+	font-weight: 200 800;
+	font-display: swap;
+	src: url('./lib/assets/fonts/bricolage-grotesque-variable.woff2') format('woff2');
+}
+
+@font-face {
+	font-family: 'JetBrains Mono';
+	font-style: normal;
+	font-weight: 400 800;
+	font-display: swap;
+	src: url('./lib/assets/fonts/jetbrains-mono-variable.woff2') format('woff2');
+}
+
+:root {
+	/* ---------------------------------------------------------------------
+	 * Colour — dark palette (default)
+	 * ------------------------------------------------------------------- */
+	--color-bg: #0b1020;
+	--color-bg-elevated: #121933;
+	--color-bg-inset: #060912;
+	--color-surface: #161f3d;
+	--color-surface-hover: #1d274a;
+
+	/* Decorative dividers only. Not for anything that needs to be seen to
+	   be used — that's --color-border-strong. */
+	--color-border: #232d54;
+	/* Input outlines, card edges, anything a low-vision user needs to see
+	   to know where a control starts and ends. Checked at >=3:1 against
+	   both --color-bg and --color-surface. */
+	--color-border-strong: #5c70b3;
+
+	--color-text: #f4f6fb;
+	--color-text-muted: #aab2cc;
+	--color-text-faint: #7681a3;
+	/* For deprioritised content (e.g. an airline the user asked to avoid).
+	   Still fetched, still shown, still readable — just visually quieter.
+	   Checked at >=4.5:1 against both --color-bg and --color-surface. */
+	--color-text-deprioritized: #8e97b8;
+
+	/* The one accent, used identically everywhere something is
+	   interactive: buttons, links, focus rings, the active nav item, a
+	   selected chip. A brass-gold rather than a blue, since blue-on-navy
+	   is the first thing every generic dashboard reaches for. */
+	--color-accent: #e8a33d;
+	--color-accent-hover: #f2b862;
+	/* Text/icon colour placed on top of --color-accent. */
+	--color-accent-text: #231703;
+	/* Tinted accent background, e.g. a selected chip or active nav item. */
+	--color-accent-muted: #3a2a0f;
+	--color-link: var(--color-accent);
+
+	/* Reserved for the one thing this app is actually selling: the free
+	   city in the middle. Nights in the stopover, free time windows,
+	   anything that represents the "bonus trip" gets this colour and
+	   nothing else does, so it stays recognisable across screens. */
+	--color-stopover: #2dd4bf;
+	--color-stopover-bg: #0d332f;
+
+	--color-success: #34d399;
+	--color-success-bg: #103824;
+	--color-warning: #fbbf24;
+	--color-warning-bg: #3a2a05;
+	--color-danger: #f87171;
+	--color-danger-bg: #3b1414;
+	--color-info: #60a5fa;
+	--color-info-bg: #112a4a;
+
+	--color-focus-ring: var(--color-accent);
+	--color-overlay: rgb(6 9 18 / 70%);
+
+	/* ---------------------------------------------------------------------
+	 * Spacing — 4px base unit, in rem so it scales with user font size
+	 * ------------------------------------------------------------------- */
+	--space-0: 0;
+	--space-1: 0.25rem;
+	--space-2: 0.5rem;
+	--space-3: 0.75rem;
+	--space-4: 1rem;
+	--space-5: 1.25rem;
+	--space-6: 1.5rem;
+	--space-7: 2rem;
+	--space-8: 2.5rem;
+	--space-9: 3rem;
+	--space-10: 4rem;
+
+	/* ---------------------------------------------------------------------
+	 * Type scale
+	 * ------------------------------------------------------------------- */
+	--font-sans:
+		'Bricolage Grotesque', system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial,
+		sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji';
+	/* Departure-board numerals: prices, clock times, IATA codes, dates.
+	   Pair with .tabular-nums so columns of numbers actually line up. */
+	--font-mono:
+		'JetBrains Mono', ui-monospace, 'SF Mono', 'Cascadia Code', Menlo, Consolas,
+		monospace;
+
+	--tracking-tight: -0.02em;
+	--tracking-wide: 0.03em;
+
+	--font-size-xs: 0.75rem;
+	--line-height-xs: 1rem;
+	--font-size-sm: 0.875rem;
+	--line-height-sm: 1.25rem;
+	--font-size-base: 1rem;
+	--line-height-base: 1.5rem;
+	--font-size-lg: 1.125rem;
+	--line-height-lg: 1.75rem;
+	--font-size-xl: 1.25rem;
+	--line-height-xl: 1.75rem;
+	--font-size-2xl: 1.5rem;
+	--line-height-2xl: 2rem;
+	--font-size-3xl: 1.875rem;
+	--line-height-3xl: 2.25rem;
+
+	--font-weight-regular: 400;
+	--font-weight-medium: 500;
+	--font-weight-semibold: 600;
+	--font-weight-bold: 700;
+
+	/* ---------------------------------------------------------------------
+	 * Radius
+	 * ------------------------------------------------------------------- */
+	--radius-sm: 0.25rem;
+	--radius-md: 0.5rem;
+	--radius-lg: 0.75rem;
+	--radius-xl: 1rem;
+	--radius-full: 999px;
+
+	/* ---------------------------------------------------------------------
+	 * Elevation, motion, layout — not asked for by name, but every
+	 * component below needs a consistent answer for these, so they live
+	 * here rather than getting reinvented per component.
+	 * ------------------------------------------------------------------- */
+	/* Tinted navy, not pure black, so shadows read as depth on this
+	   background instead of a generic drop-shadow pasted on top. */
+	--shadow-sm: 0 1px 2px rgb(3 5 14 / 45%);
+	--shadow-md: 0 4px 14px rgb(3 5 14 / 50%);
+	--shadow-lg: 0 16px 40px rgb(3 5 14 / 55%);
+	/* For the one primary action on screen, not every button — a small
+	   glow in the accent's own hue instead of a neutral shadow. */
+	--shadow-accent: 0 6px 20px rgb(232 163 61 / 25%);
+
+	--transition-fast: 120ms ease;
+	--transition-base: 200ms cubic-bezier(0.16, 1, 0.3, 1);
+
+	/* Content column width. Search, results and settings should wrap their
+	   page content in a container at this width so lines don't stretch
+	   into an unreadable ruler on a desktop-width viewport. */
+	--layout-max-width: 72rem;
+
+	--z-header: 20;
+	--z-overlay: 50;
+	--z-skip-link: 100;
+	/* Always on top, always inert (pointer-events: none) — the grain
+	   texture below is the only thing that lives here. */
+	--z-grain: 200;
+
+	color-scheme: dark;
+}
+
+@media (prefers-color-scheme: light) {
+	:root {
+		--color-bg: #f6f7fb;
+		--color-bg-elevated: #ffffff;
+		--color-bg-inset: #eceef5;
+		--color-surface: #ffffff;
+		--color-surface-hover: #eef1fa;
+
+		--color-border: #d9dded;
+		--color-border-strong: #818ab0;
+
+		--color-text: #131829;
+		--color-text-muted: #4b5372;
+		--color-text-faint: #626a91;
+		--color-text-deprioritized: #5b6389;
+
+		/* A deep bronze, not the dark theme's brighter gold — the same
+		   idea recalibrated for contrast against a light ground. */
+		--color-accent: #8a5407;
+		--color-accent-hover: #6b4004;
+		--color-accent-text: #ffffff;
+		--color-accent-muted: #fdf1dc;
+		--color-link: var(--color-accent);
+
+		--color-stopover: #0f766e;
+		--color-stopover-bg: #e3faf6;
+
+		--color-success: #15803d;
+		--color-success-bg: #dcfce7;
+		--color-warning: #b45309;
+		--color-warning-bg: #fef3c7;
+		--color-danger: #b91c1c;
+		--color-danger-bg: #fee2e2;
+		--color-info: #1d4ed8;
+		--color-info-bg: #dbeafe;
+
+		--color-focus-ring: var(--color-accent);
+		--color-overlay: rgb(19 24 41 / 45%);
+
+		--shadow-sm: 0 1px 2px rgb(19 24 41 / 8%);
+		--shadow-md: 0 4px 12px rgb(19 24 41 / 10%);
+		--shadow-lg: 0 12px 32px rgb(19 24 41 / 14%);
+		--shadow-accent: 0 6px 20px rgb(138 84 7 / 18%);
+
+		color-scheme: light;
+	}
+}
+
+/* ---------------------------------------------------------------------
+ * Reset and base styles
+ * ------------------------------------------------------------------- */
+
+*,
+*::before,
+*::after {
+	box-sizing: border-box;
+}
+
+* {
+	margin: 0;
+}
+
+html {
+	-webkit-text-size-adjust: 100%;
+	text-size-adjust: 100%;
+}
+
+html,
+body {
+	height: 100%;
+}
+
+body {
+	/* Safety net: the comparator and other wide content are required to
+	   scroll inside their own container, never the page. This just keeps
+	   an implementation mistake elsewhere from producing a sideways
+	   page scrollbar at 320px. */
+	overflow-x: hidden;
+	font-family: var(--font-sans);
+	font-size: var(--font-size-base);
+	line-height: var(--line-height-base);
+	color: var(--color-text);
+	background: var(--color-bg);
+	-webkit-font-smoothing: antialiased;
+}
+
+img,
+picture,
+svg,
+video {
+	display: block;
+	max-width: 100%;
+}
+
+h1,
+h2,
+h3 {
+	font-family: var(--font-sans);
+	font-weight: var(--font-weight-bold);
+	letter-spacing: var(--tracking-tight);
+	text-wrap: balance;
+}
+
+/* A fixed, inert grain layer, the one texture on this whole app. It is
+   what keeps a flat navy background from reading as an empty SaaS
+   template instead of a departure board at night. Static (no animation:
+   an animated grain is a GPU cost for zero benefit), and far too faint
+   to affect text contrast underneath it. */
+body::after {
+	content: '';
+	position: fixed;
+	inset: 0;
+	z-index: var(--z-grain);
+	pointer-events: none;
+	opacity: 0.05;
+	mix-blend-mode: overlay;
+	background-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20width%3D'120'%20height%3D'120'%3E%3Cfilter%20id%3D'n'%3E%3CfeTurbulence%20type%3D'fractalNoise'%20baseFrequency%3D'0.9'%20numOctaves%3D'2'%20stitchTiles%3D'stitch'%2F%3E%3C%2Ffilter%3E%3Crect%20width%3D'100%25'%20height%3D'100%25'%20filter%3D'url(%23n)'%2F%3E%3C%2Fsvg%3E");
+}
+
+input,
+button,
+select,
+textarea {
+	font: inherit;
+	color: inherit;
+}
+
+button {
+	background: none;
+	border: none;
+	cursor: pointer;
+}
+
+a {
+	color: var(--color-link);
+}
+
+ul,
+ol {
+	list-style: none;
+	padding: 0;
+}
+
+/* Visible, high-contrast focus ring everywhere, for keyboard and switch
+   users. `:focus-visible` keeps it off a plain mouse click. */
+:focus-visible {
+	outline: 2px solid var(--color-focus-ring);
+	outline-offset: 2px;
+	border-radius: var(--radius-sm);
+}
+
+@media (prefers-reduced-motion: reduce) {
+	*,
+	*::before,
+	*::after {
+		animation-duration: 0.001ms !important;
+		animation-iteration-count: 1 !important;
+		transition-duration: 0.001ms !important;
+		scroll-behavior: auto !important;
+	}
+}
+
+/* ---------------------------------------------------------------------
+ * Utilities
+ * ------------------------------------------------------------------- */
+
+/* Screen-reader-only content: still in the accessibility tree, removed
+   from the visual layout. Use for context an icon-only control needs. */
+.visually-hidden {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	padding: 0;
+	margin: -1px;
+	overflow: hidden;
+	clip: rect(0, 0, 0, 0);
+	white-space: nowrap;
+	border: 0;
+}
+
+/* Numbers that need to line up in a column, e.g. prices and durations in
+   the results list and comparator. */
+.tabular-nums {
+	font-variant-numeric: tabular-nums;
+}
+
+/* Departure-board type for prices, clock times, IATA codes, dates. Pair
+   with .tabular-nums for anything that lines up in a column. */
+.font-mono {
+	font-family: var(--font-mono);
+}
+
+/* The stopover city is the product's whole pitch, so it gets a colour
+   nothing else uses: nights in the connection city, the free-time
+   window, anything that is the "bonus trip" rather than the commute to
+   it. */
+.text-stopover {
+	color: var(--color-stopover);
+}
+
+/* The greyed-out treatment for deprioritised content (avoided airlines
+   and similar). Colour only, so nothing here depends on opacity — an
+   avoided airline still has to be legible, just visually quieter. */
+.is-deprioritized {
+	color: var(--color-text-deprioritized);
+}
+
+/* A container that scrolls its own overflow horizontally instead of
+   letting the page scroll sideways. The comparator (#25) is the main
+   user of this, but any wide content — a long table, a timeline — should
+   reach for it too. */
+.scroll-x {
+	overflow-x: auto;
+	overflow-y: hidden;
+	-webkit-overflow-scrolling: touch;
+}
