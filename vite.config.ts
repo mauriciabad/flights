@@ -28,12 +28,19 @@ export default defineConfig({
 			appDir: 'app'
 		}),
 		SvelteKitPWA({
-			// 'prompt', not 'autoUpdate': a silently-reloading tab loses whatever the
-			// user was doing with it (a search mid-flight, a card expanded). 'prompt'
-			// leaves the old shell in control until src/lib/pwa/UpdateToast.svelte's
-			// button calls updateServiceWorker(), so the reload is something the user
-			// chose rather than something that happened to them (issue #30).
-			registerType: 'prompt',
+			// 'autoUpdate', not 'prompt'. This was 'prompt' because a silently-reloading
+			// tab loses whatever the user was doing with it. That reasoning has since
+			// stopped applying: every screen keeps its state in the URL, /results
+			// rebuilds a whole search from its query string, and the comparator the old
+			// comment cited was deleted in #178. A reload now costs a re-run of a search
+			// that the IndexedDB cache already holds the answers to.
+			//
+			// What 'prompt' cost instead: a new deploy installed and then sat in
+			// `waiting` until somebody clicked a toast, so a visitor who did not click
+			// kept the old shell indefinitely. Measured with tools/probe-sw-update.mjs
+			// before this change — 20 seconds after a deploy to the same origin, in the
+			// same browser, the page was still rendering the previous build.
+			registerType: 'autoUpdate',
 			// @vite-pwa/sveltekit's build plugin only emits sw.js and
 			// manifest.webmanifest; it never injects a <link rel="manifest"> or a
 			// registration script into a prerendered app.html (confirmed against its
@@ -41,7 +48,7 @@ export default defineConfig({
 			// HTML). `injectRegister: false` says so explicitly, rather than leaving a
 			// registerSW.js in the build that nothing ever links to. Registration
 			// itself happens in src/routes/+layout.svelte (the manifest link) and
-			// UpdateToast.svelte, which calls navigator.serviceWorker.register()
+			// src/lib/pwa/register-sw.ts, which calls navigator.serviceWorker.register()
 			// directly — see that file's comment for why it doesn't go through
 			// vite-plugin-pwa's own virtual:pwa-register/svelte helper.
 			injectRegister: false,
@@ -71,7 +78,23 @@ export default defineConfig({
 				// Provider responses are cached by the app's own layered cache, not
 				// by the service worker, so it must not shadow them.
 				navigateFallback: null,
-				cleanupOutdatedCaches: true
+				cleanupOutdatedCaches: true,
+				// These two are what actually make 'autoUpdate' happen, and they have to
+				// be written out by hand here. vite-plugin-pwa only translates
+				// registerType into these workbox flags when it is also generating the
+				// registration script for you (`injectRegister === 'auto' || == null`,
+				// node_modules/vite-plugin-pwa/dist/index.js). We pass
+				// `injectRegister: false` and register by hand, so registerType alone is
+				// inert: flipping it to 'autoUpdate' and stopping there emits byte-for-byte
+				// the same sw.js as 'prompt' did, and the stale-shell bug survives a diff
+				// that looks like it fixed it.
+				//
+				// skipWaiting: a new worker activates on install instead of queueing
+				// behind the tab that is still open. clientsClaim: it then takes over the
+				// pages already on screen, which is what fires `controllerchange` and lets
+				// src/lib/pwa/register-sw.ts reload them onto the new build.
+				skipWaiting: true,
+				clientsClaim: true
 			}
 		})
 	]

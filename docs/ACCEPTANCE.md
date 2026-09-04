@@ -54,6 +54,12 @@ Against production, in your own browser context, the way a person would.
 - `node tools/probe-search.mjs Paris` prints what the airport field really offers.
 - `node tools/probe-ryanair-requests.mjs` prints what one search costs Ryanair, split by
   endpoint, cold cache and warm.
+- `node tools/probe-sw-update.mjs` builds the tree twice, deploys the second build over
+  the first at one origin, and reports which one a returning visitor ends up on. It
+  exists because this app is a PWA, so "the fix is deployed" and "the owner can see the
+  fix" are two different claims. They were different for a whole day: `registerType:
+  'prompt'` parked every new build behind a toast nobody clicked, and at least one bug
+  report was about map geometry #72 had already fixed.
 
 The claims this file makes about Ryanair's network are also checkable offline, since the
 whole route graph now ships with the app (issue #121, docs/PROVIDERS.md). BVC, RAI and SID
