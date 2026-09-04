@@ -275,6 +275,14 @@ html {
 html,
 body {
 	height: 100%;
+	/* The app shell owns scrolling, not the document (issue #119). `.app-shell` is
+	   `height: 100dvh` and its `main` row scrolls internally, but a `height: 100%`
+	   alone still leaves the document itself scrollable, and once it scrolls the
+	   header and the bottom nav scroll away with it. Measured on a 390x844 phone
+	   before this: the shell was correctly 844px while `document.scrollingElement`
+	   reported 4359px, and `window.scrollTo(0, 3000)` put the header at -3000. */
+	overflow: hidden;
+	overscroll-behavior: none;
 }
 
 body {
