@@ -6,8 +6,8 @@ docs being written and this project starting.
 
 If you are reading this to answer "which aggregator should I use", the answer is
 [Kiwi.com's public API](#kiwicoms-public-api-keyless-cors-open-and-a-real-aggregator).
-Twelve others were measured and rejected; each one's reason is in "What died" so nobody has
-to find out twice.
+Every other candidate was measured and rejected, and each one's reason is in "What died" so
+nobody has to find out twice.
 
 ## The constraint that shapes everything
 
