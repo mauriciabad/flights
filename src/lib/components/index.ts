@@ -13,3 +13,5 @@ export { default as EmptyState } from './EmptyState.svelte';
 export { default as ErrorState, PROVIDER_ISSUE_COPY } from './ErrorState.svelte';
 export type { ProviderIssueReason } from './ErrorState.svelte';
 export { default as ItineraryTimeline } from './ItineraryTimeline.svelte';
+export { default as Comparator } from './Comparator.svelte';
+export type { ComparedItinerary } from './comparator-types';
