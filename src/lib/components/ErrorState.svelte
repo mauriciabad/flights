@@ -1,8 +1,8 @@
 <script module lang="ts">
 	/**
 	 * Shared vocabulary for "why a provider failed", so a RapidAPI 403 reads
-	 * the same way in the results list, the comparator and settings instead
-	 * of every feature writing its own copy. Provider adapters (#2) can
+	 * the same way in the results list and settings instead of every feature
+	 * writing its own copy. Provider adapters (#2) can
 	 * import `ProviderIssueReason` and hand a value straight to this
 	 * component's `reason` prop.
 	 */

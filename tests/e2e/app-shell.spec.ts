@@ -1,10 +1,8 @@
 import { test, expect } from './support/fixtures';
 
 /**
- * The one screen that exists today. Everything else in issue #18 — the search form,
- * the results list, the comparator — is still mid-build behind other issues, so this
- * file only asserts what is actually true right now: the static site boots, hydrates,
- * and doesn't throw.
+ * The app shell itself. Other screens have their own specs; this file only asserts what
+ * the shell owes every one of them: the static site boots, hydrates, and doesn't throw.
  */
 test.describe('app shell', () => {
 	test('loads, hydrates and renders without console or page errors', async ({ page }) => {

@@ -105,7 +105,11 @@ should make easy to change later.
   flight, defaulting to 2h, and it is added to time spent in airports.
 - **"Free time"** runs from hotel check-in in the connection city to leaving the hotel,
   and the UI shows the actual start and end datetimes, not only a duration.
-- **The comparator** aligns rows across itineraries with CSS subgrid, scrolls all columns
-  on one shared timeline, and pins a summary card at top and totals at bottom.
+- **The comparator was built and then removed.** It shipped as a `/comparator/` route
+  that lined itineraries up as subgrid-aligned columns. On 2026-09-04 the owner asked for
+  it to be deleted outright: "completely delete the compare funcionality and all dead code
+  it makes." Nothing in the app compares itineraries side by side any more, and the
+  verbatim line above is kept as a record of what was asked for, not as a description of
+  what exists.
 - **Cache-then-revalidate** is required behaviour, not an optimisation. Show the cached
   result immediately, refetch regardless, update in place.

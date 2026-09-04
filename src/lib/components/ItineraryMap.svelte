@@ -103,7 +103,7 @@
 
 	// Resolves the one thing an Itinerary never names directly (see segments.ts's own
 	// doc comment). Re-runs if the itinerary prop itself is swapped out from above
-	// (e.g. a future comparator flipping between candidate itineraries).
+	// (a picker swapping in an alternative flight, say).
 	$effect(() => {
 		const arrivalCode = itinerary.outboundFlight.arrivalAirport;
 		let cancelled = false;

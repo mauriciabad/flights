@@ -6,22 +6,13 @@
 	 * transfer to hotel, free time, transfer to connection airport, waiting time, onward
 	 * flight, transfer to destination location.
 	 *
-	 * DOM contract for issue #25 (the comparator): this component's root is the `<ol>`
-	 * itself, with no wrapping `<div>` around it, followed by a sibling `<dl>` of totals, so
-	 * a parent never has to reach past an extra layer to grid-align either one. Each
-	 * schedule step is one `<li class="tl-row">`, always in the same order, so the Nth row
-	 * of one itinerary is always the same *kind* of step as the Nth row of any other
-	 * itinerary built from the same SearchQuery. The two rows that can be entirely absent,
-	 * origin and destination location, are a property of the query, not of one itinerary,
-	 * so their presence is identical across every itinerary being compared side by side.
-	 * That positional guarantee is what makes plain CSS subgrid work with no per-row naming
-	 * scheme: pass `subgrid` and this `<ol>` becomes `grid-template-rows: subgrid`, so a
-	 * parent grid's row tracks size to the tallest sibling at each position. See this
-	 * file's PR description for the exact contract issue #25 can build on.
+	 * DOM shape: this component's root is the `<ol>` itself, with no wrapping `<div>`
+	 * around it, followed by a sibling `<dl>` of totals. Each schedule step is one
+	 * `<li class="tl-row">`, always in the same order.
 	 *
 	 * Issue #73 makes each `<li>` clickable (to drive `ItineraryMap`'s selection, issue
 	 * #26), but only by adding attributes and handlers directly to that same `<li>` — no
-	 * wrapping element, so the contract above still holds.
+	 * wrapping element.
 	 */
 	import type { Airport, Duration, FlightOffer, Itinerary, LocalDateTime, Location, Transfer } from '../domain';
 	import { recomputeItineraryWaitingTimes } from '../algorithm/build';
@@ -41,13 +32,6 @@
 
 	interface Props {
 		itinerary: Itinerary;
-		/** Opts the root `<ol>` into a shared row grid from an ancestor grid instead of
-		 * sizing its own rows. See the DOM contract note above. Off by default so the
-		 * component still lays out correctly on its own, e.g. in a results list. */
-		subgrid?: boolean;
-		/** The totals `<dl>` after the row list. Off when a parent (the comparator) is
-		 * building one shared totals bar across every column instead of one per column. */
-		showTotals?: boolean;
 		/**
 		 * Issue #73: the selection half of the contract `ItineraryMap` (issue #26) already
 		 * implements on its own `selectedSegmentId` prop. One `ItinerarySegmentId` value
@@ -68,18 +52,9 @@
 		 * the code and never guesses.
 		 */
 		connectionAirport?: Airport;
-		/** Applied to the row list; the totals block keeps its own fixed class. */
-		class?: string;
 	}
 
-	let {
-		itinerary,
-		subgrid = false,
-		showTotals = true,
-		selectedSegmentId = $bindable(null),
-		connectionAirport,
-		class: className
-	}: Props = $props();
+	let { itinerary, selectedSegmentId = $bindable(null), connectionAirport }: Props = $props();
 
 	/** The origin buffer has no domain-side ceiling (unlike the connection buffer, it never
 	 * borrows from free time), so this is purely a sane upper bound for the number input. */
@@ -159,8 +134,7 @@
 	}
 
 	// Every row's selectable state lives on the `<li>` itself rather than a wrapping
-	// element, since the comparator (issue #25) depends on each step being exactly one
-	// flat `<li class="tl-row">`.
+	// element, so each step stays exactly one flat `<li class="tl-row">`.
 	//
 	// This used to be a `role="listbox"`/`role="option"` list (matching "a single-select
 	// list of steps"), until axe caught what that pattern actually requires: EVERY owned
@@ -188,10 +162,9 @@
 	// legitimate way to mark a plain listitem as actionable, so it flags a real tabindex/
 	// click/keydown on a "non-interactive" `<li>` (`a11y_no_noninteractive_tabindex`,
 	// `a11y_no_noninteractive_element_interactions`) and the same for `onkeydown` on the
-	// `<ol>` itself. Each is silenced with a `<!-- svelte-ignore -->` at its own spot,
-	// the same pattern the comparator's own scrollable region already uses in
-	// Comparator.svelte for an identical reason — a linter heuristic, not an ARIA rule,
-	// axe itself is clean against a real build (verified per issue #19).
+	// `<ol>` itself. Each is silenced with a `<!-- svelte-ignore -->` at its own spot.
+	// It is a linter heuristic, not an ARIA rule, and axe itself is clean against a real
+	// build (verified per issue #19).
 	function handleRowKeydown(event: KeyboardEvent & { currentTarget: HTMLLIElement }, segment: ItinerarySegmentId) {
 		if (event.target !== event.currentTarget) return;
 		if (event.key !== 'Enter' && event.key !== ' ') return;
@@ -489,8 +462,7 @@
 
 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 <ol
-	class={['itinerary-timeline', className]}
-	class:itinerary-timeline--subgrid={subgrid}
+	class="itinerary-timeline"
 	aria-label={routeDescription}
 	role="list"
 	onkeydown={handleListKeydown}
@@ -616,49 +588,45 @@
 	{/if}
 </ol>
 
-{#if showTotals}
-	<dl class="itinerary-timeline-totals">
-		<div class="tl-total">
-			<dt>In-flight</dt>
-			<dd class="font-mono tabular-nums">{formatDuration(shown.times.inFlight)}</dd>
-		</div>
-		<div class="tl-total">
-			<dt>Airport waiting</dt>
-			<dd class="font-mono tabular-nums">{formatDuration(shown.times.airportWaiting)}</dd>
-		</div>
-		<div class="tl-total">
-			<dt>Free time</dt>
-			<dd class="font-mono tabular-nums">{formatDuration(shown.times.free)}</dd>
-		</div>
-		<div class="tl-total tl-total-nights">
-			<dt>Nights in connection</dt>
-			<dd class="font-mono tabular-nums">{shown.nightsInConnection}</dd>
-		</div>
-		<div class="tl-total tl-total-primary">
-			<dt>Total time</dt>
-			<dd class="font-mono tabular-nums">{formatDuration(shown.times.total)}</dd>
-		</div>
-		<div class="tl-total tl-total-primary">
-			<dt>Total price</dt>
-			<dd class="font-mono tabular-nums">{formatMoney(shown.totalPrice)}</dd>
-			<!-- Issue #140: only a stopover that actually spends a night is missing
-			     anything. On a same-day connection this total is complete, and warning that
-			     it excludes a stay would invent a cost the trip never had. -->
-			{#if !shown.stay && shown.nightsInConnection > 0}
-				<p class="tl-note tl-note-warning">Excludes an unpriced stopover stay</p>
-			{/if}
-		</div>
-	</dl>
-{/if}
+<dl class="itinerary-timeline-totals">
+	<div class="tl-total">
+		<dt>In-flight</dt>
+		<dd class="font-mono tabular-nums">{formatDuration(shown.times.inFlight)}</dd>
+	</div>
+	<div class="tl-total">
+		<dt>Airport waiting</dt>
+		<dd class="font-mono tabular-nums">{formatDuration(shown.times.airportWaiting)}</dd>
+	</div>
+	<div class="tl-total">
+		<dt>Free time</dt>
+		<dd class="font-mono tabular-nums">{formatDuration(shown.times.free)}</dd>
+	</div>
+	<div class="tl-total tl-total-nights">
+		<dt>Nights in connection</dt>
+		<dd class="font-mono tabular-nums">{shown.nightsInConnection}</dd>
+	</div>
+	<div class="tl-total tl-total-primary">
+		<dt>Total time</dt>
+		<dd class="font-mono tabular-nums">{formatDuration(shown.times.total)}</dd>
+	</div>
+	<div class="tl-total tl-total-primary">
+		<dt>Total price</dt>
+		<dd class="font-mono tabular-nums">{formatMoney(shown.totalPrice)}</dd>
+		<!-- Issue #140: only a stopover that actually spends a night is missing
+		     anything. On a same-day connection this total is complete, and warning that
+		     it excludes a stay would invent a cost the trip never had. -->
+		{#if !shown.stay && shown.nightsInConnection > 0}
+			<p class="tl-note tl-note-warning">Excludes an unpriced stopover stay</p>
+		{/if}
+	</div>
+</dl>
 
 <style>
 	/* ---------------------------------------------------------------------
 	 * Row list. Two columns exposed to every row (a narrow rail, a flexible
 	 * content column) so each <li> can subgrid them and every dot / line
 	 * lands in the same place regardless of how tall that row's own content
-	 * is. This is a different axis from the `subgrid` prop below: this one
-	 * is always on, for this component's own internal alignment; that one
-	 * opts the whole row list into a *parent's* row tracks.
+	 * is.
 	 * ------------------------------------------------------------------- */
 	.itinerary-timeline {
 		position: relative;
@@ -666,15 +634,6 @@
 		grid-template-columns: 1.5rem minmax(0, 1fr);
 		column-gap: var(--space-3);
 		row-gap: var(--space-5);
-	}
-
-	/* Issue #25's hook: place this component inside a grid ancestor that defines the shared
-	   row tracks, then pass `subgrid` so this list's own rows size to match its siblings'
-	   at each position instead of sizing independently. */
-	.itinerary-timeline--subgrid {
-		grid-row: 1 / -1;
-		grid-template-rows: subgrid;
-		row-gap: 0;
 	}
 
 	.tl-row {
@@ -685,8 +644,7 @@
 		border-radius: var(--radius-md);
 		/* The interactive role (issue #73, the map selection contract) lives on the `<li>`
 		   itself, not a wrapper: a wrapper would need its own `grid-template-columns:
-		   subgrid`, breaking the two-column contract every row here relies on and the
-		   comparator (#25) reads from. */
+		   subgrid`, breaking the two-column contract every row here relies on. */
 		cursor: pointer;
 		transition: background-color var(--transition-fast);
 	}
@@ -706,9 +664,8 @@
 	/* ---------------------------------------------------------------------
 	 * The rail: a continuous line down the left edge with a marker per row.
 	 * Built from one pseudo-element per row rather than a single absolutely
-	 * positioned line for the whole list, so the rail still lines up
-	 * correctly under `subgrid` even though row heights then come from a
-	 * shared track rather than this component's own content.
+	 * positioned line for the whole list, so the rail lines up correctly
+	 * however tall each row's own content turns out to be.
 	 * ------------------------------------------------------------------- */
 	.tl-rail {
 		position: relative;
@@ -731,12 +688,6 @@
 
 	.tl-row:last-child .tl-rail::before {
 		display: none;
-	}
-
-	/* Under `subgrid`, the list's own row-gap is 0 (the parent's row tracks decide spacing
-	   instead), so the line has nothing to bridge past this row's own bottom edge. */
-	.itinerary-timeline--subgrid .tl-rail::before {
-		bottom: 0;
 	}
 
 	.tl-dot {
@@ -1057,11 +1008,8 @@
 	}
 
 	/* ---------------------------------------------------------------------
-	 * Totals summary: a separate top-level sibling of the row list on
-	 * purpose (see this file's header comment): the comparator's own
-	 * bottom bar is separate chrome per the brief, not part of the aligned
-	 * rows, so a parent that wants to build its own can set showTotals to
-	 * false and skip this block entirely.
+	 * Totals summary: a separate top-level sibling of the row list, not a
+	 * child of it, so it is never caught by the row grid's own tracks.
 	 * ------------------------------------------------------------------- */
 	.itinerary-timeline-totals {
 		display: flex;

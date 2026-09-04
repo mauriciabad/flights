@@ -29,7 +29,7 @@ export default defineConfig({
 		}),
 		SvelteKitPWA({
 			// 'prompt', not 'autoUpdate': a silently-reloading tab loses whatever the
-			// user was doing with it (mid-search, a filled-in comparator). 'prompt'
+			// user was doing with it (a search mid-flight, a card expanded). 'prompt'
 			// leaves the old shell in control until src/lib/pwa/UpdateToast.svelte's
 			// button calls updateServiceWorker(), so the reload is something the user
 			// chose rather than something that happened to them (issue #30).

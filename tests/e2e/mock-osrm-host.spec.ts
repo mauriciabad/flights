@@ -17,7 +17,7 @@ import { mockAllKeylessProviders, OSRM_BASE_URL, routeRyanairFlights } from './s
  * `search/pipeline.ts` call a `TransferProvider` at all is an origin or destination
  * *location* on the query (`fetchOuterTransfers`, gated on `query.originLocation` /
  * `query.destinationLocation`) — an airport code alone never does — so this search adds a
- * `fromLoc` on top of the exact BCN -> VIE -> TLL setup `select-and-compare.spec.ts`
+ * `fromLoc` on top of the exact BCN -> VIE -> TLL setup `result-detail.spec.ts`
  * already knows produces a real connecting itinerary.
  *
  * Its fare values come from `support/fixture-markers.ts` for the reason that file
@@ -34,7 +34,7 @@ test.describe('mockOsrm intercepts the host the adapter really calls (issue #132
 
 		// Ryanair route-widget, active-airports and OSRM all keep their generic default
 		// fixtures — only the fare-finder below needs to be query-aware, exactly as
-		// select-and-compare.spec.ts already established for this same BCN -> VIE -> TLL
+		// result-detail.spec.ts already established for this same BCN -> VIE -> TLL
 		// pairing. `mockOsrm` here is the one thing this test exists to exercise.
 		await mockAllKeylessProviders(page.context());
 

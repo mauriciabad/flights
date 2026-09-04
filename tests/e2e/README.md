@@ -69,9 +69,9 @@ AGENTS.md, "Mocks belong to a test and to nothing else", says what that cost.
 ## Adding a test for a screen that just landed
 
 Several spec files already exist for screens that don't yet — `search.spec.ts`,
-`comparator.spec.ts`, `itinerary-editing.spec.ts`, and the second half of `pwa.spec.ts`
-— each with `test.skip(...)` placeholders that name the exact scenario from issue #18
-and the issue(s) it's blocked on. When one of those issues closes:
+`itinerary-editing.spec.ts`, and the second half of `pwa.spec.ts` — each with
+`test.skip(...)` placeholders that name the exact scenario from issue #18 and the
+issue(s) it's blocked on. When one of those issues closes:
 
 1. Open the matching spec file and find the placeholder.
 2. Replace the comment-only body with a real test: mock the providers it needs, drive

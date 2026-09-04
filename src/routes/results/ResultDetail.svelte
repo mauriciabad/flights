@@ -9,10 +9,9 @@
 	 * ## Why the pickers sit in their own section below the timeline, not inside it
 	 *
 	 * Issue #104 asks for a picker "next to each leg." Doing that literally means adding a
-	 * picker INSIDE one of `ItineraryTimeline`'s own `<li class="tl-row">` snippets, which
-	 * that component's header comment explicitly reserves for the comparator's subgrid
-	 * contract ("no wrapping element... a wrapper would need its own grid-template-columns:
-	 * subgrid, breaking the two-column contract"). Editing that file is exactly what
+	 * picker INSIDE one of `ItineraryTimeline`'s own `<li class="tl-row">` snippets, and a
+	 * wrapper there would need its own `grid-template-columns: subgrid`, breaking the
+	 * two-column contract every row in that file relies on. Editing it is also exactly what
 	 * AGENTS.md's "do not rebuild" list forbids. Instead, the read-only timeline stays
 	 * exactly as-is, and a second, editing-focused section below it mirrors the timeline's
 	 * own row labels ("Outbound flight", "Travel to the connection airport", ...) in the
@@ -28,9 +27,8 @@
 	 * active search, whether or not this particular connection's own data changed. Re-
 	 * syncing on every prop change would silently discard whatever flight, transfer or stay
 	 * the traveller just picked below the moment an unrelated provider answers. Freezing at
-	 * the instant a card is expanded is the same judgement call `+page.svelte`'s own
-	 * "Compare selected" button makes for the comparator: a deliberate snapshot, not a live
-	 * mirror. `group`, `stayCandidates`, `transferOptions` and `outerTransferOptions` are NOT
+	 * the instant a card is expanded is a deliberate snapshot, not a live mirror. `group`,
+	 * `stayCandidates`, `transferOptions` and `outerTransferOptions` are NOT
 	 * frozen the same way — more alternatives streaming in after this card opens is a feature
 	 * (the picker just grows more rows), it never overwrites the traveller's current pick the
 	 * way replacing `itinerary` would.

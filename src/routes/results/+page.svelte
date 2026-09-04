@@ -14,8 +14,6 @@
 	 */
 	import { untrack } from 'svelte';
 	import { browser } from '$app/environment';
-	import { goto } from '$app/navigation';
-	import { base } from '$app/paths';
 	import { page } from '$app/state';
 	import { Button, Card, EmptyState, Skeleton } from '$lib/components';
 	import { getAirport } from '$lib/data/airports';
@@ -45,8 +43,6 @@
 	import type { StreamSlot } from '$lib/results/stream-order';
 	import { connectionAirportCode, deriveScoredResult, summarizePriceCalendarOutcome, widenOptionGroupKey } from '$lib/results/types';
 	import type { ProviderStatus, WidenOptionGroup } from '$lib/results/types';
-	import { comparisonSelection } from '$lib/results/comparison-selection.svelte';
-	import { toComparedItinerary } from '$lib/results/to-compared-itinerary';
 	import FilterPanel from './FilterPanel.svelte';
 	import NoResultsBoard from './NoResultsBoard.svelte';
 	import ProviderStatusStrip from './ProviderStatusStrip.svelte';
@@ -104,12 +100,6 @@
 	 * this being `> 0`, not off any single stream's own `done` flag. */
 	let searchesInFlight = $state(0);
 	let pendingWidenKey = $state<string | undefined>(undefined);
-	/** Issue #103: which itineraries the traveller picked to line up in the comparator,
-	 * keyed by `result.id` (the connection airport code) rather than by index or object
-	 * identity. That's the same key `stream-order.ts` already treats as stable across
-	 * snapshots (see its own header comment), so a checkbox never drifts onto a different
-	 * trip when that connection's price or freshness updates in place mid-search. */
-	let selectedIds = $state<Set<string>>(new Set());
 	/** Issue #104: which single card, if any, has its timeline/map/pickers open below it. */
 	let expandedId = $state<string | null>(null);
 	/** Issue #104: the full `ItineraryGroup` behind each connection, kept alongside `order`
@@ -253,8 +243,7 @@
 		sequenceByConnection.clear();
 		nextSequence = 1;
 		// A new query is an unrelated search: yesterday's connection codes have no business
-		// staying "selected" or "expanded" against whatever streams in next.
-		selectedIds = new Set();
+		// staying "expanded" against whatever streams in next.
 		expandedId = null;
 		groupsByConnection = {};
 		stayCandidatesByConnection = {};
@@ -386,30 +375,8 @@
 		filters = emptyFilters();
 	}
 
-	function toggleSelected(id: string) {
-		const next = new Set(selectedIds);
-		if (next.has(id)) next.delete(id);
-		else next.add(id);
-		selectedIds = next;
-	}
-
 	function toggleExpanded(id: string) {
 		expandedId = expandedId === id ? null : id;
-	}
-
-	function clearSelection() {
-		selectedIds = new Set();
-	}
-
-	/** Issue #103: hands the comparator exactly the itineraries the traveller picked, as a
-	 * snapshot taken at the moment of clicking — see `comparison-selection.svelte.ts`'s own
-	 * header comment for why a snapshot rather than a live reference. `results`, not
-	 * `filteredResults`: a filter hiding a card from view is not the same as un-selecting
-	 * it. */
-	function openComparator() {
-		const chosen = results.filter((result) => selectedIds.has(result.id)).map(toComparedItinerary);
-		comparisonSelection.set(chosen);
-		goto(`${base}/comparator/`);
 	}
 </script>
 
@@ -499,9 +466,7 @@
 							<ResultCard
 								{result}
 								connectionAirport={connectionAirports[code]}
-								selected={selectedIds.has(result.id)}
 								expanded={expandedId === result.id}
-								onToggleSelect={() => toggleSelected(result.id)}
 								onToggleExpand={() => toggleExpanded(result.id)}
 							/>
 							{#if expandedId === result.id}
@@ -533,23 +498,6 @@
 						</li>
 					{/if}
 				</ul>
-
-				{#if selectedIds.size > 0}
-					<!-- Sticks to the bottom of `.app-content`'s own scrollport (the nearest
-					     scrolling ancestor — see +layout.svelte), so it stays reachable while
-					     scrolling a long results list without covering the tab bar below it,
-					     which lives outside `.app-content` entirely. -->
-					<div class="compare-bar" role="region" aria-label="Comparison selection">
-						<p class="compare-bar-count">
-							<span class="font-mono tabular-nums">{selectedIds.size}</span>
-							{selectedIds.size === 1 ? 'itinerary' : 'itineraries'} selected
-						</p>
-						<div class="compare-bar-actions">
-							<Button variant="ghost" size="sm" onclick={clearSelection}>Clear</Button>
-							<Button size="sm" onclick={openComparator}>Compare</Button>
-						</div>
-					</div>
-				{/if}
 			</div>
 		</div>
 	{/if}
@@ -622,37 +570,6 @@
 
 	.results-list li {
 		list-style: none;
-	}
-
-	/* Sticks to the bottom of `.app-content`'s own scrollport (the nearest ancestor with
-	   real overflow — see +layout.svelte's own comment on why that's the element that
-	   actually scrolls, not this page), so the action stays reachable without a second
-	   click cycle up to the top of a long list, and without covering the tab bar, which is
-	   a separate grid area outside `.app-content` entirely. */
-	.compare-bar {
-		position: sticky;
-		bottom: var(--space-4);
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		gap: var(--space-3);
-		flex-wrap: wrap;
-		padding: var(--space-3) var(--space-4);
-		border: 1px solid var(--color-border-strong);
-		border-radius: var(--radius-lg);
-		background: var(--color-bg-elevated);
-		box-shadow: var(--shadow-md);
-	}
-
-	.compare-bar-count {
-		font-size: var(--font-size-sm);
-		font-weight: var(--font-weight-medium);
-		color: var(--color-text);
-	}
-
-	.compare-bar-actions {
-		display: flex;
-		gap: var(--space-2);
 	}
 
 	.skeleton-body {
