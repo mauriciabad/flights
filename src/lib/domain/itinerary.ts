@@ -50,18 +50,28 @@ export interface Itinerary {
 	originWaitingTime: Duration;
 	/** Line 47 ("Fight" in the brief is a typo for "Flight"). */
 	outboundFlight: FlightOffer;
-	/** Line 48. */
-	transferToHotel: Transfer;
-	/** The bed booked for the free-time stretch below. */
-	stay: Stay;
+	/** Line 48. Present only alongside `stay` — see that field's own doc comment. */
+	transferToHotel?: Transfer;
+	/** The bed booked for the free-time stretch below, or `undefined` when no stay
+	 * provider had a key configured, every one errored or was out of quota, or nothing
+	 * bookable by this party was found nearby (issue #94). A missing stay is not a
+	 * missing itinerary: flights, free time and transfers still stand on their own, per
+	 * AGENTS.md ("partial results are the normal case... say what you do not know").
+	 * `transferToHotel`/`transferToConnectionAirport` are present only alongside this
+	 * field — without a bed, there is nowhere for either transfer to go. `totalPrice`
+	 * and `nightsInConnection` never guess a stay cost when this is `undefined`; a
+	 * caller must render that plainly rather than let the total read as complete. */
+	stay?: Stay;
 	/** Line 49. */
 	freeTime: FreeTime;
 	/** Line 60: hotel nights, which is not free time divided by 24 — a stopover that
 	 * starts and ends on the same calendar day is zero nights even if it runs 20 hours,
-	 * and a stay spanning two midnights is two nights even on a short layover. */
+	 * and a stay spanning two midnights is two nights even on a short layover. Always 0
+	 * when `stay` is `undefined` — there is no booked bed to count nights against, never
+	 * a guess standing in for "unknown". */
 	nightsInConnection: number;
-	/** Line 50. */
-	transferToConnectionAirport: Transfer;
+	/** Line 50. Present only alongside `stay` — see that field's own doc comment. */
+	transferToConnectionAirport?: Transfer;
 	/** Line 51. */
 	connectionWaitingTime: Duration;
 	/** Line 52. */

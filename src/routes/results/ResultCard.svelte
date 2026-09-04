@@ -80,6 +80,9 @@
 			<span class="price font-mono tabular-nums">{formatMoney(itinerary.totalPrice)}</span>
 			<span class={['freshness-badge', `freshness-${freshness.tone}`]}>{freshness.label}</span>
 		</div>
+		{#if !itinerary.stay}
+			<p class="no-stay-note">No bed priced for this stopover — total excludes a stay.</p>
+		{/if}
 
 		<dl class="stats">
 			<div class="stat">
@@ -89,7 +92,13 @@
 			<div class="stat stat-stopover">
 				<dt>Nights in {connectionLabel}</dt>
 				<dd class="text-stopover">
-					{itinerary.nightsInConnection === 0 ? 'Same-day connection' : itinerary.nightsInConnection}
+					{#if !itinerary.stay}
+						No stay priced
+					{:else if itinerary.nightsInConnection === 0}
+						Same-day connection
+					{:else}
+						{itinerary.nightsInConnection}
+					{/if}
 				</dd>
 			</div>
 		</dl>
@@ -220,6 +229,13 @@
 	.freshness-warning {
 		color: var(--color-warning);
 		background: var(--color-warning-bg);
+	}
+
+	.no-stay-note {
+		margin: 0;
+		font-size: var(--font-size-xs);
+		font-weight: var(--font-weight-medium);
+		color: var(--color-warning);
 	}
 
 	.stats {

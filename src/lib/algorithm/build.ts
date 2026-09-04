@@ -154,13 +154,19 @@ export function sumMoney(first: Money, ...rest: (Money | undefined)[]): Money {
 }
 
 /** The hotel and the two connection-side transfers already resolved for one candidate
- * connection airport. Fetching these for real is issues #7-#10's job; a connection with no
- * entry here simply never produces an itinerary, since there is nowhere to send the
- * traveller between flights. */
+ * connection airport. Fetching these for real is issues #7-#10's job.
+ *
+ * All three optional together, never independently (`resources.ts`'s `fetchConnectionResources`
+ * is what enforces this trio) — issue #94: a connection with no stay reachable (no provider
+ * key, every one out of quota or erroring, or nothing this party can book nearby) still
+ * produces an itinerary, just one with no bed priced and nowhere for a hotel-bound transfer
+ * to go. A connection with no entry in `BuildItinerariesInput.connectionResources` AT ALL is
+ * the one case that still drops it — the flights themselves never got as far as being asked
+ * about, e.g. no dataset entry for the connection airport at all. */
 export interface ConnectionResources {
-	stay: Stay;
-	transferToHotel: Transfer;
-	transferToConnectionAirport: Transfer;
+	stay?: Stay;
+	transferToHotel?: Transfer;
+	transferToConnectionAirport?: Transfer;
 }
 
 export interface BuildItinerariesInput {
@@ -236,31 +242,44 @@ export function buildItineraries(input: BuildItinerariesInput): Itinerary[] {
 				flightLengthClass(onward.duration)
 			);
 
+			// Issue #94: `resources.stay` is optional, and `transferToHotel`/
+			// `transferToConnectionAirport` exist only alongside it (`resources.ts`'s own
+			// contract enforces that trio), so `stay` truthy already proves both transfers
+			// are defined too, with no non-null assertion needed on either. No stay means
+			// nowhere to travel to during the layover: free time runs runway to runway, with
+			// no in-city transfer legs to add or subtract.
+			const { stay } = resources;
+			const transferToHotel = stay ? resources.transferToHotel : undefined;
+			const transferToConnectionAirport = stay ? resources.transferToConnectionAirport : undefined;
+
 			// Free time is what is left of the layover after both airport-side transfers
 			// and the pre-boarding buffer, expressed as the real hotel check-in/check-out
 			// datetimes (brief line 59), not only their difference.
-			const freeStart = addLocalMinutes(outbound.arrival, resources.transferToHotel.duration);
-			const freeEnd = addLocalMinutes(
-				onward.departure,
-				-(resources.transferToConnectionAirport.duration + connectionWaitingTime)
-			);
+			const freeStart = transferToHotel
+				? addLocalMinutes(outbound.arrival, transferToHotel.duration)
+				: outbound.arrival;
+			const freeEnd = transferToConnectionAirport
+				? addLocalMinutes(onward.departure, -(transferToConnectionAirport.duration + connectionWaitingTime))
+				: addLocalMinutes(onward.departure, -connectionWaitingTime);
 			const freeDuration = minutesBetween(freeStart, freeEnd);
 			if (freeDuration < 0) continue; // not enough layover for the transfers plus the buffer
 
 			const freeTime = { start: freeStart, end: freeEnd, duration: freeDuration };
-			const nightsInConnection = nightsBetween(freeStart, freeEnd);
+			// No stay booked means no nights booked — never a guess standing in for
+			// "unknown" (AGENTS.md: "say what you do not know rather than guessing").
+			const nightsInConnection = stay ? nightsBetween(freeStart, freeEnd) : 0;
 
 			const totalPrice = sumMoney(
 				outbound.price,
 				onward.price,
-				nightsInConnection > 0
+				stay && nightsInConnection > 0
 					? {
-							minorUnits: resources.stay.pricePerNight.minorUnits * nightsInConnection,
-							currency: resources.stay.pricePerNight.currency
+							minorUnits: stay.pricePerNight.minorUnits * nightsInConnection,
+							currency: stay.pricePerNight.currency
 						}
 					: undefined,
-				resources.transferToHotel.price,
-				resources.transferToConnectionAirport.price,
+				transferToHotel?.price,
+				transferToConnectionAirport?.price,
 				input.transferToOriginAirport?.price,
 				input.transferToDestinationLocation?.price
 			);
@@ -276,9 +295,9 @@ export function buildItineraries(input: BuildItinerariesInput): Itinerary[] {
 					input.transferToOriginAirport?.duration,
 					originWaitingTime,
 					outbound.duration,
-					resources.transferToHotel.duration,
+					transferToHotel?.duration,
 					freeDuration,
-					resources.transferToConnectionAirport.duration,
+					transferToConnectionAirport?.duration,
 					connectionWaitingTime,
 					onward.duration,
 					input.transferToDestinationLocation?.duration
@@ -291,11 +310,11 @@ export function buildItineraries(input: BuildItinerariesInput): Itinerary[] {
 				originAirport: input.originAirport,
 				originWaitingTime,
 				outboundFlight: outbound,
-				transferToHotel: resources.transferToHotel,
-				stay: resources.stay,
+				transferToHotel,
+				stay,
 				freeTime,
 				nightsInConnection,
-				transferToConnectionAirport: resources.transferToConnectionAirport,
+				transferToConnectionAirport,
 				connectionWaitingTime,
 				onwardFlight: onward,
 				destinationAirport: input.destinationAirport,
@@ -354,26 +373,32 @@ export function recomputeItineraryWaitingTimes(
 	// RULE: free time's start never moves on this edit. Only originWaitingTime or
 	// connectionWaitingTime changed, and neither touches the outbound arrival or the
 	// hotel-bound transfer that anchors freeStart.
-	const freeStart = addLocalMinutes(itinerary.outboundFlight.arrival, itinerary.transferToHotel.duration);
-	const freeEnd = addLocalMinutes(
-		itinerary.onwardFlight.departure,
-		-(itinerary.transferToConnectionAirport.duration + connectionWaitingTime)
-	);
+	//
+	// Issue #94: `itinerary.stay` may be `undefined` (no bed priced for this connection),
+	// in which case `transferToHotel`/`transferToConnectionAirport` are too — same "all
+	// three together or none" contract `build.ts`'s own `buildItineraries` keeps.
+	const { stay, transferToHotel, transferToConnectionAirport } = itinerary;
+	const freeStart = stay && transferToHotel
+		? addLocalMinutes(itinerary.outboundFlight.arrival, transferToHotel.duration)
+		: itinerary.outboundFlight.arrival;
+	const freeEnd = stay && transferToConnectionAirport
+		? addLocalMinutes(itinerary.onwardFlight.departure, -(transferToConnectionAirport.duration + connectionWaitingTime))
+		: addLocalMinutes(itinerary.onwardFlight.departure, -connectionWaitingTime);
 	const freeDuration = minutesBetween(freeStart, freeEnd);
 	const freeTime = { start: freeStart, end: freeEnd, duration: freeDuration };
-	const nightsInConnection = nightsBetween(freeStart, freeEnd);
+	const nightsInConnection = stay ? nightsBetween(freeStart, freeEnd) : 0;
 
 	const totalPrice = sumMoney(
 		itinerary.outboundFlight.price,
 		itinerary.onwardFlight.price,
-		nightsInConnection > 0
+		stay && nightsInConnection > 0
 			? {
-					minorUnits: itinerary.stay.pricePerNight.minorUnits * nightsInConnection,
-					currency: itinerary.stay.pricePerNight.currency
+					minorUnits: stay.pricePerNight.minorUnits * nightsInConnection,
+					currency: stay.pricePerNight.currency
 				}
 			: undefined,
-		itinerary.transferToHotel.price,
-		itinerary.transferToConnectionAirport.price,
+		transferToHotel?.price,
+		transferToConnectionAirport?.price,
 		itinerary.transferToOriginAirport?.price,
 		itinerary.transferToDestinationLocation?.price
 	);
@@ -386,9 +411,9 @@ export function recomputeItineraryWaitingTimes(
 			itinerary.transferToOriginAirport?.duration,
 			originWaitingTime,
 			itinerary.outboundFlight.duration,
-			itinerary.transferToHotel.duration,
+			transferToHotel?.duration,
 			freeDuration,
-			itinerary.transferToConnectionAirport.duration,
+			transferToConnectionAirport?.duration,
 			connectionWaitingTime,
 			itinerary.onwardFlight.duration,
 			itinerary.transferToDestinationLocation?.duration

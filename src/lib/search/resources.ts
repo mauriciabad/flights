@@ -34,7 +34,7 @@ import type {
 } from '../domain';
 import type { ConnectionResources } from '../algorithm/build';
 import { femaleDormFit, isFemaleDormSelectable } from '../stays/female-dorm-fit';
-import { flattenOk, stayCostAwareSources } from './cost-aware';
+import { autoWidenStaySources, flattenOk, stayCostAwareSources } from './cost-aware';
 import type { RecordProviderCall, SourceTracker } from './provenance';
 
 /** Brief line 76: "cheapest hotels/hostels for each connection within 100km." */
@@ -177,12 +177,19 @@ interface StaySearchOutcome {
 }
 
 /**
- * Runs every FREE stay provider (issue #22's `runCostAwareSearch`, `providers/budget`,
- * merged) for one candidate's stay search and picks the cheapest result THIS PARTY CAN
- * ACTUALLY BOOK. Never widens to a metered stay provider (Agoda/Booking) — see
- * `pipeline.ts`'s own scope note on why stay widening is out of this PR's scope — so
- * `widenTo` is always omitted here, which is also what guarantees this call can never
- * spend a metered request no matter which candidate it runs for.
+ * Runs every FREE stay provider plus every METERED one cheap enough, against its own
+ * tracked monthly cap, that a configured key already counts as consent to spend it
+ * (`autoWidenStaySources`, issue #94) for one candidate's stay search, and picks the
+ * cheapest result THIS PARTY CAN ACTUALLY BOOK.
+ *
+ * The two real stay adapters (Agoda, Booking.com) are `needsKey: true`, so before this
+ * fix `runCostAwareSearch` ran with no `widenTo` at all here and neither ever ran, keyed
+ * or not — no search could ever price a bed. `autoWidenStaySources` derives which metered
+ * sources are safe to auto-run from `providers/budget`'s own cap table rather than naming
+ * Agoda/Booking here, so a future stay provider is classified by its real numbers rather
+ * than silently defaulting to "never runs" by omission. A provider with a Sky-Scrapper-tight
+ * cap would be left out of `widenTo` here exactly the way it is for flights, still showing
+ * up in `report.skipped` rather than being auto-run.
  *
  * Issue #80: filtering by `isStaySelectable` happens BEFORE picking the cheapest, not
  * after — the previous version ranked by raw price alone and returned index `[0]`, which
@@ -199,7 +206,8 @@ async function fetchCheapestStay(
 	travellers: number | undefined,
 	females: number | undefined
 ): Promise<StaySearchOutcome> {
-	const result = await runCostAwareSearch(stayCostAwareSources(providers, query, keys, signal, sources, record));
+	const costAwareSources = stayCostAwareSources(providers, query, keys, signal, sources, record);
+	const result = await runCostAwareSearch(costAwareSources, { widenTo: autoWidenStaySources(costAwareSources) });
 	const candidates = rankStaysByPrice(flattenOk(result));
 	const selected = candidates.find((stay) => isStaySelectable(stay, travellers, females));
 	return { candidates, selected };
@@ -230,25 +238,37 @@ export interface FetchConnectionResourcesInput {
 }
 
 /**
- * Full resource bundle for one connection candidate, or `undefined` the moment any one part
- * is unavailable — matching `ConnectionResources`'s own all-or-nothing shape in `build.ts`:
- * a stay with no way to get there, or a stopover with no bed at all, is not a usable
- * itinerary leg no matter how good the flights are. Widens `ConnectionResources` with
- * `stayCandidates` (issue #80) rather than changing that type itself, which
- * `algorithm/build.ts` owns and already ships merged — see this module's own doc comment.
+ * Full resource bundle for one connection candidate — issue #94: NEVER `undefined`
+ * any more. A stay with no way to get there, or no stay found at all (no key configured,
+ * every stay provider out of quota or erroring, or nothing this party can book nearby),
+ * degrades to `stay`/`transferToHotel`/`transferToConnectionAirport` all `undefined`
+ * rather than dropping the whole candidate: flights, free time and the outer transfers
+ * still stand on their own without a priced bed (`algorithm/build.ts`'s own doc comment
+ * on `ConnectionResources`). Widens `ConnectionResources` with `stayCandidates` (issue
+ * #80) rather than changing that type itself, which `algorithm/build.ts` owns and already
+ * ships merged — see this module's own doc comment.
  */
 export interface ConnectionResourcesWithStayCandidates extends ConnectionResources {
 	/** Every `Stay` found near this connection, cheapest first, gender-eligibility NOT
 	 * applied — the candidate list issue #80 exists to stop discarding, so a results page
 	 * has real alternatives to hand issue #27's `StayPicker` instead of only this
 	 * pipeline's already-decided pick. `stay` above is this list's cheapest entry that also
-	 * passes `isStaySelectable` for this party. */
+	 * passes `isStaySelectable` for this party. Empty, not missing, when nothing was found. */
 	stayCandidates: Stay[];
+}
+
+/** The "no bed for this connection" outcome shared by both early-outs below — no stay
+ * provider found one this party can book, or one was found but no transfer can reach it.
+ * Both are the same "no usable stay" fact from a caller's point of view (issue #94): a
+ * degraded connection, never a dropped one, and never a stay-shaped hole papered over with
+ * a guess. */
+function withoutStay(stayCandidates: Stay[]): ConnectionResourcesWithStayCandidates {
+	return { stay: undefined, transferToHotel: undefined, transferToConnectionAirport: undefined, stayCandidates };
 }
 
 export async function fetchConnectionResources(
 	input: FetchConnectionResourcesInput
-): Promise<ConnectionResourcesWithStayCandidates | undefined> {
+): Promise<ConnectionResourcesWithStayCandidates> {
 	const { candidates: stayCandidates, selected: stay } = await fetchCheapestStay(
 		{
 			near: input.connectionCoordinates,
@@ -264,7 +284,7 @@ export async function fetchConnectionResources(
 		input.travellers,
 		input.females
 	);
-	if (!stay) return undefined;
+	if (!stay) return withoutStay(stayCandidates);
 
 	const [transferToHotelRaw, transferToConnectionAirport] = await Promise.all([
 		fetchBestTransfer(
@@ -284,7 +304,11 @@ export async function fetchConnectionResources(
 			input.record
 		)
 	]);
-	if (!transferToHotelRaw || !transferToConnectionAirport) return undefined;
+	// A stay exists but nothing can get the traveller there and back — the same "no usable
+	// bed" outcome as finding none at all (one provider failing, here a transfer provider,
+	// must never fail the whole search). `stayCandidates` is still returned: a caller
+	// deciding to show alternatives doesn't need a reachable transfer to list them.
+	if (!transferToHotelRaw || !transferToConnectionAirport) return withoutStay(stayCandidates);
 
 	const landingBuffer = pickLandingToTransportTime(input.landingToTransportRules, input.connectionAirportSize);
 	const transferToHotel = applyLandingBuffer(transferToHotelRaw, landingBuffer, input.sources);

@@ -20,7 +20,7 @@ import type {
 	StayProvider,
 	StaySearchQuery
 } from '../providers/types';
-import { estimateWidenCost } from '../providers/budget';
+import { estimateWidenCost, isQuotaGenerous } from '../providers/budget';
 import type { CostAwareSearchResult, CostAwareSource, ProviderTier } from '../providers/budget';
 import type { FlightOffer, Stay } from '../domain';
 import type { RecordProviderCall, SourceTracker } from './provenance';
@@ -58,10 +58,9 @@ export function flightCostAwareSources(
 		}));
 }
 
-/** Same reasoning as `flightCostAwareSources`, for stay providers. Every call site in this
- * pipeline runs these with no `widenTo` (stays are never widened to a metered provider here
- * — see pipeline.ts's own scope note on why), but building them as `CostAwareSource`s rather
- * than a bespoke "just the free ones" filter keeps one mechanism for both provider kinds. */
+/** Same reasoning as `flightCostAwareSources`, for stay providers. Unlike flights, a
+ * metered stay source here can still run without an explicit `widenTo` from the caller —
+ * see `autoWidenStaySources` below, issue #94. */
 export function stayCostAwareSources(
 	providers: readonly StayProvider[],
 	query: StaySearchQuery,
@@ -83,6 +82,21 @@ export function stayCostAwareSources(
 				return result;
 			}
 		}));
+}
+
+/**
+ * Metered stay sources cheap enough, relative to their OWN tracked cap, that a configured
+ * key already counts as the traveller's consent to spend them (`isQuotaGenerous`) — issue
+ * #94. Pass this straight into `runCostAwareSearch`'s `widenTo`: it never touches a free
+ * source (nothing to widen to), and a metered source that fails the quota check — today,
+ * none; a future Sky-Scrapper-tight stay provider, maybe — is simply left out, so it still
+ * shows up in `report.skipped` and needs the explicit widen flow flight providers already
+ * go through, rather than rotting into "always auto-runs" the day it's added.
+ */
+export function autoWidenStaySources(sources: readonly CostAwareSource<unknown>[]): ProviderId[] {
+	return sources
+		.filter((source) => source.tier === 'metered' && isQuotaGenerous(source.providerId, source.estimatedCost))
+		.map((source) => source.providerId);
 }
 
 /** Requests actually spent by the metered tier alone, read off a `runCostAwareSearch`

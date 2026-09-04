@@ -91,3 +91,35 @@ export function clearProviderCapOverride(providerId: ProviderId): boolean {
 	delete overrides[providerId];
 	return writeOverrides(overrides);
 }
+
+/**
+ * Issue #94's fix for the pipeline's old binary free/metered split, which could not tell
+ * Sky Scrapper's 20-a-month cap from Agoda's 500 apart and, applied uniformly to stay
+ * providers, made a priced bed structurally unreachable no matter what key a traveller
+ * configured. A provider whose own cap can absorb at least this many searches like the one
+ * being priced needs no extra opt-in beyond the key itself — pasting a key already says
+ * "use this provider." Below it, one careless search could burn a meaningful slice of the
+ * whole month (Sky Scrapper's cap sustains exactly 15 one-request searches), so it keeps
+ * requiring the traveller to see the cost and agree first (`pipeline.ts`'s "confirm" tier).
+ *
+ * 20 sits just above Sky Scrapper's own worst case (15 ÷ 1 = 15) and at or below both real
+ * stay adapters' (Booking: 40 ÷ 2 = 20 exactly; Agoda: 400 ÷ 6 ≈ 67) — re-verify this still
+ * separates them correctly before changing either the caps above or this number.
+ */
+export const MIN_SEARCHES_PER_MONTH_FOR_AUTO_RUN = 20;
+
+/**
+ * Whether a provider call that already costs something (`estimatedCost > 0`) is cheap
+ * enough, relative to ITS OWN tracked cap (`getProviderCap`, including any user override),
+ * to run the moment a key is configured, with no further opt-in beyond that key. Reads the
+ * live cap rather than naming providers here, so an adapter added later is classified by
+ * its real numbers the day it registers, never silently defaulted to "always ask" or
+ * "never ask" by omission. `estimatedCost <= 0` is out of scope: a free source is
+ * `cost-aware-search.ts`'s `'free'` tier already, decided before this is ever called.
+ */
+export function isQuotaGenerous(providerId: ProviderId, estimatedCost: number): boolean {
+	if (estimatedCost <= 0) return true;
+	const cap = getProviderCap(providerId);
+	if (cap <= 0) return false; // no meaningful quota at all — always ask first
+	return cap / estimatedCost >= MIN_SEARCHES_PER_MONTH_FOR_AUTO_RUN;
+}
