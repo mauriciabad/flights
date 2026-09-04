@@ -1,11 +1,29 @@
 <script lang="ts">
 	import '../app.css';
+	import { afterNavigate } from '$app/navigation';
 	import { base } from '$app/paths';
 	import { page } from '$app/state';
 	import UpdateToast from '$lib/pwa/UpdateToast.svelte';
 	import type { Snippet } from 'svelte';
 
 	let { children }: { children: Snippet } = $props();
+
+	let contentEl = $state<HTMLElement | undefined>();
+
+	/**
+	 * Since #177 the page that scrolls is `.app-content`, not the document, and SvelteKit
+	 * only ever resets the document. So a navigation kept the previous page's scroll
+	 * position: submitting the search form from its own submit button, two screens down,
+	 * arrived on the results already scrolled past the first result. Measured at 115px on
+	 * a 375px viewport before this.
+	 *
+	 * A hash is the one case to leave alone: `/settings/#agoda` (issue #117) is a link
+	 * that means "put me at that card", and scrolling to the top would undo it.
+	 */
+	afterNavigate((navigation) => {
+		if (navigation.to?.url.hash) return;
+		contentEl?.scrollTo(0, 0);
+	});
 
 	// Served from `static/icons/`, not `$lib` — those files ship as-is to
 	// the build root, so the base path has to be prefixed by hand here.
@@ -125,7 +143,7 @@
 		</ul>
 	</nav>
 
-	<main id="main-content" class="app-content" tabindex="-1">
+	<main bind:this={contentEl} id="main-content" class="app-content" tabindex="-1">
 		{@render children()}
 	</main>
 </div>

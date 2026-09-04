@@ -259,4 +259,24 @@ test.describe('on a phone', () => {
 		await expect(filterToggle).toHaveAttribute('aria-expanded', 'true');
 		await expect(page.getByLabel('Sort by')).toBeVisible();
 	});
+
+	test('submitting from the bottom of the form still lands at the top of the results', async ({
+		page
+	}) => {
+		await mockConnectingFlights(page);
+
+		await page.goto('/');
+		await fillValidSearch(page);
+		await page.getByRole('button', { name: 'Search flights' }).click();
+		await page.waitForURL(/\/results\//);
+		await expect(page.getByText('still searching')).toHaveCount(0, { timeout: 20_000 });
+
+		// `.app-content` is the element that scrolls, not the document (#177), and
+		// SvelteKit only ever resets the document. Without the layout's own reset this
+		// measured 115px: the answer arrived already scrolled past.
+		const scrollTop = await page.evaluate(
+			() => document.querySelector('.app-content')?.scrollTop
+		);
+		expect(scrollTop, 'the results should open at the top, not where the form was').toBe(0);
+	});
 });
