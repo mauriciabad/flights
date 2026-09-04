@@ -490,3 +490,112 @@ describe('getTaxiFareEstimate', () => {
 		expect(result.ok && result.data.distanceMeters).toBe(5000);
 	});
 });
+
+describe('fetchedAt on a cache hit (issue #151)', () => {
+	/** Ages every entry written under `keys` by `ms` and reports the new `storedAt`s, so a
+	 * test can assert on the exact instant rather than on "not now". Rewriting the entry
+	 * beats faking the clock: this adapter reads `Date.now()` for the source stamp, the
+	 * freshness check and the cache write, and moving all three under a mock would leave
+	 * the test asserting against its own fake instead of the code. Mirrors the same helper
+	 * in providers/flights/ryanair.test.ts. */
+	async function ageStoredEntriesBy(store: MemoryCacheStore, ms: number, keys: string[]): Promise<number[]> {
+		const agedStoredAt: number[] = [];
+		for (const key of keys) {
+			const entry = await store.get(key);
+			if (!entry) continue;
+			const storedAt = entry.storedAt - ms;
+			await store.set({ ...entry, storedAt });
+			agedStoredAt.push(storedAt);
+		}
+		return agedStoredAt;
+	}
+
+	/** The keys `seed` wrote under, discovered rather than hardcoded: `routeCacheKey`
+	 * hashes its query and that hash is not this test's business — a hand-built copy would
+	 * quietly stop matching the day the key shape changes, and every assertion below would
+	 * then be passing against a cache miss. */
+	async function keysWrittenBy(store: MemoryCacheStore, seed: () => Promise<unknown>): Promise<string[]> {
+		const seen: string[] = [];
+		const realSet = store.set.bind(store);
+		store.set = async (entry) => {
+			seen.push(entry.key);
+			return realSet(entry);
+		};
+		await seed();
+		store.set = realSet;
+		return seen;
+	}
+
+	const TWO_HOURS_MS = 2 * 60 * 60_000;
+
+	it('reports when the route was really fetched, not when the cache was read', async () => {
+		const store = new MemoryCacheStore();
+		const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(routeBody(600, 800)));
+		const provider = createOsrmTransferProvider({ store, fetchImpl });
+
+		const keys = await keysWrittenBy(store, () =>
+			provider.searchTransfers({ from: AIRPORT, to: HOTEL, modes: ['walk'] }, ctxFor())
+		);
+		const [storedAt] = await ageStoredEntriesBy(store, TWO_HOURS_MS, keys);
+
+		const result = await provider.searchTransfers({ from: AIRPORT, to: HOTEL, modes: ['walk'] }, ctxFor());
+
+		expect(fetchImpl).toHaveBeenCalledTimes(1); // the second call really was served from cache
+		expect(result.source.fetchedAt).toBe(new Date(storedAt).toISOString());
+	});
+
+	it('dates a half-cached answer by its oldest part, not by the leg it just fetched', async () => {
+		const store = new MemoryCacheStore();
+		// A fresh Response per call: a body can only be read once, and this test really
+		// does fetch twice (the walking seed, then the driving leg).
+		const fetchImpl = vi.fn(async () => jsonResponse(routeBody(600, 800)));
+		const provider = createOsrmTransferProvider({ store, fetchImpl });
+
+		const walkKeys = await keysWrittenBy(store, () =>
+			provider.searchTransfers({ from: AIRPORT, to: HOTEL, modes: ['walk'] }, ctxFor())
+		);
+		const [walkStoredAt] = await ageStoredEntriesBy(store, TWO_HOURS_MS, walkKeys);
+
+		// Walking comes back from the two-hour-old entry; driving is fetched now.
+		const result = await provider.searchTransfers({ from: AIRPORT, to: HOTEL, modes: ['walk', 'drive'] }, ctxFor());
+
+		expect(result.ok && result.data).toHaveLength(2);
+		expect(result.source.fetchedAt).toBe(new Date(walkStoredAt).toISOString());
+	});
+
+	it('dates a batch by its oldest cached leg, not by the table request it just made', async () => {
+		const store = new MemoryCacheStore();
+		const nearby: Coordinates = { latitude: 41.39, longitude: 2.16 };
+		const further: Coordinates = { latitude: 41.41, longitude: 2.18 };
+		const fetchImpl = vi
+			.fn()
+			.mockResolvedValueOnce(jsonResponse(tableBody([600])))
+			.mockResolvedValueOnce(jsonResponse(tableBody([900])));
+
+		const keys = await keysWrittenBy(store, () =>
+			findTransfersToMany('walk', AIRPORT, [nearby], ctxFor(), { store, fetchImpl })
+		);
+		const [nearbyStoredAt] = await ageStoredEntriesBy(store, TWO_HOURS_MS, keys);
+
+		const result = await findTransfersToMany('walk', AIRPORT, [nearby, further], ctxFor(), { store, fetchImpl });
+
+		expect(result.requestsUsed).toBe(1); // only `further` reached the network
+		expect(result.source.fetchedAt).toBe(new Date(nearbyStoredAt).toISOString());
+	});
+
+	it('dates a taxi estimate by the driving route it reused', async () => {
+		const store = new MemoryCacheStore();
+		const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(routeBody(600, 5000)));
+		const provider = createOsrmTransferProvider({ store, fetchImpl });
+
+		const keys = await keysWrittenBy(store, () =>
+			provider.searchTransfers({ from: AIRPORT, to: HOTEL, modes: ['drive'] }, ctxFor())
+		);
+		const [storedAt] = await ageStoredEntriesBy(store, TWO_HOURS_MS, keys);
+
+		const result = await getTaxiFareEstimate(AIRPORT, HOTEL, 'ES', ctxFor(), { store, fetchImpl });
+
+		expect(result.requestsUsed).toBe(0);
+		expect(result.source.fetchedAt).toBe(new Date(storedAt).toISOString());
+	});
+});

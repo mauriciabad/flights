@@ -97,12 +97,27 @@ export interface CreateFlightsSkyFlightProviderOptions {
 	now?: () => number;
 }
 
-function source(): ProviderSource {
-	return { providerId: FLIGHTS_SKY_PROVIDER_ID, fetchedAt: new Date().toISOString() };
+/**
+ * `storedAt` is the epoch millis this data actually came off Flights Sky's wire. Omitted
+ * means "just now", i.e. this call did the fetch.
+ *
+ * `ProviderSource.fetchedAt` is documented as "the instant the adapter finished fetching
+ * this, NOT when a caller later reads it out of a cache", and ResultCard already renders it
+ * as "via Flights Sky · fetched 2 minutes ago". Stamping `new Date()` on a cache hit, which
+ * is what this function used to do unconditionally, made that footer say "fetched just now"
+ * about a price served out of a six-hour-old calendar entry. That breaks AGENTS.md's "never
+ * present an estimate as a fact" in the one place the UI was already built to be honest.
+ * Issue #151, the same shape as ryanair.ts (#147) and transfers/transitous.ts.
+ */
+function source(storedAt?: number): ProviderSource {
+	return {
+		providerId: FLIGHTS_SKY_PROVIDER_ID,
+		fetchedAt: new Date(storedAt ?? Date.now()).toISOString()
+	};
 }
 
-function ok<T>(data: T, requestsUsed: number): ProviderResult<T> {
-	return { ok: true, data, source: source(), requestsUsed };
+function ok<T>(data: T, requestsUsed: number, storedAt?: number): ProviderResult<T> {
+	return { ok: true, data, source: source(storedAt), requestsUsed };
 }
 
 function fail<T>(error: ProviderError, requestsUsed: number): ProviderResult<T> {
@@ -113,15 +128,25 @@ async function resolveStore(options: CreateFlightsSkyFlightProviderOptions): Pro
 	return options.cacheStore ?? (await getDefaultStore());
 }
 
+/** One cached value and the instant it came off the wire, which is `source()`'s input and
+ * the thing `readCache` used to throw away by returning `entry.value` alone (issue #151). */
+interface FreshCacheEntry<T> {
+	value: T;
+	storedAt: number;
+}
+
 /** Cache-aside against `CacheStore` directly, same reasoning as ryanair.ts's own
  * `readCache`/`writeCache`: `staleWhileRevalidate` (../../cache) always calls its fetcher,
  * which is exactly wrong for a metered adapter answering one `ProviderResult` per call with
  * no consumer able to observe a first "stale" yield. */
-async function readCache<T>(store: CacheStore, key: ReturnType<typeof defineCacheKey>): Promise<T | undefined> {
+async function readCache<T>(
+	store: CacheStore,
+	key: ReturnType<typeof defineCacheKey>
+): Promise<FreshCacheEntry<T> | undefined> {
 	const entry = await store.get(key.raw);
 	if (entry === undefined) return undefined;
 	if (Date.now() - entry.storedAt >= entry.ttlMs) return undefined;
-	return entry.value as T;
+	return { value: entry.value as T, storedAt: entry.storedAt };
 }
 
 async function writeCache<T>(
@@ -287,6 +312,30 @@ function createFlightsSkyFlightProvider(
 		// at the end can be told apart from "this route genuinely has nothing," which is the
 		// distinction issue #130/#144's provider-answer states exist to carry to the screen.
 		const unresolvedTimeZoneAirports = new Set<string>();
+		/**
+		 * The oldest day that ends up in `offers`, and the only age that is true of the
+		 * whole array. This loop merges days re-served from cache with days fetched on this
+		 * call, and one `ProviderSource` has to speak for all of them. A day served out of a
+		 * ten-minute-old entry contributes that instant, a day fetched here contributes now,
+		 * and the minimum is the claim the caller can rely on. Nothing in the array is older
+		 * than the stamp. It is also the rule results/types.ts already applies when it ages
+		 * an itinerary by its oldest contributing part. `Date.now()`, which is what this
+		 * function used to stamp unconditionally, says the cached days were just read off
+		 * the wire (issue #151), and the newest contribution would say the same thing more
+		 * quietly.
+		 *
+		 * A cached day holding no offers still counts. The result asserts "these are that
+		 * day's prices" either way, and that assertion is exactly as old as the entry it
+		 * came from. `undefined` means nothing contributed at all, an empty range or every
+		 * day failing, and the empty answer is then dated now, there being no earlier moment
+		 * to point at.
+		 */
+		let oldestContributingDay: number | undefined;
+		function contributeDay(fetchedAt: number): void {
+			if (oldestContributingDay === undefined || fetchedAt < oldestContributingDay) {
+				oldestContributingDay = fetchedAt;
+			}
+		}
 
 		for (const date of dates) {
 			if (requestsUsed >= budget) break; // out of budget: stop, keep whatever we have
@@ -303,7 +352,8 @@ function createFlightsSkyFlightProvider(
 			);
 			const cached = await readCache<FlightOffer[]>(cacheStore, cacheKey);
 			if (cached) {
-				offers.push(...cached);
+				offers.push(...cached.value);
+				contributeDay(cached.storedAt);
 				continue; // a cache hit costs nothing, so it never touches `requestsUsed` or the budget
 			}
 
@@ -335,6 +385,7 @@ function createFlightsSkyFlightProvider(
 				const mapped = mapSearchOneWayToOffers(result.data, { currency, travellers, timeZones });
 				await writeCache(cacheStore, cacheKey, mapped.offers);
 				offers.push(...mapped.offers);
+				contributeDay(Date.now());
 				for (const code of mapped.unresolvedTimeZoneAirports) unresolvedTimeZoneAirports.add(code);
 			} catch (cause) {
 				if (cause instanceof FlightsSkyMalformedOfferResponseError) {
@@ -369,7 +420,7 @@ function createFlightsSkyFlightProvider(
 				requestsUsed
 			);
 		}
-		return ok(offers, requestsUsed);
+		return ok(offers, requestsUsed, oldestContributingDay);
 	}
 
 	/**
@@ -420,7 +471,7 @@ function createFlightsSkyFlightProvider(
 			PRICE_CALENDAR_TTL_MS
 		);
 		const cached = await readCache<PriceCalendarDay[]>(cacheStore, cacheKey);
-		if (cached) return ok(cached, requestsUsed);
+		if (cached) return ok(cached.value, requestsUsed, cached.storedAt);
 
 		if (ctx.maxRequests !== undefined && requestsUsed + 1 > ctx.maxRequests) {
 			// Out of budget for the calendar call itself: an empty ok result, not an error —

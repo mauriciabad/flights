@@ -75,8 +75,22 @@ export interface BookingProviderOptions {
 	now?: () => number;
 }
 
-function source(): ProviderSource {
-	return { providerId: BOOKING_PROVIDER_ID, fetchedAt: new Date().toISOString() };
+/**
+ * `storedAt` is the epoch millis this data actually came off Booking's wire. Omitted means
+ * "just now", i.e. this call did the fetch.
+ *
+ * `ProviderSource.fetchedAt` is documented as "the instant the adapter finished fetching
+ * this, NOT when a caller later reads it out of a cache", and ResultCard renders it as
+ * "via Booking · fetched 2 minutes ago". Stamping `new Date()` unconditionally, which is
+ * what this function used to do, made that footer say "fetched just now" about a price
+ * this adapter last saw an hour ago — AGENTS.md's "never present an estimate as a fact",
+ * in the one place the UI was already built to be honest. It reads worse here than
+ * anywhere else in the app: 50 requests a month means most of what this adapter shows is
+ * served from cache. Issue #151, same pattern as flights/ryanair.ts and
+ * transfers/transitous.ts.
+ */
+function source(storedAt?: number): ProviderSource {
+	return { providerId: BOOKING_PROVIDER_ID, fetchedAt: new Date(storedAt ?? Date.now()).toISOString() };
 }
 
 function toProviderError(error: BookingFetchError): ProviderError {
@@ -105,11 +119,25 @@ async function resolveStore(options: BookingProviderOptions): Promise<CacheStore
 	return options.store ?? (await getDefaultStore());
 }
 
-async function readCache<T>(store: CacheStore, key: CacheKey): Promise<T | undefined> {
+/** A cache hit, paired with the instant its value came off the wire. `storedAt` is
+ * returned rather than dropped because it is `source()`'s input: a caller that serves a
+ * cached value has to be able to say how old that value really is. */
+interface CachedEntry<T> {
+	value: T;
+	storedAt: number;
+}
+
+async function readFreshCacheEntry<T>(store: CacheStore, key: CacheKey): Promise<CachedEntry<T> | undefined> {
 	const entry = await store.get(key.raw);
 	if (entry === undefined) return undefined;
 	if (Date.now() - entry.storedAt >= entry.ttlMs) return undefined;
-	return entry.value as T;
+	return { value: entry.value as T, storedAt: entry.storedAt };
+}
+
+/** Folds one more contributing fetch instant into a running oldest, where `undefined`
+ * means nothing older has been recorded yet. */
+function olderOf(current: number | undefined, candidate: number): number {
+	return current === undefined ? candidate : Math.min(current, candidate);
 }
 
 function estimateSizeBytes(value: unknown): number {
@@ -186,8 +214,24 @@ function createBookingStayProvider(options: BookingProviderOptions = {}): StayPr
 			SEARCH_TTL_MS
 		);
 
-		let candidates = await readCache<BookingCandidate[]>(store, searchCacheKey);
+		const searchEntry = await readFreshCacheEntry<BookingCandidate[]>(store, searchCacheKey);
+		let candidates = searchEntry?.value;
 		let requestsUsed = 0;
+
+		/**
+		 * The oldest instant any part of this result came off Booking's wire — `undefined`
+		 * while every part of it is being fetched right now.
+		 *
+		 * One `Stay[]` is assembled from two independently cached things, the candidate
+		 * search and the drilled candidate's room list, and either can be an hour-old cache
+		 * hit while the other goes to the network. The pair is only as current as its
+		 * stalest half: a room list fetched a minute ago is still a room list for a hotel
+		 * set last seen an hour ago, so reporting the newer half would put "fetched 1 minute
+		 * ago" under a result that is mostly an hour old. A part this call fetched itself
+		 * contributes `Date.now()`, which can never win a minimum against a cache hit, so
+		 * only the hits are folded in here.
+		 */
+		let oldestFetchedAt = searchEntry?.storedAt;
 
 		if (!candidates) {
 			const searchResult = await budgetCall(
@@ -239,7 +283,9 @@ function createBookingStayProvider(options: BookingProviderOptions = {}): StayPr
 				{ op: 'getRoomList', hotelId: candidate.hotelId, checkIn: query.checkIn, checkOut: query.checkOut, travellers, currency: query.currency },
 				ROOM_LIST_TTL_MS
 			);
-			let candidateStays = await readCache<Stay[]>(store, roomListCacheKey);
+			const roomListEntry = await readFreshCacheEntry<Stay[]>(store, roomListCacheKey);
+			let candidateStays = roomListEntry?.value;
+			if (roomListEntry) oldestFetchedAt = olderOf(oldestFetchedAt, roomListEntry.storedAt);
 			if (!candidateStays) {
 				const roomListResult = await budgetCall(
 					`${BOOKING_PROVIDER_ID}:getRoomList:${candidate.hotelId}:${query.checkIn}:${query.checkOut}:${travellers}:${query.currency}`,
@@ -267,7 +313,7 @@ function createBookingStayProvider(options: BookingProviderOptions = {}): StayPr
 		const filtered = query.roomKinds ? stays.filter((s) => query.roomKinds?.includes(s.roomKind)) : stays;
 		filtered.sort((a, b) => a.pricePerNight.minorUnits - b.pricePerNight.minorUnits);
 
-		return { ok: true, data: filtered, source: source(), requestsUsed };
+		return { ok: true, data: filtered, source: source(oldestFetchedAt), requestsUsed };
 	}
 
 	function estimateSearchStaysCost(): number {

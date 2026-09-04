@@ -191,8 +191,35 @@ function toProviderError(error: unknown): ProviderError {
 	return { code: 'unknown', message: String(error) };
 }
 
-function makeSource(): ProviderSource {
-	return { providerId: OSRM_PROVIDER_ID, fetchedAt: new Date().toISOString() };
+/**
+ * `storedAt` is the epoch millis this data actually came off OSRM's wire. Omitted means
+ * "just now", i.e. this call did the fetch.
+ *
+ * Passing it matters more than it looks. `ProviderSource.fetchedAt` is documented as "the
+ * instant the adapter finished fetching this, NOT when a caller later reads it out of a
+ * cache", and ResultCard renders it as "via OSRM · fetched 2 minutes ago". Stamping
+ * `new Date()` on a cache hit, which is what this function used to do unconditionally,
+ * made that footer say "fetched just now" about a route this adapter last saw a month ago
+ * — AGENTS.md's "never present an estimate as a fact", in the one place the UI was already
+ * built to be honest. Issue #151. The same pattern as transfers/transitous.ts.
+ */
+function makeSource(storedAt?: number): ProviderSource {
+	return { providerId: OSRM_PROVIDER_ID, fetchedAt: new Date(storedAt ?? Date.now()).toISOString() };
+}
+
+/**
+ * The older of two fetch instants, where `undefined` means "nothing served yet".
+ *
+ * A `ProviderResult` carries one `source` for however many `Transfer`s it holds, so a
+ * result mixing a cached leg with a freshly fetched one has to pick a single stamp. The
+ * oldest contributing part is the only one that cannot overstate the answer's age: a
+ * reader deciding whether to trust a two-hour-old walking route must not be told the whole
+ * result is as new as the driving leg fetched alongside it. Per-leg stamps would be more
+ * precise, but that needs a shape change to `Transfer` itself, and this file cannot invent
+ * one without colliding with the domain model.
+ */
+function olderFetchInstant(current: number | undefined, candidate: number): number {
+	return current === undefined ? candidate : Math.min(current, candidate);
 }
 
 // ---------------------------------------------------------------------------
@@ -359,14 +386,23 @@ function estimateSize(value: unknown): number {
 	}
 }
 
-async function readFreshEntry<T>(store: CacheStore, key: CacheKey): Promise<T | undefined> {
+/** The cached value and the instant it was really fetched. `storedAt` is returned rather
+ * than dropped so a cache hit can be dated honestly — see `makeSource`. */
+interface FreshEntry<T> {
+	value: T;
+	storedAt: number;
+}
+
+async function readFreshEntry<T>(store: CacheStore, key: CacheKey): Promise<FreshEntry<T> | undefined> {
 	const entry = await store.get(key.raw);
 	if (!entry) return undefined;
 	if (Date.now() - entry.storedAt >= entry.ttlMs) return undefined;
-	return entry.value as T;
+	return { value: entry.value as T, storedAt: entry.storedAt };
 }
 
-async function writeEntry<T>(store: CacheStore, key: CacheKey, value: T): Promise<void> {
+/** Returns the `storedAt` it wrote, which is also the instant the caller finished
+ * fetching the value — the number `makeSource` wants for a freshly fetched result. */
+async function writeEntry<T>(store: CacheStore, key: CacheKey, value: T): Promise<number> {
 	const now = Date.now();
 	await store.set({
 		key: key.raw,
@@ -377,6 +413,7 @@ async function writeEntry<T>(store: CacheStore, key: CacheKey, value: T): Promis
 		lastAccessedAt: now,
 		sizeBytes: estimateSize(value)
 	});
+	return now;
 }
 
 // ---------------------------------------------------------------------------
@@ -470,7 +507,9 @@ async function fetchTableDurations(
 }
 
 type CachedRouteOutcome =
-	| { kind: 'value'; value: RouteData; requestMade: boolean }
+	/** `storedAt` dates the route itself: the cache entry's own stamp on a hit, the moment
+	 * of the fetch when one was made. Never "when this outcome was read". */
+	| { kind: 'value'; value: RouteData; requestMade: boolean; storedAt: number }
 	| { kind: 'skipped-over-budget' }
 	| { kind: 'no-route' };
 
@@ -490,8 +529,8 @@ async function getCachedRoute(
 ): Promise<CachedRouteOutcome> {
 	const key = routeCacheKey(profile, origin, destination);
 	const cached = await readFreshEntry<RouteData>(store, key);
-	if (cached && (!requireDistance || cached.distanceMeters !== undefined)) {
-		return { kind: 'value', value: cached, requestMade: false };
+	if (cached && (!requireDistance || cached.value.distanceMeters !== undefined)) {
+		return { kind: 'value', value: cached.value, requestMade: false, storedAt: cached.storedAt };
 	}
 
 	if (ctx.maxRequests !== undefined && requestsSoFar >= ctx.maxRequests) {
@@ -500,8 +539,8 @@ async function getCachedRoute(
 
 	try {
 		const fresh = await fetchRoute(profile, origin, destination, options, ctx.signal);
-		await writeEntry(store, key, fresh);
-		return { kind: 'value', value: fresh, requestMade: true };
+		const storedAt = await writeEntry(store, key, fresh);
+		return { kind: 'value', value: fresh, requestMade: true, storedAt };
 	} catch (error) {
 		if (error instanceof OsrmNoRouteError) return { kind: 'no-route' };
 		throw error;
@@ -572,6 +611,9 @@ async function searchTransfersImpl(
 	}
 
 	let requestsUsed = 0;
+	// The oldest route behind `results`, so a walk served from cache is not backdated to
+	// the driving fetch made alongside it. See `olderFetchInstant`.
+	let oldestStoredAt: number | undefined;
 	try {
 		assertValidCoordinates(query.from, 'query.from');
 		assertValidCoordinates(query.to, 'query.to');
@@ -591,6 +633,7 @@ async function searchTransfersImpl(
 			);
 			if (outcome.kind === 'value') {
 				if (outcome.requestMade) requestsUsed++;
+				oldestStoredAt = olderFetchInstant(oldestStoredAt, outcome.storedAt);
 				results.push(routeToTransfer('walk', outcome.value));
 			}
 			// 'no-route' and 'skipped-over-budget' both mean no walking Transfer this
@@ -613,6 +656,7 @@ async function searchTransfersImpl(
 			);
 			if (outcome.kind === 'value') {
 				if (outcome.requestMade) requestsUsed++;
+				oldestStoredAt = olderFetchInstant(oldestStoredAt, outcome.storedAt);
 				if (requestedModes.includes('drive')) results.push(routeToTransfer('drive', outcome.value));
 				if (requestedModes.includes('taxi')) {
 					// price is deliberately left unset here, never guessed at: a `Transfer`
@@ -623,7 +667,7 @@ async function searchTransfersImpl(
 			}
 		}
 
-		return { ok: true, data: results, source: makeSource(), requestsUsed };
+		return { ok: true, data: results, source: makeSource(oldestStoredAt), requestsUsed };
 	} catch (error) {
 		return { ok: false, error: toProviderError(error), source: makeSource(), requestsUsed };
 	}
@@ -687,6 +731,10 @@ export async function findTransfersToMany(
 	}
 
 	let requestsUsed = 0;
+	// Legs here can be any mix of month-old cache hits and durations fetched by the table
+	// request below, but one `ProviderResult` carries one `source`, so this tracks the
+	// oldest leg that actually made it into `results` — see `olderFetchInstant`.
+	let oldestStoredAt: number | undefined;
 	try {
 		assertValidCoordinates(origin, 'origin');
 		destinations.forEach((destination, index) => assertValidCoordinates(destination, `destinations[${index}]`));
@@ -694,22 +742,23 @@ export async function findTransfersToMany(
 		const store = options.store ?? (await getDefaultStore());
 		const profile = toProfile(mode);
 		const keys = destinations.map((destination) => routeCacheKey(profile, origin, destination));
-		const cachedValues = await Promise.all(keys.map((key) => readFreshEntry<RouteData>(store, key)));
+		const cachedEntries = await Promise.all(keys.map((key) => readFreshEntry<RouteData>(store, key)));
 
 		const missingIndexes: number[] = [];
-		cachedValues.forEach((value, index) => {
-			if (value === undefined) missingIndexes.push(index);
+		cachedEntries.forEach((entry, index) => {
+			if (entry === undefined) missingIndexes.push(index);
+			else oldestStoredAt = olderFetchInstant(oldestStoredAt, entry.storedAt);
 		});
 
-		const results: Array<Transfer | undefined> = cachedValues.map((value) =>
-			value ? routeToTransfer(mode, value) : undefined
+		const results: Array<Transfer | undefined> = cachedEntries.map((entry) =>
+			entry ? routeToTransfer(mode, entry.value) : undefined
 		);
 
 		if (missingIndexes.length > 0) {
 			if (ctx.maxRequests !== undefined && requestsUsed >= ctx.maxRequests) {
 				// Budget already spent before this batch could even start — return the
 				// cache hits gathered so far rather than exceeding it.
-				return { ok: true, data: results, source: makeSource(), requestsUsed };
+				return { ok: true, data: results, source: makeSource(oldestStoredAt), requestsUsed };
 			}
 
 			const durationsSeconds = await fetchTableDurations(
@@ -721,18 +770,24 @@ export async function findTransfersToMany(
 			);
 			requestsUsed += 1;
 
-			await Promise.all(
+			// The stamps are folded in after the writes settle rather than from inside
+			// them: two concurrent read-modify-writes of `oldestStoredAt` can drop one
+			// another's contribution, and a batch is exactly where several land at once.
+			const freshStoredAt = await Promise.all(
 				missingIndexes.map(async (destinationIndex, fetchedIndex) => {
 					const durationSeconds = durationsSeconds[fetchedIndex];
-					if (durationSeconds === undefined) return; // unreachable from the origin
+					if (durationSeconds === undefined) return undefined; // unreachable from the origin
 					const route: RouteData = { durationSeconds };
 					results[destinationIndex] = routeToTransfer(mode, route);
-					await writeEntry(store, keys[destinationIndex], route);
+					return writeEntry(store, keys[destinationIndex], route);
 				})
 			);
+			for (const storedAt of freshStoredAt) {
+				if (storedAt !== undefined) oldestStoredAt = olderFetchInstant(oldestStoredAt, storedAt);
+			}
 		}
 
-		return { ok: true, data: results, source: makeSource(), requestsUsed };
+		return { ok: true, data: results, source: makeSource(oldestStoredAt), requestsUsed };
 	} catch (error) {
 		return { ok: false, error: toProviderError(error), source: makeSource(), requestsUsed };
 	}
@@ -828,7 +883,7 @@ export async function getTaxiFareEstimate(
 				distanceMeters: Math.round(distanceMeters),
 				fareEstimate: estimateTaxiFare(distanceMeters, countryCode)
 			},
-			source: makeSource(),
+			source: makeSource(outcome.storedAt),
 			requestsUsed
 		};
 	} catch (error) {

@@ -93,7 +93,7 @@ export async function searchLocations(
 		const store = await resolveStore();
 		const cached = await readFreshEntry<GeocodeCandidate[]>(store, cacheKey);
 		if (cached) {
-			return { ok: true, data: cached, source: makeSource(), requestsUsed: 0 };
+			return { ok: true, data: cached.value, source: makeSource(cached.storedAt), requestsUsed: 0 };
 		}
 
 		const response = await fetchTransitousGeocode(trimmed, { signal: ctx.signal, fetchImpl: options.fetchImpl });
@@ -134,7 +134,7 @@ export async function lookupTimeZoneForCoordinates(
 		// transfers/transitous.ts uses for an empty `Transfer[]`.
 		const cached = await readFreshEntry<{ timeZone: string | undefined }>(store, cacheKey);
 		if (cached) {
-			return { ok: true, data: cached.timeZone, source: makeSource(), requestsUsed: 0 };
+			return { ok: true, data: cached.value.timeZone, source: makeSource(cached.storedAt), requestsUsed: 0 };
 		}
 
 		const response = await fetchTransitousReverseGeocode(coordinates, {
@@ -178,15 +178,34 @@ function round(value: number): number {
 	return Math.round(value * 1e5) / 1e5;
 }
 
-function makeSource(): ProviderSource {
-	return { providerId: GEOCODE_PROVIDER_ID, fetchedAt: new Date().toISOString() };
+/**
+ * `storedAt` is the epoch millis this data actually came off Transitous's wire. Omitted
+ * means "just now", i.e. this call did the fetch.
+ *
+ * Passing it matters more than it looks. `ProviderSource.fetchedAt` is documented as "the
+ * instant the adapter finished fetching this, NOT when a caller later reads it out of a
+ * cache", and ResultCard renders it as "fetched 2 minutes ago". Stamping `new Date()` on a
+ * cache hit, which is what this function used to do unconditionally, made that footer say
+ * "fetched just now" about an entry that can be up to `LONG_CACHE_TTL_MS` — 90 days — old
+ * (AGENTS.md: "never present an estimate as a fact"). Issue #151. The same pattern as
+ * transfers/transitous.ts.
+ */
+function makeSource(storedAt?: number): ProviderSource {
+	return { providerId: GEOCODE_PROVIDER_ID, fetchedAt: new Date(storedAt ?? Date.now()).toISOString() };
 }
 
-async function readFreshEntry<T>(store: CacheStore, key: CacheKey): Promise<T | undefined> {
+/** The cached value and the instant it was really fetched. `storedAt` is returned rather
+ * than dropped so a cache hit can be dated honestly — see `makeSource`. */
+interface FreshEntry<T> {
+	value: T;
+	storedAt: number;
+}
+
+async function readFreshEntry<T>(store: CacheStore, key: CacheKey): Promise<FreshEntry<T> | undefined> {
 	const entry = await store.get(key.raw);
 	if (!entry) return undefined;
 	if (Date.now() - entry.storedAt >= entry.ttlMs) return undefined;
-	return entry.value as T;
+	return { value: entry.value as T, storedAt: entry.storedAt };
 }
 
 async function writeEntry<T>(store: CacheStore, key: CacheKey, value: T): Promise<void> {

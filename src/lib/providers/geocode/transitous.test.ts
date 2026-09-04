@@ -147,3 +147,74 @@ describe('lookupAirportTimeZone', () => {
 		expect(fetchImpl).not.toHaveBeenCalled();
 	});
 });
+
+describe('fetchedAt on a cache hit (issue #151)', () => {
+	/** Ages every entry written under `keys` by `ms` and reports the new `storedAt`s, so a
+	 * test can assert on the exact instant rather than on "not now". Rewriting the entry
+	 * beats faking the clock: this adapter reads `Date.now()` for the source stamp, the
+	 * freshness check and the cache write, and moving all three under a mock would leave
+	 * the test asserting against its own fake instead of the code. Mirrors the same helper
+	 * in providers/flights/ryanair.test.ts. */
+	async function ageStoredEntriesBy(store: MemoryCacheStore, ms: number, keys: string[]): Promise<number[]> {
+		const agedStoredAt: number[] = [];
+		for (const key of keys) {
+			const entry = await store.get(key);
+			if (!entry) continue;
+			const storedAt = entry.storedAt - ms;
+			await store.set({ ...entry, storedAt });
+			agedStoredAt.push(storedAt);
+		}
+		return agedStoredAt;
+	}
+
+	/** The keys `seed` wrote under, discovered rather than hardcoded: `defineCacheKey`
+	 * hashes its query and that hash is not this test's business — a hand-built copy would
+	 * quietly stop matching the day the key shape changes, and the assertions below would
+	 * then be passing against a cache miss. */
+	async function keysWrittenBy(store: MemoryCacheStore, seed: () => Promise<unknown>): Promise<string[]> {
+		const seen: string[] = [];
+		const realSet = store.set.bind(store);
+		store.set = async (entry) => {
+			seen.push(entry.key);
+			return realSet(entry);
+		};
+		await seed();
+		store.set = realSet;
+		return seen;
+	}
+
+	// Two hours is nowhere near the 90-day TTL, so these entries are genuinely fresh —
+	// the point is that "fresh" and "fetched just now" are not the same claim.
+	const TWO_HOURS_MS = 2 * 60 * 60_000;
+
+	it('searchLocations reports when the geocode was really fetched, not when the cache was read', async () => {
+		const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(AMBIGUOUS_BARCELONA_RESPONSE));
+		const store = new MemoryCacheStore();
+		const resolveStore = async () => store;
+
+		const keys = await keysWrittenBy(store, () => searchLocations('Barcelona', ctx(), { fetchImpl, resolveStore }));
+		const [storedAt] = await ageStoredEntriesBy(store, TWO_HOURS_MS, keys);
+
+		const result = await searchLocations('Barcelona', ctx(), { fetchImpl, resolveStore });
+
+		expect(fetchImpl).toHaveBeenCalledTimes(1); // the second call really was served from cache
+		expect(result.source.fetchedAt).toBe(new Date(storedAt).toISOString());
+	});
+
+	it('lookupTimeZoneForCoordinates reports when the reverse lookup was really fetched', async () => {
+		const fetchImpl = vi
+			.fn()
+			.mockResolvedValue(jsonResponse([{ type: 'STOP', name: 'x', lat: 48.11, lon: 16.57, tz: 'Europe/Vienna' }]));
+		const store = new MemoryCacheStore();
+		const resolveStore = async () => store;
+		const point = { latitude: 48.110298, longitude: 16.5697 };
+
+		const keys = await keysWrittenBy(store, () => lookupTimeZoneForCoordinates(point, ctx(), { fetchImpl, resolveStore }));
+		const [storedAt] = await ageStoredEntriesBy(store, TWO_HOURS_MS, keys);
+
+		const result = await lookupTimeZoneForCoordinates(point, ctx(), { fetchImpl, resolveStore });
+
+		expect(result).toMatchObject({ ok: true, data: 'Europe/Vienna', requestsUsed: 0 });
+		expect(result.source.fetchedAt).toBe(new Date(storedAt).toISOString());
+	});
+});

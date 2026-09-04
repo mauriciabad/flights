@@ -80,13 +80,26 @@ export function createSkyscannerFlightProvider(
 	options: CreateSkyscannerFlightProviderOptions = {}
 ): FlightProvider {
 	const { cacheStore, fetchImpl, cap, sleep, now } = options;
+	/** The same clock `callProviderWithBudget` stamps its own `ProviderSource` with
+	 * (../budget/call-with-budget.ts), so a test that injects one gets a deterministic
+	 * `fetchedAt` here too instead of whatever the wall clock said mid-run. */
+	const clock = now ?? Date.now;
 
-	function source(): ProviderSource {
-		return { providerId: PROVIDER_ID, fetchedAt: new Date().toISOString() };
+	/**
+	 * `fetchedAtMs` is the epoch millis Sky Scrapper actually answered. Omitted means "just
+	 * now", which is what every path but `searchOffers` wants, since nothing else here
+	 * returns anything it did not fetch on this call.
+	 *
+	 * `ProviderSource.fetchedAt` is documented as "the instant the adapter finished fetching
+	 * this, NOT when a caller later reads it out of a cache" (issue #151), and ResultCard
+	 * renders it as "via Skyscanner · fetched 2 minutes ago".
+	 */
+	function source(fetchedAtMs?: number): ProviderSource {
+		return { providerId: PROVIDER_ID, fetchedAt: new Date(fetchedAtMs ?? clock()).toISOString() };
 	}
 
-	function ok<T>(data: T, requestsUsed: number): ProviderResult<T> {
-		return { ok: true, data, source: source(), requestsUsed };
+	function ok<T>(data: T, requestsUsed: number, fetchedAtMs?: number): ProviderResult<T> {
+		return { ok: true, data, source: source(fetchedAtMs), requestsUsed };
 	}
 
 	function fail<T>(error: ProviderError, requestsUsed: number): ProviderResult<T> {
@@ -212,6 +225,23 @@ export function createSkyscannerFlightProvider(
 
 		const offers: FlightOffer[] = [];
 		let sawMalformedDate = false;
+		/**
+		 * When the first fare response of this call landed, and the age this result is
+		 * stamped with. One date per request means a range is answered over as many round
+		 * trips as it has days, so the first day's prices are already older than the last
+		 * day's by the time they are merged into one array under one `ProviderSource`. The
+		 * oldest contributing part is the only claim true of all of it, which is the rule
+		 * results/types.ts applies when it ages an itinerary. The loop is strictly
+		 * sequential, so the first response recorded is the oldest.
+		 *
+		 * The cached airport entity deliberately does NOT count, even though issue #151
+		 * lists that cache read. `skyId`/`entityId` is a lookup key that gets a fare search
+		 * to the right route, never part of the answer, and it is cached for six months. If
+		 * it contributed, every freshly fetched price would be dated half a year old, and
+		 * results/types.ts would drop whole itineraries into `expired-fallback` over an
+		 * airport code that has not changed since the airport was built.
+		 */
+		let oldestResponseAt: number | undefined;
 
 		for (const date of dates) {
 			if (requestsUsed >= budget) break; // out of budget: stop, keep whatever we have
@@ -266,6 +296,7 @@ export function createSkyscannerFlightProvider(
 
 			try {
 				offers.push(...mapSearchFlightsToOffers(result.data, { currency, travellers, timeZones }));
+				oldestResponseAt ??= clock();
 			} catch (cause) {
 				if (cause instanceof SkyscannerMalformedResponseError) {
 					sawMalformedDate = true;
@@ -284,7 +315,7 @@ export function createSkyscannerFlightProvider(
 				requestsUsed
 			);
 		}
-		return ok(offers, requestsUsed);
+		return ok(offers, requestsUsed, oldestResponseAt);
 	}
 
 	async function listDirectDestinations(): Promise<ProviderResult<IataAirportCode[]>> {

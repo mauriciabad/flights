@@ -53,6 +53,41 @@ beforeEach(() => {
 	clearProviderQuotaStateForTests();
 });
 
+/**
+ * Runs `seed`, rewinds `storedAt` by `ms` on every entry it wrote, and hands back those
+ * rewound instants so a test can assert the exact one rather than "older than now".
+ *
+ * Rewinding the entries beats faking the clock, for the reason ryanair.test.ts gives for
+ * its own copy: the adapter reads `Date.now()` both for its TTL check and through the cache
+ * store, and moving the clock under both leaves the test asserting against its own mock.
+ * The keys are discovered rather than hardcoded because `defineCacheKey` hashes the query
+ * and that hash is not this test's business.
+ */
+async function ageEntriesWrittenBy(
+	store: MemoryCacheStore,
+	ms: number,
+	seed: () => Promise<unknown>
+): Promise<number[]> {
+	const written: string[] = [];
+	const realSet = store.set.bind(store);
+	store.set = async (entry) => {
+		written.push(entry.key);
+		return realSet(entry);
+	};
+	await seed();
+	store.set = realSet;
+
+	const storedAts: number[] = [];
+	for (const key of written) {
+		const entry = await store.get(key);
+		if (entry === undefined) continue;
+		const storedAt = entry.storedAt - ms;
+		await realSet({ ...entry, storedAt });
+		storedAts.push(storedAt);
+	}
+	return storedAts;
+}
+
 describe('searchOffers', () => {
 	it('returns real, mapped offers on a cold cache, one per flight rather than one per itinerary', async () => {
 		const provider = createKiwiFlightProvider({ store: new MemoryCacheStore(), fetchImpl: fixtureFetch() });
@@ -100,6 +135,24 @@ describe('searchOffers', () => {
 		expect(second.data).toEqual(first.data);
 		expect(second.requestsUsed).toBe(0);
 		expect(fetchCallCount).toBe(callsAfterFirst);
+	});
+
+	it('dates a cache hit with when Kiwi really answered, not with now (issue #151)', async () => {
+		const store = new MemoryCacheStore();
+		const provider = createKiwiFlightProvider({ store, fetchImpl: fixtureFetch() });
+		// Ten minutes rather than the two hours ryanair.test.ts rewinds by. SEARCH_TTL_MS is
+		// 15 minutes, and this is about an entry that is still perfectly servable being
+		// mislabelled, not an expired one.
+		const [storedAt] = await ageEntriesWrittenBy(store, 10 * 60_000, () =>
+			provider.searchOffers(query, { signal: new AbortController().signal, keys })
+		);
+
+		const second = await provider.searchOffers(query, { signal: new AbortController().signal, keys });
+
+		expect(second.requestsUsed).toBe(0);
+		// ResultCard renders this as "via Kiwi · fetched 10 minutes ago". Stamping it now
+		// would tell the traveller a ten-minute-old fare had just been read off Kiwi.
+		expect(second.source.fetchedAt).toBe(new Date(storedAt).toISOString());
 	});
 
 	it('resolves missing-key rather than calling the network when no key is configured', async () => {
@@ -263,6 +316,21 @@ describe('listDirectDestinations', () => {
 
 		expect(second.requestsUsed).toBe(0);
 		expect(fetchCallCount).toBe(callsAfterFirst);
+	});
+
+	it('dates that cached route list with when it was really fetched (issue #151)', async () => {
+		const store = new MemoryCacheStore();
+		const provider = createKiwiFlightProvider({ store, fetchImpl: fixtureFetch() });
+		// Two hours sits comfortably inside DESTINATIONS_TTL_MS (a day), so this entry is
+		// served rather than refetched — and served with its real age.
+		const [storedAt] = await ageEntriesWrittenBy(store, 2 * 60 * 60_000, () =>
+			provider.listDirectDestinations('BCN', { signal: new AbortController().signal, keys })
+		);
+
+		const second = await provider.listDirectDestinations('BCN', { signal: new AbortController().signal, keys });
+
+		expect(second.requestsUsed).toBe(0);
+		expect(second.source.fetchedAt).toBe(new Date(storedAt).toISOString());
 	});
 
 	it('resolves missing-key rather than calling the network when no key is configured', async () => {

@@ -102,8 +102,20 @@ export interface AgodaProviderOptions {
 	now?: () => number;
 }
 
-function source(): ProviderSource {
-	return { providerId: AGODA_PROVIDER_ID, fetchedAt: new Date().toISOString() };
+/**
+ * `storedAt` is the epoch millis this data actually came off Agoda's wire. Omitted means
+ * "just now", i.e. this call did the fetch.
+ *
+ * `ProviderSource.fetchedAt` is documented as "the instant the adapter finished fetching
+ * this, NOT when a caller later reads it out of a cache", and ResultCard renders it as
+ * "via Agoda · fetched 2 minutes ago". Stamping `new Date()` unconditionally, which is
+ * what this function used to do, made that footer say "fetched just now" about a price
+ * this adapter last saw an hour ago — AGENTS.md's "never present an estimate as a fact",
+ * in the one place the UI was already built to be honest. Issue #151, same pattern as
+ * flights/ryanair.ts and transfers/transitous.ts.
+ */
+function source(storedAt?: number): ProviderSource {
+	return { providerId: AGODA_PROVIDER_ID, fetchedAt: new Date(storedAt ?? Date.now()).toISOString() };
 }
 
 function toProviderError(error: AgodaFetchError): ProviderError {
@@ -132,14 +144,22 @@ async function resolveStore(options: AgodaProviderOptions): Promise<CacheStore> 
 	return options.store ?? (await getDefaultStore());
 }
 
+/** A cache hit, paired with the instant its value came off the wire. `storedAt` is
+ * returned rather than dropped because it is `source()`'s input: a caller that serves a
+ * cached value has to be able to say how old that value really is. */
+interface CachedEntry<T> {
+	value: T;
+	storedAt: number;
+}
+
 // Cache-aside against CacheStore directly, not staleWhileRevalidate — same reasoning as
 // ryanair.ts's identically-named helpers: a StayProvider method resolves one
 // ProviderResult with no consumer able to observe a progressive first yield.
-async function readCache<T>(store: CacheStore, key: CacheKey): Promise<T | undefined> {
+async function readFreshCacheEntry<T>(store: CacheStore, key: CacheKey): Promise<CachedEntry<T> | undefined> {
 	const entry = await store.get(key.raw);
 	if (entry === undefined) return undefined;
 	if (Date.now() - entry.storedAt >= entry.ttlMs) return undefined;
-	return entry.value as T;
+	return { value: entry.value as T, storedAt: entry.storedAt };
 }
 
 function estimateSizeBytes(value: unknown): number {
@@ -161,6 +181,12 @@ async function writeCache<T>(store: CacheStore, key: CacheKey, value: T): Promis
 		lastAccessedAt: now,
 		sizeBytes: estimateSizeBytes(value)
 	});
+}
+
+/** Folds one more contributing fetch instant into a running oldest, where `undefined`
+ * means nothing older has been recorded yet. */
+function olderOf(current: number | undefined, candidate: number): number {
+	return current === undefined ? candidate : Math.min(current, candidate);
 }
 
 function roundCoordinate(value: number): number {
@@ -199,8 +225,11 @@ async function resolveLocation(
 		{ op: 'reverseGeocode', lat: roundCoordinate(near.latitude), lon: roundCoordinate(near.longitude) },
 		GEOCODE_TTL_MS
 	);
-	const cached = await readCache<string | null>(store, key);
-	if (cached !== undefined) return cached ?? undefined;
+	// This one cache hit is deliberately not part of `source()`'s age: which city a
+	// coordinate sits in is a month-stable fact from Nominatim, not something Agoda priced.
+	// Letting it date the result would report a month-old stay price that is minutes old.
+	const cached = await readFreshCacheEntry<string | null>(store, key);
+	if (cached !== undefined) return cached.value ?? undefined;
 
 	const response = await fetchReverseGeocode(near, { signal, fetchImpl });
 	if (!response.ok) return undefined;
@@ -269,8 +298,24 @@ function createAgodaStayProvider(options: AgodaProviderOptions = {}): StayProvid
 			SEARCH_TTL_MS
 		);
 
-		let candidates = await readCache<AgodaCandidate[]>(store, searchCacheKey);
+		const searchEntry = await readFreshCacheEntry<AgodaCandidate[]>(store, searchCacheKey);
+		let candidates = searchEntry?.value;
 		let requestsUsed = 0;
+
+		/**
+		 * The oldest instant any part of this result came off Agoda's wire — `undefined`
+		 * while every part of it is being fetched right now.
+		 *
+		 * One `Stay[]` is assembled from two independently cached things, the candidate
+		 * search and each candidate's prices, and either can be an hour-old cache hit while
+		 * the other goes to the network. The pair is only as current as its stalest half:
+		 * prices fetched a minute ago are still prices for a property list last seen an hour
+		 * ago, so reporting the newer half would put "fetched 1 minute ago" under a result
+		 * that is mostly an hour old. A part this call fetched itself contributes
+		 * `Date.now()`, which can never win a minimum against a cache hit, so only the hits
+		 * are folded in here.
+		 */
+		let oldestFetchedAt = searchEntry?.storedAt;
 
 		if (!candidates) {
 			const searchResult = await budgetCall(
@@ -319,7 +364,9 @@ function createAgodaStayProvider(options: AgodaProviderOptions = {}): StayProvid
 				{ op: 'getPrices', propertyId: candidate.propertyId, checkIn: query.checkIn, checkOut: query.checkOut, travellers, currencyId },
 				PRICES_TTL_MS
 			);
-			let candidateStays = await readCache<Stay[]>(store, pricesCacheKey);
+			const pricesEntry = await readFreshCacheEntry<Stay[]>(store, pricesCacheKey);
+			let candidateStays = pricesEntry?.value;
+			if (pricesEntry) oldestFetchedAt = olderOf(oldestFetchedAt, pricesEntry.storedAt);
 			if (!candidateStays) {
 				const pricesResult = await budgetCall(
 					`${AGODA_PROVIDER_ID}:getPrices:${candidate.propertyId}:${query.checkIn}:${query.checkOut}:${travellers}:${currencyId}`,
@@ -349,7 +396,7 @@ function createAgodaStayProvider(options: AgodaProviderOptions = {}): StayProvid
 		const filtered = query.roomKinds ? stays.filter((s) => query.roomKinds?.includes(s.roomKind)) : stays;
 		filtered.sort((a, b) => a.pricePerNight.minorUnits - b.pricePerNight.minorUnits);
 
-		return { ok: true, data: filtered, source: source(), requestsUsed };
+		return { ok: true, data: filtered, source: source(oldestFetchedAt), requestsUsed };
 	}
 
 	function estimateSearchStaysCost(): number {
