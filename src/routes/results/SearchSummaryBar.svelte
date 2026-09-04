@@ -123,15 +123,30 @@
 
 <style>
 	.summary {
-		/* Vertical-only negative margin, matching `.app-content`'s own padding, so the
-		   strip's background covers the gap above it instead of letting results scroll
-		   through it. Horizontal stays put: the strip is exactly as wide as the results
-		   column it belongs to. */
 		position: sticky;
 		top: 0;
 		z-index: var(--z-sticky);
-		margin-top: calc(var(--space-4) * -1);
-		padding-top: var(--space-4);
+		background: var(--color-bg);
+	}
+
+	/* Sticky offsets resolve against the scroll container's content box, and
+	   `.app-content` has `var(--space-4)` of padding, so this strip parks 16px below the
+	   header rather than against it. Result cards scroll through that band in the open,
+	   which on a phone reads as a card torn in half under the header.
+	   The previous attempt was a negative top margin, which cannot work: a margin moves
+	   the box but backgrounds never paint on one, so the gap stayed transparent while the
+	   element merely started higher. Measured at 375px: the strip's border box sat at
+	   y=65 with the header ending at y=49, and `.trip-strip-track` was the element
+	   answering `elementFromPoint` at y=52, 58 and 64.
+	   So paint the band instead of moving into it. Sticky makes this element a containing
+	   block, so the cover rides with it. */
+	.summary::before {
+		content: '';
+		position: absolute;
+		left: 0;
+		right: 0;
+		bottom: 100%;
+		height: var(--space-4);
 		background: var(--color-bg);
 	}
 
