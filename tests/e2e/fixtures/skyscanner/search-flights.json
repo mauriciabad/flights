@@ -1,0 +1,45 @@
+{
+	"status": true,
+	"timestamp": 1760250000000,
+	"data": {
+		"context": { "status": "complete", "totalResults": 1 },
+		"itineraries": [
+			{
+				"id": "itinerary-stn-vie-1",
+				"price": { "raw": 154.32, "formatted": "€154" },
+				"legs": [
+					{
+						"id": "leg-stn-vie-1",
+						"origin": {
+							"id": "STN",
+							"name": "London Stansted",
+							"displayCode": "STN",
+							"city": "London"
+						},
+						"destination": {
+							"id": "VIE",
+							"name": "Vienna International",
+							"displayCode": "VIE",
+							"city": "Vienna"
+						},
+						"durationInMinutes": 195,
+						"departure": "2026-10-12T06:35:00",
+						"arrival": "2026-10-12T09:50:00",
+						"stopCount": 0,
+						"carriers": {
+							"marketing": [
+								{
+									"id": 1851,
+									"name": "Ryanair",
+									"logoUrl": "https://logos.skyscnr.com/images/airlines/favicon/FR.png"
+								}
+							]
+						}
+					}
+				],
+				"isSelfTransfer": false,
+				"isProtectedSelfTransfer": false
+			}
+		]
+	}
+}

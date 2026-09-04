@@ -22,6 +22,13 @@ Thumbs.db
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 
+# Test output
+/test-results
+/playwright-report
+/blob-report
+/playwright/.cache
+/coverage
+
 # Agent worktrees created by Claude Code
 .claude/worktrees/
 

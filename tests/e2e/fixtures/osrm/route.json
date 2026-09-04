@@ -1,0 +1,17 @@
+{
+	"code": "Ok",
+	"waypoints": [
+		{ "hint": "fixture-origin", "distance": 4.2, "name": "", "location": [16.5697, 48.1103] },
+		{ "hint": "fixture-destination", "distance": 8.1, "name": "Ringstraße", "location": [16.3738, 48.2082] }
+	],
+	"routes": [
+		{
+			"geometry": "_p~iF~ps|U_ulLnnqC_mqNvxq`@",
+			"legs": [{ "steps": [], "summary": "", "weight": 1620.5, "duration": 1620.5, "distance": 18300.2 }],
+			"weight_name": "routability",
+			"weight": 1620.5,
+			"duration": 1620.5,
+			"distance": 18300.2
+		}
+	]
+}

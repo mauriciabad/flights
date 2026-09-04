@@ -1,0 +1,62 @@
+{
+	"fares": [
+		{
+			"outbound": {
+				"departureAirport": {
+					"countryName": "United Kingdom",
+					"iataCode": "STN",
+					"name": "London Stansted",
+					"seoName": "london-stansted"
+				},
+				"arrivalAirport": {
+					"countryName": "Austria",
+					"iataCode": "VIE",
+					"name": "Vienna",
+					"seoName": "vienna"
+				},
+				"departureDate": "2026-10-12T06:35:00",
+				"arrivalDate": "2026-10-12T09:50:00",
+				"price": {
+					"value": 34.99,
+					"valueMainUnit": "34",
+					"valueFractionalUnit": "99",
+					"currencySymbol": "€",
+					"currencyCode": "EUR"
+				},
+				"flightNumber": "FR2402",
+				"flightKey": "FR~2402~~STN~VIE~2026-10-12~2026-10-12~1",
+				"previousPrice": null
+			}
+		},
+		{
+			"outbound": {
+				"departureAirport": {
+					"countryName": "United Kingdom",
+					"iataCode": "STN",
+					"name": "London Stansted",
+					"seoName": "london-stansted"
+				},
+				"arrivalAirport": {
+					"countryName": "Austria",
+					"iataCode": "VIE",
+					"name": "Vienna",
+					"seoName": "vienna"
+				},
+				"departureDate": "2026-10-13T14:10:00",
+				"arrivalDate": "2026-10-13T17:25:00",
+				"price": {
+					"value": 41.49,
+					"valueMainUnit": "41",
+					"valueFractionalUnit": "49",
+					"currencySymbol": "€",
+					"currencyCode": "EUR"
+				},
+				"flightNumber": "FR2404",
+				"flightKey": "FR~2404~~STN~VIE~2026-10-13~2026-10-13~1",
+				"previousPrice": null
+			}
+		}
+	],
+	"size": 2,
+	"currency": "EUR"
+}

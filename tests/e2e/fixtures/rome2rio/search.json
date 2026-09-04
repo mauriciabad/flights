@@ -1,0 +1,16 @@
+{
+	"stops": [
+		{ "name": "Vienna International Airport (VIE)", "lat": 48.1103, "lng": 16.5697 },
+		{ "name": "Vienna, Hostel Ruthensteiner", "lat": 48.1897, "lng": 16.3352 }
+	],
+	"segments": [
+		{ "kind": "bus", "departureStop": 0, "arrivalStop": 1, "duration": 1800 }
+	],
+	"routes": [
+		{
+			"name": "Vienna Airport Lines bus",
+			"segmentTemplates": [0],
+			"indicativePrices": [{ "price": 9.5, "currency": "EUR", "formattedPrice": "€9.50" }]
+		}
+	]
+}
