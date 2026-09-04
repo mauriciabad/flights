@@ -9,6 +9,16 @@
  * counts and stopover lengths — the "different leg counts" the issue's acceptance
  * criterion names, and the case that actually exercises subgrid: unequal row content
  * heights that still have to land on the same row track across every column.
+ *
+ * Every value here is deliberately worthless. `/comparator/?demo=1` is a real, public URL
+ * that renders real components, so a screenshot of it is indistinguishable from a
+ * screenshot of the app working — and this project has already lost a morning to an agent
+ * reporting a mocked itinerary as a live result (docs/ACCEPTANCE.md, "Never ship a flight
+ * that does not exist"). So the airports are `ZZ*` codes that exist nowhere, the airlines
+ * and hostels are named FIXTURE, the flight numbers are impossible, and the prices are
+ * five figures. Same rule and same tokens as `tests/e2e/fixtures/markers.json`; kept as
+ * literals here rather than imported, because nothing in `src/` may depend on `tests/`.
+ * `demo-fixtures.test.ts` fails if a plausible-looking value creeps back in.
  */
 
 import type {
@@ -26,11 +36,12 @@ import { buildItineraries } from '$lib/algorithm/build';
 import type { ComparedItinerary } from '$lib/components';
 import type { ProviderId } from '$lib/providers/types';
 
-const austria: Country = { isoCode: 'AT', name: 'Austria' };
-const vienna: City = {
-	name: 'Vienna',
+/** `ZZ` is user-assignable in ISO 3166-1, so it can never be a real country. */
+const fixtureCountry: Country = { isoCode: 'ZZ', name: 'FIXTURELAND' };
+const fixtureCity: City = {
+	name: 'FIXTURELAND',
 	coordinates: { latitude: 48.2082, longitude: 16.3738 },
-	country: austria
+	country: fixtureCountry
 };
 
 function airport(iataCode: string, name: string): Airport {
@@ -38,8 +49,8 @@ function airport(iataCode: string, name: string): Airport {
 		iataCode,
 		name,
 		coordinates: { latitude: 0, longitude: 0 },
-		city: vienna,
-		country: austria,
+		city: fixtureCity,
+		country: fixtureCountry,
 		sizeClass: 'medium'
 	};
 }
@@ -56,11 +67,12 @@ function flight(
 	durationMinutes: number,
 	carrierName: string,
 	carrierCode: string,
-	priceMinorUnits: number
+	priceMinorUnits: number,
+	flightNumber: string
 ): FlightOffer {
 	return {
 		carrier: { iataCode: carrierCode, name: carrierName },
-		flightNumber: `${carrierCode}482`,
+		flightNumber,
 		departureAirport,
 		arrivalAirport,
 		departure,
@@ -69,7 +81,7 @@ function flight(
 		price: { minorUnits: priceMinorUnits, currency: 'EUR' },
 		priceScope: 'per-person',
 		baggage: { cabinBagsIncluded: 1, checkedBagsIncluded: 0 },
-		deepLink: 'https://example.test/offer'
+		deepLink: 'https://example.test/FIXTURE-offer'
 	};
 }
 
@@ -89,14 +101,14 @@ function transfer(durationMinutes: number, legCount: number): Transfer {
 		duration: durationMinutes as Duration,
 		legs: Array.from({ length: legCount }, (_, i) => ({
 			mode: legCount > 1 ? 'transit' : 'walk',
-			description: legCount > 1 ? `Tram ${i + 1}` : undefined,
+			description: legCount > 1 ? `FIXTURE line ${i + 1}` : undefined,
 			duration: Math.round(durationMinutes / legCount) as Duration
 		}))
 	};
 }
 
-const origin = airport('LGW', 'London Gatwick');
-const destination = airport('IST', 'Istanbul Airport');
+const origin = airport('ZZA', 'FIXTURE Alpha');
+const destination = airport('ZZZ', 'FIXTURE Zulu');
 
 interface DemoItineraryOptions {
 	id: string;
@@ -104,6 +116,7 @@ interface DemoItineraryOptions {
 	connectionName: string;
 	carrierName: string;
 	carrierCode: string;
+	outboundFlightNumber: string;
 	outboundPriceMinorUnits: number;
 	transferLegCount: number;
 	/** Days between arrival at the connection and departing onward, driving how long a
@@ -128,18 +141,32 @@ function buildDemoItinerary(options: DemoItineraryOptions): Itinerary {
 		destinationAirport: destination,
 		outboundOffers: [
 			flight(
-				'LGW',
+				'ZZA',
 				options.connectionCode,
 				outboundArrival,
 				outboundArrival,
 				155,
 				options.carrierName,
 				options.carrierCode,
-				options.outboundPriceMinorUnits
+				options.outboundPriceMinorUnits,
+				options.outboundFlightNumber
 			)
 		],
 		onwardOffers: [
-			flight(options.connectionCode, 'IST', onwardDeparture, onwardDeparture, 105, 'Turkish Airlines', 'TK', 6200)
+			// One shared onward leg across all three columns, on a carrier that differs
+			// from every outbound one, so Comparator's "second carrier chip" branch keeps
+			// getting exercised.
+			flight(
+				options.connectionCode,
+				'ZZZ',
+				onwardDeparture,
+				onwardDeparture,
+				105,
+				'FIXTURE Connect',
+				'ZW',
+				944444,
+				'ZZ0009'
+			)
 		],
 		connectionAirports: { [options.connectionCode]: airport(options.connectionCode, options.connectionName) },
 		connectionResources: {
@@ -160,18 +187,19 @@ export function buildDemoComparedItineraries(): ComparedItinerary[] {
 
 	return [
 		{
-			id: 'demo-vienna',
+			id: 'demo-bravo',
 			itinerary: buildDemoItinerary({
-				id: 'demo-vienna',
-				connectionCode: 'VIE',
-				connectionName: 'Vienna International',
-				carrierName: 'Vueling',
-				carrierCode: 'VY',
-				outboundPriceMinorUnits: 5400,
+				id: 'demo-bravo',
+				connectionCode: 'ZZB',
+				connectionName: 'FIXTURE Bravo',
+				carrierName: 'FIXTURE Airways',
+				carrierCode: 'ZZ',
+				outboundFlightNumber: 'ZZ0000',
+				outboundPriceMinorUnits: 911111,
 				transferLegCount: 1,
 				stopoverDays: 3,
-				stayPricePerNight: 2800,
-				propertyName: 'Wombat’s City Hostel'
+				stayPricePerNight: 955555,
+				propertyName: 'FIXTURE Lodge'
 			}),
 			sources: [
 				{ providerId: 'skyscanner', fetchedAt: fiveMinutesAgo },
@@ -183,34 +211,36 @@ export function buildDemoComparedItineraries(): ComparedItinerary[] {
 			]
 		},
 		{
-			id: 'demo-budapest',
+			id: 'demo-charlie',
 			itinerary: buildDemoItinerary({
-				id: 'demo-budapest',
-				connectionCode: 'BUD',
-				connectionName: 'Budapest Ferenc Liszt',
-				carrierName: 'Wizz Air',
-				carrierCode: 'W6',
-				outboundPriceMinorUnits: 3900,
+				id: 'demo-charlie',
+				connectionCode: 'ZZC',
+				connectionName: 'FIXTURE Charlie',
+				carrierName: 'FIXTURE Air',
+				carrierCode: 'ZY',
+				outboundFlightNumber: 'ZZ0001',
+				outboundPriceMinorUnits: 922222,
 				transferLegCount: 3,
 				stopoverDays: 1,
-				stayPricePerNight: 1900,
-				propertyName: 'Maverick Hostel'
+				stayPricePerNight: 966666,
+				propertyName: 'FIXTURE Bunkhouse'
 			}),
 			sources: [{ providerId: 'ryanair', fetchedAt: now }]
 		},
 		{
-			id: 'demo-prague',
+			id: 'demo-delta',
 			itinerary: buildDemoItinerary({
-				id: 'demo-prague',
-				connectionCode: 'PRG',
-				connectionName: 'Václav Havel Prague',
-				carrierName: 'Ryanair',
-				carrierCode: 'FR',
-				outboundPriceMinorUnits: 4600,
+				id: 'demo-delta',
+				connectionCode: 'ZZD',
+				connectionName: 'FIXTURE Delta',
+				carrierName: 'FIXTURE Express',
+				carrierCode: 'ZX',
+				outboundFlightNumber: 'ZZ0002',
+				outboundPriceMinorUnits: 933333,
 				transferLegCount: 2,
 				stopoverDays: 0,
-				stayPricePerNight: 2200,
-				propertyName: 'Sir Toby’s Hostel'
+				stayPricePerNight: 977777,
+				propertyName: 'FIXTURE Guesthouse'
 			})
 			// No sources: exercises the "provider data not available yet" fallback.
 		}

@@ -5,17 +5,17 @@
 		"hotels": [
 			{
 				"hotel_id": 198765,
-				"accessibilityLabel": "Hostel Ruthensteiner, Vienna",
+				"accessibilityLabel": "FIXTURE Lodge, FIXTURELAND",
 				"property": {
-					"name": "Hostel Ruthensteiner",
+					"name": "FIXTURE Lodge",
 					"latitude": 48.1897,
 					"longitude": 16.3352,
 					"reviewScore": 8.4,
 					"reviewCount": 1523,
 					"priceBreakdown": {
-						"grossPrice": { "value": 24.0, "currency": "EUR" }
+						"grossPrice": { "value": 9444.44, "currency": "EUR" }
 					},
-					"photoUrls": ["https://cf.bstatic.com/xdata/images/hotel/example.jpg"]
+					"photoUrls": ["https://cf.bstatic.com/xdata/images/hotel/FIXTURE-not-a-real-photo.jpg"]
 				}
 			}
 		]

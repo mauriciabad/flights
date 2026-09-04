@@ -3,56 +3,56 @@
 		{
 			"outbound": {
 				"departureAirport": {
-					"countryName": "United Kingdom",
+					"countryName": "FIXTURELAND",
 					"iataCode": "STN",
-					"name": "London Stansted",
-					"seoName": "london-stansted"
+					"name": "FIXTURE Alpha",
+					"seoName": "fixture-alpha"
 				},
 				"arrivalAirport": {
-					"countryName": "Austria",
+					"countryName": "FIXTURELAND",
 					"iataCode": "VIE",
-					"name": "Vienna",
-					"seoName": "vienna"
+					"name": "FIXTURE Bravo",
+					"seoName": "fixture-bravo"
 				},
-				"departureDate": "2026-10-12T06:35:00",
-				"arrivalDate": "2026-10-12T09:50:00",
+				"departureDate": "2027-03-08T06:20:00",
+				"arrivalDate": "2027-03-08T09:35:00",
 				"price": {
-					"value": 34.99,
-					"valueMainUnit": "34",
-					"valueFractionalUnit": "99",
+					"value": 9111.11,
+					"valueMainUnit": "9111",
+					"valueFractionalUnit": "11",
 					"currencySymbol": "€",
 					"currencyCode": "EUR"
 				},
-				"flightNumber": "FR2402",
-				"flightKey": "FR~2402~~STN~VIE~2026-10-12~2026-10-12~1",
+				"flightNumber": "ZZ0000",
+				"flightKey": "ZZ~0000~~STN~VIE~2027-03-08~2027-03-08~1",
 				"previousPrice": null
 			}
 		},
 		{
 			"outbound": {
 				"departureAirport": {
-					"countryName": "United Kingdom",
+					"countryName": "FIXTURELAND",
 					"iataCode": "STN",
-					"name": "London Stansted",
-					"seoName": "london-stansted"
+					"name": "FIXTURE Alpha",
+					"seoName": "fixture-alpha"
 				},
 				"arrivalAirport": {
-					"countryName": "Austria",
+					"countryName": "FIXTURELAND",
 					"iataCode": "VIE",
-					"name": "Vienna",
-					"seoName": "vienna"
+					"name": "FIXTURE Bravo",
+					"seoName": "fixture-bravo"
 				},
-				"departureDate": "2026-10-13T14:10:00",
-				"arrivalDate": "2026-10-13T17:25:00",
+				"departureDate": "2027-03-09T14:10:00",
+				"arrivalDate": "2027-03-09T17:25:00",
 				"price": {
-					"value": 41.49,
-					"valueMainUnit": "41",
-					"valueFractionalUnit": "49",
+					"value": 9222.22,
+					"valueMainUnit": "9222",
+					"valueFractionalUnit": "22",
 					"currencySymbol": "€",
 					"currencyCode": "EUR"
 				},
-				"flightNumber": "FR2404",
-				"flightKey": "FR~2404~~STN~VIE~2026-10-13~2026-10-13~1",
+				"flightNumber": "ZZ0001",
+				"flightKey": "ZZ~0001~~STN~VIE~2027-03-09~2027-03-09~1",
 				"previousPrice": null
 			}
 		}

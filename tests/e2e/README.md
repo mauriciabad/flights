@@ -45,10 +45,26 @@ argument to use a different fixture (empty results, an error shape, and so on), 
 `mockRyanair()` gets first refusal, so it can override just the parts it cares about.
 
 **Adding a new provider that isn't in `support/providers.ts` yet:** add its host and a
-mock function there, add a captured-or-realistic fixture under `tests/e2e/fixtures/`,
-and add a line to `tests/e2e/fixtures/README.md` saying what the fixture models. The
-network guard blocks by default, so a new provider is unreachable in tests until you do
-this — that's the point.
+mock function there, add a realistic fixture under `tests/e2e/fixtures/`, and add a line
+to `tests/e2e/fixtures/README.md` saying what the fixture models. The network guard blocks
+by default, so a new provider is unreachable in tests until you do this — that's the point.
+
+## Fixture values are worthless on purpose
+
+Realistic **shape**, worthless **values**. Prices, flight numbers and place names come
+from `support/fixture-markers.ts`: five-figure fares, `ZZ00xx` flight numbers that no
+airline could issue, `FIXTURE`-prefixed airports, cities, carriers and hotels. `BVC` and
+`PFO` are banned outright, because a mock of the route `docs/ACCEPTANCE.md` decides this
+project on is the one mock nobody can sanity-check by eye.
+
+This is not neatness. A fixture built to look exactly like the goal got reported as the
+app reaching the goal, and it took an hour and a second browser to disprove.
+`guard.spec.ts` fails the suite if a fixture carries no marker, and
+`tools/probe-results.mjs` refuses to report an itinerary count from a page where one turns
+up. Read the top of `fixtures/README.md` before writing a new payload.
+
+Never register a mock on the shared Playwright MCP browser, whatever you are debugging.
+AGENTS.md, "Mocks belong to a test and to nothing else", says what that cost.
 
 ## Adding a test for a screen that just landed
 

@@ -1,8 +1,8 @@
 {
 	"code": "Ok",
 	"waypoints": [
-		{ "hint": "fixture-origin", "distance": 4.2, "name": "", "location": [16.5697, 48.1103] },
-		{ "hint": "fixture-destination", "distance": 8.1, "name": "Ringstraße", "location": [16.3738, 48.2082] }
+		{ "hint": "FIXTURE-origin", "distance": 4.2, "name": "", "location": [16.5697, 48.1103] },
+		{ "hint": "FIXTURE-destination", "distance": 8.1, "name": "FIXTURE Ringstraße", "location": [16.3738, 48.2082] }
 	],
 	"routes": [
 		{
