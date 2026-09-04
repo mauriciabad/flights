@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { Duration, LocalDateTime } from '../domain';
+import type { Duration, LocalDateTime, Transfer, TransferLeg } from '../domain';
 import {
 	formatCalendarDate,
 	formatClockTime,
@@ -7,9 +7,12 @@ import {
 	formatMoney,
 	formatMoneyDelta,
 	formatMoneyRange,
+	formatStraightLineKm,
 	formatTimeDelta,
 	formatUtcOffset,
 	isDifferentCalendarDate,
+	summariseTransferLegs,
+	transferDetailLine,
 	unpricedTransferNote,
 	unroutedLegNote
 } from './itinerary-timeline-format';
@@ -214,5 +217,83 @@ describe('unpricedTransferNote (issue #119)', () => {
 			expect(unpricedTransferNote(mode)).not.toMatch(/0/);
 			expect(unpricedTransferNote(mode, true)).not.toMatch(/0/);
 		}
+	});
+});
+
+describe('summariseTransferLegs (issue #220)', () => {
+	function ride(vehicle: string | undefined, minutes = 20): TransferLeg {
+		return { mode: 'transit', vehicle, duration: minutes as Duration };
+	}
+	const walk: TransferLeg = { mode: 'walk', description: 'Walk (0 m)', duration: 2 as Duration };
+
+	it('replaces the brick with what you ride and how often you change', () => {
+		// What the row printed before, in full: "Walk (0 m), Transit OLB-BHX to Aeroporto di
+		// Olbia (OLB) (JET TWO COM), Walk (0 m), Transit OLB-FCO to ...".
+		expect(summariseTransferLegs([walk, ride('Metro'), walk, ride('Bus'), walk])).toBe(
+			'Metro, then bus (1 change)'
+		);
+	});
+
+	it('says nothing about changes when there is one ride to make', () => {
+		expect(summariseTransferLegs([walk, ride('Coach'), walk])).toBe('Coach');
+	});
+
+	it('counts rides rather than naming them once naming them stops being a summary', () => {
+		expect(summariseTransferLegs([ride('Bus'), ride('Train'), ride('Coach'), ride('Bus')])).toBe(
+			'4 rides (3 changes)'
+		);
+	});
+
+	it('counts them when a provider did not name the vehicle, instead of printing a hole', () => {
+		// A `Transfer` cached before `TransferLeg.vehicle` existed reaches this with every
+		// vehicle undefined.
+		expect(summariseTransferLegs([walk, ride(undefined), walk, ride(undefined)])).toBe(
+			'2 rides (1 change)'
+		);
+	});
+
+	it('has nothing to summarise for a journey that is only walking', () => {
+		expect(summariseTransferLegs([walk, walk])).toBeUndefined();
+		expect(summariseTransferLegs([])).toBeUndefined();
+	});
+
+	it('does not call a taxi or a drive a ride, since "Taxi" says more than "1 ride"', () => {
+		// Measured on the built app before this rule existed: an OSRM taxi transfer has one
+		// leg, and the row read "To Birmingham Central Backpackers · 1 ride", having thrown
+		// away the one word that mattered.
+		expect(summariseTransferLegs([{ mode: 'taxi', duration: 54 as Duration }])).toBeUndefined();
+		expect(summariseTransferLegs([{ mode: 'drive', duration: 54 as Duration }])).toBeUndefined();
+	});
+});
+
+describe('transferDetailLine', () => {
+	it('names the vehicles when a provider gave them', () => {
+		const transfer: Transfer = {
+			mode: 'transit',
+			duration: 45 as Duration,
+			legs: [{ mode: 'transit', vehicle: 'Train', duration: 45 as Duration }]
+		};
+		expect(transferDetailLine(transfer)).toBe('Train');
+	});
+
+	it('falls back to the mode, which is the whole truth for a walk or a drive', () => {
+		expect(transferDetailLine({ mode: 'walk', duration: 12 as Duration, legs: [] })).toBe('Walk');
+		expect(transferDetailLine({ mode: 'drive', duration: 18 as Duration, legs: [] })).toBe('Drive');
+		// OSRM returns no legs at all, and Transitous answers cached before issue #220 have
+		// legs with no vehicle on them.
+		expect(transferDetailLine({ mode: 'transit', duration: 30 as Duration, legs: [] })).toBe(
+			'Public transport'
+		);
+	});
+});
+
+describe('formatStraightLineKm', () => {
+	it('rounds to whole kilometres, with a space that cannot break', () => {
+		expect(formatStraightLineKm(9.7)).toBe('10\u00a0km');
+		expect(formatStraightLineKm(48.9)).toBe('49\u00a0km');
+	});
+
+	it('keeps a decimal under a kilometre, where rounding to zero would read as nonsense', () => {
+		expect(formatStraightLineKm(0.42)).toBe('0.4\u00a0km');
 	});
 });

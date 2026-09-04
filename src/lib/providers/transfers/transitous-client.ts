@@ -47,6 +47,43 @@ export const BASE_URL = 'https://api.transitous.org/api/v1';
  * though no browser today sends it. */
 export const TRANSITOUS_USER_AGENT = 'flights.mauri.app/0.1 (https://github.com/mauriciabad/flights)';
 
+/**
+ * Issue #220: what this adapter asks MOTIS to route with, and the reason it names modes at
+ * all instead of taking the default.
+ *
+ * The default is `TRANSIT`, and MOTIS's own openapi.yaml defines that as
+ * `TRAM,FERRY,AIRPLANE,BUS,COACH,RAIL,ODM,RIDE_SHARING,FUNICULAR,AERIAL_LIFT,OTHER`. The
+ * list below is that definition with `AIRPLANE` removed and nothing else changed, so this
+ * is not a hand-picked subset of public transport. It is the server's own idea of transit,
+ * minus the one mode a ground transfer cannot contain.
+ *
+ * It has to be spelled out because MOTIS has no "everything except" form; a mode list is
+ * the only way to say it. That has one real cost: a transit mode added to `TRANSIT` later
+ * would not be asked for here until someone updates this list. The alternative cost is
+ * worse. Asked for the 9.7 km from Birmingham airport to a Birmingham hostel at 03:00,
+ * Transitous with `AIRPLANE` in play answers with four flights to Sardinia, Rome, Cagliari
+ * and Amsterdam and a train and coach back, 21h 27m door to door; with this list it answers
+ * with nothing, which is the truth (measured 2026-09-05, both ways).
+ *
+ * Verified against the live server on 2026-09-05, not assumed: every name here is accepted,
+ * an unknown one is a hard `500` carrying `enum ModeEnum: unknown value ...`, and Barcelona
+ * airport to Plaça Catalunya returns the identical six bus itineraries with this list as it
+ * does with the default. `transitous-mapper.ts` drops an air leg again on the way in, since
+ * a parameter this file sends is a request and not a guarantee.
+ */
+export const GROUND_TRANSIT_MODES = [
+	'TRAM',
+	'FERRY',
+	'BUS',
+	'COACH',
+	'RAIL',
+	'ODM',
+	'RIDE_SHARING',
+	'FUNICULAR',
+	'AERIAL_LIFT',
+	'OTHER'
+] as const;
+
 export interface TransitousPlanRequest {
 	from: Coordinates;
 	to: Coordinates;
@@ -145,7 +182,8 @@ function buildPlanUrl(request: TransitousPlanRequest): string {
 		// to send more precision than a GTFS timetable (minute-granular) can use anyway.
 		time: request.departureUtc.toISOString().replace(/\.\d{3}Z$/, 'Z'),
 		numItineraries: String(TRANSITOUS_NUM_ITINERARIES),
-		arriveBy: request.arriveBy ? 'true' : 'false'
+		arriveBy: request.arriveBy ? 'true' : 'false',
+		transitModes: GROUND_TRANSIT_MODES.join(',')
 	});
 	return `${BASE_URL}/plan?${params.toString()}`;
 }

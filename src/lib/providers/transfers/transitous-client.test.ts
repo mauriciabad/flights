@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
 	checkTransitousHealth,
 	fetchTransitousPlan,
+	GROUND_TRANSIT_MODES,
 	TransitousHttpError,
 	TransitousMalformedResponseError
 } from './transitous-client';
@@ -50,9 +51,24 @@ describe('fetchTransitousPlan', () => {
 		expect(fetchImpl).toHaveBeenCalledTimes(1);
 		const [url, init] = fetchImpl.mock.calls[0] as [string, RequestInit];
 		expect(url).toBe(
-			'https://api.transitous.org/api/v1/plan?fromPlace=41.3874%2C2.1686&toPlace=41.2971%2C2.0785&time=2026-09-10T09%3A00%3A00Z&numItineraries=6&arriveBy=false'
+			'https://api.transitous.org/api/v1/plan?fromPlace=41.3874%2C2.1686&toPlace=41.2971%2C2.0785&time=2026-09-10T09%3A00%3A00Z&numItineraries=6&arriveBy=false&transitModes=TRAM%2CFERRY%2CBUS%2CCOACH%2CRAIL%2CODM%2CRIDE_SHARING%2CFUNICULAR%2CAERIAL_LIFT%2COTHER'
 		);
 		expect((init.headers as Record<string, string>)['User-Agent']).toContain('flights.mauri.app');
+	});
+
+	it('asks for ground transit only, so MOTIS never routes a transfer through a flight (issue #220)', async () => {
+		const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ itineraries: [] }));
+
+		await fetchTransitousPlan(request, { signal: new AbortController().signal, fetchImpl });
+
+		const [url] = fetchImpl.mock.calls[0] as [string];
+		const modes = new URL(url).searchParams.get('transitModes')?.split(',') ?? [];
+		expect(modes).not.toContain('AIRPLANE');
+		// MOTIS's own definition of `TRANSIT`, minus AIRPLANE, not a hand-picked subset.
+		// Losing one of these silently would delete real service from every search.
+		expect(modes).toEqual([...GROUND_TRANSIT_MODES]);
+		expect(modes).toContain('BUS');
+		expect(modes).toContain('RAIL');
 	});
 
 	it('throws TransitousHttpError, carrying Retry-After, on a 429', async () => {

@@ -236,24 +236,48 @@ describe('TransportPicker: no-service transit', () => {
 });
 
 describe('TransportPicker: mode breakdown', () => {
-	it('shows every leg of a multi-leg transfer, not only its total duration', () => {
-		const walkTransfer: Transfer = { mode: 'walk', duration: 5 as Duration, legs: [] };
-		const itinerary = baseItinerary(walkTransfer);
-		const multiLeg: Transfer = {
+	const walkTransfer: Transfer = { mode: 'walk', duration: 5 as Duration, legs: [] };
+
+	function multiLeg(): Transfer {
+		return {
 			mode: 'transit',
 			duration: 45 as Duration,
 			legs: [
 				{ mode: 'walk', description: 'Walk to the station', duration: 10 as Duration },
-				{ mode: 'transit', description: 'Train to City Centre', duration: 35 as Duration }
+				{ mode: 'transit', description: 'Train to City Centre', vehicle: 'Train', duration: 25 as Duration },
+				{ mode: 'walk', description: 'Walk (280 m)', duration: 4 as Duration },
+				{ mode: 'transit', description: 'Bus 46 to Aeroport', vehicle: 'Bus', duration: 6 as Duration }
 			],
 			transitSchedule: { intended: localDateTime('2026-06-01T01:10:00'), following: [], plannedFor: departAfter('2026-06-01T01:00:00') }
 		};
+	}
 
-		const root = mountPicker({ itinerary, alternatives: [multiLeg] });
+	it('shows every leg of a multi-leg transfer, not only its total duration', () => {
+		const root = mountPicker({ itinerary: baseItinerary(walkTransfer), alternatives: [multiLeg()] });
 
 		const text = normalizedText(root);
-		expect(text).toContain('Walk to the station (10m)');
-		expect(text).toContain('Train to City Centre (35m)');
+		expect(text).toContain('Walk to the station');
+		expect(text).toContain('Train to City Centre');
+		expect(text).toContain('Bus 46 to Aeroport');
+	});
+
+	it('names the vehicles and the changes in one line, instead of a brick of legs (issue #220)', () => {
+		const root = mountPicker({ itinerary: baseItinerary(walkTransfer), alternatives: [multiLeg()] });
+
+		// The owner's report: "a brick of unformated text that is impossible to understand".
+		// The row itself now says what you ride and how often you change; the legs are behind
+		// the disclosure below it.
+		expect(normalizedText(root)).toContain('Train, then bus (1 change)');
+	});
+
+	it('puts the step list behind a disclosure rather than printing it on every row', () => {
+		const root = mountPicker({ itinerary: baseItinerary(walkTransfer), alternatives: [multiLeg()] });
+
+		const details = root.querySelector('details.row-steps');
+		expect(details).not.toBeNull();
+		expect((details as HTMLDetailsElement).open).toBe(false);
+		expect(details?.querySelector('summary')?.textContent?.trim()).toBe('4 steps');
+		expect(details?.querySelectorAll('li.step')).toHaveLength(4);
 	});
 });
 
@@ -432,6 +456,28 @@ describe('TransportPicker: telling "no service" from "nobody asked" (issue #135)
 
 		expect(text).toContain('was not checked for this option');
 		expect(text).not.toContain('No public transport data for this area');
+	});
+
+	it('says a route came back and was refused, with the numbers it was refused on (issue #220)', () => {
+		const itinerary = baseItinerary({ mode: 'walk', duration: 316 as Duration, legs: [] });
+
+		const text = normalizedText(
+			mountPicker({
+				itinerary,
+				alternatives: roadOnly,
+				transitAnswer: {
+					answer: 'answered',
+					plannedFor: departAfter('2026-06-01T01:00:00'),
+					// The owner's own Birmingham leg: 21h 27m to cover 9.7 km.
+					withheld: { count: 2, quickest: 1287 as Duration, straightLineKm: 9.7 }
+				}
+			})
+		);
+
+		expect(text).toContain('The quickest of the 2 routes that came back took 21h 27m');
+		expect(text).toContain('10 km in a straight line');
+		// The lie this replaces. Transitous answered; this app is what refused it.
+		expect(text).not.toContain('had no service between these two points');
 	});
 
 	it("quotes the provider's own failure, status code included", () => {

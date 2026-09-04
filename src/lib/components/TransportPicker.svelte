@@ -41,8 +41,10 @@
 		formatMoney,
 		formatMoneyDelta,
 		formatMoneyRange,
+		formatStraightLineKm,
 		formatTimeDelta,
 		isDifferentCalendarDate,
+		summariseTransferLegs,
 		transferModeLabel,
 		unpricedTransferNote
 	} from './itinerary-timeline-format';
@@ -207,11 +209,25 @@
 				return transitAnswer.reason === 'budget-spent'
 					? `Public transport was not checked for this option: this search had already used its timetable lookups.`
 					: `Public transport was not checked: no timetable provider is available.`;
-			case 'answered':
-				// Answered with a route, yet no transit row reached this picker. Nothing
-				// honest to say beyond that, and staying silent would be the same "we do not
-				// know why" this notice exists to stop.
+			case 'answered': {
+				// Issue #220. There is one known reason a route can be answered and still not
+				// reach this picker, and when it is the reason, the row says so with the
+				// numbers it was judged on rather than leaving the traveller to guess. The
+				// alternative wording, "no service between these two points", would be a
+				// different claim and a false one: Transitous answered.
+				const withheld = transitAnswer.withheld;
+				if (withheld) {
+					const route =
+						withheld.count === 1
+							? 'The only route that came back took'
+							: `The quickest of the ${withheld.count} routes that came back took`;
+					return `Public transport was checked${when}. ${route} ${formatDuration(withheld.quickest)} to cover ${formatStraightLineKm(withheld.straightLineKm)} in a straight line, so it is not offered as a transfer.`;
+				}
+				// Answered with a route, yet no transit row reached this picker, and not for
+				// that reason. Nothing honest to say beyond that, and staying silent would be
+				// the same "we do not know why" this notice exists to stop.
 				return `A public transport route was found${when}, but it is not among the options here.`;
+			}
 		}
 	});
 
@@ -229,6 +245,7 @@
 	<div role="radiogroup" aria-label={legLabel} class="picker-list">
 		{#each rows as row (transferKey(row.transfer))}
 			{@const isTaxiEstimate = row.transfer.mode === 'taxi' && taxiFareEstimate}
+			{@const summary = summariseTransferLegs(row.transfer.legs)}
 			<label
 				class={[
 					'picker-row',
@@ -244,7 +261,10 @@
 				/>
 				<span class="row-mode">
 					<span class="row-mode-label">{transferModeLabel(row.transfer.mode)}</span>
-					<span class="row-duration font-mono tabular-nums">{formatDuration(row.transfer.duration)}</span>
+					<span class="row-duration">
+						<span class="font-mono tabular-nums">{formatDuration(row.transfer.duration)}</span>
+						{#if summary}<span class="row-summary">&middot; {summary}</span>{/if}
+					</span>
 				</span>
 				<span class="row-price font-mono tabular-nums">
 					{#if isTaxiEstimate && taxiFareEstimate}
@@ -274,11 +294,34 @@
 				</span>
 
 				{#if row.transfer.legs.length > 1}
-					<ul class="row-breakdown">
-						{#each row.transfer.legs as legStep, index (index)}
-							<li>{legStep.description ?? transferModeLabel(legStep.mode)} ({formatDuration(legStep.duration)})</li>
-						{/each}
-					</ul>
+					<!-- Issue #220. The leg list used to print unconditionally, as one wrapped
+					     line of comma-joined sentences, and a nine-leg journey made the row
+					     unreadable. It is the same information, in order, one step per line,
+					     behind a disclosure: the summary above answers "what is this", this
+					     answers "how exactly", and only somebody who has chosen this option
+					     needs the second answer.
+
+					     The click handler is the same one `.taxi-citation` below needs and for
+					     the same reason: this <summary> sits inside the row's <label>, which
+					     re-fires a click on its own radio for any bubbled click that is not
+					     itself a form control. Without it, opening the steps would also pick
+					     the row. -->
+					<details class="row-steps">
+						<summary onclick={(event) => event.stopPropagation()}>
+							{row.transfer.legs.length} steps
+						</summary>
+						<ol class="step-list">
+							{#each row.transfer.legs as legStep, index (index)}
+								<li class={['step', { 'is-walk': legStep.mode === 'walk' }]}>
+									<span class="step-time font-mono tabular-nums">
+										{legStep.departure ? formatClockTime(legStep.departure) : ''}
+									</span>
+									<span class="step-what">{legStep.description ?? transferModeLabel(legStep.mode)}</span>
+									<span class="step-duration font-mono tabular-nums">{formatDuration(legStep.duration)}</span>
+								</li>
+							{/each}
+						</ol>
+					</details>
 				{/if}
 
 				{#if row.transfer.mode === 'transit' && row.transfer.transitSchedule}
@@ -445,6 +488,14 @@
 	.row-duration {
 		font-size: var(--font-size-xs);
 		color: var(--color-text-muted);
+		text-wrap: pretty;
+	}
+
+	/* Deliberately the same colour as the duration it sits beside, not quieter. It is real
+	   content, and --color-text-faint is 4.2:1 on --color-surface in the dark theme, which
+	   is under AA for text this size. The middot is enough separation. */
+	.row-summary {
+		color: inherit;
 	}
 
 	.row-price {
@@ -495,17 +546,87 @@
 		white-space: nowrap;
 	}
 
-	.row-breakdown {
+	.row-steps {
 		grid-column: 1 / -1;
-		display: flex;
-		flex-wrap: wrap;
-		gap: var(--space-1) var(--space-3);
 		margin-top: var(--space-1);
 		font-size: var(--font-size-xs);
 		color: var(--color-text-muted);
 	}
 
-	.row-breakdown li {
+	.row-steps summary {
+		display: inline-flex;
+		align-items: center;
+		gap: var(--space-1);
+		/* A 44px target on a line of 10px type, without the line itself growing: the padding
+		   is negative-margined back out so the row keeps the height it had. */
+		padding: var(--space-2) var(--space-2) var(--space-2) 0;
+		margin: calc(var(--space-2) * -1) 0;
+		cursor: pointer;
+		color: var(--color-accent);
+		list-style: none;
+	}
+
+	.row-steps summary::-webkit-details-marker {
+		display: none;
+	}
+
+	/* The disclosure's own mark, drawn rather than borrowed from the browser so it matches
+	   the chevron the timeline row already turns. */
+	.row-steps summary::before {
+		content: '';
+		width: 0.4rem;
+		height: 0.4rem;
+		border-right: 1.5px solid currentColor;
+		border-bottom: 1.5px solid currentColor;
+		transform: rotate(-45deg) translate(-1px, -1px);
+		transition: transform var(--transition-fast);
+	}
+
+	.row-steps[open] summary::before {
+		transform: rotate(45deg) translate(-1px, -1px);
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.row-steps summary::before {
+			transition: none;
+		}
+	}
+
+	/* A timetable, not a paragraph: departure, what you board, how long it takes, one line
+	   each and every column aligned down the list. */
+	.step-list {
+		display: grid;
+		grid-template-columns: auto 1fr auto;
+		gap: 0 var(--space-3);
+		margin-top: var(--space-2);
+		list-style: none;
+	}
+
+	.step {
+		display: grid;
+		grid-column: 1 / -1;
+		grid-template-columns: subgrid;
+		align-items: baseline;
+		padding: 0.15rem 0;
+	}
+
+	/* The walks between rides are the connective tissue, not the journey. Kept (a 679 m
+	   walk between two stations is a real thing to know about) and set back, in the token
+	   that exists for exactly this and is contrast-checked for it, rather than in
+	   --color-text-faint, which is under AA on this surface in the dark theme. */
+	.step.is-walk .step-what,
+	.step.is-walk .step-duration,
+	.step-time {
+		color: var(--color-text-deprioritized);
+	}
+
+	.step-what {
+		min-width: 0;
+		overflow-wrap: break-word;
+	}
+
+	.step-duration {
+		text-align: right;
 		white-space: nowrap;
 	}
 

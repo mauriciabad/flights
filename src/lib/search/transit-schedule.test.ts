@@ -286,4 +286,69 @@ describe('fetchTransitSchedules', () => {
 
 		expect(queries.map((query) => query.arriveBy)).toEqual([true, false, true, false]);
 	});
+
+	describe('a route refused as implausible (issue #220)', () => {
+		/** 21h 27m, the shape Transitous answered the owner's 9.7 km Birmingham hop with. */
+		function absurdTransfer(): Transfer {
+			return { ...transitTransfer(), duration: 1287 as Duration };
+		}
+
+		it('never becomes the itinerary\'s transfer', async () => {
+			const { provider } = fakeTransitProvider({
+				answer: () => ({
+					ok: true,
+					data: [absurdTransfer()],
+					source: { providerId: 'transitous' as ProviderId, fetchedAt: '2026-10-01T00:00:00Z' },
+					requestsUsed: 1
+				})
+			});
+
+			const before = tripItinerary();
+			const { itinerary } = await run([provider], { itinerary: before });
+
+			// Untouched: the 150-minute walk it was built with is still the pick, and the
+			// door-to-door figure has not grown by 21 hours of somebody else's flight.
+			expect(itinerary.transferToOriginAirport?.mode).toBe('walk');
+			expect(itinerary).toBe(before);
+		});
+
+		it('says a route came back and was refused, not that there is no service', async () => {
+			const { provider } = fakeTransitProvider({
+				answer: () => ({
+					ok: true,
+					data: [absurdTransfer()],
+					source: { providerId: 'transitous' as ProviderId, fetchedAt: '2026-10-01T00:00:00Z' },
+					requestsUsed: 1
+				})
+			});
+
+			const { answers } = await run([provider]);
+			const leg = answers.transferToOriginAirport;
+
+			// 'nothing-found' would be the lie: Transitous did answer. What the traveller is
+			// owed is the observation, with the numbers it was judged on.
+			expect(leg?.answer).toBe('answered');
+			expect(leg?.withheld?.count).toBe(1);
+			expect(leg?.withheld?.quickest).toBe(1287);
+			// Plaça de Catalunya to the airport, the leg's own straight line.
+			expect(leg?.withheld?.straightLineKm).toBeCloseTo(12.6, 1);
+		});
+
+		it('stays quiet when the same leg also found a real bus', async () => {
+			const { provider } = fakeTransitProvider({
+				answer: () => ({
+					ok: true,
+					data: [absurdTransfer(), transitTransfer()],
+					source: { providerId: 'transitous' as ProviderId, fetchedAt: '2026-10-01T00:00:00Z' },
+					requestsUsed: 1
+				})
+			});
+
+			const { answers, itinerary } = await run([provider]);
+
+			expect(answers.transferToOriginAirport?.withheld).toBeUndefined();
+			expect(itinerary.transferToOriginAirport?.mode).toBe('transit');
+			expect(itinerary.transferToOriginAirport?.duration).toBe(45);
+		});
+	});
 });

@@ -53,7 +53,11 @@ import type {
   Transfer,
   TransferMode,
 } from "../domain";
-import { MAX_PLAUSIBLE_WALK_MINUTES } from "../domain";
+import {
+  greatCircleDistanceKm,
+  MAX_PLAUSIBLE_WALK_MINUTES,
+  maxPlausibleTransitMinutes,
+} from "../domain";
 import type { ConnectionResources, TransferAnchor } from "../algorithm/build";
 import {
   femaleDormFit,
@@ -171,7 +175,7 @@ const TRANSFER_MODE_PREFERENCE: readonly TransferMode[] = [
 /** Issue #204 moved this to `domain/transfer.ts`, where `providers/transfers/osrm.ts` can
  * read it too and stop ASKING for a walking route this filter would only discard. Still
  * exported from here: it has been part of this module's surface since issue #119. */
-export { MAX_PLAUSIBLE_WALK_MINUTES };
+export { MAX_PLAUSIBLE_WALK_MINUTES, maxPlausibleTransitMinutes };
 
 /**
  * Whether this transfer is worth putting in front of a traveller at all.
@@ -180,11 +184,28 @@ export { MAX_PLAUSIBLE_WALK_MINUTES };
  * that buffer is the time it takes to get out of the terminal, not time spent walking, so
  * measuring a padded duration against a walking cap would drop a 40-minute walk for the
  * sin of following a landing at a large airport.
+ *
+ * Two rules now, one per mode that has one, and both live in `domain/transfer.ts` so the
+ * adapters can read the same numbers this filter judges them by:
+ *
+ * - Walking, since issue #119: a flat 45 minutes. A walk is a walk at any distance.
+ * - Transit, since issue #220: `maxPlausibleTransitMinutes` of the straight-line distance
+ *   between the two points, because 90 minutes across a big city and 10 across a small one
+ *   are both ordinary and no flat number is right for both.
+ *
+ * `straightLineKm` is the leg's own distance, and it is a required argument rather than an
+ * optional one on purpose: a caller that has not measured the leg cannot apply the transit
+ * rule, and silently skipping it is how the 33-hour answer in #220 reached the card.
  */
-export function isPlausibleTransfer(transfer: Transfer): boolean {
-  return (
-    transfer.mode !== "walk" || transfer.duration <= MAX_PLAUSIBLE_WALK_MINUTES
-  );
+export function isPlausibleTransfer(
+  transfer: Transfer,
+  straightLineKm: number,
+): boolean {
+  if (transfer.mode === "walk")
+    return transfer.duration <= MAX_PLAUSIBLE_WALK_MINUTES;
+  if (transfer.mode === "transit")
+    return transfer.duration <= maxPlausibleTransitMinutes(straightLineKm);
+  return true;
 }
 
 /** Picks one `Transfer` to represent an A-to-B leg out of everything usable providers
@@ -281,6 +302,16 @@ export function applyLandingBuffer(
 export interface TransferSearchOutcome {
   candidates: Transfer[];
   selected: Transfer | undefined;
+  /**
+   * Issue #220: what `isPlausibleTransfer` threw away for this leg, kept rather than
+   * dropped on the floor so a card can say a route came back and was refused, with its own
+   * duration in it, instead of the "there is no service here" the traveller would otherwise
+   * read. AGENTS.md: "say what you do not know rather than guessing."
+   *
+   * Empty on nearly every leg, which is the point. It fills only when a provider answered
+   * with a journey nobody could take.
+   */
+  rejected: Transfer[];
   /** Issue #135: every provider's untouched answer for this leg, in call order, so a
    * caller can tell "asked, and there is no service here" from "never asked" for THIS leg
    * rather than only for the whole search. `SearchSnapshot.providers` already answers the
@@ -346,10 +377,22 @@ export async function fetchBestTransfer(
   // app's candidate list, so an implausible walk is gone from `TransportPicker`'s
   // alternatives too and not merely passed over by `pickBestTransfer`. The issue's own
   // wording is "dont even show this", and a row a traveller can still click is showing it.
-  const candidates = results
-    .flatMap((result) => (result.ok ? result.data : []))
-    .filter(isPlausibleTransfer);
-  return { candidates, selected: pickBestTransfer(candidates), results };
+  // Issue #220 added transit to the same gate, measured against this leg's own distance.
+  const straightLineKm = greatCircleDistanceKm(query.from, query.to);
+  const answered = results.flatMap((result) => (result.ok ? result.data : []));
+  const candidates: Transfer[] = [];
+  const rejected: Transfer[] = [];
+  for (const transfer of answered) {
+    (isPlausibleTransfer(transfer, straightLineKm) ? candidates : rejected).push(
+      transfer,
+    );
+  }
+  return {
+    candidates,
+    selected: pickBestTransfer(candidates),
+    rejected,
+    results,
+  };
 }
 
 function servesAnyRequestedMode(

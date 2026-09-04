@@ -44,6 +44,7 @@ vi.mock('../providers/transfers/osrm', async (importOriginal) => {
 // pattern as providers-adapter.test.ts).
 const {
 	DEFAULT_STAY_RADIUS_KM,
+	fetchBestTransfer,
 	fetchConnectionResources,
 	isPlausibleTransfer,
 	MAX_PLAUSIBLE_WALK_MINUTES,
@@ -718,22 +719,26 @@ function transfer(mode: Transfer['mode'], minutes: number): Transfer {
 	return { mode, duration: minutes as Duration, legs: [{ mode, duration: minutes as Duration }] };
 }
 
+/** The 9.7 km from Birmingham airport to Birmingham Central Backpackers, issue #220's own
+ * pair. At this distance the transit rule allows 2h 28m. */
+const BIRMINGHAM_KM = 9.7;
+
 describe('walking has to be walkable (issue #119)', () => {
 	it('drops the 11h 42m walk the owner was actually offered', () => {
-		expect(isPlausibleTransfer(transfer('walk', 702))).toBe(false);
+		expect(isPlausibleTransfer(transfer('walk', 702), BIRMINGHAM_KM)).toBe(false);
 	});
 
 	it('keeps the short walk that genuinely beats waiting for a bus', () => {
 		// The picker treats a wait under 20 minutes as one you would have had anyway, so a
 		// 12-minute walk is the case this filter must never take away.
-		expect(isPlausibleTransfer(transfer('walk', 12))).toBe(true);
-		expect(isPlausibleTransfer(transfer('walk', MAX_PLAUSIBLE_WALK_MINUTES))).toBe(true);
-		expect(isPlausibleTransfer(transfer('walk', MAX_PLAUSIBLE_WALK_MINUTES + 1))).toBe(false);
+		expect(isPlausibleTransfer(transfer('walk', 12), BIRMINGHAM_KM)).toBe(true);
+		expect(isPlausibleTransfer(transfer('walk', MAX_PLAUSIBLE_WALK_MINUTES), BIRMINGHAM_KM)).toBe(true);
+		expect(isPlausibleTransfer(transfer('walk', MAX_PLAUSIBLE_WALK_MINUTES + 1), BIRMINGHAM_KM)).toBe(false);
 	});
 
-	it('caps nothing but walking, since a long drive is a different argument', () => {
-		for (const mode of ['transit', 'drive', 'taxi'] as const) {
-			expect(isPlausibleTransfer(transfer(mode, 702)), mode).toBe(true);
+	it('caps nothing but walking and transit, since a long drive is a different argument', () => {
+		for (const mode of ['drive', 'taxi'] as const) {
+			expect(isPlausibleTransfer(transfer(mode, 702), BIRMINGHAM_KM), mode).toBe(true);
 		}
 	});
 
@@ -758,6 +763,44 @@ describe('walking has to be walkable (issue #119)', () => {
 		// there too would drop a 40-minute walk for the sin of following a landing.
 		const buffered = [transfer('walk', 40 + 30), transfer('drive', 25 + 30)];
 		expect(pickBestTransfer(buffered)?.mode).toBe('walk');
+	});
+});
+
+describe('public transport has to be plausible for the distance (issue #220)', () => {
+	it('refuses the 21h 27m answer the owner was given for a 9.7 km hop', () => {
+		expect(isPlausibleTransfer(transfer('transit', 1287), BIRMINGHAM_KM)).toBe(false);
+	});
+
+	it('keeps an ordinary city transfer, including a slow one', () => {
+		// Barcelona airport to Plaça Catalunya, the slowest of six live answers on
+		// 2026-09-05, is 62 minutes across 12.6 km. Nothing real is near this bound.
+		expect(isPlausibleTransfer(transfer('transit', 62), 12.6)).toBe(true);
+		expect(isPlausibleTransfer(transfer('transit', 45), BIRMINGHAM_KM)).toBe(true);
+	});
+
+	it('scales with distance, so the same duration passes far apart and fails close together', () => {
+		// The reason this is not a flat cap: three hours across 48.9 km is a real coach
+		// journey, and three hours across 2 km is not a journey at all.
+		expect(isPlausibleTransfer(transfer('transit', 180), 48.9)).toBe(true);
+		expect(isPlausibleTransfer(transfer('transit', 180), 2)).toBe(false);
+	});
+
+	it('leaves the refused route out of the alternatives, and keeps it to report', async () => {
+		const provider = configurableTransferProvider([transfer('transit', 702), transfer('drive', 40)]);
+		const outcome = await fetchBestTransfer(
+			{ from: CONNECTION_COORDINATES, to: { latitude: 48.2, longitude: 16.37 } },
+			[provider],
+			{},
+			new AbortController().signal,
+			new SourceTracker(),
+			() => {}
+		);
+
+		expect(outcome.candidates.map((candidate) => candidate.mode)).toEqual(['drive']);
+		expect(outcome.selected?.mode).toBe('drive');
+		// Issue #220: not thrown away. The card needs it to say a route came back and was
+		// refused rather than claiming nobody found one.
+		expect(outcome.rejected.map((rejected) => rejected.duration)).toEqual([702]);
 	});
 });
 

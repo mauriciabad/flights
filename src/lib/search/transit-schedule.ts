@@ -39,6 +39,7 @@
  */
 
 import type { Coordinates, Duration, Itinerary, Transfer, TransitPlanMoment } from '../domain';
+import { greatCircleDistanceKm } from '../domain';
 import { addLocalMinutes } from '../algorithm/build';
 import { recomputeItinerarySelection } from '../algorithm/recompute-selection';
 import type { SelectionOverrides } from '../algorithm/recompute-selection';
@@ -47,7 +48,7 @@ import { applyLandingBuffer, fetchBestTransfer } from './resources';
 import type { RecordProviderCall, SourceTracker } from './provenance';
 import { providerAnswer } from './provenance';
 import type { ProviderAnswer } from './provenance';
-import type { TransitLegAnswer, TransitLegAnswers, TransitLegField } from './types';
+import type { TransitLegAnswer, TransitLegAnswers, TransitLegField, WithheldTransitRoute } from './types';
 
 /**
  * How many `/plan` requests one search may spend, across every itinerary it refines.
@@ -237,8 +238,14 @@ export async function fetchTransitSchedules(input: FetchTransitSchedulesInput): 
 			input.record
 		);
 
-		answers[plan.field] = readLegAnswer(outcome.results, plan.moment);
 		const found = outcome.candidates.filter((transfer) => transfer.mode === 'transit');
+		answers[plan.field] = readLegAnswer(outcome.results, plan.moment, {
+			// Issue #220: only worth reporting when it is the whole answer. A leg that also
+			// found a real bus has the bus to show, and a sentence about a route nobody is
+			// being offered would be noise on a row that is already right.
+			rejected: found.length === 0 ? outcome.rejected : [],
+			straightLineKm: greatCircleDistanceKm(plan.from, plan.to)
+		});
 		if (found.length === 0) continue;
 
 		// Only a leg that starts at a runway gets the landing buffer, the same rule
@@ -266,7 +273,11 @@ export async function fetchTransitSchedules(input: FetchTransitSchedulesInput): 
  * answering that it has no timetable for the area, and an empty results list is nobody
  * having been asked. The picker has to be able to say which.
  */
-function readLegAnswer(results: readonly ProviderResult<Transfer[]>[], plannedFor: TransitPlanMoment): TransitLegAnswer {
+function readLegAnswer(
+	results: readonly ProviderResult<Transfer[]>[],
+	plannedFor: TransitPlanMoment,
+	refused: { rejected: readonly Transfer[]; straightLineKm: number }
+): TransitLegAnswer {
 	if (results.length === 0) return { answer: 'not-asked', reason: 'no-provider', plannedFor };
 
 	let okCalls = 0;
@@ -282,7 +293,27 @@ function readLegAnswer(results: readonly ProviderResult<Transfer[]>[], plannedFo
 	}
 
 	const answer: ProviderAnswer = providerAnswer({ lastError, okCalls, okCallsWithData });
-	return { answer, plannedFor, error: answer === 'failed' ? lastError : undefined };
+	return {
+		answer,
+		plannedFor,
+		error: answer === 'failed' ? lastError : undefined,
+		withheld: readWithheld(refused)
+	};
+}
+
+/** Issue #220: the refused routes, reduced to the numbers a card can print. The caller
+ * decides whether there is anything to report at all. See its own comment. */
+function readWithheld(refused: {
+	rejected: readonly Transfer[];
+	straightLineKm: number;
+}): WithheldTransitRoute | undefined {
+	const transitRoutes = refused.rejected.filter((transfer) => transfer.mode === 'transit');
+	if (transitRoutes.length === 0) return undefined;
+	const quickest = transitRoutes.reduce(
+		(shortest, transfer) => (transfer.duration < shortest ? transfer.duration : shortest),
+		transitRoutes[0].duration
+	);
+	return { count: transitRoutes.length, quickest, straightLineKm: refused.straightLineKm };
 }
 
 function startsAtARunway(field: TransitLegField): boolean {
