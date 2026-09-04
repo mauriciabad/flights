@@ -425,7 +425,7 @@
 				     BackpackersPublic transport·". See summariseTransferLegs. -->
 				<p class="tl-label">
 					{label}<span class="tl-detail-inline"
-						>&middot; {transferDetailLine(transfer)}</span
+						>&nbsp;&middot; {transferDetailLine(transfer)}</span
 					>{@render optionMark(segment)}
 				</p>
 				{#if transfer.mode === 'transit' && transfer.transitSchedule}
@@ -450,7 +450,7 @@
 				     See unroutedLegNote for what each case actually observed. -->
 				<p class="tl-label">
 					{label}<span class="tl-detail-inline tl-detail-absent"
-						>&middot; {unroutedLegNote(leg, {
+						>&nbsp;&middot; {unroutedLegNote(leg, {
 							hasStay: shown.stay !== undefined,
 							nightsInConnection: shown.nightsInConnection
 						})}</span
@@ -910,10 +910,10 @@
 	   The middot that separates it from the label is a character in the markup, not a
 	   margin: issue #220's report of this row read "To Birmingham Central
 	   BackpackersPublic transport", because a gap drawn in CSS is not a gap in the text.
-	   So the space here is the small one either side of that character, not the whole
-	   separation. */
+	   So the separation is a non-breaking space and a middot in the markup, and there is no
+	   margin here at all. The space is non-breaking so a wrap can never leave the middot
+	   stranded at the start of a line, away from the label it belongs to. */
 	.tl-detail-inline {
-		margin-left: var(--space-1);
 		font-weight: var(--font-weight-regular);
 		color: var(--color-text-muted);
 	}

@@ -256,6 +256,14 @@ describe('summariseTransferLegs (issue #220)', () => {
 		expect(summariseTransferLegs([walk, walk])).toBeUndefined();
 		expect(summariseTransferLegs([])).toBeUndefined();
 	});
+
+	it('does not call a taxi or a drive a ride, since "Taxi" says more than "1 ride"', () => {
+		// Measured on the built app before this rule existed: an OSRM taxi transfer has one
+		// leg, and the row read "To Birmingham Central Backpackers · 1 ride", having thrown
+		// away the one word that mattered.
+		expect(summariseTransferLegs([{ mode: 'taxi', duration: 54 as Duration }])).toBeUndefined();
+		expect(summariseTransferLegs([{ mode: 'drive', duration: 54 as Duration }])).toBeUndefined();
+	});
 });
 
 describe('transferDetailLine', () => {

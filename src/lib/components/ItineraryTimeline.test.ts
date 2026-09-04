@@ -597,14 +597,17 @@ describe('ItineraryTimeline, the transfer row reads as one line (issue #220)', (
 
 	it('separates the label from the detail with a character, not only with a margin', () => {
 		// The owner's report of this row began "To Birmingham Central BackpackersPublic
-		// transport". A CSS margin is invisible to anything that reads the page as text.
+		// transport". A CSS margin is invisible to anything that reads the page as text, so
+		// the separator has to survive `textContent`, spaces and all.
 		const text = hotelRowText(transitTransfer());
-		expect(text).toContain('·');
-		expect(text).not.toMatch(/[a-z]Metro/);
+		expect(text).toContain('To Test Hostel · Metro, then bus (1 change)');
 	});
 
 	it('still names the mode when no provider named a vehicle', () => {
-		const text = hotelRowText({ mode: 'walk', duration: 30 as Duration, legs: [] });
-		expect(text).toContain('· Walk');
+		expect(hotelRowText({ mode: 'walk', duration: 30 as Duration, legs: [] })).toContain('· Walk');
+		// A taxi's single leg is not a "ride" worth counting: the mode is the better word.
+		expect(
+			hotelRowText({ mode: 'taxi', duration: 54 as Duration, legs: [{ mode: 'taxi', duration: 54 as Duration }] })
+		).toContain('· Taxi');
 	});
 });

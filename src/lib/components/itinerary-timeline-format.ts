@@ -58,12 +58,16 @@ const MAX_NAMED_VEHICLES = 3;
  * step list, which is where somebody who has decided to take this route reads them. A
  * summary that keeps everything is the brick again.
  *
- * `undefined` when there is nothing to summarise: a transfer with no legs (every OSRM
- * answer) or one whose legs are all walking. The caller falls back to the mode label,
- * which is the whole truth for those.
+ * `undefined` when there is nothing to summarise, and the caller then falls back to the
+ * mode label, which is the whole truth in every one of those cases:
+ *
+ * - A transfer with no legs at all. Every OSRM answer is one.
+ * - A journey that is only walking.
+ * - A taxi or a drive, whose leg this deliberately does not count as a ride. "Taxi" says
+ *   more than "1 ride" does, and a car has nothing to change between.
  */
 export function summariseTransferLegs(legs: readonly TransferLeg[]): string | undefined {
-	const rides = legs.filter((leg) => leg.mode !== 'walk');
+	const rides = legs.filter((leg) => leg.mode === 'transit');
 	if (rides.length === 0) return undefined;
 
 	const changes = rides.length - 1;
