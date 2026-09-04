@@ -1,7 +1,11 @@
 /**
- * Pure display formatting for ItineraryTimeline.svelte (issue #24). Kept out of the
- * component file so the two "an overnight itinerary renders correctly" and "a duration
- * reads back the way the minutes imply" behaviours are testable without mounting Svelte.
+ * Pure display formatting shared by every departure-board-styled component: originally
+ * ItineraryTimeline.svelte (issue #24), now also FlightPicker.svelte and
+ * TransportPicker.svelte (issue #28), which format the same clock times, durations and
+ * prices and need the exact same numbers to line up between the timeline and its pickers.
+ * Kept out of the component files so behaviours like "an overnight itinerary renders
+ * correctly" and "a duration reads back the way the minutes imply" are testable without
+ * mounting Svelte.
  *
  * AGENTS.md "Timezones": "Every flight time is a local wall-clock time at a specific
  * airport... Do not normalise everything to UTC and format it back." Every function here
@@ -115,6 +119,42 @@ const TRANSFER_MODE_LABELS: Record<TransferMode, string> = {
  * spelled out for a traveller rather than shown as the raw domain literal. */
 export function transferModeLabel(mode: TransferMode): string {
 	return TRANSFER_MODE_LABELS[mode];
+}
+
+/**
+ * Issue #28: "each showing the DIFFERENCE from the currently selected flight... '+€12, 40
+ * minutes later' is the comparison a person actually makes." `0` reads as "same price"
+ * rather than "+€0.00", so a traveller scanning a list of deltas can tell "no difference"
+ * apart from "a real but tiny one" at a glance.
+ */
+export function formatMoneyDelta(deltaMinorUnits: number, currency: string, locale = 'en-GB'): string {
+	if (deltaMinorUnits === 0) return 'same price';
+	const sign = deltaMinorUnits > 0 ? '+' : '-';
+	return `${sign}${formatMoney({ minorUnits: Math.abs(deltaMinorUnits), currency }, locale)}`;
+}
+
+/** A taxi estimate's low-high range (taxi-rate-table.ts's `TaxiFareEstimate`), e.g.
+ * "€18.00-€24.00". Never collapsed to a single number: the whole point of the range is that
+ * neither bound is a quote. */
+export function formatMoneyRange(
+	lowMinorUnits: number,
+	highMinorUnits: number,
+	currency: string,
+	locale = 'en-GB'
+): string {
+	return `${formatMoney({ minorUnits: lowMinorUnits, currency }, locale)}-${formatMoney({ minorUnits: highMinorUnits, currency }, locale)}`;
+}
+
+/**
+ * The "40 minutes later" half of issue #28's worked example. `0` reads as "same time"
+ * rather than "0m later", matching `formatMoneyDelta`'s reasoning above. `deltaMinutes` is a
+ * plain signed number rather than a `Duration`, since a `Duration` is meant to be a
+ * non-negative length and a delta can go either way.
+ */
+export function formatTimeDelta(deltaMinutes: number, laterWord = 'later', earlierWord = 'earlier'): string {
+	if (deltaMinutes === 0) return 'same time';
+	const word = deltaMinutes > 0 ? laterWord : earlierWord;
+	return `${formatDuration(Math.abs(deltaMinutes) as Duration)} ${word}`;
 }
 
 /** Intl.NumberFormat wants a decimal amount, but Money stores integer minor units. This is
