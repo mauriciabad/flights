@@ -11,7 +11,13 @@
  *
  * 1. Agoda's search takes a free-text place name, not a coordinate or radius — see
  *    agoda-client.ts's header for the "location cannot be empty" response that proves it,
- *    and why this adapter reverse-geocodes through Nominatim before ever calling Agoda.
+ *    and why this adapter reverse-geocodes before ever calling Agoda. Issue #65: a
+ *    satellite airport (VIE, BGY, CIA, STN...) reverse-geocodes to whatever small town
+ *    literally contains it, not the city it serves — `resolveLocation` below now checks
+ *    this app's own OurAirports dataset first (geocode/airport-city.ts), which already
+ *    knows the right city for most of these cases at zero request cost, and falls back to
+ *    the original Nominatim call — with its original limitation — only for a coordinate
+ *    that isn't a known airport.
  * 2. Its search response prices a property once, not per room kind — getting a separate
  *    dorm and private price (issue #10's core ask) needs one `get-prices` request PER
  *    property investigated, which is why this file ranks candidates cheapest-first before
@@ -29,6 +35,7 @@ import { DEFAULT_TRAVELLERS } from '../../domain';
 import type { Coordinates, Stay } from '../../domain';
 import { callProviderWithBudget } from '../budget';
 import { classifyClientResultError, unwrapOrThrow } from '../client-result-budget';
+import { resolveAirportCityLabel } from '../geocode/airport-city';
 import type {
 	ProviderContext,
 	ProviderError,
@@ -167,13 +174,26 @@ function roundCoordinate(value: number): number {
  * no address for the point (open ocean, etc.) or the request itself fails — either way
  * this adapter has nothing to search Agoda with, which agoda.ts's caller treats as "no
  * results here" rather than an error, per AGENTS.md "partial results are the normal
- * case." */
+ * case."
+ *
+ * Issue #65: checks the local, network-free `resolveAirportCityLabel` (geocode/airport-city.ts)
+ * FIRST. Nominatim resolves a satellite airport's coordinates to whatever small
+ * municipality literally contains them (Vienna International Airport -> "Fischamend",
+ * confirmed live and documented in agoda-client.ts's header and docs/PROVIDERS.md) rather
+ * than the notable city it actually serves — a real limitation this app's own OurAirports
+ * dataset already has the right answer for, for most (not all — see that file's header)
+ * known airports, at zero request cost. Nominatim only ever runs now for a coordinate that
+ * isn't a known airport (a landmark someone searched for, say), where the original
+ * limitation is unchanged. */
 async function resolveLocation(
 	near: Coordinates,
 	store: CacheStore,
 	signal: AbortSignal,
 	fetchImpl: typeof fetch | undefined
 ): Promise<string | undefined> {
+	const airportLabel = await resolveAirportCityLabel(near);
+	if (airportLabel) return airportLabel;
+
 	const key = defineCacheKey(
 		AGODA_PROVIDER_ID,
 		{ op: 'reverseGeocode', lat: roundCoordinate(near.latitude), lon: roundCoordinate(near.longitude) },
