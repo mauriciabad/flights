@@ -141,9 +141,9 @@
 			<p class="variants">{variantsLabel}</p>
 		{/if}
 
-		<!-- Issue #104: "open the full trip." A plain controlled button — `aria-expanded`
-		     comes straight from a prop, never a locally-owned copy — so an external change
-		     is never stuck out of sync with what this card renders, the exact bug
+		<!-- Issue #104: "open the full trip." A plain controlled button. `aria-expanded`
+		     comes straight from a prop, never a locally-owned copy, so an external change
+		     is never stuck out of sync with what this card renders. That is the exact bug
 		     FilterPanel.svelte's own Chip usage documents as the failure mode of a
 		     `$bindable` prop nobody binds. -->
 		<div class="card-controls">

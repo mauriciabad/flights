@@ -162,9 +162,9 @@
 	// legitimate way to mark a plain listitem as actionable, so it flags a real tabindex/
 	// click/keydown on a "non-interactive" `<li>` (`a11y_no_noninteractive_tabindex`,
 	// `a11y_no_noninteractive_element_interactions`) and the same for `onkeydown` on the
-	// `<ol>` itself. Each is silenced with a `<!-- svelte-ignore -->` at its own spot —
-	// a linter heuristic, not an ARIA rule, and axe itself is clean against a real build
-	// (verified per issue #19).
+	// `<ol>` itself. Each is silenced with a `<!-- svelte-ignore -->` at its own spot.
+	// It is a linter heuristic, not an ARIA rule, and axe itself is clean against a real
+	// build (verified per issue #19).
 	function handleRowKeydown(event: KeyboardEvent & { currentTarget: HTMLLIElement }, segment: ItinerarySegmentId) {
 		if (event.target !== event.currentTarget) return;
 		if (event.key !== 'Enter' && event.key !== ' ') return;
