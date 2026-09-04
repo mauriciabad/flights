@@ -18,24 +18,42 @@
  * USD body was ever captured, so this is a stated assumption about the provider, not a
  * recording of it — but it is the assumption the adapter's own comments already document,
  * and it is the only part of this test that is not a real response.
+ *
+ * The currency under test is read from `createSearchDependencies`, the app's own assembly,
+ * rather than written out again here. That is the half of this file that could not exist
+ * before this branch. On `main` the object a real search runs on is built in a closure
+ * inside `routes/results/+page.svelte`, so there is nothing to import, nothing to assert
+ * against, and the value was `undefined`. Every layer beneath it already had a test passing
+ * `currency: 'EUR'` by hand, which is exactly how the suite stayed green across two PRs
+ * while no traveller ever saw a bed.
  */
 
 import { describe, expect, it, vi } from 'vitest';
 import { MemoryCacheStore } from '../cache';
 import { buildItineraries } from '../algorithm/build';
-import { DEFAULT_SEARCH_CURRENCY } from '../domain';
 import type { Airport, Duration, FlightOffer, LocalDateTime } from '../domain';
 import { createUnboundedStayLookupBudget } from '../providers/budget';
 import type { AvailableKeys, ProviderId, ProviderResult, TransferProvider, TransferSearchQuery } from '../providers/types';
 import type { ProviderStatus } from './types';
 import { createAgodaStayProvider } from '../providers/stays/agoda';
+import { agodaCurrencyId } from '../providers/stays/agoda-mapper';
 import agodaGetPricesWombats from '../providers/stays/fixtures/agoda-get-prices-wombats-hostel.json';
 import agodaSearchVienna from '../providers/stays/fixtures/agoda-search-vienna.json';
 import nominatimVienna from '../providers/stays/fixtures/nominatim-vienna.json';
+import { createSearchDependencies } from '../results/search-dependencies';
 import { recordProviderResult, SourceTracker } from './provenance';
 import { fetchConnectionResources } from './resources';
 
 const VIE_COORDINATES = { latitude: 48.1103, longitude: 16.5697 };
+
+/** What a real search names, taken from the code that assembles a real search. Not a
+ * constant restated in a test. The whole defect was that this value and the tests'
+ * hand-written `'EUR'` were two different things. */
+const SEARCH_CURRENCY = createSearchDependencies({}).currency;
+
+/** Agoda's own numeric id for that currency, looked up the way the adapter looks it up. `1`
+ * for EUR, captured from its `/currencies` endpoint. */
+const SEARCH_CURRENCY_ID = agodaCurrencyId(SEARCH_CURRENCY);
 
 /** The committed EUR fixture with every currency marker switched to USD — Agoda's answer
  * when `currency_id` is absent, per `agoda-mapper.ts`'s recorded measurement. Nothing else
@@ -69,23 +87,31 @@ function fixtureFetch(): { fetchImpl: typeof fetch; getPricesUrls: string[] } {
 }
 
 /** Transfers are not what this test is about, but `fetchConnectionResources` drops a stay it
- * cannot reach (issue #94), so one that always answers keeps the stay in play. `transit`
- * rather than `taxi` so nothing reaches for OSRM's fare table. */
+ * cannot reach (issue #94), so one that always answers keeps the stay in play.
+ *
+ * It has to answer for `walk`, not `transit`. `fetchConnectionResources` asks both
+ * connection-side legs for `ROAD_TRANSFER_MODES` alone, which is `['walk', 'drive', 'taxi']`,
+ * because a timetable needs a journey moment that does not exist yet at that point (#135).
+ * `fetchBestTransfer` then leaves out any provider serving none of the requested modes rather
+ * than calling it and discarding the answer. So a `transit`-only fixture is never asked, both
+ * legs come back empty, and the stay this test just priced in EUR is thrown away by the
+ * `withoutStay` branch two lines further down. `walk` also keeps OSRM out of it:
+ * `estimateTaxiFareForLeg` only reaches for the fare table when a `taxi` candidate exists. */
 function alwaysReachableTransferProvider(): TransferProvider {
-	const id = 'transit-fixture' as ProviderId;
+	const id = 'walk-fixture' as ProviderId;
 	const source = { providerId: id, fetchedAt: '2026-09-04T00:00:00Z' };
 	return {
 		kind: 'transfer',
 		id,
 		label: 'Fixture transfers',
-		modes: ['transit'],
+		modes: ['walk'],
 		needsKey: false,
 		keyFields: [],
 		async healthCheck() {
 			return { ok: true, data: {}, source, requestsUsed: 0 };
 		},
 		async searchTransfers(_query: TransferSearchQuery): Promise<ProviderResult<import('../domain').Transfer[]>> {
-			return { ok: true, data: [{ mode: 'transit', duration: 20 as Duration, legs: [] }], source, requestsUsed: 1 };
+			return { ok: true, data: [{ mode: 'walk', duration: 20 as Duration, legs: [] }], source, requestsUsed: 1 };
 		}
 	};
 }
@@ -151,16 +177,18 @@ function eurFlight(from: string, to: string, departure: string, arrival: string,
 
 describe('the search currency reaches Agoda (issue #158)', () => {
 	it('puts currency_id on the get-prices request and prices the bed in that currency', async () => {
-		const { resources, getPricesUrls } = await resolveStayFor(DEFAULT_SEARCH_CURRENCY);
+		expect(SEARCH_CURRENCY).toBe('EUR');
+		expect(SEARCH_CURRENCY_ID).toBe(1);
+
+		const { resources, getPricesUrls } = await resolveStayFor(SEARCH_CURRENCY);
 
 		expect(getPricesUrls.length).toBeGreaterThan(0);
 		for (const url of getPricesUrls) {
-			// 1 is Agoda's own numeric id for EUR (`AGODA_CURRENCY_INFO`, captured from its
-			// /currencies endpoint). Asserting the parameter on the wire, not the mapper's
-			// return value, is the point: the mapper was already right.
-			expect(new URL(url).searchParams.get('currency_id')).toBe('1');
+			// Asserting the parameter on the wire, not the mapper's return value, is the
+			// point: the mapper was already right, and so was everything under it.
+			expect(new URL(url).searchParams.get('currency_id')).toBe(String(SEARCH_CURRENCY_ID));
 		}
-		expect(resources.stay?.pricePerNight.currency).toBe('EUR');
+		expect(resources.stay?.pricePerNight.currency).toBe(SEARCH_CURRENCY);
 	});
 
 	it('omits currency_id when the search names no currency, which is how the bed came back in USD', async () => {
@@ -176,7 +204,7 @@ describe('the search currency reaches Agoda (issue #158)', () => {
 	});
 
 	it('assembles a whole itinerary with the bed inside the total', async () => {
-		const { resources } = await resolveStayFor(DEFAULT_SEARCH_CURRENCY);
+		const { resources } = await resolveStayFor(SEARCH_CURRENCY);
 		const stay = resources.stay;
 		expect(stay).toBeDefined();
 		if (!stay) return;
