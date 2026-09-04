@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import oneWayFixture from './fixtures/kiwi-one-way-bcn-otp.json';
 import {
+	assertValidOneWayResponse,
 	collectIataCodes,
 	isSelfTransferItinerary,
+	KiwiMalformedResponseError,
 	mapResponseToDirectDestinations,
 	mapResponseToFlightOffers
 } from './kiwi-mapper';
@@ -112,5 +114,96 @@ describe('mapResponseToDirectDestinations', () => {
 		// is a real connection, not a direct flight (types.ts: listDirectDestinations
 		// promises direct flights only).
 		expect(mapResponseToDirectDestinations(fixture)).toEqual(['VIE']);
+	});
+});
+
+/**
+ * This adapter's shape was never confirmed against a live response (this file's header),
+ * so every entry point must validate before reading — these tests exist because that
+ * validation is the actual fix, not the mapping behaviour above, which was already
+ * covered. Each case is a field this file genuinely reads; a field it never touches
+ * (e.g. `itinerary.id`) is deliberately not tested here, matching "explicit checks on the
+ * fields you consume are enough."
+ */
+describe('runtime validation of an unverified shape', () => {
+	const validSegment = fixture.data[0].route[0];
+	const validItinerary = fixture.data[0];
+
+	function expectMalformed(raw: unknown): void {
+		expect(() => mapResponseToFlightOffers(raw, requestedBags, countryCodeByIataCode)).toThrow(
+			KiwiMalformedResponseError
+		);
+		expect(() => collectIataCodes(raw)).toThrow(KiwiMalformedResponseError);
+		expect(() => mapResponseToDirectDestinations(raw)).toThrow(KiwiMalformedResponseError);
+		expect(() => assertValidOneWayResponse(raw)).toThrow(KiwiMalformedResponseError);
+	}
+
+	it('rejects a response that is not an object', () => {
+		expectMalformed(null);
+		expectMalformed('a string, not a response');
+		expectMalformed(42);
+	});
+
+	it('rejects a response missing a string currency', () => {
+		expectMalformed({ data: [] });
+		expectMalformed({ currency: 123, data: [] });
+	});
+
+	it('rejects a response whose data is not an array', () => {
+		expectMalformed({ currency: 'eur', data: {} });
+	});
+
+	it('rejects an itinerary that is not an object', () => {
+		expectMalformed({ currency: 'eur', data: ['not-an-object'] });
+	});
+
+	it('rejects an itinerary whose deep_link is present but not a string', () => {
+		expectMalformed({ currency: 'eur', data: [{ ...validItinerary, deep_link: 42 }] });
+	});
+
+	it('rejects an itinerary whose route is not an array', () => {
+		expectMalformed({ currency: 'eur', data: [{ ...validItinerary, route: 'not-an-array' }] });
+	});
+
+	it.each([
+		['flyFrom', { flyFrom: undefined }],
+		['flyFrom', { flyFrom: 123 }],
+		['flyTo', { flyTo: undefined }],
+		['airline', { airline: '' }],
+		['flight_no', { flight_no: '8472' }],
+		['flight_no', { flight_no: Number.NaN }],
+		['dTime', { dTime: '2026-10-13T09:10:00' }],
+		['aTime', { aTime: undefined }],
+		['dTimeUTC', { dTimeUTC: null }],
+		['aTimeUTC', { aTimeUTC: undefined }],
+		['price', { price: '45.50' }],
+		['return', { return: 2 }],
+		['return', { return: 'outbound' }],
+		['bags_recheck_required', { bags_recheck_required: 'yes' }]
+	])('rejects a segment with a bad %s field', (_field, override) => {
+		expectMalformed({
+			currency: 'eur',
+			data: [{ ...validItinerary, route: [{ ...validSegment, ...override }] }]
+		});
+	});
+
+	it('rejects the whole response when only the SECOND itinerary has a bad segment', () => {
+		// Deliberately stricter than Skyscanner's per-itinerary leniency (this file's
+		// header) — an otherwise-valid first itinerary does not save a response whose
+		// second itinerary doesn't match this adapter's assumptions.
+		expectMalformed({
+			currency: 'eur',
+			data: [validItinerary, { ...validItinerary, route: [{ ...validSegment, dTime: 'nope' }] }]
+		});
+	});
+
+	it('accepts a segment with no price and no bags_recheck_required at all, since both are genuinely optional', () => {
+		const { price: _price, bags_recheck_required: _flag, ...segmentWithoutOptionals } = validSegment;
+		expect(() =>
+			assertValidOneWayResponse({
+				currency: 'eur',
+				data: [{ ...validItinerary, route: [segmentWithoutOptionals] }]
+			})
+		).not.toThrow();
 	});
 });

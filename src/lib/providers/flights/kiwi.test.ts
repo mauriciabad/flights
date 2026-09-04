@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { MemoryCacheStore } from '../../cache';
 import oneWayFixture from './fixtures/kiwi-one-way-bcn-otp.json';
-import { createKiwiFlightProvider } from './kiwi';
+import { createKiwiFlightProvider, KIWI_UNVERIFIED_AGAINST_LIVE_RESPONSE } from './kiwi';
 
 /**
  * Exercises the adapter end to end — cache, mapping and error handling together — with a
@@ -159,6 +159,42 @@ describe('searchOffers', () => {
 		const provider = createKiwiFlightProvider();
 		expect(provider.estimateSearchOffersCost(query)).toBe(1);
 	});
+
+	it('maps a well-formed HTTP 200 with a shape this adapter cannot read to malformed-response, not to wrong offers', async () => {
+		// A segment missing every field mapSegmentToFlightOffer reads — the failure mode
+		// this adapter is most exposed to, since its shape was never confirmed live
+		// (kiwi-mapper.ts's header). Producing an offer from this would be a fabricated
+		// price, not a dropped one.
+		const fetchImpl = fixtureFetch({
+			'https://kiwi-com-cheap-flights.p.rapidapi.com': () =>
+				new Response(JSON.stringify({ currency: 'eur', data: [{ deep_link: 'x', route: [{}] }] }), {
+					status: 200
+				})
+		});
+		const provider = createKiwiFlightProvider({ store: new MemoryCacheStore(), fetchImpl });
+
+		const result = await provider.searchOffers(query, { signal: new AbortController().signal, keys });
+		// A genuine HTTP response was received and billed, even though this app's own
+		// parsing rejected the body — costOf's reasoning, unaffected by shape validation.
+		expect(result).toMatchObject({ ok: false, error: { code: 'malformed-response' }, requestsUsed: 1 });
+	});
+
+	it('rejects the whole response when only one field on one segment is wrong, rather than a partial result', async () => {
+		const badFixture = {
+			currency: 'eur',
+			data: [
+				oneWayFixture.data[0], // otherwise-valid nonstop itinerary
+				{ deep_link: 'y', route: [{ ...oneWayFixture.data[1].route[0], dTime: 'not-a-number' }] }
+			]
+		};
+		const fetchImpl = fixtureFetch({
+			'https://kiwi-com-cheap-flights.p.rapidapi.com': () => new Response(JSON.stringify(badFixture), { status: 200 })
+		});
+		const provider = createKiwiFlightProvider({ store: new MemoryCacheStore(), fetchImpl });
+
+		const result = await provider.searchOffers(query, { signal: new AbortController().signal, keys });
+		expect(result).toMatchObject({ ok: false, error: { code: 'malformed-response' } });
+	});
 });
 
 describe('listDirectDestinations', () => {
@@ -190,13 +226,53 @@ describe('listDirectDestinations', () => {
 		expect(result).toMatchObject({ ok: false, error: { code: 'missing-key' } });
 		expect(fetchCallCount).toBe(0);
 	});
+
+	it('maps a badly-shaped HTTP 200 to malformed-response rather than an empty or wrong destination list', async () => {
+		const fetchImpl = fixtureFetch({
+			'https://kiwi-com-cheap-flights.p.rapidapi.com': () =>
+				new Response(JSON.stringify({ currency: 'eur', data: [{ route: 'not-an-array' }] }), { status: 200 })
+		});
+		const provider = createKiwiFlightProvider({ store: new MemoryCacheStore(), fetchImpl });
+		const result = await provider.listDirectDestinations('BCN', { signal: new AbortController().signal, keys });
+		expect(result).toMatchObject({ ok: false, error: { code: 'malformed-response' }, requestsUsed: 1 });
+	});
 });
 
 describe('healthCheck', () => {
-	it('is ok on a well-shaped response, regardless of whether any itinerary was found', async () => {
+	it('fails closed on a well-shaped 200, since this adapter is unverified against a live response', async () => {
 		const provider = createKiwiFlightProvider({ store: new MemoryCacheStore(), fetchImpl: fixtureFetch() });
 		const result = await provider.healthCheck({ signal: new AbortController().signal, keys });
-		expect(result).toMatchObject({ ok: true, requestsUsed: 1 });
+
+		// Still spends (and reports) the real request Kiwi actually billed — failing
+		// closed here is a policy decision about trust, not a claim that no call happened.
+		expect(result).toMatchObject({ ok: false, error: { code: 'unknown' }, requestsUsed: 1 });
+		if (result.ok) return;
+		expect(result.error.message).toMatch(/unverified against a live response/i);
+		expect(result.error.message).toMatch(/matched this adapter's current \(unverified\) assumptions/i);
+	});
+
+	it('notes a shape mismatch in the message when the 200 body does not even match this adapter\'s guess', async () => {
+		const fetchImpl = fixtureFetch({
+			'https://kiwi-com-cheap-flights.p.rapidapi.com': () =>
+				new Response(JSON.stringify({ currency: 'eur', data: [{ route: [{ flyFrom: 'LHR' }] }] }), {
+					status: 200
+				})
+		});
+		const provider = createKiwiFlightProvider({ store: new MemoryCacheStore(), fetchImpl });
+		const result = await provider.healthCheck({ signal: new AbortController().signal, keys });
+
+		expect(result).toMatchObject({ ok: false, error: { code: 'unknown' }, requestsUsed: 1 });
+		if (result.ok) return;
+		expect(result.error.message).toMatch(/did NOT match this adapter's assumptions/);
+	});
+
+	it('still surfaces the real error untouched when the live call itself fails, unaffected by being unverified', async () => {
+		const fetchImpl = fixtureFetch({
+			'https://kiwi-com-cheap-flights.p.rapidapi.com': () => new Response(null, { status: 429 })
+		});
+		const provider = createKiwiFlightProvider({ store: new MemoryCacheStore(), fetchImpl });
+		const result = await provider.healthCheck({ signal: new AbortController().signal, keys });
+		expect(result).toMatchObject({ ok: false, error: { code: 'quota-exceeded', status: 429 } });
 	});
 
 	it('never throws when Kiwi is unreachable', async () => {
@@ -216,5 +292,11 @@ describe('provider identity', () => {
 		expect(provider.keyFields.map((f) => f.id)).toEqual(['apiKey']);
 		expect(provider.kind).toBe('flight');
 		expect(provider.id).toBe('kiwi');
+	});
+
+	it('exposes unverifiedAgainstLiveResponse structurally, not just in a comment', () => {
+		const provider = createKiwiFlightProvider();
+		expect(provider.unverifiedAgainstLiveResponse).toBe(true);
+		expect(provider.unverifiedAgainstLiveResponse).toBe(KIWI_UNVERIFIED_AGAINST_LIVE_RESPONSE);
 	});
 });

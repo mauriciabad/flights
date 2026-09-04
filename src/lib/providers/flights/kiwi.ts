@@ -32,6 +32,14 @@
  * or subscription problem). The request shape below is real (RapidAPI's own generated
  * snippet); the response shape is reconstructed from Kiwi's historical public schema and
  * MUST be re-verified against a live payload before this adapter is trusted — see the PR.
+ *
+ * That last sentence is prose, and prose does not survive being edited by whoever removes
+ * this comment while refactoring something unrelated. `KIWI_UNVERIFIED_AGAINST_LIVE_RESPONSE`
+ * below is the same claim as a value the code actually checks: `healthCheck` fails closed
+ * on it even when Kiwi answers 200, and `kiwi-mapper.ts` validates every field it reads
+ * regardless, so a schema drift is a `malformed-response` error rather than a silently
+ * wrong price. Flipping the constant to `false` is the deliberate act that is supposed to
+ * require a human having looked at one real payload — see `healthCheck`'s own comment.
  */
 
 import { defineCacheKey, getDefaultStore } from '../../cache';
@@ -50,7 +58,13 @@ import type {
 	ProviderSource
 } from '../types';
 import { fetchOneWay } from './kiwi-client';
-import { collectIataCodes, mapResponseToDirectDestinations, mapResponseToFlightOffers } from './kiwi-mapper';
+import {
+	assertValidOneWayResponse,
+	collectIataCodes,
+	KiwiMalformedResponseError,
+	mapResponseToDirectDestinations,
+	mapResponseToFlightOffers
+} from './kiwi-mapper';
 import type { KiwiFetchError, KiwiFetchResult, KiwiOneWayResponse } from './kiwi-types';
 
 export const KIWI_PROVIDER_ID = 'kiwi';
@@ -59,6 +73,20 @@ export const KIWI_PROVIDER_ID = 'kiwi';
  * pricing page after subscribing. Every `searchOffers`/`listDirectDestinations` call below
  * spends exactly one of these — unlike Ryanair, Kiwi has real quota to protect. */
 export const KIWI_FREE_TIER_MONTHLY_REQUEST_LIMIT = 300;
+
+/**
+ * A structural marker, not a comment: `true` until someone has captured a real response
+ * from this listing, regenerated `./fixtures/` from it, and deliberately flipped this to
+ * `false`. Every file in this adapter says in prose that the response shape was never
+ * confirmed live (kiwi-types.ts, kiwi-mapper.ts); this constant is the part of that claim
+ * a future change can actually check, rather than trust a comment to still be true after
+ * three more agents have edited this file. `healthCheck` below reads it to fail closed
+ * even on a 200 — see that function for why a successful response is not, on its own,
+ * evidence this adapter's assumptions about its shape are correct. Also threaded onto the
+ * returned provider object as `unverifiedAgainstLiveResponse`, so a future registry or
+ * settings screen can read it structurally without importing this module's internals.
+ */
+export const KIWI_UNVERIFIED_AGAINST_LIVE_RESPONSE = true;
 
 const KEY_FIELDS: readonly ProviderKeyField[] = [
 	{
@@ -93,6 +121,12 @@ export interface KiwiProviderOptions {
 	store?: CacheStore;
 	/** Overrides the global `fetch`. Tests inject a stub that resolves fixtures. */
 	fetchImpl?: typeof fetch;
+}
+
+/** `FlightProvider` plus the structural marker from `KIWI_UNVERIFIED_AGAINST_LIVE_RESPONSE`
+ * above, readable off the provider object itself. */
+export interface KiwiFlightProvider extends FlightProvider {
+	readonly unverifiedAgainstLiveResponse: boolean;
 }
 
 function source(): ProviderSource {
@@ -213,7 +247,7 @@ function toDateTimeEnd(isoCalendarDate: string): string {
 	return `${isoCalendarDate}T23:59:59`;
 }
 
-function createKiwiFlightProvider(options: KiwiProviderOptions = {}): FlightProvider {
+function createKiwiFlightProvider(options: KiwiProviderOptions = {}): KiwiFlightProvider {
 	// Once a key has been seen answering "not subscribed," it stays marked for the life of
 	// this instance — matching skyscanner.ts: a RapidAPI BASIC plan is per-API, so retrying
 	// will not change the answer (docs/PROVIDERS.md). Keyed by the API key's own value, not
@@ -293,8 +327,19 @@ function createKiwiFlightProvider(options: KiwiProviderOptions = {}): FlightProv
 			return { ok: false, error, source: source(), requestsUsed: costOf(response) };
 		}
 
-		const countryCodeByIataCode = await resolveCountryCodes(collectIataCodes(response.data));
-		const offers = mapResponseToFlightOffers(response.data, { handbags, holdbags }, countryCodeByIataCode);
+		let offers: FlightOffer[];
+		try {
+			const countryCodeByIataCode = await resolveCountryCodes(collectIataCodes(response.data));
+			offers = mapResponseToFlightOffers(response.data, { handbags, holdbags }, countryCodeByIataCode);
+		} catch (cause) {
+			if (!(cause instanceof KiwiMalformedResponseError)) throw cause;
+			return {
+				ok: false,
+				error: { code: 'malformed-response', message: cause.message },
+				source: source(),
+				requestsUsed: costOf(response)
+			};
+		}
 		await writeCache(store, cacheKey, offers);
 
 		return { ok: true, data: offers, source: source(), requestsUsed: costOf(response) };
@@ -375,7 +420,18 @@ function createKiwiFlightProvider(options: KiwiProviderOptions = {}): FlightProv
 			return { ok: false, error, source: source(), requestsUsed: costOf(response) };
 		}
 
-		const destinations = mapResponseToDirectDestinations(response.data);
+		let destinations: IataAirportCode[];
+		try {
+			destinations = mapResponseToDirectDestinations(response.data);
+		} catch (cause) {
+			if (!(cause instanceof KiwiMalformedResponseError)) throw cause;
+			return {
+				ok: false,
+				error: { code: 'malformed-response', message: cause.message },
+				source: source(),
+				requestsUsed: costOf(response)
+			};
+		}
 		await writeCache(store, cacheKey, destinations);
 		return { ok: true, data: destinations, source: source(), requestsUsed: costOf(response) };
 	}
@@ -435,6 +491,41 @@ function createKiwiFlightProvider(options: KiwiProviderOptions = {}): FlightProv
 			rememberIfNotSubscribed(apiKey, error);
 			return { ok: false, error, source: source(), requestsUsed: costOf(response) };
 		}
+
+		// The live call succeeded — proof the key and subscription work, NOT proof this
+		// adapter reads the response correctly. Reporting healthy off a 200 alone is
+		// exactly how this adapter would quietly go live the moment the dead backend
+		// (this file's header) comes back, with nobody having looked at what it actually
+		// returned. Fail closed until a human has verified a real payload and flipped
+		// KIWI_UNVERIFIED_AGAINST_LIVE_RESPONSE to false — this is the one check in the
+		// whole adapter that is NOT about whether Kiwi is reachable, only about whether
+		// this codebase has earned the right to trust what it read.
+		if (KIWI_UNVERIFIED_AGAINST_LIVE_RESPONSE) {
+			let shapeNote: string;
+			try {
+				assertValidOneWayResponse(response.data);
+				shapeNote = "its shape matched this adapter's current (unverified) assumptions";
+			} catch (cause) {
+				shapeNote =
+					cause instanceof KiwiMalformedResponseError
+						? `its shape did NOT match this adapter's assumptions (${cause.message})`
+						: "its shape could not be checked";
+			}
+			return {
+				ok: false,
+				error: {
+					code: 'unknown',
+					message:
+						`Kiwi.com Cheap Flights responded (HTTP 200) and ${shapeNote}, but this adapter is ` +
+						'unverified against a live response: capture a real payload, regenerate ' +
+						'src/lib/providers/flights/fixtures/, and flip KIWI_UNVERIFIED_AGAINST_LIVE_RESPONSE ' +
+						'to false in kiwi.ts before trusting it.'
+				},
+				source: source(),
+				requestsUsed: costOf(response)
+			};
+		}
+
 		return {
 			ok: true,
 			data: { message: `Kiwi responded with ${response.data.data.length} itinerary(ies) for a test query` },
@@ -455,7 +546,8 @@ function createKiwiFlightProvider(options: KiwiProviderOptions = {}): FlightProv
 		// how wide the date range is.
 		estimateSearchOffersCost: () => 1,
 		searchOffers,
-		listDirectDestinations
+		listDirectDestinations,
+		unverifiedAgainstLiveResponse: KIWI_UNVERIFIED_AGAINST_LIVE_RESPONSE
 	};
 }
 
@@ -464,7 +556,7 @@ export { createKiwiFlightProvider };
 /** The production singleton: real global `fetch`, the shared default cache store. Import
  * this to register the adapter; use `createKiwiFlightProvider` directly only to inject
  * test doubles. */
-export const kiwiFlightProvider: FlightProvider = createKiwiFlightProvider();
+export const kiwiFlightProvider: KiwiFlightProvider = createKiwiFlightProvider();
 
 // Re-exported for tests and for a future crosscheck/investigation script that wants to
 // reason about a raw response without importing kiwi-mapper.ts's internals directly.
