@@ -1,11 +1,19 @@
 <script lang="ts">
 	/**
-	 * Issue #119: a carrier mark, not a text chip. `airline-logos.ts` documents the source
-	 * and its licence. `failedFor` records which `iataCode` the last `onerror` fired for,
-	 * so `failed` derives straight from comparing it to the current prop rather than
-	 * needing an `$effect` to reset a plain boolean when the carrier changes — a new
-	 * carrier (a different card, or this same card's flight swapped by a picker) always
+	 * Issue #119: a carrier mark, not a text chip. `airline-logos.ts` documents the source,
+	 * its licence and why it is not a tracker. `failedFor` records which `iataCode` the last
+	 * `onerror` fired for, so `failed` derives straight from comparing it to the current prop
+	 * rather than needing an `$effect` to reset a plain boolean when the carrier changes — a
+	 * new carrier (a different card, or this same card's flight swapped by a picker) always
 	 * gets its own fresh attempt, never stuck showing a previous logo's failure.
+	 *
+	 * Never shifts layout: the `<img>` carries explicit `width`/`height` attributes AND a
+	 * matching fixed CSS box, so the space is reserved the instant this component mounts,
+	 * before a single byte of the image arrives — and the monogram fallback below is sized
+	 * to the exact same box, so the swap on failure moves nothing else on the page. A slow or
+	 * hanging request never blocks or delays anything around it either: `<img>` loads are
+	 * asynchronous by nature, this one is also `loading="lazy"`, and the reserved box already
+	 * has its final size regardless of whether the fetch ever resolves.
 	 */
 	import { airlineLogoUrl, airlineMonogram } from '$lib/data/airline-logos';
 
@@ -31,6 +39,7 @@
 		height="22"
 		loading="lazy"
 		decoding="async"
+		referrerpolicy="no-referrer"
 		onerror={() => (failedFor = iataCode)}
 	/>
 {/if}

@@ -118,6 +118,15 @@ export const MAX_PLAUSIBLE_WALK_MINUTES = 60 as Duration;
  */
 export const MAX_PLAUSIBLE_DRIVE_MINUTES = 240 as Duration;
 
+// Both caps above are hardcoded, not a `SearchQuery` field, deliberately: the brief's
+// editable "waiting time" is a preference about how much buffer a traveller wants at the
+// gate, which this pipeline has no independent way to judge as right or wrong. A duration
+// past these caps is different in kind — it is data this pipeline has good reason to believe
+// is wrong (a road-routing artefact, per the comment above), not a preference to override.
+// A traveller who genuinely wants to walk for hours can still see that this leg has "no
+// transfer found" and decide to anyway; the cap exists to stop the app from recommending it
+// as if it were a serious answer, not to forbid the trip itself.
+
 /** Exported so `pipeline.ts` can re-apply the same rule to `transferToDestinationLocation`'s
  * candidates after its own landing buffer runs — see that file's own comment on why a
  * buffer applied only after this module's own filtering needs a second pass. */

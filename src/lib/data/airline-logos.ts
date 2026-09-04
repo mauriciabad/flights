@@ -35,6 +35,28 @@
  * the failure this app can actually observe: the request itself not completing (offline,
  * blocked by an extension, a timeout) — issue #11's own bar for "total": never a broken
  * image, always something.
+ *
+ * ## Not a tracker
+ *
+ * The owner turned down Travelpayouts' "Drive" affiliate script specifically because he does
+ * not want trackers in this app (docs/prompts/005-ui-quality.md). This is a different
+ * surface from that script and was checked against the same bar before use:
+ *
+ * - The URL carries only a width, a height and an IATA code — no `marker` parameter, no
+ *   session id, no affiliate slot exists in this feed's path shape at all (unlike a
+ *   Travelpayouts booking link, which is how that program actually attributes anything).
+ *   It works identically with or without a Travelpayouts account behind it.
+ * - Checked with `curl -sD -`: the response carries no `Set-Cookie` header, and a request
+ *   with a fake `Referer` came back byte-identical (a plain CloudFront cache hit,
+ *   `x-cache: Hit from cloudfront`) to one without — the response depends only on the URL,
+ *   nothing about the request answers differently based on who's asking or where from.
+ * - `AirlineLogo.svelte`'s `<img>` also sets `referrerpolicy="no-referrer"` directly, so this
+ *   app's own page URL (route, dates, anything in the query string) is never sent even as a
+ *   `Referer` header, on top of the feed not using one anyway.
+ * - Nothing this module builds ever carries the traveller's search: `airlineLogoUrl` closes
+ *   over exactly one argument, the airline's own public IATA code — the same fact already
+ *   printed as plain text on every one of this app's own tickets, not something scoped to
+ *   this search or this user.
  */
 
 // Square, small enough for a chip-sized mark, large enough to stay crisp at 2x on a phone.
