@@ -135,9 +135,9 @@ function renderSelectionHarness(itinerary: Itinerary) {
  * different totals that happen to share a value, so matching by the `<dt>` is the only way
  * to be sure which total actually moved.
  *
- * The rail is `MetricRail` now, shared with the results card and the comparator footer,
- * so the labels are that component's (`itinerary-metrics.ts`) and its `<dd>` can carry a
- * caveat span alongside the figure; hence the trim. */
+ * The rail is `MetricRail` now, shared with the results card, so the labels are that
+ * component's (`itinerary-metrics.ts`) and its `<dd>` can carry a caveat span alongside
+ * the figure; hence the trim. */
 function getTotal(root: HTMLElement, label: string): string {
 	const dt = Array.from(root.querySelectorAll('.itinerary-timeline-totals dt')).find(
 		(el) => el.textContent === label

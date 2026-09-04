@@ -9,8 +9,8 @@
  * inside one of those three.
  *
  * The arithmetic lives here rather than in the component so the proportions are testable
- * without mounting Svelte, and so the results card, the expanded detail and the
- * comparator's pinned card all draw the same bar from the same numbers.
+ * without mounting Svelte, and so every screen that wants to show the shape of a trip
+ * draws the same bar from the same numbers.
  *
  * ## Why proportional, and why not exactly proportional
  *

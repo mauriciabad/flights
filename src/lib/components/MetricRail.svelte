@@ -1,9 +1,9 @@
 <script lang="ts">
 	/**
 	 * A row of labelled figures about one itinerary: the totals bar under the timeline,
-	 * the secondary numbers on a results card, the footer under a comparator column. One
-	 * component, one vocabulary, one set of labels, driven by `itinerary-metrics.ts` so no
-	 * caller can invent a sixth spelling of "airport waiting time".
+	 * the secondary numbers on a results card. One component, one vocabulary, one set of
+	 * labels, driven by `itinerary-metrics.ts` so no caller can invent a third spelling of
+	 * "airport waiting time".
 	 *
 	 * Boarding-pass field treatment: an uppercase caption in the app's mono face over the
 	 * number itself, under a hairline, never boxed. That is what the printed field labels
@@ -23,7 +23,7 @@
 		/** Which figures, in which order. Defaults to all of them. */
 		ids?: readonly ItineraryMetricId[];
 		/** `rail` lays the cells out side by side and wraps; `stack` puts each on its own
-		 * line with the value flush right, for a narrow comparator column. */
+		 * line with the value flush right, for a column too narrow to sit them abreast. */
 		layout?: 'rail' | 'stack';
 		class?: string;
 	}

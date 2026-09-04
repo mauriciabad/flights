@@ -4,14 +4,15 @@
  * Before this module the same handful of figures was assembled in three places that had
  * drifted apart: `ResultCard` showed two of them, `ItineraryTimeline`'s totals bar showed
  * six under one set of labels ("Airport waiting", "Nights in connection"), and the
- * comparator's footer showed five under another ("Airport time", "Nights"). The
- * comparator's version also still printed "No stay priced" in the nights slot, the exact
- * mistake issues #105/#108/#140 removed everywhere else: a stopover's night count comes
- * off the flight schedule alone and is true whether or not any provider ever priced a bed
- * for it.
+ * comparator's footer showed five under another ("Airport time", "Nights"). That third
+ * copy also still printed "No stay priced" in the nights slot, the exact mistake issues
+ * #105/#108/#140 removed everywhere else: a stopover's night count comes off the flight
+ * schedule alone and is true whether or not any provider ever priced a bed for it. The
+ * comparator itself is gone since #178, which removes that copy but not the reason the
+ * other two disagreed.
  *
- * One builder, three call sites, one vocabulary. Pure, so the labels and the arithmetic
- * are testable without mounting Svelte, which is where AGENTS.md wants logic to live.
+ * One builder, one vocabulary. Pure, so the labels and the arithmetic are testable
+ * without mounting Svelte, which is where AGENTS.md wants logic to live.
  *
  * The set of figures is not a design choice made here. Brief lines 55 to 60 name exactly
  * these: in-flight time, airport waiting time, free time, nights in the connection, the

@@ -19,7 +19,8 @@
 
 	interface Props {
 		itinerary: Itinerary;
-		/** `lg` for the results card's headline, `md` inside a comparator column. */
+		/** `lg` for the results card's headline, `md` anywhere the price is not the
+		 * loudest thing in its own block. */
 		size?: 'md' | 'lg';
 	}
 

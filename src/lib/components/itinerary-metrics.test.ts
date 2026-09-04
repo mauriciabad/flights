@@ -20,10 +20,10 @@ describe('itineraryMetrics', () => {
 	});
 
 	it('reads a night count off the schedule, never off whether a bed was priced', () => {
-		// Issues #105/#108/#140. The comparator's own hand-written footer used to print
-		// "No stay priced" in this slot, which is the mistake this shared builder exists to
-		// make impossible: a 12-night stopover is 12 nights with no stay provider
-		// configured, which is every first-time visitor's state.
+		// Issues #105/#108/#140. One of the three hand-written copies of these figures
+		// used to print "No stay priced" in this slot, which is the mistake a shared
+		// builder exists to make impossible: a 12-night stopover is 12 nights with no stay
+		// provider configured, which is every first-time visitor's state.
 		const priced = makeItinerary({ nightsInConnection: 12 });
 		const unpriced = withoutStay(priced);
 		expect(valueOf(priced, 'nights')).toBe('12');
