@@ -30,12 +30,13 @@
 	 * the traveller just picked below the moment an unrelated provider answers. Freezing at
 	 * the instant a card is expanded is the same judgement call `+page.svelte`'s own
 	 * "Compare selected" button makes for the comparator: a deliberate snapshot, not a live
-	 * mirror. `group` and `stayCandidates` are NOT frozen the same way — more alternatives
-	 * streaming in after this card opens is a feature (the picker just grows more rows), it
-	 * never overwrites the traveller's current pick the way replacing `itinerary` would.
+	 * mirror. `group`, `stayCandidates`, `transferOptions` and `outerTransferOptions` are NOT
+	 * frozen the same way — more alternatives streaming in after this card opens is a feature
+	 * (the picker just grows more rows), it never overwrites the traveller's current pick the
+	 * way replacing `itinerary` would.
 	 */
 	import type { Airport, Duration, Itinerary, Money, Stay } from '$lib/domain';
-	import type { ItineraryGroup } from '$lib/search';
+	import type { ConnectionTransferOptions, ItineraryGroup, OuterTransferOptions, TransferLegOptions } from '$lib/search';
 	import type { ItinerarySegmentId } from '$lib/itinerary-map/segment-id';
 	import { sumMoney } from '$lib/algorithm/build';
 	import type { RecomputedSelection } from '$lib/algorithm/recompute-selection';
@@ -52,16 +53,32 @@
 		/** `SearchSnapshot.stayCandidatesByConnection[connectionCode]` — every stay the
 		 * pipeline found near this connection, gender-eligibility not applied yet. */
 		stayCandidates?: Stay[];
+		/** `SearchSnapshot.transferOptionsByConnection[connectionCode]` (issue #114) — the
+		 * connection-side legs' real transfer alternatives and taxi fare estimates.
+		 * `undefined` before this connection's own resources have resolved, same timing as
+		 * `group` above. */
+		transferOptions?: ConnectionTransferOptions;
+		/** `SearchSnapshot.outerTransferOptions` (issue #114) — the origin/destination legs'
+		 * alternatives, the same fixed value for every connection in this search. */
+		outerTransferOptions?: OuterTransferOptions;
 		connectionAirport?: Airport;
 		travellers?: number;
 		females?: number;
 		minLayoverTime?: Duration;
 	}
 
+	/** Issue #114: no alternatives yet — the default for `transferOptions`/
+	 * `outerTransferOptions` before their snapshot data arrives, so every `TransportPicker`
+	 * below always has a real (possibly empty) array to render rather than needing its own
+	 * `?? []` at each of the four call sites. */
+	const NO_TRANSFER_LEG_OPTIONS: TransferLegOptions = { candidates: [] };
+
 	let {
 		itinerary: initialItinerary,
 		group,
 		stayCandidates = [],
+		transferOptions,
+		outerTransferOptions,
 		connectionAirport,
 		travellers,
 		females,
@@ -99,6 +116,18 @@
 		(group?.variants ?? []).map((variant) => variant.score.itinerary.onwardFlight)
 	);
 	const stayProperties = $derived(groupByProperty(stayCandidates));
+
+	// Issue #114: each TransportPicker's `alternatives`/`taxiFareEstimate` — every candidate
+	// this exact leg's providers returned, falling back to the "nothing yet" default above
+	// rather than an inline `?? []` repeated at each of the four call sites below.
+	const originAirportTransferOptions = $derived(outerTransferOptions?.transferToOriginAirport ?? NO_TRANSFER_LEG_OPTIONS);
+	const hotelTransferOptions = $derived(transferOptions?.transferToHotel ?? NO_TRANSFER_LEG_OPTIONS);
+	const connectionAirportTransferOptions = $derived(
+		transferOptions?.transferToConnectionAirport ?? NO_TRANSFER_LEG_OPTIONS
+	);
+	const destinationLocationTransferOptions = $derived(
+		outerTransferOptions?.transferToDestinationLocation ?? NO_TRANSFER_LEG_OPTIONS
+	);
 </script>
 
 <div class="result-detail">
@@ -120,7 +149,8 @@
 				legLabel="Travel to the airport"
 				legField="transferToOriginAirport"
 				{itinerary}
-				alternatives={[]}
+				alternatives={originAirportTransferOptions.candidates}
+				taxiFareEstimate={originAirportTransferOptions.taxiFareEstimate}
 				{minLayoverTime}
 				onselect={applySelection}
 			/>
@@ -140,7 +170,8 @@
 				legLabel={itinerary.stay ? `Travel to ${itinerary.stay.property.name}` : 'Travel to the stopover'}
 				legField="transferToHotel"
 				{itinerary}
-				alternatives={[]}
+				alternatives={hotelTransferOptions.candidates}
+				taxiFareEstimate={hotelTransferOptions.taxiFareEstimate}
 				referenceMoment={itinerary.outboundFlight.arrival}
 				referenceLabel="you land"
 				{minLayoverTime}
@@ -170,7 +201,8 @@
 				legLabel="Travel to the connection airport"
 				legField="transferToConnectionAirport"
 				{itinerary}
-				alternatives={[]}
+				alternatives={connectionAirportTransferOptions.candidates}
+				taxiFareEstimate={connectionAirportTransferOptions.taxiFareEstimate}
 				{minLayoverTime}
 				onselect={applySelection}
 			/>
@@ -190,7 +222,8 @@
 				legLabel="Travel to the destination"
 				legField="transferToDestinationLocation"
 				{itinerary}
-				alternatives={[]}
+				alternatives={destinationLocationTransferOptions.candidates}
+				taxiFareEstimate={destinationLocationTransferOptions.taxiFareEstimate}
 				referenceMoment={itinerary.onwardFlight.arrival}
 				referenceLabel="you land"
 				{minLayoverTime}

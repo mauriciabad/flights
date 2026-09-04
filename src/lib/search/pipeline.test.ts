@@ -264,6 +264,36 @@ function createFakeTransferProvider(id = 'transit-fixture'): TransferProvider {
 	};
 }
 
+/** Issue #114: unlike `createFakeTransferProvider` above (always exactly one hardcoded
+ * `Transfer`), this fixture's response is configurable and its call count is observable —
+ * needed to prove both halves of "retains every alternative, without asking for more of
+ * them": a provider that returns several `Transfer`s from ONE call must still be called
+ * exactly once per leg, the same fan-out as before this issue existed. */
+function createConfigurableTransferProvider(
+	transfers: Transfer[],
+	id = 'configurable-transfers'
+): TransferProvider & { callCount: () => number } {
+	let calls = 0;
+	return {
+		kind: 'transfer',
+		id: id as ProviderId, // fixture-only stand-in id, see source() above
+		label: `Fixture transfers (${id})`,
+		needsKey: false,
+		keyFields: [],
+		async healthCheck() {
+			return { ok: true, data: {}, source: source(id), requestsUsed: 0 };
+		},
+		async searchTransfers(_query: TransferSearchQuery, ctx: ProviderContext): Promise<ProviderResult<Transfer[]>> {
+			calls += 1;
+			if (ctx.signal.aborted) {
+				return { ok: false, error: { code: 'cancelled', message: 'aborted' }, source: source(id), requestsUsed: 0 };
+			}
+			return { ok: true, data: transfers, source: source(id), requestsUsed: 1 };
+		},
+		callCount: () => calls
+	};
+}
+
 const BASE_QUERY: SearchQuery = {
 	soonestDeparture: '2026-10-01',
 	latestArrival: '2026-10-05',
@@ -577,6 +607,77 @@ describe('runSearch: stay gender-fit filtering and candidate survival (issue #80
 		const stayUsed = final.itineraryGroups[0]?.best.score.itinerary.stay;
 		expect(stayUsed?.roomKind).toBe('female-dorm');
 		expect(stayUsed?.property.name).toBe('Cheap Female Dorm');
+	});
+});
+
+describe('runSearch: transfer alternatives and request count (issue #114)', () => {
+	it('retains every transfer mode a provider returned for each leg, not just the pick used to build the itinerary', async () => {
+		const free = createFakeFlightProvider({
+			id: 'free-flights',
+			routes: { [ORIGIN]: [FAST], [FAST]: [DEST] },
+			offerBuilder: standardOfferBuilder
+		});
+		const walk: Transfer = { mode: 'walk', duration: 30 as Duration, legs: [] };
+		const transit: Transfer = { mode: 'transit', duration: 20 as Duration, legs: [] };
+		const transferProvider = createConfigurableTransferProvider([walk, transit]);
+		const registry = new ProviderRegistry([free.provider, createFakeStayProvider({ id: 'stays' }), transferProvider]);
+		const deps: SearchDependencies = { registry, keys: {}, resolveAirport, currency: 'EUR' };
+
+		const snapshots = await drain(runSearch(BASE_QUERY, deps));
+		const final = snapshots.at(-1)!;
+
+		const options = final.transferOptionsByConnection[FAST];
+		expect(options).toBeDefined();
+		expect(options.transferToHotel.candidates.map((t) => t.mode).sort()).toEqual(['transit', 'walk']);
+		expect(options.transferToConnectionAirport.candidates.map((t) => t.mode).sort()).toEqual(['transit', 'walk']);
+
+		// The itinerary's own pick still follows the existing mode preference (transit over
+		// walk) — keeping the rest around as alternatives never changes what gets built with.
+		const picked = final.itineraryGroups[0]?.best.score.itinerary;
+		expect(picked?.transferToHotel?.mode).toBe('transit');
+	});
+
+	it('never asks a provider for more requests per leg than it always took, no matter how many alternatives come back', async () => {
+		const free = createFakeFlightProvider({
+			id: 'free-flights',
+			routes: { [ORIGIN]: [FAST], [FAST]: [DEST] },
+			offerBuilder: standardOfferBuilder
+		});
+		// Three Transfer objects from ONE call — retaining all of them (issue #114's whole
+		// point) must still cost exactly the one call per leg it always did. `taxi` is
+		// deliberately excluded here: a real `taxi` candidate would also trigger this
+		// module's taxi-fare-estimate lookup (`estimateTaxiFareForLeg`), which reaches the
+		// real OSRM adapter — out of scope for a fixture-only provider-count test like this
+		// one (see resources.test.ts for that wiring, exercised against a mocked estimator).
+		const transfers: Transfer[] = [
+			{ mode: 'walk', duration: 40 as Duration, legs: [] },
+			{ mode: 'transit', duration: 20 as Duration, legs: [] },
+			{ mode: 'drive', duration: 10 as Duration, legs: [] }
+		];
+		const transferProvider = createConfigurableTransferProvider(transfers);
+		const registry = new ProviderRegistry([free.provider, createFakeStayProvider({ id: 'stays' }), transferProvider]);
+		const deps: SearchDependencies = { registry, keys: {}, resolveAirport, currency: 'EUR' };
+		const query: SearchQuery = {
+			...BASE_QUERY,
+			originLocation: { label: 'Origin town', coordinates: { latitude: 41.3, longitude: 2.1 } },
+			destinationLocation: { label: 'Destination town', coordinates: { latitude: 42.7, longitude: 23.4 } }
+		};
+
+		const snapshots = await drain(runSearch(query, deps));
+		const final = snapshots.at(-1)!;
+
+		// Four legs (origin, hotel, connection airport, destination) x one call each — the
+		// same fan-out this pipeline always made, regardless of how many Transfer objects
+		// each call now returns.
+		expect(transferProvider.callCount()).toBe(4);
+		expect(final.providers['configurable-transfers' as ProviderId]?.requestsUsed).toBe(4);
+
+		// And every leg still kept every alternative that same unchanged call count produced.
+		expect(final.outerTransferOptions.transferToOriginAirport.candidates).toHaveLength(3);
+		expect(final.outerTransferOptions.transferToDestinationLocation.candidates).toHaveLength(3);
+		const options = final.transferOptionsByConnection[FAST];
+		expect(options.transferToHotel.candidates).toHaveLength(3);
+		expect(options.transferToConnectionAirport.candidates).toHaveLength(3);
 	});
 });
 

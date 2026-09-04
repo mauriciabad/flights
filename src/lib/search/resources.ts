@@ -18,6 +18,17 @@
  * alongside the pick (`ConnectionResourcesWithStayCandidates.stayCandidates`) so a caller
  * still has real alternatives to offer once a stay picker is wired up, instead of only this
  * pipeline's already-decided choice.
+ *
+ * Issue #114: `fetchBestTransfer` had the same problem `fetchCheapestStay` had before issue
+ * #80 fixed it — it merged every mode a provider returned (walk, transit, drive, taxi) and
+ * then threw all but one away, leaving `TransportPicker` wired to an always-empty
+ * `alternatives` list. `fetchBestTransfer` now returns a `TransferSearchOutcome`
+ * (candidates and pick, same shape as `StaySearchOutcome`), `ConnectionResourcesWithStayCandidates`
+ * carries both connection-side legs' candidate lists and OSRM taxi fare estimates, and
+ * `pipeline.ts` carries the origin/destination legs' equivalents in every `SearchSnapshot`.
+ * None of this issues one additional provider request: it only stops discarding what the
+ * same calls already returned (see `TransferSearchOutcome` and `estimateTaxiFareForLeg`'s own
+ * doc comments for exactly how).
  */
 
 import { contextFor, isProviderUsable } from '../providers/registry';
@@ -25,8 +36,10 @@ import { runCostAwareSearch } from '../providers/budget';
 import type { AvailableKeys, StayProvider, StaySearchQuery, TransferProvider, TransferSearchQuery } from '../providers/types';
 import type {
 	AirportSizeClass,
+	Coordinates,
 	Duration,
 	IsoCalendarDate,
+	IsoCountryCode,
 	LandingToTransportRule,
 	Stay,
 	Transfer,
@@ -34,6 +47,8 @@ import type {
 } from '../domain';
 import type { ConnectionResources } from '../algorithm/build';
 import { femaleDormFit, isFemaleDormSelectable } from '../stays/female-dorm-fit';
+import { getTaxiFareEstimate, OSRM_PROVIDER_ID } from '../providers/transfers/osrm';
+import type { TaxiFareEstimate } from '../providers/transfers/taxi-rate-table';
 import { autoWidenStaySources, flattenOk, stayCostAwareSources } from './cost-aware';
 import type { RecordProviderCall, SourceTracker } from './provenance';
 
@@ -138,10 +153,27 @@ export function applyLandingBuffer(transfer: Transfer, buffer: Duration, sources
 	return adjusted;
 }
 
+/**
+ * Issue #114: `fetchBestTransfer`'s full answer, not just its pick — mirrors
+ * `StaySearchOutcome` below (issue #80's pattern applied to transfers instead of stays).
+ * `candidates` is every `Transfer` any usable provider returned for this A-to-B (walk,
+ * transit, drive, taxi — whatever the providers queried actually cover), which is exactly
+ * what a `TransportPicker` needs as its `alternatives`; `pickBestTransfer(candidates)` is
+ * still `build.ts`'s own single pick, unchanged. Unlike stays, there is no eligibility filter
+ * to apply here — every transfer found is equally offerable to the traveller.
+ */
+export interface TransferSearchOutcome {
+	candidates: Transfer[];
+	selected: Transfer | undefined;
+}
+
 /** Queries every given (already usability-filtered) transfer provider for one A-to-B leg,
- * merges what comes back, tags each with its provenance, and picks one representative — the
- * shared implementation behind both the per-connection legs below and the origin/destination
- * legs `pipeline.ts` fetches once per search. */
+ * merges what comes back, tags each with its provenance, and returns both every candidate
+ * found and the one representative `build.ts` builds with — the shared implementation
+ * behind both the per-connection legs below and the origin/destination legs `pipeline.ts`
+ * fetches once per search. Issues exactly the same provider calls as before this candidate
+ * list existed (issue #114: "no increase in provider requests") — this only changes what the
+ * merged results are handed back as. */
 export async function fetchBestTransfer(
 	query: TransferSearchQuery,
 	providers: readonly TransferProvider[],
@@ -149,7 +181,7 @@ export async function fetchBestTransfer(
 	signal: AbortSignal,
 	sources: SourceTracker,
 	record: RecordProviderCall
-): Promise<Transfer | undefined> {
+): Promise<TransferSearchOutcome> {
 	const usable = providers.filter((provider) => isProviderUsable(provider, keys));
 	const perProvider = await Promise.all(
 		usable.map(async (provider) => {
@@ -160,7 +192,40 @@ export async function fetchBestTransfer(
 			return result.data;
 		})
 	);
-	return pickBestTransfer(perProvider.flat());
+	const candidates = perProvider.flat();
+	return { candidates, selected: pickBestTransfer(candidates) };
+}
+
+/**
+ * OSRM's own distance-based taxi fare range for one A-to-B, computed only when `candidates`
+ * already contains a `taxi` `Transfer` (proof OSRM ran and had a route for this exact pair)
+ * and only when a country code is known to rate it against. Deliberately reaches past the
+ * generic `TransferProvider` interface into osrm.ts's own `getTaxiFareEstimate`: a
+ * `TaxiFareEstimate` only ever exists there, on purpose, never on `Transfer` itself
+ * (osrm.ts's own header comment — so nothing can mistake this for a quoted `Transfer.price`).
+ *
+ * Never a second network request for the same route: osrm.ts's own driving-route fetch
+ * always returns duration AND distance in one response, and the `searchTransfers` call that
+ * produced the `taxi` candidate in `candidates` already cached both under this exact
+ * coordinate pair — `getTaxiFareEstimate` finds that entry and returns it with
+ * `requestsUsed: 0` (verified directly in osrm.test.ts's "reuses a driving route already
+ * cached by searchTransfers" case). This is why every call site awaits `fetchBestTransfer`
+ * FIRST and only then calls this: calling both concurrently for the same pair would race two
+ * cache misses into two separate driving-route requests instead of one.
+ */
+export async function estimateTaxiFareForLeg(
+	candidates: readonly Transfer[],
+	from: Coordinates,
+	to: Coordinates,
+	countryCode: IsoCountryCode | undefined,
+	signal: AbortSignal,
+	record: RecordProviderCall
+): Promise<TaxiFareEstimate | undefined> {
+	if (countryCode === undefined) return undefined;
+	if (!candidates.some((transfer) => transfer.mode === 'taxi')) return undefined;
+	const result = await getTaxiFareEstimate(from, to, countryCode, { signal });
+	record({ id: OSRM_PROVIDER_ID, kind: 'transfer', label: 'OSRM (walking & driving)' }, result);
+	return result.ok ? result.data.fareEstimate : undefined;
 }
 
 /** One candidate's stay search, resolved into everything downstream needs: every `Stay`
@@ -235,6 +300,11 @@ export interface FetchConnectionResourcesInput {
 	 * inventing a third interpretation. */
 	travellers?: number;
 	females?: number;
+	/** Issue #114: the connection airport's own country, used only to rate a taxi fare
+	 * estimate for this connection's two hotel-bound legs (`estimateTaxiFareForLeg`) —
+	 * consulted for nothing else here. `undefined` degrades to no taxi estimate for this
+	 * connection, never a guess borrowed from the wrong country's rate card. */
+	connectionCountryCode?: IsoCountryCode;
 }
 
 /**
@@ -255,6 +325,23 @@ export interface ConnectionResourcesWithStayCandidates extends ConnectionResourc
 	 * pipeline's already-decided pick. `stay` above is this list's cheapest entry that also
 	 * passes `isStaySelectable` for this party. Empty, not missing, when nothing was found. */
 	stayCandidates: Stay[];
+	/** Issue #114: every `Transfer` a usable provider returned for the connection-airport-
+	 * to-hotel leg, landing-buffer already applied to each one (the same buffer
+	 * `transferToHotel` itself carries — see `applyLandingBuffer`'s own doc comment for why
+	 * this leg needs it and the return leg below does not) — real alternatives for
+	 * `TransportPicker`, not just the one pick `build.ts` uses. Empty whenever
+	 * `stay`/`transferToHotel` are `undefined` too. */
+	transferToHotelCandidates: Transfer[];
+	/** Same idea as `transferToHotelCandidates`, for the return leg (hotel to connection
+	 * airport) — no landing buffer: this leg ends at a departure, not a runway. */
+	transferToConnectionAirportCandidates: Transfer[];
+	/** OSRM's distance-based taxi fare range for the hotel-bound leg, present only when a
+	 * `taxi` candidate is among `transferToHotelCandidates` and a country code was given to
+	 * rate it against. Never folds into any candidate's own `Transfer.price` — see
+	 * `estimateTaxiFareForLeg`'s own doc comment for why that separation is deliberate. */
+	transferToHotelTaxiFareEstimate?: TaxiFareEstimate;
+	/** Same idea as `transferToHotelTaxiFareEstimate`, for the return leg. */
+	transferToConnectionAirportTaxiFareEstimate?: TaxiFareEstimate;
 }
 
 /** The "no bed for this connection" outcome shared by both early-outs below — no stay
@@ -263,7 +350,14 @@ export interface ConnectionResourcesWithStayCandidates extends ConnectionResourc
  * degraded connection, never a dropped one, and never a stay-shaped hole papered over with
  * a guess. */
 function withoutStay(stayCandidates: Stay[]): ConnectionResourcesWithStayCandidates {
-	return { stay: undefined, transferToHotel: undefined, transferToConnectionAirport: undefined, stayCandidates };
+	return {
+		stay: undefined,
+		transferToHotel: undefined,
+		transferToConnectionAirport: undefined,
+		stayCandidates,
+		transferToHotelCandidates: [],
+		transferToConnectionAirportCandidates: []
+	};
 }
 
 export async function fetchConnectionResources(
@@ -286,7 +380,7 @@ export async function fetchConnectionResources(
 	);
 	if (!stay) return withoutStay(stayCandidates);
 
-	const [transferToHotelRaw, transferToConnectionAirport] = await Promise.all([
+	const [transferToHotelOutcome, transferToConnectionAirportOutcome] = await Promise.all([
 		fetchBestTransfer(
 			{ from: input.connectionCoordinates, to: stay.property.coordinates },
 			input.transferProviders,
@@ -308,10 +402,55 @@ export async function fetchConnectionResources(
 	// bed" outcome as finding none at all (one provider failing, here a transfer provider,
 	// must never fail the whole search). `stayCandidates` is still returned: a caller
 	// deciding to show alternatives doesn't need a reachable transfer to list them.
-	if (!transferToHotelRaw || !transferToConnectionAirport) return withoutStay(stayCandidates);
+	if (!transferToHotelOutcome.selected || !transferToConnectionAirportOutcome.selected) {
+		return withoutStay(stayCandidates);
+	}
 
 	const landingBuffer = pickLandingToTransportTime(input.landingToTransportRules, input.connectionAirportSize);
-	const transferToHotel = applyLandingBuffer(transferToHotelRaw, landingBuffer, input.sources);
+	// Buffered here, on every candidate, not only the pick — a traveller who picks a
+	// different mode via TransportPicker still needs the same "time to actually reach the
+	// street" padding the pipeline's own choice gets (issue #114). Re-deriving `transferToHotel`
+	// from the buffered list (rather than buffering the already-picked transfer separately)
+	// keeps exactly one code path decide "which one is best", never two that could disagree.
+	const transferToHotelCandidates = transferToHotelOutcome.candidates.map((transfer) =>
+		applyLandingBuffer(transfer, landingBuffer, input.sources)
+	);
+	const transferToHotel = pickBestTransfer(transferToHotelCandidates);
+	if (!transferToHotel) return withoutStay(stayCandidates); // unreachable: buffering cannot empty a non-empty list
 
-	return { stay, transferToHotel, transferToConnectionAirport, stayCandidates };
+	const transferToConnectionAirportCandidates = transferToConnectionAirportOutcome.candidates;
+	const transferToConnectionAirport = transferToConnectionAirportOutcome.selected;
+
+	// Sequenced after the transfers above have resolved (never `Promise.all`'d with them) —
+	// see `estimateTaxiFareForLeg`'s own doc comment for why that ordering is what keeps this
+	// a cache hit instead of a second driving-route request for the same pair.
+	const [transferToHotelTaxiFareEstimate, transferToConnectionAirportTaxiFareEstimate] = await Promise.all([
+		estimateTaxiFareForLeg(
+			transferToHotelCandidates,
+			input.connectionCoordinates,
+			stay.property.coordinates,
+			input.connectionCountryCode,
+			input.signal,
+			input.record
+		),
+		estimateTaxiFareForLeg(
+			transferToConnectionAirportCandidates,
+			stay.property.coordinates,
+			input.connectionCoordinates,
+			input.connectionCountryCode,
+			input.signal,
+			input.record
+		)
+	]);
+
+	return {
+		stay,
+		transferToHotel,
+		transferToConnectionAirport,
+		stayCandidates,
+		transferToHotelCandidates,
+		transferToConnectionAirportCandidates,
+		transferToHotelTaxiFareEstimate,
+		transferToConnectionAirportTaxiFareEstimate
+	};
 }

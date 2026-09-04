@@ -13,15 +13,18 @@ export { DEFAULT_STAY_RADIUS_KM } from './resources';
 
 export type {
 	ConnectionCandidate,
+	ConnectionTransferOptions,
 	ItineraryGroup,
 	ItineraryResult,
 	ItinerarySources,
+	OuterTransferOptions,
 	ProviderStatus,
 	SearchDependencies,
 	SearchQuery,
 	SearchRunOptions,
 	SearchSnapshot,
 	SearchStage,
+	TransferLegOptions,
 	WidenOption,
 	WidenRequest,
 	WidenTarget,

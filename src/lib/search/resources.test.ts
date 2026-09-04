@@ -5,8 +5,8 @@
  * picked — so a caller can offer real alternatives (issue #27's stay picker).
  */
 
-import { describe, expect, it } from 'vitest';
-import type { Stay } from '../domain';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { Duration, IsoCountryCode, LandingToTransportRule, Stay, Transfer } from '../domain';
 import type {
 	AvailableKeys,
 	ProviderContext,
@@ -17,9 +17,24 @@ import type {
 	TransferProvider,
 	TransferSearchQuery
 } from '../providers/types';
-import { fetchConnectionResources } from './resources';
 import { recordProviderResult, SourceTracker } from './provenance';
 import type { ProviderStatus } from './types';
+import type { TaxiFareEstimate } from '../providers/transfers/taxi-rate-table';
+
+// Issue #114: `resources.ts` reaches past the generic `TransferProvider` interface into
+// osrm.ts's own `getTaxiFareEstimate` for a taxi fare range (see `estimateTaxiFareForLeg`'s
+// own doc comment for why). Mocking just that one export — keeping every other real export
+// (`OSRM_PROVIDER_ID` included) — lets these tests assert exactly when that call happens
+// without hitting the real OSRM network or its cache.
+const getTaxiFareEstimate = vi.fn();
+vi.mock('../providers/transfers/osrm', async (importOriginal) => {
+	const actual = await importOriginal<typeof import('../providers/transfers/osrm')>();
+	return { ...actual, getTaxiFareEstimate };
+});
+
+// Imported after the mock is registered, per vitest's hoisting contract for vi.mock (same
+// pattern as providers-adapter.test.ts).
+const { fetchConnectionResources } = await import('./resources');
 
 // Every id passed through here is a fixture-only stand-in, not a real registered adapter —
 // cast rather than widening ProviderSource.providerId itself, which is exactly the closed
@@ -75,6 +90,30 @@ function fakeTransferProvider(): TransferProvider {
 	};
 }
 
+/** Issue #114: unlike `fakeTransferProvider` above (always exactly one hardcoded transit
+ * `Transfer`), this fixture's response is configurable — needed to exercise "every mode
+ * found is kept as a candidate" and "a taxi candidate triggers a fare estimate lookup"
+ * against more than one hardcoded shape. */
+function configurableTransferProvider(transfers: Transfer[], idString = 'transfer-fixture'): TransferProvider {
+	const id = idString as ProviderId; // fixture-only stand-in id, see source() above
+	return {
+		kind: 'transfer',
+		id,
+		label: `Fixture transfers (${idString})`,
+		needsKey: false,
+		keyFields: [],
+		async healthCheck() {
+			return { ok: true, data: {}, source: source(idString), requestsUsed: 0 };
+		},
+		async searchTransfers(_query: TransferSearchQuery, ctx: ProviderContext): Promise<ProviderResult<Transfer[]>> {
+			if (ctx.signal.aborted) {
+				return { ok: false, error: { code: 'cancelled', message: 'aborted' }, source: source(idString), requestsUsed: 0 };
+			}
+			return { ok: true, data: transfers, source: source(idString), requestsUsed: 1 };
+		}
+	};
+}
+
 function stay(name: string, roomKind: Stay['roomKind'], minorUnits: number): Stay {
 	return {
 		property: { name, coordinates: { latitude: 48.2, longitude: 16.37 }, images: [] },
@@ -94,7 +133,13 @@ const CONNECTION_COORDINATES = { latitude: 48.2082, longitude: 16.3738 };
 
 function baseInput(
 	stayProviders: readonly StayProvider[],
-	extra: { travellers?: number; females?: number } = {}
+	extra: {
+		travellers?: number;
+		females?: number;
+		transferProviders?: readonly TransferProvider[];
+		connectionCountryCode?: IsoCountryCode;
+		landingToTransportRules?: readonly LandingToTransportRule[];
+	} = {}
 ) {
 	const { record, sources } = newTracking();
 	const keys: AvailableKeys = {};
@@ -103,7 +148,7 @@ function baseInput(
 		connectionCoordinates: CONNECTION_COORDINATES,
 		connectionAirportSize: 'medium' as const,
 		stayProviders,
-		transferProviders: [fakeTransferProvider()],
+		transferProviders: extra.transferProviders ?? [fakeTransferProvider()],
 		keys,
 		signal: controller.signal,
 		stayRadiusKm: 100,
@@ -261,5 +306,129 @@ describe('fetchConnectionResources: missing stay is degraded, not dropped (issue
 		const resources = await fetchConnectionResources(input);
 
 		expect(resources.stay).toBeUndefined();
+	});
+});
+
+describe('fetchConnectionResources: transfer candidates for both connection-side legs (issue #114)', () => {
+	it('keeps every transfer mode a provider returned, not just the one pick build.ts uses', async () => {
+		const stays = [stay('Hostel', 'dorm', 2000)];
+		const walk: Transfer = { mode: 'walk', duration: 30 as Duration, legs: [] };
+		const transit: Transfer = { mode: 'transit', duration: 20 as Duration, legs: [] };
+		const input = baseInput([fakeStayProvider('stays', stays)], {
+			transferProviders: [configurableTransferProvider([walk, transit])]
+		});
+
+		const resources = await fetchConnectionResources(input);
+
+		expect(resources.transferToHotelCandidates.map((t) => t.mode).sort()).toEqual(['transit', 'walk']);
+		expect(resources.transferToConnectionAirportCandidates.map((t) => t.mode).sort()).toEqual(['transit', 'walk']);
+		// Mode preference (real transit over walking) still decides the pick, unaffected by
+		// keeping the rest around as alternatives.
+		expect(resources.transferToHotel?.mode).toBe('transit');
+		expect(resources.transferToConnectionAirport?.mode).toBe('transit');
+	});
+
+	it('applies the landing-to-transport buffer to every hotel-bound candidate, not only the pick', async () => {
+		const stays = [stay('Hostel', 'dorm', 2000)];
+		const walk: Transfer = { mode: 'walk', duration: 30 as Duration, legs: [] };
+		const transit: Transfer = { mode: 'transit', duration: 20 as Duration, legs: [] };
+		const input = baseInput([fakeStayProvider('stays', stays)], {
+			transferProviders: [configurableTransferProvider([walk, transit])],
+			landingToTransportRules: [{ time: 15 as Duration }]
+		});
+
+		const resources = await fetchConnectionResources(input);
+
+		// A traveller who picks a different mode via TransportPicker still needs the same
+		// "time to actually reach the street" padding the pipeline's own choice gets.
+		const hotelByMode = new Map(resources.transferToHotelCandidates.map((t) => [t.mode, t.duration]));
+		expect(hotelByMode.get('walk')).toBe(45);
+		expect(hotelByMode.get('transit')).toBe(35);
+		// The return leg (hotel back to the connection airport) never gets this buffer — it
+		// ends at a departure, not a runway (resources.ts's own `applyLandingBuffer` comment).
+		const returnByMode = new Map(resources.transferToConnectionAirportCandidates.map((t) => [t.mode, t.duration]));
+		expect(returnByMode.get('walk')).toBe(30);
+		expect(returnByMode.get('transit')).toBe(20);
+	});
+
+	it('reports no candidates for either leg once a stay could not be reached', async () => {
+		const input = baseInput([fakeStayProvider('stays', [])]); // no stay found at all
+
+		const resources = await fetchConnectionResources(input);
+
+		expect(resources.transferToHotelCandidates).toEqual([]);
+		expect(resources.transferToConnectionAirportCandidates).toEqual([]);
+	});
+});
+
+describe('fetchConnectionResources: taxi fare estimate wiring (issue #114)', () => {
+	beforeEach(() => {
+		getTaxiFareEstimate.mockReset();
+	});
+
+	function fareEstimate(): TaxiFareEstimate {
+		return {
+			kind: 'estimate',
+			currency: 'EUR',
+			lowMinorUnits: 1800,
+			highMinorUnits: 2400,
+			countryCode: 'AT',
+			rateSource: 'country',
+			citation: 'Test citation'
+		};
+	}
+
+	it('asks OSRM for a taxi fare estimate on both legs when a taxi candidate and a country code are both present', async () => {
+		getTaxiFareEstimate.mockResolvedValue({
+			ok: true,
+			data: { duration: 15 as Duration, distanceMeters: 5000, fareEstimate: fareEstimate() },
+			source: source('osrm'),
+			requestsUsed: 0
+		});
+		const stays = [stay('Hostel', 'dorm', 2000)];
+		const taxi: Transfer = { mode: 'taxi', duration: 15 as Duration, legs: [] };
+		const input = baseInput([fakeStayProvider('stays', stays)], {
+			transferProviders: [configurableTransferProvider([taxi])],
+			connectionCountryCode: 'AT'
+		});
+
+		const resources = await fetchConnectionResources(input);
+
+		// Once for the hotel-bound leg, once for the return leg — never more, since each is
+		// a cache hit on a route `searchTransfers` already fetched (see
+		// `estimateTaxiFareForLeg`'s own doc comment; the cache-hit behaviour itself is
+		// verified directly in osrm.test.ts).
+		expect(getTaxiFareEstimate).toHaveBeenCalledTimes(2);
+		expect(resources.transferToHotelTaxiFareEstimate).toEqual(fareEstimate());
+		expect(resources.transferToConnectionAirportTaxiFareEstimate).toEqual(fareEstimate());
+	});
+
+	it('never asks OSRM for an estimate when no taxi candidate came back for this leg', async () => {
+		const stays = [stay('Hostel', 'dorm', 2000)];
+		const walk: Transfer = { mode: 'walk', duration: 30 as Duration, legs: [] };
+		const input = baseInput([fakeStayProvider('stays', stays)], {
+			transferProviders: [configurableTransferProvider([walk])],
+			connectionCountryCode: 'AT'
+		});
+
+		const resources = await fetchConnectionResources(input);
+
+		expect(getTaxiFareEstimate).not.toHaveBeenCalled();
+		expect(resources.transferToHotelTaxiFareEstimate).toBeUndefined();
+		expect(resources.transferToConnectionAirportTaxiFareEstimate).toBeUndefined();
+	});
+
+	it('never asks OSRM for an estimate when this connection has no known country code', async () => {
+		const stays = [stay('Hostel', 'dorm', 2000)];
+		const taxi: Transfer = { mode: 'taxi', duration: 15 as Duration, legs: [] };
+		const input = baseInput([fakeStayProvider('stays', stays)], {
+			transferProviders: [configurableTransferProvider([taxi])]
+			// connectionCountryCode intentionally omitted
+		});
+
+		const resources = await fetchConnectionResources(input);
+
+		expect(getTaxiFareEstimate).not.toHaveBeenCalled();
+		expect(resources.transferToHotelTaxiFareEstimate).toBeUndefined();
 	});
 });

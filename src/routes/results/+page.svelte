@@ -24,7 +24,15 @@
 	import { buildSearchQuery } from '$lib/search-form/model';
 	import { searchParamsToFields } from '$lib/search-form/url-codec';
 	import { runSearch, widenSearch, widenWithPriceCalendar } from '$lib/search';
-	import type { ItineraryGroup, SearchDependencies, SearchSnapshot, WidenOption, WidenTarget } from '$lib/search';
+	import type {
+		ConnectionTransferOptions,
+		ItineraryGroup,
+		OuterTransferOptions,
+		SearchDependencies,
+		SearchSnapshot,
+		WidenOption,
+		WidenTarget
+	} from '$lib/search';
 	import { applyFilters, deriveFilterOptions, emptyFilters } from '$lib/results/filters';
 	import type { ResultFilters } from '$lib/results/filters';
 	import { getProviderRegistry } from '$lib/results/provider-setup';
@@ -90,6 +98,12 @@
 	/** Issue #104: `SearchSnapshot.stayCandidatesByConnection`, merged the same way
 	 * `providerStatuses` already is below, for `StayPicker`. */
 	let stayCandidatesByConnection = $state<Record<string, Stay[]>>({});
+	/** Issue #114: `SearchSnapshot.transferOptionsByConnection`/`.outerTransferOptions`,
+	 * merged/replaced the same way as their stay/widen-options counterparts above, for
+	 * `TransportPicker`. `outerTransferOptions` is replaced wholesale rather than merged —
+	 * it is always the one current answer for the whole search, never keyed per connection. */
+	let transferOptionsByConnection = $state<Record<string, ConnectionTransferOptions>>({});
+	let outerTransferOptions = $state<OuterTransferOptions | undefined>(undefined);
 
 	// Plain mutable bookkeeping, not `$state`: neither needs to trigger a render on its
 	// own, only the `$state` fields written from inside the functions below do that.
@@ -142,6 +156,8 @@
 					order = insertStable(order, toSlot(scored), compare);
 				}
 				stayCandidatesByConnection = { ...stayCandidatesByConnection, ...snapshot.stayCandidatesByConnection };
+				transferOptionsByConnection = { ...transferOptionsByConnection, ...snapshot.transferOptionsByConnection };
+				outerTransferOptions = snapshot.outerTransferOptions;
 			}
 		} finally {
 			searchesInFlight -= 1;
@@ -165,6 +181,8 @@
 		expandedId = null;
 		groupsByConnection = {};
 		stayCandidatesByConnection = {};
+		transferOptionsByConnection = {};
+		outerTransferOptions = undefined;
 		if (!activeQuery) return;
 
 		// Issue #87: `consumeSearch` is only "async" in name here — it's called without
@@ -406,6 +424,8 @@
 									itinerary={result.itinerary}
 									group={groupsByConnection[result.id]}
 									stayCandidates={stayCandidatesByConnection[code] ?? []}
+									transferOptions={transferOptionsByConnection[code]}
+									{outerTransferOptions}
 									connectionAirport={connectionAirports[code]}
 									travellers={query.travellers}
 									females={query.females}
