@@ -1,6 +1,6 @@
 import { test, expect } from './support/fixtures';
 import { FIXTURE_FLIGHT_NUMBERS, FIXTURE_NAMES, FIXTURE_PRICES } from './support/fixture-markers';
-import { mockAllKeylessProviders } from './support/providers';
+import { mockAllKeylessProviders, routeRyanairFlights } from './support/providers';
 
 /**
  * Issues #103/#104: this is the regression guard for the whole gap those issues
@@ -13,12 +13,10 @@ import { mockAllKeylessProviders } from './support/providers';
  * full detail and confirm a picker choice really changes the total.
  *
  * The Ryanair mock below is deliberately narrower than `mockAllKeylessProviders`' own
- * generic fixture: `ryanair-mapper.ts` trusts a fare's own embedded departure/arrival
- * codes over whatever the request asked for, so the shared fixture (built for a
- * different, unrelated test) never actually chains an outbound and an onward leg through
- * the same connection airport. This one keys its response on the real query params so
- * BCN -> VIE -> TLL genuinely connects, with two outbound options (for the flight picker's
- * alternative) and one onward option.
+ * generic default, which is a STN -> VIE pair built for a different test and never chains
+ * an outbound and an onward leg through the same connection airport. This one names the
+ * real BCN -> VIE -> TLL flights so the route genuinely connects, with two outbound options
+ * (for the flight picker's alternative) and one onward option.
  *
  * Its values come from `support/fixture-markers.ts`: five-figure fares, `ZZ00xx` flight
  * numbers, `FIXTURE`-prefixed place names. The shape is what the parsers are tested
@@ -29,41 +27,6 @@ import { mockAllKeylessProviders } from './support/providers';
 
 const EMPTY_MAP_STYLE = JSON.stringify({ version: 8, name: 'empty', sources: {}, layers: [] });
 
-interface FareSpec {
-	dep: string;
-	arr: string;
-	depDate: string;
-	arrDate: string;
-	price: number;
-	flightNumber: string;
-}
-
-function ryanairFare({ dep, arr, depDate, arrDate, price, flightNumber }: FareSpec) {
-	const [whole, frac] = price.toFixed(2).split('.');
-	return {
-		outbound: {
-			departureAirport: {
-				countryName: FIXTURE_NAMES.country,
-				iataCode: dep,
-				name: FIXTURE_NAMES.airportA,
-				seoName: 'fixture-alpha'
-			},
-			arrivalAirport: {
-				countryName: FIXTURE_NAMES.country,
-				iataCode: arr,
-				name: FIXTURE_NAMES.airportB,
-				seoName: 'fixture-bravo'
-			},
-			departureDate: depDate,
-			arrivalDate: arrDate,
-			price: { value: price, valueMainUnit: whole, valueFractionalUnit: frac, currencySymbol: '€', currencyCode: 'EUR' },
-			flightNumber,
-			flightKey: `ZZ~${flightNumber}~~${dep}~${arr}~${depDate.slice(0, 10)}~${depDate.slice(0, 10)}~1`,
-			previousPrice: null
-		}
-	};
-}
-
 test.describe('select and compare (issues #103/#104)', () => {
 	test('selecting real results carries them into the comparator, and a picker change updates the total', async ({
 		page
@@ -72,48 +35,34 @@ test.describe('select and compare (issues #103/#104)', () => {
 
 		// Registered after mockAllKeylessProviders, so this one wins for every request to
 		// this host (Playwright asks the most-recently-registered matching route first).
-		await page.context().route('https://services-api.ryanair.com/**', async (route) => {
-			const url = new URL(route.request().url());
-			const dep = url.searchParams.get('departureAirportIataCode');
-			const arr = url.searchParams.get('arrivalAirportIataCode');
-			let fares: unknown[] = [];
-			if (dep === 'BCN' && (arr === 'VIE' || !arr)) {
-				fares = [
-					ryanairFare({
-						dep: 'BCN',
-						arr: 'VIE',
-						depDate: '2027-03-08T08:00:00',
-						arrDate: '2027-03-08T10:15:00',
-						price: FIXTURE_PRICES.first,
-						flightNumber: FIXTURE_FLIGHT_NUMBERS[2]
-					}),
-					ryanairFare({
-						dep: 'BCN',
-						arr: 'VIE',
-						depDate: '2027-03-08T16:30:00',
-						arrDate: '2027-03-08T18:45:00',
-						price: FIXTURE_PRICES.second,
-						flightNumber: FIXTURE_FLIGHT_NUMBERS[3]
-					})
-				];
-			} else if (dep === 'VIE' && (arr === 'TLL' || !arr)) {
-				fares = [
-					ryanairFare({
-						dep: 'VIE',
-						arr: 'TLL',
-						depDate: '2027-03-10T11:00:00',
-						arrDate: '2027-03-10T13:20:00',
-						price: FIXTURE_PRICES.third,
-						flightNumber: FIXTURE_FLIGHT_NUMBERS[4]
-					})
-				];
+		// The two outbound options sit on different days: the fare calendar prices one
+		// flight per day, so a same-day pair could never both come back.
+		await routeRyanairFlights(page.context(), [
+			{
+				dep: 'BCN',
+				arr: 'VIE',
+				depDate: '2027-03-08T08:00:00',
+				arrDate: '2027-03-08T10:15:00',
+				price: FIXTURE_PRICES.first,
+				flightNumber: FIXTURE_FLIGHT_NUMBERS[2]
+			},
+			{
+				dep: 'BCN',
+				arr: 'VIE',
+				depDate: '2027-03-09T16:30:00',
+				arrDate: '2027-03-09T18:45:00',
+				price: FIXTURE_PRICES.second,
+				flightNumber: FIXTURE_FLIGHT_NUMBERS[3]
+			},
+			{
+				dep: 'VIE',
+				arr: 'TLL',
+				depDate: '2027-03-10T11:00:00',
+				arrDate: '2027-03-10T13:20:00',
+				price: FIXTURE_PRICES.third,
+				flightNumber: FIXTURE_FLIGHT_NUMBERS[4]
 			}
-			await route.fulfill({
-				status: 200,
-				contentType: 'application/json',
-				body: JSON.stringify({ fares, size: fares.length, currency: 'EUR' })
-			});
-		});
+		]);
 
 		// ItineraryMap's keyless CARTO basemap (issue #26) — mounted for the first time
 		// anywhere in this app by issue #104's ResultDetail. A minimal, sourceless style

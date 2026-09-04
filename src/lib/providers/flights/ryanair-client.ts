@@ -8,11 +8,13 @@
 
 import type {
 	RyanairActiveAirportsResponse,
+	RyanairCheapestPerDayResponse,
 	RyanairFetchResult,
-	RyanairOneWayFaresResponse
+	RyanairMonthlyScheduleResponse
 } from './ryanair-types';
 
-const FARE_FINDER_URL = 'https://services-api.ryanair.com/farfnd/v4/oneWayFares';
+const FARE_FINDER_URL_PREFIX = 'https://services-api.ryanair.com/farfnd/v4/oneWayFares';
+const SCHEDULES_URL_PREFIX = 'https://services-api.ryanair.com/timtbl/3/schedules';
 const ACTIVE_AIRPORTS_URL = 'https://www.ryanair.com/api/views/locate/3/airports/en/active';
 
 export interface RyanairHttpDeps {
@@ -93,45 +95,78 @@ async function getJson<T>(
 	return { ok: true, data: body };
 }
 
-function isOneWayFaresResponse(value: unknown): value is RyanairOneWayFaresResponse {
-	return (
-		typeof value === 'object' &&
-		value !== null &&
-		Array.isArray((value as { fares?: unknown }).fares)
-	);
+function isCheapestPerDayResponse(value: unknown): value is RyanairCheapestPerDayResponse {
+	if (typeof value !== 'object' || value === null) return false;
+	const outbound = (value as { outbound?: unknown }).outbound;
+	return typeof outbound === 'object' && outbound !== null && Array.isArray((outbound as { fares?: unknown }).fares);
+}
+
+function isMonthlyScheduleResponse(value: unknown): value is RyanairMonthlyScheduleResponse {
+	return typeof value === 'object' && value !== null && Array.isArray((value as { days?: unknown }).days);
 }
 
 function isActiveAirportsResponse(value: unknown): value is RyanairActiveAirportsResponse {
 	return Array.isArray(value);
 }
 
-export interface OneWayFaresParams {
-	departureAirportIataCode: string;
-	/** Omitted, the fare finder returns the single cheapest fare per reachable
-	 * destination within the date range. Given, it narrows to that one route (still just
-	 * its cheapest fare in range, not one row per day — see ryanair.ts's header comment
-	 * for why that shapes how this adapter models `searchOffers`). */
-	arrivalAirportIataCode?: string;
-	outboundDepartureDateFrom: string;
-	outboundDepartureDateTo: string;
+export interface CheapestPerDayParams {
+	origin: string;
+	destination: string;
+	/** Any date inside the wanted month; the response always covers that whole calendar
+	 * month regardless of which day is passed. */
+	monthStart: string;
 	currency?: string;
 }
 
-export function fetchOneWayFares(
-	params: OneWayFaresParams,
+/**
+ * A whole month of dated fares for one route in one request — the cheapest sellable fare
+ * per calendar day, with its real departure and arrival times.
+ *
+ * This replaced `farfnd/v4/oneWayFares` as the adapter's fare source in issue #137. That
+ * endpoint is a fare *finder*: pinned to a single route it returns exactly one row for the
+ * entire date range however wide the range is, and `limit`/`offset` do not change that
+ * (measured 2026-09-04: `size: 1` with and without them). One row per route is one date
+ * pair per stopover, which is why the flight picker had nothing to pick.
+ */
+export function fetchCheapestFaresPerDay(
+	params: CheapestPerDayParams,
 	deps: RyanairHttpDeps
-): Promise<RyanairFetchResult<RyanairOneWayFaresResponse>> {
-	const url = new URL(FARE_FINDER_URL);
-	url.searchParams.set('departureAirportIataCode', params.departureAirportIataCode);
-	if (params.arrivalAirportIataCode) {
-		url.searchParams.set('arrivalAirportIataCode', params.arrivalAirportIataCode);
-	}
-	url.searchParams.set('outboundDepartureDateFrom', params.outboundDepartureDateFrom);
-	url.searchParams.set('outboundDepartureDateTo', params.outboundDepartureDateTo);
+): Promise<RyanairFetchResult<RyanairCheapestPerDayResponse>> {
+	const path = `${FARE_FINDER_URL_PREFIX}/${encodeURIComponent(params.origin)}/${encodeURIComponent(params.destination)}/cheapestPerDay`;
+	const url = new URL(path);
+	url.searchParams.set('outboundMonthOfDate', params.monthStart);
 	if (params.currency) {
 		url.searchParams.set('currency', params.currency);
 	}
-	return getJson(url.toString(), deps, isOneWayFaresResponse);
+	return getJson(url.toString(), deps, isCheapestPerDayResponse);
+}
+
+export interface MonthlyScheduleParams {
+	origin: string;
+	destination: string;
+	/** Four-digit calendar year. */
+	year: number;
+	/** 1-12, not zero-based. */
+	month: number;
+}
+
+/**
+ * Every flight Ryanair has timetabled on one route in one month, each with the carrier
+ * code and number that `cheapestPerDay` above omits entirely.
+ *
+ * Fetched alongside the fares rather than instead of them: the timetable has no prices and
+ * the fares have no flight identity, so an offer that is both real and nameable needs
+ * both. Kept as its own request because a schedule changes seasonally while a price
+ * changes hourly, which lets ryanair.ts cache the two on wildly different TTLs.
+ */
+export function fetchMonthlySchedule(
+	params: MonthlyScheduleParams,
+	deps: RyanairHttpDeps
+): Promise<RyanairFetchResult<RyanairMonthlyScheduleResponse>> {
+	const url =
+		`${SCHEDULES_URL_PREFIX}/${encodeURIComponent(params.origin)}/${encodeURIComponent(params.destination)}` +
+		`/years/${params.year}/months/${params.month}`;
+	return getJson(url, deps, isMonthlyScheduleResponse);
 }
 
 /**

@@ -35,6 +35,7 @@
 		formatMoneyDelta,
 		formatTimeDelta
 	} from './itinerary-timeline-format';
+	import { describeFlightOptions } from './flight-picker-summary';
 	import Chip from './Chip.svelte';
 	// Shared with ResultDetail's "is there anything to swap" check (issue #140), so the
 	// hint above the pickers can never claim a choice this list collapses into one row.
@@ -99,6 +100,11 @@
 		});
 	});
 
+	// Issue #137: how wide this list actually is, stated rather than left to be inferred
+	// from its length. Derived from `rows` (the deduplicated, current-pick-included list the
+	// radio group renders) so the caption can never disagree with what is on screen.
+	const optionsSummary = $derived(describeFlightOptions(rows.map((row) => row.flight)));
+
 	// The itinerary as it stands right now, warnings included, shown once beneath the
 	// list rather than duplicated per row, since it describes the CURRENT pick, not a
 	// hypothetical one. A row's own warning (via `row.result.warnings`) is what tells the
@@ -135,6 +141,9 @@
 
 <section class="flight-picker">
 	<h3 class="picker-title">{legLabel}</h3>
+	{#if optionsSummary}
+		<p class="picker-provenance">{optionsSummary}</p>
+	{/if}
 	<div role="radiogroup" aria-label={legLabel} class="picker-list">
 		{#each rows as row (flightKey(row.flight))}
 			<label class={['picker-row', { 'is-selected': row.isSelected, 'has-warning': row.result.warnings.length > 0 }]}>
@@ -233,6 +242,14 @@
 		font-size: var(--font-size-sm);
 		font-weight: var(--font-weight-semibold);
 		color: var(--color-text-muted);
+	}
+
+	/* Sits between the heading and the rows, quieter than both: it frames the list rather
+	   than competing with the flights in it. */
+	.picker-provenance {
+		margin-top: calc(var(--space-2) * -1);
+		font-size: var(--font-size-xs);
+		color: var(--color-text-faint);
 	}
 
 	.picker-list {

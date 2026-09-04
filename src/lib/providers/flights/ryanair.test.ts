@@ -1,28 +1,35 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryCacheStore } from '../../cache';
 import activeAirportsFixture from './fixtures/active-airports.json';
-import oneWayFaresSingleFixture from './fixtures/one-way-fares-single-route.json';
-import { createRyanairFlightProvider } from './ryanair';
+import cheapestPerDayFixture from './fixtures/cheapest-per-day-bcn-stn.json';
+import scheduleFixture from './fixtures/schedule-bcn-stn.json';
+import { createRyanairFlightProvider, monthsSpanned, MAX_FARE_MONTHS_PER_SEARCH } from './ryanair';
 
 /**
- * Exercises the adapter end to end — cache, mapping and error handling together — with a
- * fake `fetch` that resolves fixtures keyed by URL, so nothing here touches the network.
+ * Exercises the adapter end to end — cache, the two-endpoint fare join, and error handling
+ * together — with a fake `fetch` that resolves fixtures keyed by URL, so nothing here
+ * touches the network.
  * A real network round trip against the live Ryanair endpoints is done by hand, once,
  * during development; see the PR description for that result, since a live call has no
  * place in a suite that must run the same way in CI as on a disconnected laptop.
  */
 
 let fetchCallCount = 0;
+let requestedUrls: string[] = [];
 
 function fixtureFetch(overrides: Record<string, () => Response> = {}): typeof fetch {
 	return (async (input: RequestInfo | URL) => {
 		fetchCallCount++;
 		const url = input.toString();
+		requestedUrls.push(url);
 		for (const [prefix, respond] of Object.entries(overrides)) {
 			if (url.startsWith(prefix)) return respond();
 		}
-		if (url.startsWith('https://services-api.ryanair.com/farfnd/v4/oneWayFares')) {
-			return new Response(JSON.stringify(oneWayFaresSingleFixture), { status: 200 });
+		if (url.includes('/cheapestPerDay')) {
+			return new Response(JSON.stringify(cheapestPerDayFixture), { status: 200 });
+		}
+		if (url.startsWith('https://services-api.ryanair.com/timtbl/3/schedules/')) {
+			return new Response(JSON.stringify(scheduleFixture), { status: 200 });
 		}
 		if (url === 'https://www.ryanair.com/api/views/locate/3/airports/en/active') {
 			return new Response(JSON.stringify(activeAirportsFixture), { status: 200 });
@@ -40,25 +47,190 @@ const query = {
 
 beforeEach(() => {
 	fetchCallCount = 0;
+	requestedUrls = [];
+});
+
+describe('monthsSpanned', () => {
+	it('returns the single month a normal search window sits inside', () => {
+		expect(monthsSpanned('2026-10-01', '2026-10-25')).toEqual([
+			{ year: 2026, month: 10, monthStart: '2026-10-01' }
+		]);
+	});
+
+	it('returns every month a window straddles, including across a year boundary', () => {
+		expect(monthsSpanned('2026-12-20', '2027-01-05').map((m) => m.monthStart)).toEqual([
+			'2026-12-01',
+			'2027-01-01'
+		]);
+	});
+
+	// A departure window wider than a quarter is not a trip search, and each month is a
+	// pair of requests against Ryanair's own rate limiter (issue #121).
+	it('stops at the request ceiling instead of fanning out over a silly range', () => {
+		expect(monthsSpanned('2026-01-01', '2030-12-31')).toHaveLength(MAX_FARE_MONTHS_PER_SEARCH);
+	});
+
+	it('returns nothing for a reversed or unparsable range rather than looping', () => {
+		expect(monthsSpanned('2026-10-25', '2026-10-01')).toHaveLength(1); // same month, still one
+		expect(monthsSpanned('2026-11-01', '2026-10-01')).toEqual([]);
+		expect(monthsSpanned('not-a-date', '2026-10-01')).toEqual([]);
+		expect(monthsSpanned('2026-13-01', '2026-13-05')).toEqual([]);
+	});
 });
 
 describe('searchOffers', () => {
-	it('returns real, mapped offers on a cold cache', async () => {
+	it('returns one offer per sellable day, not the single fare the old endpoint gave', async () => {
 		const provider = createRyanairFlightProvider({ store: new MemoryCacheStore(), fetchImpl: fixtureFetch() });
 		const result = await provider.searchOffers(query, { signal: new AbortController().signal });
 
 		expect(result.ok).toBe(true);
 		if (!result.ok) return;
-		expect(result.data).toHaveLength(1);
+		// Six days in the captured fixture, all inside the queried window — where the
+		// fare-finder endpoint this replaced returned exactly one row for the whole range.
+		expect(result.data).toHaveLength(6);
 		expect(result.data[0]).toMatchObject({
-			flightNumber: 'FR8231',
+			flightNumber: 'FR8215',
 			departureAirport: 'BCN',
 			arrivalAirport: 'STN',
 			price: { minorUnits: 1499, currency: 'EUR' }
 		});
+		expect(new Set(result.data.map((offer) => offer.departure.local.slice(0, 10))).size).toBe(6);
 		expect(result.source.providerId).toBe('ryanair');
-		// One request for the fares, one for the network snapshot (also cold).
+		// One month of fares, one month of timetable, one network snapshot — all cold.
+		expect(result.requestsUsed).toBe(3);
+	});
+
+	it('every offer records Ryanair as its source and carries a real per-person price', async () => {
+		const provider = createRyanairFlightProvider({ store: new MemoryCacheStore(), fetchImpl: fixtureFetch() });
+		const result = await provider.searchOffers(query, { signal: new AbortController().signal });
+
+		expect(result.ok).toBe(true);
+		if (!result.ok) return;
+		expect(result.source).toMatchObject({ providerId: 'ryanair', fetchedAt: expect.any(String) });
+		for (const offer of result.data) {
+			expect(offer.priceScope).toBe('per-person');
+			expect(Number.isInteger(offer.price.minorUnits)).toBe(true);
+			expect(offer.price.currency).toBe('EUR');
+			expect(offer.carrier.iataCode).toMatch(/^[A-Z0-9]{2}$/);
+			expect(offer.flightNumber.startsWith(offer.carrier.iataCode)).toBe(true);
+		}
+	});
+
+	it('passes the search currency through to the fare request', async () => {
+		const provider = createRyanairFlightProvider({ store: new MemoryCacheStore(), fetchImpl: fixtureFetch() });
+		await provider.searchOffers({ ...query, currency: 'GBP' }, { signal: new AbortController().signal });
+
+		const fareUrl = requestedUrls.find((url) => url.includes('/cheapestPerDay'));
+		expect(fareUrl).toContain('currency=GBP');
+		expect(fareUrl).toContain('outboundMonthOfDate=2026-10-01');
+	});
+
+	// The old whole-query cache key held the exact dates, so nudging one by a day missed
+	// everything. Keying by calendar month means a re-dated search reuses what it has.
+	it('reuses the cached month when only the dates inside it change', async () => {
+		const store = new MemoryCacheStore();
+		const provider = createRyanairFlightProvider({ store, fetchImpl: fixtureFetch() });
+
+		await provider.searchOffers(query, { signal: new AbortController().signal });
+		const callsAfterFirst = fetchCallCount;
+		const narrower = await provider.searchOffers(
+			{ ...query, earliestDeparture: '2026-10-03', latestDeparture: '2026-10-05' },
+			{ signal: new AbortController().signal }
+		);
+
+		expect(narrower.ok).toBe(true);
+		if (!narrower.ok) return;
+		expect(narrower.requestsUsed).toBe(0);
+		expect(fetchCallCount).toBe(callsAfterFirst);
+		// Still clipped to the narrower window, cache hit or not.
+		expect(narrower.data.map((offer) => offer.departure.local.slice(0, 10))).toEqual([
+			'2026-10-03',
+			'2026-10-04',
+			'2026-10-05'
+		]);
+	});
+
+	it('spends one fare request and one timetable request per month a window straddles', async () => {
+		const provider = createRyanairFlightProvider({ store: new MemoryCacheStore(), fetchImpl: fixtureFetch() });
+		const result = await provider.searchOffers(
+			{ ...query, earliestDeparture: '2026-10-20', latestDeparture: '2026-11-05' },
+			{ signal: new AbortController().signal }
+		);
+
+		expect(result.ok).toBe(true);
+		if (!result.ok) return;
+		// Two months of fares, two of timetable, one network snapshot.
+		expect(result.requestsUsed).toBe(5);
+		expect(requestedUrls.filter((url) => url.includes('/cheapestPerDay'))).toHaveLength(2);
+		expect(requestedUrls.some((url) => url.endsWith('/years/2026/months/11'))).toBe(true);
+	});
+
+	// A month needs its fares AND its timetable to name a single flight, so a budget that
+	// only covers one of the two buys nothing — better not to spend it at all.
+	it('skips a month it cannot afford both halves of, rather than half-spending the budget', async () => {
+		const provider = createRyanairFlightProvider({ store: new MemoryCacheStore(), fetchImpl: fixtureFetch() });
+		const result = await provider.searchOffers(query, { signal: new AbortController().signal, maxRequests: 1 });
+
+		expect(result.ok).toBe(true);
+		if (!result.ok) return;
+		expect(result.data).toEqual([]);
+		expect(result.requestsUsed).toBe(0);
+		expect(requestedUrls.some((url) => url.includes('/cheapestPerDay'))).toBe(false);
+	});
+
+	// The snapshot is asked for last and has a floor shipped with the app, so a budget that
+	// covers exactly one month's two fare requests still returns that month's offers —
+	// spending the last request on fares rather than on a table that can answer for free.
+	it('spends a tight budget on the fares, then still maps them from the shipped snapshot', async () => {
+		const provider = createRyanairFlightProvider({ store: new MemoryCacheStore(), fetchImpl: fixtureFetch() });
+		const result = await provider.searchOffers(query, { signal: new AbortController().signal, maxRequests: 2 });
+
+		expect(result.ok).toBe(true);
+		if (!result.ok) return;
+		expect(result.data).toHaveLength(6);
 		expect(result.requestsUsed).toBe(2);
+		expect(requestedUrls.some((url) => url.endsWith('/airports/en/active'))).toBe(false);
+	});
+
+	// AGENTS.md, "Show the error you got, never the one you assumed": fares that arrive with
+	// no timetable to name them leave nothing to return, and an empty list would read as
+	// "this route has no flights" instead of "the schedule request failed".
+	it('reports the failure when the timetable is unreachable, rather than an empty list', async () => {
+		const fetchImpl = fixtureFetch({
+			'https://services-api.ryanair.com/timtbl': () => new Response(null, { status: 503 })
+		});
+		const provider = createRyanairFlightProvider({ store: new MemoryCacheStore(), fetchImpl });
+
+		const result = await provider.searchOffers(query, { signal: new AbortController().signal });
+		expect(result.ok).toBe(false);
+		if (result.ok) return;
+		expect(result.error).toMatchObject({ code: 'unknown', cause: { status: 503 } });
+	});
+
+	// A route Ryanair does not fly is not an error: `cheapestPerDay` answers 200 with a
+	// month of unavailable rows and the timetable answers 200 with no days at all.
+	it('returns an empty ok result for a route Ryanair does not fly', async () => {
+		const fetchImpl = fixtureFetch({
+			'https://services-api.ryanair.com/farfnd': () =>
+				new Response(
+					JSON.stringify({
+						outbound: {
+							fares: [
+								{ day: '2026-10-01', departureDate: null, arrivalDate: null, price: null, soldOut: false, unavailable: true }
+							],
+							minFare: null,
+							maxFare: null
+						}
+					}),
+					{ status: 200 }
+				),
+			'https://services-api.ryanair.com/timtbl': () =>
+				new Response(JSON.stringify({ month: 10, days: [] }), { status: 200 })
+		});
+		const provider = createRyanairFlightProvider({ store: new MemoryCacheStore(), fetchImpl });
+
+		const result = await provider.searchOffers(query, { signal: new AbortController().signal });
+		expect(result).toMatchObject({ ok: true, data: [] });
 	});
 
 	it('serves the second identical call from cache, spending no requests', async () => {
@@ -119,7 +291,7 @@ describe('searchOffers', () => {
 
 			expect(result.ok).toBe(true);
 			if (!result.ok) return;
-			expect(result.data).toHaveLength(1);
+			expect(result.data).toHaveLength(6);
 			// The whole point: the caller got the answer without waiting on the fare fetch,
 			// and it is labelled with when the price was really read, not with "now".
 			const ageMs = before - Date.parse(result.source.fetchedAt);
@@ -140,7 +312,10 @@ describe('searchOffers', () => {
 			// Reported as one request because one really was issued on this call's behalf,
 			// even though the call did not wait for it.
 			expect(result.requestsUsed).toBe(1);
-			expect(fetchCallCount).toBeGreaterThan(callsBefore);
+			// Awaited rather than asserted outright: the refresh reads its own per-month
+			// cache entries before it reaches the network, so the request lands a tick after
+			// the answer does. That it lands at all is the point.
+			await vi.waitFor(() => expect(fetchCallCount).toBeGreaterThan(callsBefore));
 
 			// Waits for the WRITE, not just the fetch: the point of the refresh is the
 			// entry it leaves behind, and a test that stops at "a request went out" would
@@ -174,16 +349,20 @@ describe('searchOffers', () => {
 			// a failure, and the cached fares cost nothing to hand back.
 			expect(result).toMatchObject({ ok: true, requestsUsed: 0 });
 			if (!result.ok) return;
-			expect(result.data).toHaveLength(1);
+			expect(result.data).toHaveLength(6);
 			expect(fetchCallCount).toBe(callsBefore);
 		});
 
 		it('keeps the cached fares and their age when the background refresh fails', async () => {
 			const store = new MemoryCacheStore();
 			let failFares = false;
+			// Scoped to the fare path, not the whole host: the timetable lives on the same
+			// origin, and answering it with a fare body would make the seed itself fail.
 			const fetchImpl = fixtureFetch({
-				'https://services-api.ryanair.com': () =>
-					failFares ? new Response(null, { status: 503 }) : new Response(JSON.stringify(oneWayFaresSingleFixture), { status: 200 })
+				'https://services-api.ryanair.com/farfnd': () =>
+					failFares
+						? new Response(null, { status: 503 })
+						: new Response(JSON.stringify(cheapestPerDayFixture), { status: 200 })
 			});
 			const provider = createRyanairFlightProvider({ store, fetchImpl });
 			const keys = await keysIn(store, () =>
@@ -219,9 +398,9 @@ describe('searchOffers', () => {
 		);
 
 		expect(result.ok).toBe(true);
-		// A different route is a different cache key for the fares themselves (1 request),
-		// but the snapshot from the first call is still fresh (0 requests for it).
-		expect(result.requestsUsed).toBe(1);
+		// A different route means fresh fares and a fresh timetable (2 requests), but the
+		// snapshot from the first call is still fresh (0 requests for it).
+		expect(result.requestsUsed).toBe(2);
 	});
 
 	it('issues one snapshot request, not one per caller, for a concurrent fan-out (issue #121)', async () => {
@@ -244,8 +423,10 @@ describe('searchOffers', () => {
 		);
 
 		expect(snapshotCalls).toBe(1);
-		// Exactly one of the four is charged for it; the rest joined the same request.
-		expect(results.reduce((total, r) => total + r.requestsUsed, 0)).toBe(results.length + 1);
+		// Each call still pays for its own month of fares and timetable (two each, and the
+		// duplicate STN pair races so neither sees the other's cache write), but exactly one
+		// of the four is charged for the snapshot; the rest joined the same request.
+		expect(results.reduce((total, r) => total + r.requestsUsed, 0)).toBe(results.length * 2 + 1);
 	});
 
 	it('still maps offers when the snapshot fetch fails, using the snapshot shipped with the app', async () => {
@@ -260,8 +441,8 @@ describe('searchOffers', () => {
 		expect(result.ok).toBe(true);
 		if (!result.ok) return;
 		// BCN and STN are both real Ryanair airports, so the bundled snapshot has their
-		// zones and the fare still maps. Before issue #121 this returned zero offers.
-		expect(result.data).toHaveLength(1);
+		// zones and the fares still map. Before issue #121 this returned zero offers.
+		expect(result.data).toHaveLength(6);
 		expect(result.data[0]?.departure.timeZone).toBe('Europe/Madrid');
 	});
 
@@ -290,7 +471,7 @@ describe('searchOffers', () => {
 		const provider = createRyanairFlightProvider({ store: new MemoryCacheStore(), fetchImpl });
 
 		const result = await provider.searchOffers(query, { signal: new AbortController().signal });
-		expect(result).toMatchObject({ ok: false, error: { code: 'network-error' }, requestsUsed: 1 });
+		expect(result).toMatchObject({ ok: false, error: { code: 'network-error' } });
 	});
 
 	it('maps a 429 to quota-exceeded without throwing', async () => {
@@ -300,7 +481,7 @@ describe('searchOffers', () => {
 		const provider = createRyanairFlightProvider({ store: new MemoryCacheStore(), fetchImpl });
 
 		const result = await provider.searchOffers(query, { signal: new AbortController().signal });
-		expect(result).toMatchObject({ ok: false, error: { code: 'quota-exceeded', status: 429 }, requestsUsed: 1 });
+		expect(result).toMatchObject({ ok: false, error: { code: 'quota-exceeded', status: 429 } });
 	});
 
 	it('reports zero cost, unconditionally', () => {

@@ -10,12 +10,27 @@
  * staleWhileRevalidate" further down for why that still counts as "going through the
  * cache" (src/lib/cache/) even though it doesn't use that module's generator directly.
  *
- * One real limitation worth stating up front: `farfnd/v4/oneWayFares` is a fare *finder*,
- * not a timetable. Given an origin, a destination and a date range, it returns the single
- * cheapest fare in that range — not one row per day. Verified by hand 2026-09-04: widening
- * the range from 20 days to 60 days returned the same one fare. That is still real,
- * ground-truth pricing for a real flight number and date (exactly what issue #17 needs to
- * cross-check an aggregator), just not a full schedule.
+ * ## Where the fares come from, and why it takes two endpoints (issue #137)
+ *
+ * This adapter used to ask `farfnd/v4/oneWayFares` for one route over the whole search
+ * window. That endpoint is a fare *finder*, not a timetable: pinned to a single route it
+ * answers with exactly one fare however wide the range, and `limit`/`offset` do not change
+ * that (measured 2026-09-04, `size: 1` either way). One fare per leg meant one date pair
+ * per stopover, so the flight picker had a single row in it and the traveller could not
+ * choose how many nights the stopover lasted — docs/ACCEPTANCE.md condition 4.
+ *
+ * `cheapestPerDay` answers the same question per calendar day: one request, a whole month
+ * of dated fares. What it does not carry is any flight identity — no number, no carrier
+ * code, not even the airport objects. `timtbl/3/schedules` carries exactly that and no
+ * prices. So one leg-month costs two requests, joined in `ryanair-mapper.ts` on the
+ * departure minute, and a day the timetable cannot confirm never becomes an offer.
+ *
+ * That is one more request per leg-month than before on a cold cache, which matters to
+ * issue #121. Two things pull the other way. The schedule is cached for a week against the
+ * fares' hour, because a timetable changes seasonally and a price changes hourly, so every
+ * refetch inside that week costs what the old code cost. And both caches are keyed by
+ * calendar month rather than by the search's exact dates, so nudging a date no longer
+ * misses the cache the way the old whole-query key did.
  *
  * Issue #121 rewrote how the route graph gets here. It used to be one request per airport,
  * which a BCN->OTP search turned into 80 of them (measured, production, cold cache), for
@@ -41,9 +56,13 @@ import type {
 	ProviderResult,
 	ProviderSource
 } from '../types';
-import { fetchActiveAirports, fetchOneWayFares } from './ryanair-client';
-import { buildNetworkSnapshot, mapFaresToFlightOffers } from './ryanair-mapper';
-import type { RyanairFetchError } from './ryanair-types';
+import { fetchActiveAirports, fetchCheapestFaresPerDay, fetchMonthlySchedule } from './ryanair-client';
+import { buildNetworkSnapshot, buildScheduleIndex, mapDailyFaresToFlightOffers } from './ryanair-mapper';
+import type {
+	RyanairCheapestPerDayResponse,
+	RyanairFetchError,
+	RyanairMonthlyScheduleResponse
+} from './ryanair-types';
 
 /** Keyless and unmetered — no `../budget` cap or wiring applies — but still a real
  * registered adapter id, so it is checked against `ProviderId` (../types.ts, issue #69)
@@ -54,7 +73,7 @@ export const RYANAIR_PROVIDER_ID: ProviderId = 'ryanair';
  * How long a fare counts as current enough to paint with no caveat.
  *
  * This was 5 minutes, matching the `Cache-Control: max-age=60, s-maxage=300` Ryanair's own
- * fare-finder sends. Issue #147 is what that cost: the owner said "loading takes a lot of
+ * fare endpoints send. Issue #147 is what that cost: the owner said "loading takes a lot of
  * time every time i reload", and he was right — a search reloaded 5 minutes later spent 48
  * fresh fare requests, because past the TTL the cached answer was thrown away rather than
  * shown. Coming back to a search after lunch was a cold search.
@@ -67,6 +86,10 @@ export const RYANAIR_PROVIDER_ID: ProviderId = 'ryanair';
  * fast its prices actually move.
  */
 const FARES_TTL_MS = 60 * 60_000;
+/** A published timetable is a schedule, not a price: it moves when a season changes, not
+ * when a seat sells. Holding it for a week is what keeps the second request issue #137
+ * added per leg-month off every refetch after the first. */
+const SCHEDULE_TTL_MS = 7 * 24 * 60 * 60_000;
 /**
  * One TTL for the route graph and the airport timezone table, because they arrive in the
  * same response and there is no way to refresh one without the other. A day is the route
@@ -104,6 +127,64 @@ function source(storedAt?: number): ProviderSource {
 		providerId: RYANAIR_PROVIDER_ID,
 		fetchedAt: new Date(storedAt ?? Date.now()).toISOString()
 	};
+}
+
+/**
+ * How many calendar months of fares one `searchOffers` call will ever fetch.
+ *
+ * `cheapestPerDay` is priced per month, so a departure window is a request multiplier in a
+ * way the old whole-range endpoint was not. Three months is well past any real departure
+ * window — the brief's window is "soonest departure to latest arrival" for one trip — and
+ * it puts a hard ceiling on what a pasted-in or malformed URL can make this adapter spend
+ * against Ryanair's own rate limiter (issue #121). A wider range is not rejected; it just
+ * gets its first three months answered.
+ */
+export const MAX_FARE_MONTHS_PER_SEARCH = 3;
+
+interface CalendarMonth {
+	year: number;
+	/** 1-12, matching the schedule endpoint's own path segment, not `Date`'s 0-11. */
+	month: number;
+	/** "2026-10-01", what `cheapestPerDay` wants as `outboundMonthOfDate`. */
+	monthStart: string;
+}
+
+function parseYearMonth(isoDate: string): { year: number; month: number } | undefined {
+	const match = /^(\d{4})-(\d{2})-\d{2}$/.exec(isoDate ?? '');
+	if (!match) return undefined;
+	const year = Number(match[1]);
+	const month = Number(match[2]);
+	if (month < 1 || month > 12) return undefined;
+	return { year, month };
+}
+
+/**
+ * Every calendar month an inclusive date range touches, oldest first.
+ *
+ * Parsed straight out of the ISO strings rather than through `Date`, deliberately: these
+ * are calendar dates a traveller picked, and running them through an instant would make
+ * the month this returns depend on the browser's timezone — a search starting "2026-10-01"
+ * must ask for October in Auckland and in Los Angeles alike.
+ */
+export function monthsSpanned(earliestDeparture: string, latestDeparture: string): CalendarMonth[] {
+	const start = parseYearMonth(earliestDeparture);
+	const end = parseYearMonth(latestDeparture);
+	if (!start || !end) return [];
+
+	const months: CalendarMonth[] = [];
+	let { year, month } = start;
+	while (
+		(year < end.year || (year === end.year && month <= end.month)) &&
+		months.length < MAX_FARE_MONTHS_PER_SEARCH
+	) {
+		months.push({ year, month, monthStart: `${year}-${String(month).padStart(2, '0')}-01` });
+		month += 1;
+		if (month > 12) {
+			month = 1;
+			year += 1;
+		}
+	}
+	return months;
 }
 
 function toProviderError(error: RyanairFetchError): ProviderError {
@@ -359,6 +440,131 @@ function createRyanairFlightProvider(options: RyanairProviderOptions = {}): Flig
 	 * failed refresh is not a failure of the call that started it. The user keeps the
 	 * price they were already shown, with its age still on the card.
 	 */
+	/**
+	 * Everything one query costs against Ryanair: a month of fares and a month of timetable
+	 * per calendar month the window touches, joined into offers.
+	 *
+	 * Shared by the cold path and the background refresh below rather than written twice,
+	 * so a stale entry is always replaced by something built exactly the way the entry it
+	 * replaces was built.
+	 */
+	async function fetchOffers(
+		query: FlightSearchQuery,
+		ctx: ProviderContext,
+		store: CacheStore,
+		limits: { maxRequests: number | undefined; allowSnapshotRefresh: boolean }
+	): Promise<{ offers: FlightOffer[]; requestsUsed: number; error?: RyanairFetchError }> {
+		let requestsUsed = 0;
+		/** `undefined` keeps ProviderContext.maxRequests' own "no caller-imposed cap"
+		 * meaning all the way down to `resolveNetworkSnapshot`, rather than smuggling an
+		 * Infinity into a parameter typed `number | undefined`. */
+		const budgetLeft = (): number | undefined =>
+			limits.maxRequests === undefined ? undefined : limits.maxRequests - requestsUsed;
+
+		// Fetched now, mapped after the loop, because mapping needs the timezone table and
+		// the whole point of resolving that AFTER the fares is that the budget goes on the
+		// data only Ryanair has. The snapshot has a floor shipped with the app, so it can
+		// always answer without a request; a month of fares cannot.
+		const months: { year: number; month: number; fares: RyanairCheapestPerDayResponse }[] = [];
+		const schedulesByMonth = new Map<string, RyanairMonthlyScheduleResponse>();
+		// Remembered rather than returned on the spot: with a multi-month window, one month
+		// failing should not throw away the months that worked. This only becomes the
+		// caller's answer if nothing at all could be mapped (see `searchOffers` below).
+		let firstError: RyanairFetchError | undefined;
+
+		for (const { year, month, monthStart } of monthsSpanned(query.earliestDeparture, query.latestDeparture)) {
+			if (ctx.signal.aborted) break;
+
+			// Keyed by calendar month, not by this query's exact dates, so two searches over
+			// the same month share one entry and nudging a date is a cache hit rather than a
+			// fresh sweep.
+			const faresKey = defineCacheKey(
+				RYANAIR_PROVIDER_ID,
+				{ op: 'cheapestPerDay', origin: query.origin, destination: query.destination, monthStart, currency: query.currency },
+				FARES_TTL_MS
+			);
+			const scheduleKey = defineCacheKey(
+				RYANAIR_PROVIDER_ID,
+				{ op: 'monthlySchedule', origin: query.origin, destination: query.destination, year, month },
+				SCHEDULE_TTL_MS
+			);
+
+			let fares = await readCache<RyanairCheapestPerDayResponse>(store, faresKey);
+			let schedule = await readCache<RyanairMonthlyScheduleResponse>(store, scheduleKey);
+
+			// Both are needed to name a single flight, so a month that can only afford one
+			// of the two missing halves is a month worth skipping rather than half-spending.
+			const stillNeeded = (fares ? 0 : 1) + (schedule ? 0 : 1);
+			const remaining = budgetLeft();
+			if (remaining !== undefined && stillNeeded > remaining) break;
+
+			if (!fares) {
+				const response = await fetchCheapestFaresPerDay(
+					{ origin: query.origin, destination: query.destination, monthStart, currency: query.currency },
+					{ signal: ctx.signal, fetchImpl: options.fetchImpl }
+				);
+				requestsUsed += 1;
+				if (!response.ok) {
+					firstError ??= response.error;
+					continue;
+				}
+				fares = response.data;
+				await writeCache(store, faresKey, fares);
+			}
+
+			if (!schedule) {
+				const response = await fetchMonthlySchedule(
+					{ origin: query.origin, destination: query.destination, year, month },
+					{ signal: ctx.signal, fetchImpl: options.fetchImpl }
+				);
+				requestsUsed += 1;
+				if (!response.ok) {
+					firstError ??= response.error;
+					continue;
+				}
+				schedule = response.data;
+				await writeCache(store, scheduleKey, schedule);
+			}
+
+			months.push({ year, month, fares });
+			schedulesByMonth.set(`${year}-${month}`, schedule);
+		}
+
+		// Skipped outright when no month came back: a zone table with nothing to date is a
+		// request spent on nothing.
+		if (months.length === 0) return { offers: [], requestsUsed, error: firstError };
+
+		// The timezone table, last, with whatever budget the fares left. Every offer needs
+		// both airports' zones to become a `LocalDateTime` at all (AGENTS.md "Timezones"),
+		// and unlike the fares this can always answer for free: out of budget or off the
+		// network it falls back to the snapshot shipped with the app.
+		const { snapshot, requestsUsed: snapshotRequestsUsed } = await resolveNetworkSnapshot(
+			ctx,
+			store,
+			options.fetchImpl,
+			refreshState,
+			limits.allowSnapshotRefresh ? budgetLeft() : 0
+		);
+		requestsUsed += snapshotRequestsUsed;
+
+		const offers: FlightOffer[] = [];
+		for (const { year, month, fares } of months) {
+			const schedule = schedulesByMonth.get(`${year}-${month}`);
+			if (!schedule) continue;
+			offers.push(
+				...mapDailyFaresToFlightOffers(fares, buildScheduleIndex(schedule, year, month), {
+					origin: query.origin,
+					destination: query.destination,
+					timeZoneByIataCode: snapshot.timeZonesByIataCode,
+					earliestDeparture: query.earliestDeparture,
+					latestDeparture: query.latestDeparture
+				})
+			);
+		}
+
+		return { offers, requestsUsed, error: firstError };
+	}
+
 	async function revalidateFares(
 		query: FlightSearchQuery,
 		ctx: ProviderContext,
@@ -368,23 +574,19 @@ function createRyanairFlightProvider(options: RyanairProviderOptions = {}): Flig
 		if (revalidating.has(cacheKey.raw)) return;
 		revalidating.add(cacheKey.raw);
 		try {
-			const faresResponse = await fetchOneWayFares(
-				{
-					departureAirportIataCode: query.origin,
-					arrivalAirportIataCode: query.destination,
-					outboundDepartureDateFrom: query.earliestDeparture,
-					outboundDepartureDateTo: query.latestDeparture,
-					currency: query.currency
-				},
-				{ signal: ctx.signal, fetchImpl: options.fetchImpl }
-			);
-			if (!faresResponse.ok) return;
-
-			// Budget 0 so this never triggers a network snapshot refresh of its own: this
-			// is a background task nobody is waiting for, and it can map its fares against
-			// whatever timezone table is already to hand.
-			const { snapshot } = await resolveNetworkSnapshot(ctx, store, options.fetchImpl, refreshState, 0);
-			await writeCache(store, cacheKey, mapFaresToFlightOffers(faresResponse.data, snapshot.timeZonesByIataCode));
+			// `allowSnapshotRefresh: false` so this never triggers a network snapshot
+			// refresh of its own: this is a background task nobody is waiting for, and it
+			// can map its fares against whatever timezone table is already to hand.
+			const { offers, error } = await fetchOffers(query, ctx, store, {
+				maxRequests: undefined,
+				allowSnapshotRefresh: false
+			});
+			// Never replace real prices with nothing. An empty result paired with an error
+			// means the fares failed, not that the route stopped selling, and overwriting
+			// the cached answer would turn a background refresh into a silent loss of the
+			// results already on screen.
+			if (error && offers.length === 0) return;
+			await writeCache(store, cacheKey, offers);
 		} catch {
 			// A background refresh that fails changes nothing the user can see. The cached
 			// fares and their age stay exactly as they were, and the next search tries again.
@@ -407,7 +609,17 @@ function createRyanairFlightProvider(options: RyanairProviderOptions = {}): Flig
 		}
 
 		const store = await resolveStore(options);
-		const cacheKey = defineCacheKey(RYANAIR_PROVIDER_ID, { op: 'searchOffers', ...query }, FARES_TTL_MS);
+		// `op` names the fare calendar, not just "searchOffers", so an entry written by the
+		// old fare-finder path can never resolve here. Those entries hold one offer for a
+		// whole window where this one holds a month of dated ones — the same `FlightOffer[]`
+		// type carrying a different answer, which is exactly the case AGENTS.md's #131
+		// lesson says needs a key that no longer reaches the old value. The orphans expire
+		// on their own TTL and are evicted like any other stale entry.
+		const cacheKey = defineCacheKey(
+			RYANAIR_PROVIDER_ID,
+			{ op: 'searchOffersFromFareCalendar', ...query },
+			FARES_TTL_MS
+		);
 
 		const cached = await readCachedEntry<FlightOffer[]>(store, cacheKey);
 		if (cached) {
@@ -447,33 +659,22 @@ function createRyanairFlightProvider(options: RyanairProviderOptions = {}): Flig
 			return { ok: true, data: [], source: source(), requestsUsed: 0 };
 		}
 
-		const faresResponse = await fetchOneWayFares(
-			{
-				departureAirportIataCode: query.origin,
-				arrivalAirportIataCode: query.destination,
-				outboundDepartureDateFrom: query.earliestDeparture,
-				outboundDepartureDateTo: query.latestDeparture,
-				currency: query.currency
-			},
-			{ signal: ctx.signal, fetchImpl: options.fetchImpl }
-		);
-		if (!faresResponse.ok) {
-			return { ok: false, error: toProviderError(faresResponse.error), source: source(), requestsUsed: 1 };
+		const { offers, requestsUsed, error } = await fetchOffers(query, ctx, store, {
+			maxRequests: ctx.maxRequests,
+			allowSnapshotRefresh: true
+		});
+
+		// Nothing mapped AND something genuinely failed: report the failure Ryanair actually
+		// gave us, rather than an empty list that reads as "this route has no flights"
+		// (AGENTS.md, "Show the error you got, never the one you assumed"). An empty list
+		// with no error is the honest answer for a route Ryanair simply does not fly —
+		// `cheapestPerDay` says that with a month of `unavailable` rows, not an HTTP error.
+		if (offers.length === 0 && error) {
+			return { ok: false, error: toProviderError(error), source: source(), requestsUsed };
 		}
 
-		const remainingBudget = ctx.maxRequests === undefined ? undefined : ctx.maxRequests - 1;
-		const { snapshot, requestsUsed: snapshotRequestsUsed } = await resolveNetworkSnapshot(
-			ctx,
-			store,
-			options.fetchImpl,
-			refreshState,
-			remainingBudget
-		);
-
-		const offers = mapFaresToFlightOffers(faresResponse.data, snapshot.timeZonesByIataCode);
 		await writeCache(store, cacheKey, offers);
-
-		return { ok: true, data: offers, source: source(), requestsUsed: 1 + snapshotRequestsUsed };
+		return { ok: true, data: offers, source: source(), requestsUsed };
 	}
 
 	async function listDirectDestinations(

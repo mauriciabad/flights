@@ -3,6 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { BrowserContext, Page } from '@playwright/test';
 import { OSRM_BASE_URL } from '../../../src/lib/providers/transfers/osrm';
+import { FIXTURE_FLIGHT_NUMBERS, FIXTURE_PRICES } from './fixture-markers';
 
 // Re-exported so a spec that wants to check "did this request really land on the host
 // mockOsrm intercepts" (issue #132) can import it from here instead of reaching into
@@ -45,10 +46,143 @@ async function mockJson(target: Routable, urlPattern: string, fixture: string, s
  * since Playwright gives the most-recently-registered matching route first refusal.
  */
 
-/** Ryanair's public fare-finder. Needs no key — this is the "still useful with zero
- * keys configured" baseline the brief and issue #18 both call out. */
-export async function mockRyanair(target: Routable, fixture = 'ryanair/one-way-fares.json') {
-	await mockJson(target, 'https://services-api.ryanair.com/**', fixture);
+/** One flight to hand back, in the shape a test wants to think about it.
+ * `routeRyanairFlights` below splits each of these across the two endpoints the adapter
+ * really reads. */
+export interface RyanairFlightSpec {
+	dep: string;
+	arr: string;
+	/** Wall-clock local at the departure airport, e.g. "2026-10-01T08:00:00". */
+	depDate: string;
+	/** Wall-clock local at the arrival airport. */
+	arrDate: string;
+	price: number;
+	/** With the carrier prefix. Take it from `FIXTURE_FLIGHT_NUMBERS`: the timetable
+	 * response below splits it into `carrierCode` + `number`, and the app joins the two
+	 * back together, so a `ZZ00xx` here is what a leaked mock renders on the card and what
+	 * `tools/probe-results.mjs` scans for. A realistic "FR1234" would make a mocked search
+	 * indistinguishable from a working one. */
+	flightNumber: string;
+}
+
+function daysInMonth(year: number, month: number): number {
+	return new Date(Date.UTC(year, month, 0)).getUTCDate();
+}
+
+/**
+ * Answers both `services-api.ryanair.com` endpoints the adapter needs from one list of
+ * flights (issue #137): `cheapestPerDay` for the prices and `timtbl/3/schedules` for the
+ * flight numbers. Neither alone produces a single offer — the adapter drops any fare the
+ * timetable does not confirm — so a test that mocks only one gets zero itineraries and no
+ * clue why, which is exactly what this helper exists to prevent.
+ *
+ * Days with no matching flight come back as `unavailable`, the way Ryanair itself answers
+ * a day (or a whole route) it does not sell. Note that the fare calendar prices at most one
+ * flight per day, so two flights on the same route and date cannot both be returned — give
+ * them different dates.
+ */
+export async function routeRyanairFlights(target: Routable, flights: readonly RyanairFlightSpec[]) {
+	await target.route('https://services-api.ryanair.com/**', async (route) => {
+		const url = new URL(route.request().url());
+
+		const cheapestPerDay = /\/farfnd\/v4\/oneWayFares\/([A-Z]{3})\/([A-Z]{3})\/cheapestPerDay$/.exec(url.pathname);
+		if (cheapestPerDay) {
+			const [, dep, arr] = cheapestPerDay;
+			const monthOfDate = url.searchParams.get('outboundMonthOfDate') ?? '';
+			const year = Number(monthOfDate.slice(0, 4));
+			const month = Number(monthOfDate.slice(5, 7));
+			const fares = [];
+			for (let day = 1; day <= daysInMonth(year, month); day++) {
+				const isoDay = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+				const match = flights.find(
+					(flight) => flight.dep === dep && flight.arr === arr && flight.depDate.startsWith(isoDay)
+				);
+				if (!match) {
+					fares.push({ day: isoDay, departureDate: null, arrivalDate: null, price: null, soldOut: false, unavailable: true });
+					continue;
+				}
+				const [whole, frac] = match.price.toFixed(2).split('.');
+				fares.push({
+					day: isoDay,
+					departureDate: match.depDate,
+					arrivalDate: match.arrDate,
+					price: {
+						value: match.price,
+						valueMainUnit: whole,
+						valueFractionalUnit: frac,
+						currencyCode: 'EUR',
+						currencySymbol: '€'
+					},
+					soldOut: false,
+					unavailable: false
+				});
+			}
+			await route.fulfill({
+				status: 200,
+				contentType: 'application/json',
+				body: JSON.stringify({ outbound: { fares, minFare: null, maxFare: null } })
+			});
+			return;
+		}
+
+		const schedule = /\/timtbl\/3\/schedules\/([A-Z]{3})\/([A-Z]{3})\/years\/(\d{4})\/months\/(\d{1,2})$/.exec(
+			url.pathname
+		);
+		if (schedule) {
+			const [, dep, arr, year, month] = schedule;
+			const prefix = `${year}-${String(Number(month)).padStart(2, '0')}-`;
+			const days = flights
+				.filter((flight) => flight.dep === dep && flight.arr === arr && flight.depDate.startsWith(prefix))
+				.map((flight) => ({
+					day: Number(flight.depDate.slice(8, 10)),
+					flights: [
+						{
+							carrierCode: flight.flightNumber.slice(0, 2),
+							number: flight.flightNumber.slice(2),
+							departureTime: flight.depDate.slice(11, 16),
+							arrivalTime: flight.arrDate.slice(11, 16)
+						}
+					]
+				}));
+			await route.fulfill({
+				status: 200,
+				contentType: 'application/json',
+				body: JSON.stringify({ month: Number(month), days })
+			});
+			return;
+		}
+
+		await route.fulfill({ status: 404, contentType: 'application/json', body: '{}' });
+	});
+}
+
+/** A generic STN -> VIE pair, for a test that only needs Ryanair to answer something.
+ * Impossible flight numbers and absurd fares on purpose — see support/fixture-markers.ts. */
+const DEFAULT_RYANAIR_FLIGHTS: readonly RyanairFlightSpec[] = [
+	{
+		dep: 'STN',
+		arr: 'VIE',
+		depDate: '2027-03-08T06:35:00',
+		arrDate: '2027-03-08T09:50:00',
+		price: FIXTURE_PRICES.first,
+		flightNumber: FIXTURE_FLIGHT_NUMBERS[0]
+	},
+	{
+		dep: 'STN',
+		arr: 'VIE',
+		depDate: '2027-03-09T17:20:00',
+		arrDate: '2027-03-09T20:35:00',
+		price: FIXTURE_PRICES.second,
+		flightNumber: FIXTURE_FLIGHT_NUMBERS[1]
+	}
+];
+
+/** Ryanair's public fare source. Needs no key — this is the "still useful with zero
+ * keys configured" baseline the brief and issue #18 both call out. A test that needs its
+ * own route should call `routeRyanairFlights` with its own flights AFTER this, since
+ * Playwright gives the most-recently-registered matching route first refusal. */
+export async function mockRyanair(target: Routable, flights: readonly RyanairFlightSpec[] = DEFAULT_RYANAIR_FLIGHTS) {
+	await routeRyanairFlights(target, flights);
 }
 
 /**

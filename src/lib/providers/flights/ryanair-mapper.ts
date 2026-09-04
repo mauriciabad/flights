@@ -11,14 +11,35 @@ import type { RyanairNetworkSnapshot } from '../../data/ryanair-network';
 import type {
 	RyanairActiveAirport,
 	RyanairActiveAirportsResponse,
-	RyanairFare,
-	RyanairOneWayFaresResponse,
-	RyanairPrice
+	RyanairCheapestPerDayResponse,
+	RyanairDailyFare,
+	RyanairMonthlyScheduleResponse,
+	RyanairPrice,
+	RyanairScheduledFlight
 } from './ryanair-types';
 
-export const RYANAIR_CARRIER: Carrier = { iataCode: 'FR', name: 'Ryanair' };
+/**
+ * Ryanair Holdings flies under more than one AOC, and the timetable feed says which. STN→DUB
+ * in October 2026 mixes `FR` and `RK` rows in the same month (measured 2026-09-04), so a
+ * carrier hardcoded to "FR" would put a Ryanair UK flight number behind a Ryanair
+ * (Ireland) carrier code on the itinerary — docs/ACCEPTANCE.md's "an offer whose airline the
+ * sourcing provider does not fly" in miniature. `carrierFor` therefore takes the code from
+ * the feed and only looks the NAME up here; an unrecognised code keeps its own code as its
+ * name rather than being renamed to something this table cannot vouch for.
+ */
+const RYANAIR_GROUP_CARRIER_NAMES: Readonly<Record<string, string>> = {
+	FR: 'Ryanair',
+	RK: 'Ryanair UK',
+	RR: 'Buzz',
+	FA: 'Malta Air',
+	LS: 'Lauda Europe'
+};
 
-/** The fare-finder endpoint never mentions baggage, because every fare it quotes is
+export function carrierFor(carrierCode: string): Carrier {
+	return { iataCode: carrierCode, name: RYANAIR_GROUP_CARRIER_NAMES[carrierCode] ?? carrierCode };
+}
+
+/** The fare calendar never mentions baggage, because every fare it quotes is
  * Ryanair's lowest "Basic" bucket, which on Ryanair always means exactly one small
  * under-seat bag and nothing checked. Hardcoded rather than left undefined so a
  * baggage-aware scorer (issue #14) sees a real number for Ryanair instead of treating it
@@ -47,8 +68,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 /** True when `value` is a wall-clock ISO string `toLocalDateTime` (ryanair-timezone.ts)
  * can parse without throwing. Checked here, before that call, rather than letting its
  * internal `Date.parse` throw a `RangeError`: that throw is not caught anywhere between
- * here and `mapFaresToFlightOffers`'s loop, so one fare with a garbled or missing date
- * string would otherwise take down the whole batch instead of being the one fare this
+ * here and `mapDailyFaresToFlightOffers`'s loop, so one fare with a garbled or missing
+ * date string would otherwise take down the whole batch instead of being the one fare this
  * file drops. */
 function isParsableLocalIsoString(value: unknown): value is string {
 	return isNonEmptyString(value) && !Number.isNaN(Date.parse(`${value}Z`));
@@ -61,7 +82,7 @@ function isParsableLocalIsoString(value: unknown): value is string {
  * when either string is missing or the wrong type (issue #93). `valueFractionalUnit` may
  * legitimately be `""` (rounds to "00" cents below); `valueMainUnit` may not, since an
  * empty whole-unit string has no honest reading. */
-function toMoney(price: RyanairPrice): Money | undefined {
+function toMoney(price: RyanairPrice | null): Money | undefined {
 	if (
 		!isRecord(price) ||
 		!isNonEmptyString(price.valueMainUnit) ||
@@ -81,9 +102,7 @@ function toMoney(price: RyanairPrice): Money | undefined {
  * hand 2026-09-04: it 302-redirects into a live search pre-filled with these dates and
  * airports). Best-effort rather than contractual — re-check if Ryanair changes its
  * booking flow. */
-function deepLinkFor(fare: RyanairFare): string {
-	const { departureAirport, arrivalAirport, departureDate } = fare.outbound;
-	const dateOut = departureDate.slice(0, 10);
+function deepLinkFor(origin: string, destination: string, dateOut: string): string {
 	const params = new URLSearchParams({
 		adults: '1',
 		teens: '0',
@@ -95,85 +114,157 @@ function deepLinkFor(fare: RyanairFare): string {
 		discount: '0',
 		isReturn: 'false',
 		promoCode: '',
-		originIata: departureAirport.iataCode,
-		destinationIata: arrivalAirport.iataCode
+		originIata: origin,
+		destinationIata: destination
 	});
 	return `https://www.ryanair.com/gb/en/trip/flights/select?${params.toString()}`;
 }
 
+/** `"2026-10-01T05:45:00"` -> `"05:45"`, the timetable's own `departureTime` format, so the
+ * two feeds can be joined on it. */
+function wallClockMinute(localIso: string): string {
+	return localIso.slice(11, 16);
+}
+
 /**
- * Maps one raw fare to a domain `FlightOffer`, or `undefined` when the fare is missing or
- * has the wrong type for any field this function reads — either a structural surprise
- * (the fare finder's `fares` array holding something that isn't a well-formed fare at
- * all) or the honest "no known timezone" case documented below. Either way, the caller
- * (`mapFaresToFlightOffers`) drops this one fare instead of failing the whole batch over
- * it, per AGENTS.md "say what you do not know rather than guessing" and issue #93.
+ * The timetable indexed by the exact wall-clock minute a flight leaves, keyed
+ * `"2026-10-01T05:45"` so a fare can only ever match a flight on its own date.
  *
- * The zone check specifically: `undefined` instead of a best-guess offset when either
- * airport's IANA zone is missing from `timeZoneByIataCode` — that can only happen when
- * Ryanair's own route/airport feeds disagree about an airport code, and a wrong offset is
- * worse than one missing offer.
+ * Keyed by full date rather than by the feed's own day-of-month integer on purpose: the
+ * day number alone is ambiguous across months, and pairing October's fares with November's
+ * schedule would then quietly resolve to a real-looking flight number for a flight that
+ * does not operate that day. `year`/`month` are the ones the schedule was FETCHED for, so
+ * this cannot be reconstructed from the response body alone.
  */
-export function mapFareToFlightOffer(
-	fare: RyanairFare,
-	timeZoneByIataCode: Readonly<Record<string, string>>
+export function buildScheduleIndex(
+	schedule: RyanairMonthlyScheduleResponse,
+	year: number,
+	month: number
+): Map<string, RyanairScheduledFlight> {
+	const index = new Map<string, RyanairScheduledFlight>();
+	if (!isRecord(schedule) || !Array.isArray(schedule.days)) return index;
+
+	for (const scheduleDay of schedule.days) {
+		if (!isRecord(scheduleDay) || !Array.isArray(scheduleDay.flights)) continue;
+		if (typeof scheduleDay.day !== 'number' || !Number.isInteger(scheduleDay.day)) continue;
+		const isoDay = `${year}-${String(month).padStart(2, '0')}-${String(scheduleDay.day).padStart(2, '0')}`;
+
+		for (const flight of scheduleDay.flights) {
+			if (!isRecord(flight)) continue;
+			if (!isNonEmptyString(flight.carrierCode) || !isNonEmptyString(flight.number)) continue;
+			if (!isNonEmptyString(flight.departureTime)) continue;
+			// First entry wins. Two flights on one route leaving the same airport in the
+			// same minute is not a real timetable, so this only ever guards against a
+			// duplicated feed row.
+			const key = `${isoDay}T${flight.departureTime}`;
+			if (!index.has(key)) index.set(key, flight);
+		}
+	}
+	return index;
+}
+
+export interface DailyFareRouteContext {
+	/** From the REQUEST, not the response — `cheapestPerDay` echoes back neither airport,
+	 * so these are the only place the offer's endpoints can honestly come from. */
+	origin: IataAirportCode;
+	destination: IataAirportCode;
+	timeZoneByIataCode: Readonly<Record<string, string>>;
+	/** Inclusive window the traveller actually asked about. The response always covers a
+	 * whole calendar month whatever range was requested, so without this the search would
+	 * offer flights on dates nobody asked for. */
+	earliestDeparture: string;
+	latestDeparture: string;
+}
+
+/**
+ * Turns one day of the fare calendar into a `FlightOffer`, or `undefined` when this day
+ * cannot be described honestly. Every rejection below is a real case measured against the
+ * live endpoint on 2026-09-04, not defensive padding:
+ *
+ * - `unavailable` — nothing on sale. Also, and more importantly, what a route Ryanair does
+ *   not fly at all looks like: BCN→OTP answers `200` with 31 unavailable rows. Mapping
+ *   these would fabricate a month of flights on a route with no service, which
+ *   docs/ACCEPTANCE.md ranks ahead of every feature as a bug.
+ * - `soldOut` — the flight exists but this fare cannot be bought, so quoting its price
+ *   would send a traveller to a booking they cannot complete.
+ * - no matching timetable entry — the fare feed names no flight, so without the schedule's
+ *   confirmation this offer would have to carry an invented flight number. `crosscheck.ts`
+ *   matches providers on that number and the picker keys its rows on it; a made-up one is
+ *   worse than one fewer row.
+ * - unknown airport timezone — same judgement the adapter has always made (issue #93): a
+ *   wrong UTC offset silently moves an overnight connection by a night.
+ */
+export function mapDailyFareToFlightOffer(
+	fare: RyanairDailyFare,
+	schedule: ReadonlyMap<string, RyanairScheduledFlight>,
+	context: DailyFareRouteContext
 ): FlightOffer | undefined {
-	if (!isRecord(fare) || !isRecord(fare.outbound)) return undefined;
-	const outbound = fare.outbound;
+	if (!isRecord(fare)) return undefined;
+	if (fare.unavailable === true || fare.soldOut === true) return undefined;
+	if (!isNonEmptyString(fare.day)) return undefined;
+	if (fare.day < context.earliestDeparture || fare.day > context.latestDeparture) return undefined;
 
-	if (!isRecord(outbound.departureAirport) || !isRecord(outbound.arrivalAirport)) return undefined;
-	const departureIataCode = outbound.departureAirport.iataCode;
-	const arrivalIataCode = outbound.arrivalAirport.iataCode;
-	if (!isNonEmptyString(departureIataCode) || !isNonEmptyString(arrivalIataCode)) return undefined;
-
-	const departureTimeZone = timeZoneByIataCode[departureIataCode];
-	const arrivalTimeZone = timeZoneByIataCode[arrivalIataCode];
-	if (!departureTimeZone || !arrivalTimeZone) return undefined;
-
-	// The cross-check (crosscheck.ts) matches offers across providers on flight number —
-	// a missing one here would not throw, it would silently break that match.
-	if (!isNonEmptyString(outbound.flightNumber)) return undefined;
-
-	if (!isParsableLocalIsoString(outbound.departureDate) || !isParsableLocalIsoString(outbound.arrivalDate)) {
+	if (!isParsableLocalIsoString(fare.departureDate) || !isParsableLocalIsoString(fare.arrivalDate)) {
 		return undefined;
 	}
 
-	const price = toMoney(outbound.price);
+	const departureTimeZone = context.timeZoneByIataCode[context.origin];
+	const arrivalTimeZone = context.timeZoneByIataCode[context.destination];
+	if (!departureTimeZone || !arrivalTimeZone) return undefined;
+
+	const price = toMoney(fare.price);
 	if (!price) return undefined;
 
-	const departure = toLocalDateTime(outbound.departureDate, departureTimeZone);
-	const arrival = toLocalDateTime(outbound.arrivalDate, arrivalTimeZone);
+	// The join. Departure minute is the identity: the fare feed is authoritative for the
+	// times (it is what is actually on sale) and the schedule only supplies the name of the
+	// flight leaving at that minute. Measured across 10 routes and 235 priced days on
+	// 2026-09-04, every fare matched a scheduled departure, arrival times included.
+	const scheduled = schedule.get(`${fare.day}T${wallClockMinute(fare.departureDate)}`);
+	if (!scheduled) return undefined;
+
+	const departure = toLocalDateTime(fare.departureDate, departureTimeZone);
+	const arrival = toLocalDateTime(fare.arrivalDate, arrivalTimeZone);
 
 	return {
-		carrier: RYANAIR_CARRIER,
-		flightNumber: outbound.flightNumber,
-		departureAirport: departureIataCode,
-		arrivalAirport: arrivalIataCode,
+		carrier: carrierFor(scheduled.carrierCode),
+		// Prefixed to match the format every other consumer already expects ("FR8231" from
+		// the old fare finder), since the timetable splits the prefix off into carrierCode.
+		flightNumber: `${scheduled.carrierCode}${scheduled.number}`,
+		departureAirport: context.origin,
+		arrivalAirport: context.destination,
 		departure,
 		arrival,
 		duration: computeFlightDuration(departure, arrival),
 		price,
-		// Issue #109: the fare-finder endpoint has no adults/travellers parameter at all
-		// (confirmed: neither this file nor ryanair.ts/ryanair-client.ts ever sends one),
-		// so whatever it returns is definitionally one adult's fare, never a party total.
+		// Issue #109: `cheapestPerDay` has no adults/travellers parameter, and
+		// ryanair-client.ts never sends one, so what comes back is one adult's fare by
+		// construction rather than by assumption.
 		priceScope: 'per-person',
 		fareBrand: 'Basic',
 		baggage: BASIC_FARE_BAGGAGE,
-		deepLink: deepLinkFor(fare)
+		deepLink: deepLinkFor(context.origin, context.destination, fare.day)
 	};
 }
 
-/** Maps every fare in a fare-finder response, silently skipping any one fare
- * `mapFareToFlightOffer` can't honestly map — an unknown airport timezone, a malformed or
- * mistyped field, or a structurally broken entry — instead of throwing over one bad
- * entry. */
-export function mapFaresToFlightOffers(
-	response: RyanairOneWayFaresResponse,
-	timeZoneByIataCode: Readonly<Record<string, string>>
+/**
+ * A month of fares plus that month's timetable, joined into one offer per sellable day.
+ *
+ * Issue #137: this is the change that gives the flight picker something to pick. Its
+ * predecessor asked `farfnd/v4/oneWayFares` for one route and got a single fare for the
+ * whole window back, so a stopover was whatever date pair Ryanair happened to price
+ * cheapest that minute and the traveller could not choose the number of nights.
+ */
+export function mapDailyFaresToFlightOffers(
+	response: RyanairCheapestPerDayResponse,
+	schedule: ReadonlyMap<string, RyanairScheduledFlight>,
+	context: DailyFareRouteContext
 ): FlightOffer[] {
+	const fares = response?.outbound?.fares;
+	if (!Array.isArray(fares)) return [];
+
 	const offers: FlightOffer[] = [];
-	for (const fare of response.fares) {
-		const offer = mapFareToFlightOffer(fare, timeZoneByIataCode);
+	for (const fare of fares) {
+		const offer = mapDailyFareToFlightOffer(fare, schedule, context);
 		if (offer) offers.push(offer);
 	}
 	return offers;

@@ -1,0 +1,179 @@
+{
+	"month": 10,
+	"days": [
+		{
+			"day": 1,
+			"flights": [
+				{
+					"carrierCode": "RK",
+					"number": "8231",
+					"departureTime": "10:45",
+					"arrivalTime": "12:10"
+				},
+				{
+					"carrierCode": "FR",
+					"number": "8215",
+					"departureTime": "15:45",
+					"arrivalTime": "17:10"
+				},
+				{
+					"carrierCode": "FR",
+					"number": "9015",
+					"departureTime": "17:55",
+					"arrivalTime": "19:20"
+				},
+				{
+					"carrierCode": "FR",
+					"number": "8217",
+					"departureTime": "20:05",
+					"arrivalTime": "21:30"
+				}
+			]
+		},
+		{
+			"day": 2,
+			"flights": [
+				{
+					"carrierCode": "FR",
+					"number": "8215",
+					"departureTime": "05:45",
+					"arrivalTime": "07:10"
+				},
+				{
+					"carrierCode": "FR",
+					"number": "8231",
+					"departureTime": "10:30",
+					"arrivalTime": "11:55"
+				},
+				{
+					"carrierCode": "FR",
+					"number": "9015",
+					"departureTime": "16:55",
+					"arrivalTime": "18:20"
+				},
+				{
+					"carrierCode": "FR",
+					"number": "8217",
+					"departureTime": "19:35",
+					"arrivalTime": "21:00"
+				}
+			]
+		},
+		{
+			"day": 3,
+			"flights": [
+				{
+					"carrierCode": "FR",
+					"number": "8215",
+					"departureTime": "10:35",
+					"arrivalTime": "12:00"
+				},
+				{
+					"carrierCode": "FR",
+					"number": "8231",
+					"departureTime": "16:20",
+					"arrivalTime": "17:45"
+				},
+				{
+					"carrierCode": "FR",
+					"number": "9015",
+					"departureTime": "19:15",
+					"arrivalTime": "20:40"
+				},
+				{
+					"carrierCode": "FR",
+					"number": "9811",
+					"departureTime": "22:55",
+					"arrivalTime": "00:20"
+				}
+			]
+		},
+		{
+			"day": 4,
+			"flights": [
+				{
+					"carrierCode": "FR",
+					"number": "8231",
+					"departureTime": "10:35",
+					"arrivalTime": "12:00"
+				},
+				{
+					"carrierCode": "FR",
+					"number": "9015",
+					"departureTime": "13:05",
+					"arrivalTime": "14:30"
+				},
+				{
+					"carrierCode": "FR",
+					"number": "9045",
+					"departureTime": "16:30",
+					"arrivalTime": "17:55"
+				},
+				{
+					"carrierCode": "FR",
+					"number": "8215",
+					"departureTime": "19:35",
+					"arrivalTime": "21:00"
+				}
+			]
+		},
+		{
+			"day": 5,
+			"flights": [
+				{
+					"carrierCode": "FR",
+					"number": "8231",
+					"departureTime": "10:30",
+					"arrivalTime": "11:55"
+				},
+				{
+					"carrierCode": "FR",
+					"number": "8215",
+					"departureTime": "13:05",
+					"arrivalTime": "14:30"
+				},
+				{
+					"carrierCode": "FR",
+					"number": "8217",
+					"departureTime": "19:00",
+					"arrivalTime": "20:25"
+				},
+				{
+					"carrierCode": "FR",
+					"number": "9015",
+					"departureTime": "21:40",
+					"arrivalTime": "23:05"
+				}
+			]
+		},
+		{
+			"day": 6,
+			"flights": [
+				{
+					"carrierCode": "FR",
+					"number": "8215",
+					"departureTime": "06:05",
+					"arrivalTime": "07:30"
+				},
+				{
+					"carrierCode": "FR",
+					"number": "8231",
+					"departureTime": "09:10",
+					"arrivalTime": "10:35"
+				},
+				{
+					"carrierCode": "FR",
+					"number": "9015",
+					"departureTime": "13:20",
+					"arrivalTime": "14:45"
+				},
+				{
+					"carrierCode": "FR",
+					"number": "9045",
+					"departureTime": "16:50",
+					"arrivalTime": "18:15"
+				}
+			]
+		}
+	]
+}

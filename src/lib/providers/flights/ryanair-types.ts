@@ -16,39 +16,72 @@ export interface RyanairPrice {
 	currencySymbol: string;
 }
 
-export interface RyanairFareFinderAirport {
-	countryName: string;
-	iataCode: string;
-	name: string;
-	seoName: string;
-	city: { code: string; countryCode: string; name: string; macCode?: string };
+/**
+ * One calendar day of the `cheapestPerDay` response — the cheapest fare Ryanair will sell
+ * on that day, or a row saying there is nothing to sell.
+ *
+ * Every field except `day` goes null together on a day with no flight, and the response
+ * always covers the whole calendar month whatever date range was asked for, so a caller
+ * has to both filter these out and clip to its own window.
+ *
+ * What this row does NOT carry is the reason `ryanair-mapper.ts` joins it against the
+ * timetable feed below: no flight number, no carrier code, and no airport objects. The
+ * airports are known from the request; the flight's identity is not.
+ */
+export interface RyanairDailyFare {
+	/** Calendar date, "2026-10-01". Present on every row, including unsellable ones. */
+	day: string;
+	/** Wall-clock local time at the DEPARTURE airport, no zone suffix, e.g.
+	 * "2026-10-01T05:45:00". See ryanair-timezone.ts for why this needs a separate lookup
+	 * to become a domain LocalDateTime. Null on a day with no flight. */
+	departureDate: string | null;
+	/** Same shape, but local to the ARRIVAL airport. Null on a day with no flight. */
+	arrivalDate: string | null;
+	price: RyanairPrice | null;
+	/** The flight exists but every seat at this fare is gone. */
+	soldOut: boolean;
+	/** Nothing is on sale this day. Measured 2026-09-04: this is also what a route Ryanair
+	 * does not fly AT ALL looks like — BCN→OTP and BVC→LGW both answer `200` with 31
+	 * `unavailable: true` rows. Unlike the per-airport routes endpoint issue #121 deleted,
+	 * there is no 404 here to lean on. A caller that ignores this flag would invent a month
+	 * of flights on a route the airline does not operate, which docs/ACCEPTANCE.md calls the
+	 * highest-severity bug in the repo. */
+	unavailable: boolean;
 }
 
-export interface RyanairFare {
+export interface RyanairCheapestPerDayResponse {
 	outbound: {
-		departureAirport: RyanairFareFinderAirport;
-		arrivalAirport: RyanairFareFinderAirport;
-		/** Wall-clock local time at the departure airport, no zone suffix, e.g.
-		 * "2026-10-13T09:10:00". See ryanair-timezone.ts for why this needs a separate
-		 * lookup to become a domain LocalDateTime. */
-		departureDate: string;
-		/** Same shape as departureDate, but local to the arrival airport. */
-		arrivalDate: string;
-		price: RyanairPrice;
-		flightKey: string;
-		/** e.g. "FR8231" — carrier prefix already included. */
-		flightNumber: string;
-		previousPrice: RyanairPrice | null;
-		priceUpdated: number;
+		fares: RyanairDailyFare[];
+		minFare: RyanairDailyFare | null;
+		maxFare: RyanairDailyFare | null;
 	};
-	summary: { price: RyanairPrice; previousPrice: RyanairPrice | null; newRoute: boolean };
 }
 
-export interface RyanairOneWayFaresResponse {
-	arrivalAirportCategories: unknown;
-	fares: RyanairFare[];
-	nextPage: string | null;
-	size: number;
+/** One scheduled flight in the monthly timetable. `number` carries NO carrier prefix
+ * ("846"), unlike the fare finder's old `flightNumber` ("FR8231") — the prefix is
+ * `carrierCode`, and the two are joined back together in ryanair-mapper.ts. */
+export interface RyanairScheduledFlight {
+	/** Operating carrier's IATA code. Usually "FR", but measured "RK" (Ryanair UK) on
+	 * STN→DUB, 2026-09-04 — which is exactly why nothing downstream may hardcode "FR". */
+	carrierCode: string;
+	number: string;
+	/** Wall-clock "HH:MM" at the departure airport. */
+	departureTime: string;
+	/** Wall-clock "HH:MM" at the arrival airport. */
+	arrivalTime: string;
+}
+
+/** `day` is the day of the month (1-31), not a date string. Only days that actually have
+ * a flight appear at all, so this array is usually shorter than the month. */
+export interface RyanairScheduleDay {
+	day: number;
+	flights: RyanairScheduledFlight[];
+}
+
+/** A route Ryanair does not fly answers `200 {"month":10,"days":[]}`. */
+export interface RyanairMonthlyScheduleResponse {
+	month: number;
+	days: RyanairScheduleDay[];
 }
 
 // The per-airport route endpoint's own response shape used to be modelled here.
@@ -82,7 +115,7 @@ export interface RyanairActiveAirport {
 	categories?: string[];
 	priority?: number;
 	/** IANA zone name, e.g. "Europe/Madrid" — one of the two reasons this adapter fetches
-	 * this endpoint: the fare-finder response above has no timezone field of its own. */
+	 * this endpoint: neither the fare calendar nor the timetable above carries a zone. */
 	timeZone: string;
 }
 
