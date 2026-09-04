@@ -147,8 +147,8 @@
 	></span>
 {/snippet}
 
-{#snippet locationRow(location: Location, label: string)}
-	<li class="tl-row" data-segment="location">
+{#snippet locationRow(location: Location, label: string, segment: string)}
+	<li class="tl-row" data-segment={segment}>
 		<span class="tl-rail">{@render dot('point')}</span>
 		<div class="tl-content">
 			<p class="tl-label">{label}</p>
@@ -296,7 +296,7 @@
 	role="list"
 >
 	{#if shown.originLocation}
-		{@render locationRow(shown.originLocation, 'Starting point')}
+		{@render locationRow(shown.originLocation, 'Starting point', 'origin-location')}
 		{@render transferRow(shown.transferToOriginAirport, 'Travel to the airport', 'transfer-to-origin-airport')}
 	{/if}
 
@@ -376,7 +376,7 @@
 			'Travel to the destination',
 			'transfer-to-destination-location'
 		)}
-		{@render locationRow(shown.destinationLocation, 'Final destination')}
+		{@render locationRow(shown.destinationLocation, 'Final destination', 'destination-location')}
 	{/if}
 </ol>
 
