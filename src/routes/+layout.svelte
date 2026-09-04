@@ -3,10 +3,14 @@
 	import { afterNavigate } from '$app/navigation';
 	import { base } from '$app/paths';
 	import { page } from '$app/state';
-	import UpdateToast from '$lib/pwa/UpdateToast.svelte';
-	import type { Snippet } from 'svelte';
+	import { registerServiceWorker } from '$lib/pwa/register-sw';
+	import { onMount, type Snippet } from 'svelte';
 
 	let { children }: { children: Snippet } = $props();
+
+	// onMount, not module scope: this file is also the SSR entry that prerenders every
+	// page, where `navigator` does not exist.
+	onMount(registerServiceWorker);
 
 	let contentEl = $state<HTMLElement | undefined>();
 
@@ -92,8 +96,6 @@
 </svelte:head>
 
 <a class="skip-link" href="#main-content">Skip to content</a>
-
-<UpdateToast />
 
 <div class="app-shell">
 	<header class="app-header">

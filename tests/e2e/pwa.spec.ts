@@ -27,7 +27,7 @@ test.describe('PWA', () => {
 		}
 	});
 
-	test('the app shell is reachable offline after a first online visit, once a service worker registers', async ({
+	test('the app shell is reachable offline after a first online visit', async ({
 		page,
 		context
 	}) => {
@@ -37,11 +37,8 @@ test.describe('PWA', () => {
 		// as files — for a prerendered app.html it never injects a <link rel="manifest">
 		// or a registration script (confirmed against its source: the closeBundle step
 		// moves files, it never touches HTML). Issue #30 added both by hand:
-		// src/routes/+layout.svelte links the manifest, and
-		// src/lib/pwa/UpdateToast.svelte calls navigator.serviceWorker.register() on
-		// mount. This still probes for a live registration rather than assuming one,
-		// so a future regression here fails as a clear skip-with-reason, not a
-		// confusing offline-assertion failure three lines down.
+		// src/routes/+layout.svelte links the manifest and calls
+		// src/lib/pwa/register-sw.ts on mount, which registers the worker.
 		const registered = await page.evaluate(async () => {
 			if (!('serviceWorker' in navigator)) return false;
 			try {
@@ -55,12 +52,14 @@ test.describe('PWA', () => {
 			}
 		});
 
-		test.skip(
-			!registered,
-			'No service worker registered on first visit. See src/lib/pwa/UpdateToast.svelte ' +
-				"(issue #30) — this test starts asserting real offline behaviour as soon as one " +
-				'registers.'
-		);
+		// This used to be a `test.skip` with a reason attached, from back when nothing
+		// registered a worker at all. One does now, and offline support is the whole
+		// reason this app carries a service worker, so a registration that stops
+		// happening should fail loudly rather than quietly skip the assertions below.
+		expect(
+			registered,
+			'no service worker registered on the first visit — see src/lib/pwa/register-sw.ts'
+		).toBe(true);
 
 		await context.setOffline(true);
 		try {
@@ -70,6 +69,62 @@ test.describe('PWA', () => {
 		} finally {
 			await context.setOffline(false);
 		}
+	});
+
+	test('a returning visitor is controlled by the service worker rather than queued behind it', async ({
+		page
+	}) => {
+		// The half of the stale-shell fix that a single build can prove. Under the old
+		// `registerType: 'prompt'` config a freshly installed worker sat in `waiting` and
+		// never claimed the page that installed it, so `controller` stayed null for the
+		// whole first visit. `clientsClaim` is what changes that, and it is also what
+		// fires the `controllerchange` that src/lib/pwa/register-sw.ts reloads on when a
+		// *later* deploy arrives. Two builds are needed to see that end to end, which is
+		// what tools/probe-sw-update.mjs does.
+		await page.goto('/');
+
+		await expect
+			.poll(
+				async () =>
+					page.evaluate(async () => {
+						if (!('serviceWorker' in navigator)) return 'no-sw-support';
+						await navigator.serviceWorker.ready;
+						return navigator.serviceWorker.controller ? 'controlled' : 'uncontrolled';
+					}),
+				{
+					timeout: 10_000,
+					message:
+						'the worker installed but never took over the page. Check workbox.clientsClaim in vite.config.ts.'
+				}
+			)
+			.toBe('controlled');
+	});
+
+	test('the shipped service worker activates immediately instead of waiting for a click', async ({
+		request,
+		baseURL
+	}) => {
+		// Asserted against the built sw.js rather than against vite.config.ts, because
+		// the gap between those two is exactly where this bug hides. vite-plugin-pwa
+		// only translates `registerType: 'autoUpdate'` into workbox's
+		// skipWaiting/clientsClaim when it is *also* generating the registration script
+		// for you; this project passes `injectRegister: false` and registers by hand, so
+		// registerType on its own emits byte-for-byte the sw.js that 'prompt' emitted.
+		// Anyone tidying that config down to "just registerType" would put every
+		// returning visitor back on the old build, and nothing else here would notice.
+		const response = await request.get(new URL('sw.js', baseURL).toString());
+		expect(response.ok(), 'sw.js should be served').toBe(true);
+		const sw = await response.text();
+
+		expect(sw, 'sw.js must call self.skipWaiting() (workbox.skipWaiting)').toMatch(
+			/self\.skipWaiting\(\)/
+		);
+		expect(sw, 'sw.js must claim open clients (workbox.clientsClaim)').toMatch(/clientsClaim\(/);
+		// workbox-build only bakes this listener in when skipWaiting is off, which is to
+		// say when activation is gated behind a message from a button somebody has to press.
+		expect(sw, 'sw.js must not gate activation behind a SKIP_WAITING message').not.toContain(
+			'SKIP_WAITING'
+		);
 	});
 
 	test.skip(
