@@ -555,9 +555,15 @@ describe('absentSegmentNotes (issue #141: a selected step the map cannot draw)',
 			connectionAirport
 		);
 
+		// Issue #211 sharpened the hotel-bound wording. The point this test was written to
+		// make is unchanged, and is the reason it exists: the note must not blame a missing
+		// bed for a routing failure, because the bed is right there on the card with a price
+		// on it. Naming the bed makes that clearer, not less true.
 		expect(model.absentSegmentNotes['transfer-to-hotel']).toBe(
-			'Nothing to draw. No route came back from the transport providers for this leg.'
+			'Nothing to draw. The bed is priced, but no transport provider could route to it.'
 		);
+		// The outer legs have no bed to speak of either way, so they keep the general
+		// sentence.
 		expect(model.absentSegmentNotes['transfer-to-destination-location']).toBe(
 			'Nothing to draw. No route came back from the transport providers for this leg.'
 		);

@@ -43,6 +43,7 @@ import type {
 	TransferLeg,
 	TransferMode
 } from '../../domain';
+import { greatCircleDistanceKm, MAX_PLAUSIBLE_WALK_MINUTES } from '../../domain';
 import type {
 	ProviderContext,
 	ProviderError,
@@ -123,6 +124,37 @@ const PROFILE_PATHS: Record<OsrmProfile, { servicePrefix: string; urlProfile: st
 };
 
 const SUPPORTED_MODES: readonly TransferMode[] = ['walk', 'drive', 'taxi'];
+
+/**
+ * An upper bound on how fast any pedestrian router could claim to walk, used only to turn
+ * `MAX_PLAUSIBLE_WALK_MINUTES` into a distance this adapter can check BEFORE it asks.
+ *
+ * Deliberately faster than the ~4.5 km/h this host's foot profile was measured at (see the
+ * file header). The gate must never reject a walk the router would have returned inside
+ * the cap, and erring fast is the direction that cannot: at 6 km/h the gate only fires
+ * beyond 4.5 km, where even an implausibly brisk walker is past 45 minutes, while the real
+ * profile is already past it at 3.4.
+ */
+const FASTEST_PLAUSIBLE_WALK_KM_PER_HOUR = 6;
+
+/**
+ * Issue #204: how far apart two points have to be before asking for a walking route is
+ * pointless. Great-circle distance is a lower bound on any real path
+ * (`domain/coordinates.ts`), so past this the route CANNOT come back under the cap.
+ *
+ * `search/resources.ts`'s `isPlausibleTransfer` has thrown these answers away since issue
+ * #119, but throwing away an answer still costs the request that produced it. On
+ * production, a stay 48 km from Gatwick had this adapter ask the shared FOSSGIS instance
+ * for a 48 km foot route four times; every one came back `net::ERR_CONNECTION_RESET`, and
+ * those were the only errors on the page. Asking was the bug, not the reset.
+ */
+const MAX_WALK_ROUTE_DISTANCE_KM =
+	(FASTEST_PLAUSIBLE_WALK_KM_PER_HOUR * MAX_PLAUSIBLE_WALK_MINUTES) / 60;
+
+/** Whether a walking route between these two points could possibly be worth having. */
+function walkIsWorthRouting(from: Coordinates, to: Coordinates): boolean {
+	return greatCircleDistanceKm(from, to) <= MAX_WALK_ROUTE_DISTANCE_KM;
+}
 
 // ---------------------------------------------------------------------------
 // Errors: distinguished so a genuine "no path exists between these points" (a
@@ -620,51 +652,85 @@ async function searchTransfersImpl(
 
 		const store = options.store ?? (await getDefaultStore());
 		const results: Transfer[] = [];
+		// Issue #204: the two profiles below are two independent journeys, and a failure of
+		// one used to take the other with it. `getCachedRoute` rethrows anything that is
+		// not `OsrmNoRouteError`, the walking lookup runs first, and the whole method sat
+		// in one try/catch — so a walking request that failed skipped the driving lookup
+		// entirely and returned `ok: false` for both.
+		//
+		// That is how a priced bed disappeared on production. A 48 km foot route reset the
+		// connection, the driving route that would have reached the same bed was never
+		// requested, `search/resources.ts` found no candidates, dropped the stay, and the
+		// card said "No bed priced for this stopover" about a bed Hostelworld had quoted at
+		// EUR 13.00. Each profile is now kept apart, per AGENTS.md's "partial results are
+		// the normal case".
+		//
+		// A failure is still a failure when EVERY requested profile fails: an empty `ok`
+		// result would read as "asked, and there is nothing here", which is the lie issues
+		// #130 and #135 exist to stop.
+		const failures: unknown[] = [];
 
 		if (requestedModes.includes('walk')) {
-			const outcome = await getCachedRoute(
-				'walking',
-				query.from,
-				query.to,
-				ctx,
-				options,
-				store,
-				requestsUsed
-			);
-			if (outcome.kind === 'value') {
-				if (outcome.requestMade) requestsUsed++;
-				oldestStoredAt = olderFetchInstant(oldestStoredAt, outcome.storedAt);
-				results.push(routeToTransfer('walk', outcome.value));
+			// Issue #204: the cheapest possible answer, and the only one that costs nothing.
+			// A walk this long is one `isPlausibleTransfer` would discard anyway.
+			if (walkIsWorthRouting(query.from, query.to)) {
+				try {
+					const outcome = await getCachedRoute(
+						'walking',
+						query.from,
+						query.to,
+						ctx,
+						options,
+						store,
+						requestsUsed
+					);
+					if (outcome.kind === 'value') {
+						if (outcome.requestMade) requestsUsed++;
+						oldestStoredAt = olderFetchInstant(oldestStoredAt, outcome.storedAt);
+						results.push(routeToTransfer('walk', outcome.value));
+					}
+					// 'no-route' and 'skipped-over-budget' both mean no walking Transfer this
+					// time, a normal partial result rather than a failure of the whole call.
+				} catch (error) {
+					failures.push(error);
+				}
 			}
-			// 'no-route' and 'skipped-over-budget' both mean no walking Transfer this
-			// time — a normal partial result (AGENTS.md: "partial results are the normal
-			// case"), not a failure of the whole call.
 		}
 
 		// 'drive' and 'taxi' both ride the same road network, so one driving route
 		// answers both — a taxi does not get its own physics. This halves the network
 		// cost of a query that asks for both compared to fetching them separately.
 		if (requestedModes.includes('drive') || requestedModes.includes('taxi')) {
-			const outcome = await getCachedRoute(
-				'driving',
-				query.from,
-				query.to,
-				ctx,
-				options,
-				store,
-				requestsUsed
-			);
-			if (outcome.kind === 'value') {
-				if (outcome.requestMade) requestsUsed++;
-				oldestStoredAt = olderFetchInstant(oldestStoredAt, outcome.storedAt);
-				if (requestedModes.includes('drive')) results.push(routeToTransfer('drive', outcome.value));
-				if (requestedModes.includes('taxi')) {
-					// price is deliberately left unset here, never guessed at: a `Transfer`
-					// carries a real `Money` or nothing. The distance-based range lives in
-					// getTaxiFareEstimate below, in a type that cannot be mistaken for one.
-					results.push(routeToTransfer('taxi', outcome.value));
+			try {
+				const outcome = await getCachedRoute(
+					'driving',
+					query.from,
+					query.to,
+					ctx,
+					options,
+					store,
+					requestsUsed
+				);
+				if (outcome.kind === 'value') {
+					if (outcome.requestMade) requestsUsed++;
+					oldestStoredAt = olderFetchInstant(oldestStoredAt, outcome.storedAt);
+					if (requestedModes.includes('drive')) results.push(routeToTransfer('drive', outcome.value));
+					if (requestedModes.includes('taxi')) {
+						// price is deliberately left unset here, never guessed at: a `Transfer`
+						// carries a real `Money` or nothing. The distance-based range lives in
+						// getTaxiFareEstimate below, in a type that cannot be mistaken for one.
+						results.push(routeToTransfer('taxi', outcome.value));
+					}
 				}
+			} catch (error) {
+				failures.push(error);
 			}
+		}
+
+		if (results.length === 0 && failures.length > 0) {
+			// Surface the provider's own first error verbatim, per AGENTS.md's "show the
+			// error you got, never the one you assumed".
+			return { ok: false, error: toProviderError(failures[0]), source: makeSource(), requestsUsed };
 		}
 
 		return { ok: true, data: results, source: makeSource(oldestStoredAt), requestsUsed };

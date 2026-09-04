@@ -15,6 +15,7 @@
 
 import type { IataAirlineCode } from '../domain/codes';
 import type { LocalDateTime } from '../domain/datetime';
+import { unpricedTransferLegs } from '../domain/itinerary';
 import type { FreeTime, Itinerary } from '../domain/itinerary';
 import { majorUnitsOf } from '../domain/money';
 
@@ -268,6 +269,77 @@ export interface ScoringWeights {
 	 */
 	assumedNightCostWithoutPricedBed: number;
 
+	/**
+	 * Score charged for each ground leg whose fare nobody quoted. This is issue #204,
+	 * and exactly the same argument `assumedNightCostWithoutPricedBed` above makes, pointed at the
+	 * other cost this app cannot see.
+	 *
+	 * A taxi from the runway to a bed 40km away is not free, it is unknown, and until this
+	 * existed the two ranked identically: `Itinerary.totalPrice` omits an unquoted fare
+	 * (correctly, see its own doc comment), so a stopover reachable only by two taxi
+	 * rides scored precisely as well as one you can walk. The owner met that as "the
+	 * hotels found are TOO FAR away to be an acceptable result", and he was reading a
+	 * ranking that had been told getting there cost nothing.
+	 *
+	 * A walk is never charged. Walking is free and that is a fact, not a gap
+	 * (`domain/transfer.ts`'s `costIsUnknown`), so a bed you can reach on foot beats an
+	 * identical one you cannot, which is the product thesis with a number on it.
+	 *
+	 * 3 is what any unpriced leg costs before it has gone anywhere: a taxi's flag-down, or
+	 * a bus ticket. It is read off the low column of the EUR cards in
+	 * `providers/transfers/taxi-rate-table.ts` (ES 2.15, PT 2.00, FR 2.60, DE 3.50,
+	 * IT 3.00). `assumedRoadTransferCostPerHour` below is the rest of a taxi fare; a
+	 * `transit` leg is charged this alone, because a train into town costs a ticket, not a
+	 * meter.
+	 *
+	 * SCORING ONLY, like the night charge above. It never reaches `Itinerary.totalPrice`.
+	 */
+	assumedUnpricedTransferBaseCost: number;
+
+	/**
+	 * Charged on top of `assumedUnpricedTransferBaseCost`, per hour, for an unpriced leg
+	 * taken by road in a private vehicle (`taxi` or `drive`). Issue #204.
+	 *
+	 * Distance is what the reported bug is actually about, so a flat per-leg charge does
+	 * not fix it: at Gatwick the London bed is roughly 40km out and the Horley bed 3km,
+	 * and a charge that cannot tell those apart leaves the cheaper distant bed winning
+	 * exactly as before. Only a term that grows with the ride changes the answer.
+	 *
+	 * 70 is derived, not picked. Take the low per-km column of every card in
+	 * `taxi-rate-table.ts`, put them all in euros so they can be compared at all, and sort:
+	 * PT 0.90, CZ 1.00, FR 1.00, IT 1.10, ES 1.13, SE 1.32, AT 1.40, DE 1.70, BE 1.80,
+	 * NL 2.10, GB 3.28, CH 3.75. The median is 1.36 per kilometre. An airport-to-city road
+	 * route averages something near 50km/h once OSRM's car profile has been down a
+	 * motorway and through a suburb, so 1.36 x 50 is about 70 an hour.
+	 *
+	 * The median rather than the floor, following the same reasoning
+	 * `assumedNightCostWithoutPricedBed` gives for landing in the middle of its evidence:
+	 * a number under every card charges a Swiss taxi Portuguese rates, which is not
+	 * caution, it is a different wrong answer. One global figure cannot be right
+	 * everywhere. It is wrong by about 2.5x in Britain and Switzerland and by about half
+	 * in Portugal and Czechia, and that is the honest cost of a score denominated in one
+	 * unit while fares are quoted in twelve currencies.
+	 *
+	 * It checks out against the table where the table is typical: a 12-minute, 10km hop
+	 * costs 3 + 14 = 17 here against €13.50 from the Spanish card.
+	 *
+	 * `Transfer.duration` is the basis, and on the hotel-bound leg it carries the
+	 * landing-to-transport buffer as well as the ride (`search/resources.ts`'s
+	 * `applyLandingBuffer`), so that leg is overcharged by the 15 or 30 minutes it takes
+	 * to get out of the terminal. That is a known, bounded error, and it cancels exactly
+	 * where it matters: every candidate at one connection airport carries the same buffer,
+	 * so it never decides between two beds at the same airport.
+	 *
+	 * The alternative was the measured fare this app already computes
+	 * (`TaxiFareEstimate`, from a real OSRM distance). It is not usable here: it is
+	 * denominated in the rate card's own country currency, GBP for a Gatwick layover,
+	 * against a EUR-denominated score, and nothing in this codebase converts currencies by
+	 * design. Folding GBP minor units into a EUR figure is the class of bug #152 fixed.
+	 * The measured range still reaches the traveller, in its own currency and tagged as an
+	 * estimate, in `TransportPicker`.
+	 */
+	assumedRoadTransferCostPerHour: number;
+
 	/** Score lost per flight (0, 1, or 2 per itinerary) operated by an airline on the
 	 * traveller's avoid list. Large enough (25 per flight) to reliably sink such an
 	 * itinerary toward the bottom of the list, but deliberately finite: per the brief
@@ -286,6 +358,8 @@ export const DEFAULT_SCORING_WEIGHTS: ScoringWeights = {
 	stopoverDecayPerNight: 0.75,
 	usableFreeTimeWeightPerHour: 1.5,
 	assumedNightCostWithoutPricedBed: 30,
+	assumedUnpricedTransferBaseCost: 3,
+	assumedRoadTransferCostPerHour: 70,
 	avoidedAirlinePenaltyPerFlight: 25
 };
 
@@ -308,6 +382,11 @@ export interface ScoreBreakdown {
 	 * already inside `price` in that case. Separate from `nights` so a breakdown can show
 	 * "3 nights, none of them priced" as two honest numbers rather than one netted-out one. */
 	unpricedNights: number;
+	/** Issue #204: what this trip's ground legs are charged when no provider quoted their
+	 * fare, always <= 0 and 0 for a trip whose every leg is either walked or priced.
+	 * Separate from `price` so a breakdown can show "EUR 238 quoted, two rides nobody
+	 * priced" as two honest numbers rather than one blended one. */
+	unpricedTransfers: number;
 	avoidedAirline: number;
 }
 
@@ -369,6 +448,19 @@ export function scoreItinerary(
 	// charge for its nights, and a saturating bonus that never quite reaches its ceiling
 	// would keep making one more night marginally better, forever.
 	const bedPriced = (itinerary.stay?.pricePerNight.minorUnits ?? 0) > 0;
+	// Issue #204. Derived from the itinerary's own legs rather than a stored field, so a
+	// picker swap or a waiting-time edit cannot leave this disagreeing with the trip it
+	// describes. See `unpricedTransferLegs`' own doc comment.
+	const unpricedTransferCost = unpricedTransferLegs(itinerary).reduce((charge, { transfer }) => {
+		// Every unpriced leg costs at least a ticket or a flag-down; only a private
+		// vehicle then keeps charging by the kilometre, which `duration` stands in for.
+		const road = transfer.mode === 'taxi' || transfer.mode === 'drive';
+		return (
+			charge +
+			weights.assumedUnpricedTransferBaseCost +
+			(road ? (weights.assumedRoadTransferCostPerHour * transfer.duration) / 60 : 0)
+		);
+	}, 0);
 
 	const breakdown: ScoreBreakdown = {
 		price: -weights.pricePerCurrencyUnit * priceInMajorUnits(itinerary),
@@ -379,6 +471,8 @@ export function scoreItinerary(
 		// The `=== 0 ? 0 :` guard is the same -0 avoidance `avoidedAirline` below uses.
 		unpricedNights:
 			bedPriced || nights === 0 ? 0 : -weights.assumedNightCostWithoutPricedBed * nights,
+		// Same `=== 0 ? 0 :` -0 guard as the two charges either side of it.
+		unpricedTransfers: unpricedTransferCost === 0 ? 0 : -unpricedTransferCost,
 		// The `=== 0 ? 0 :` guard avoids producing -0 for the common case of no avoided
 		// flights, which would otherwise print as "-0" anywhere this breakdown is shown.
 		avoidedAirline:

@@ -53,6 +53,7 @@ import type {
   Transfer,
   TransferMode,
 } from "../domain";
+import { MAX_PLAUSIBLE_WALK_MINUTES } from "../domain";
 import type { ConnectionResources, TransferAnchor } from "../algorithm/build";
 import {
   femaleDormFit,
@@ -72,8 +73,48 @@ import {
 import type { StayLookupBudget } from "../providers/budget";
 import type { RecordProviderCall, SourceTracker } from "./provenance";
 
-/** Brief line 76: "cheapest hotels/hostels for each connection within 100km." */
-export const DEFAULT_STAY_RADIUS_KM = 100;
+/**
+ * How far from the connection airport a bed may be and still belong to this stopover.
+ *
+ * The brief's line 76 says "cheapest hotels/hostels for each connection within 100km", so
+ * changing it is a product decision. Issue #204 is the argument for changing it, and the
+ * measurements are from this repo's own data (`data/airports.generated.json` against the
+ * hand-checked city points in `data/airport-city-names.ts`, great-circle):
+ *
+ * | pair | km |
+ * | --- | --- |
+ * | BGY -> Bergamo | 4.1 |
+ * | LIN -> Milan | 7.1 |
+ * | ZAG -> Zagreb | 10.6 |
+ * | EDI -> Edinburgh | 11.5 |
+ * | CDG -> Paris | 22.5 |
+ * | MXP -> Milan | 40.4 |
+ * | CRL -> Brussels | 43.5 |
+ * | STN -> London | 48.9 |
+ * | BVA -> Paris | 68.7 |
+ * | PSA -> Florence | 70.0 |
+ * | GRO -> Barcelona | 75.7 |
+ * | TRF -> Oslo | 85.5 |
+ * | NYO -> Stockholm | 89.3 |
+ * | FMM -> Munich | 101.2 |
+ *
+ * There is a gap in that list between 48.9 and 68.7, and it is not a coincidence. Above
+ * it sit exactly the airports `data/airport-city-names.ts` already refuses to name after
+ * the city on the ticket, in its own words because "each is a real town far from the city
+ * on the ticket... Displaying the marketed city would be the same lie in the other
+ * direction." A 100km stay radius tells that lie anyway, one layer down: it offers a
+ * Barcelona bed for a Girona layover and a Stockholm bed for a Skavsta one, then totals
+ * the coach nobody priced as zero. 50 keeps every city this app is willing to name an
+ * airport after and drops that whole band.
+ *
+ * What 50 does NOT do is fix issue #204's reported symptom, and pretending otherwise
+ * would be the second mistake. Gatwick to central London is 40.1km and Malpensa to
+ * central Milan is 40.4km: no radius separates the bed the owner called "TOO FAR" from a
+ * stopover that is the product working. The cost of getting there is what separates them,
+ * which is `score.ts`'s `assumedRoadTransferCostPerHour` and this file's own
+ * `estimateTaxiFareForLeg`, not this number.
+ */
+export const DEFAULT_STAY_RADIUS_KM = 50;
 
 /**
  * Every `Stay` this candidate's usable providers returned, cheapest first, so a caller can
@@ -127,31 +168,10 @@ const TRANSFER_MODE_PREFERENCE: readonly TransferMode[] = [
   "drive",
 ];
 
-/**
- * Issue #119, the owner's own words: **"'Walk 11h 42m' WTF dont even show this, walk is
- * not an option in this case."** He was right, and nothing here had ever asked whether a
- * walking duration was plausible before ranking it — `TRANSFER_MODE_PREFERENCE` above puts
- * walking second, so an eleven-hour walk beat a taxi that took forty minutes.
- *
- * 45 minutes, and the number is arguable, so here is the argument. OSRM's foot profile
- * runs about 4.5 km/h (measured directly, see `providers/transfers/osrm.ts`'s header), so
- * this is roughly 3.4 km — a walk somebody who has just dragged a suitcase off a flight
- * might still choose, and past which they will not. It also has to leave the short walks
- * alone, because a 12-minute walk genuinely beats waiting for a bus, and this cap does:
- * `TransportPicker` already treats a wait under 20 minutes as one you would have had
- * anyway, so a typical airport hop of "wait 20, ride 15" is 35 minutes end to end and any
- * walk that beats it survives this filter with room to spare.
- *
- * A single named constant rather than a `SearchQuery` field, deliberately. The brief's
- * editable waiting time is a preference this app has no grounds to overrule. A twelve-hour
- * walk is not a preference — it is the router answering a question nobody asked, and the
- * leg degrades to "no transfer found", which every caller here already handles.
- *
- * Driving and taxi are left uncapped on purpose. Issue #119 says the same reasoning
- * applies to an absurd driving duration and it does, but a road cap needs its own argument
- * about ferry links and routing artefacts, and it belongs with the rest of that issue.
- */
-export const MAX_PLAUSIBLE_WALK_MINUTES = 45 as Duration;
+/** Issue #204 moved this to `domain/transfer.ts`, where `providers/transfers/osrm.ts` can
+ * read it too and stop ASKING for a walking route this filter would only discard. Still
+ * exported from here: it has been part of this module's surface since issue #119. */
+export { MAX_PLAUSIBLE_WALK_MINUTES };
 
 /**
  * Whether this transfer is worth putting in front of a traveller at all.
@@ -562,9 +582,10 @@ export interface ConnectionResourcesWithStayCandidates extends ConnectionResourc
  * and never a stay-shaped hole papered over with a guess. */
 function withoutTransfers(
   stayCandidates: Stay[],
+  stay?: Stay,
 ): ConnectionResourcesWithStayCandidates {
   return {
-    stay: undefined,
+    stay,
     transferAnchor: undefined,
     transferToHotel: undefined,
     transferToConnectionAirport: undefined,
@@ -642,16 +663,26 @@ export async function fetchConnectionResources(
         input.record,
       ),
     ]);
-  // A destination exists but nothing can get the traveller there and back — the same "no
-  // usable transfer" outcome as having nowhere to go at all (one provider failing, here a
-  // transfer provider, must never fail the whole search). `stayCandidates` is still
-  // returned: a caller deciding to show alternatives doesn't need a reachable transfer to
-  // list them.
+  // A destination exists but nothing can get the traveller there and back. One provider
+  // failing, here a transfer provider, must never fail the whole search.
+  //
+  // Issue #211: it used to take the bed with it. `withoutTransfers` set `stay: undefined`,
+  // so a room a provider had quoted a real price for was deleted because a routing service
+  // was unreachable, and the card then said "No bed priced for this stopover" about a bed
+  // that had been priced. Measured directly on production with OSRM as the only variable:
+  // OSRM answering gave "Bed, 6 nights EUR 78.00"; OSRM refused gave "Bed not priced",
+  // three times running, on identical Hostelworld responses.
+  //
+  // Those are two different answers and the traveller was only ever shown one of them. The
+  // bed survives now. A stopover with a priced bed and no route to it is a real, if
+  // incomplete, result: the price is known and the way there is not, which is exactly what
+  // AGENTS.md means by saying what you do not know. `algorithm/build.ts` already treats
+  // both connection-side transfers as optional, so nothing downstream needs them to exist.
   if (
     !transferToHotelOutcome.selected ||
     !transferToConnectionAirportOutcome.selected
   ) {
-    return withoutTransfers(stayCandidates);
+    return withoutTransfers(stayCandidates, stay);
   }
 
   const landingBuffer = pickLandingToTransportTime(
@@ -667,7 +698,7 @@ export async function fetchConnectionResources(
     (transfer) => applyLandingBuffer(transfer, landingBuffer, input.sources),
   );
   const transferToHotel = pickBestTransfer(transferToHotelCandidates);
-  if (!transferToHotel) return withoutTransfers(stayCandidates); // unreachable: buffering cannot empty a non-empty list
+  if (!transferToHotel) return withoutTransfers(stayCandidates, stay); // unreachable: buffering cannot empty a non-empty list
 
   const transferToConnectionAirportCandidates =
     transferToConnectionAirportOutcome.candidates;

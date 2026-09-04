@@ -10,13 +10,23 @@ import {
 	osrmTransferProvider
 } from './osrm';
 
-// Barcelona airport (T1) and a real, OSM-listed hotel a few km away (INNSiDE by
-// Meliá, formerly TRYP Barcelona Aeropuerto) — see the real verification call run
-// during development, which confirmed this pair returns a plausible walking time
-// (roughly an hour on foot for ~5km, roughly six minutes driving) from the actual
-// public routing.openstreetmap.de service this adapter uses.
+// Barcelona airport (T1) and a point in El Prat about 2.1 km north of it: an ordinary
+// airport-hotel hop, and the shape of leg this adapter exists to answer.
+//
+// Issue #204 moved this point. It used to sit at 41.3874, 2.1686, which is central
+// Barcelona, 12.55 km from T1 — a walk of roughly two hours forty at the ~4.5 km/h this
+// adapter's foot profile was measured at. The comment above it still described "a real,
+// OSM-listed hotel a few km away... roughly an hour on foot for ~5km", so the coordinates
+// and their own documentation had drifted apart, and every walking assertion below was
+// really asserting a walk `search/resources.ts` throws away on arrival. 2.1 km is inside
+// `MAX_PLAUSIBLE_WALK_MINUTES` with room to spare, so these tests now exercise a walk the
+// app would actually offer somebody.
 const AIRPORT: Coordinates = { latitude: 41.2971, longitude: 2.0785 };
-const HOTEL: Coordinates = { latitude: 41.3874, longitude: 2.1686 };
+const HOTEL: Coordinates = { latitude: 41.3128, longitude: 2.0925 };
+
+/** Central Barcelona, 12.55 km from T1. Far enough that no walking route could come back
+ * inside the cap, which is what `walkIsWorthRouting` refuses to ask about. */
+const DISTANT_HOTEL: Coordinates = { latitude: 41.3874, longitude: 2.1686 };
 
 function jsonResponse(body: unknown, status = 200): Response {
 	return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
@@ -49,7 +59,7 @@ describe('createOsrmTransferProvider / searchTransfers', () => {
 		// AIRPORT is {latitude: 41.2971, longitude: 2.0785} — the URL must read
 		// "2.0785,41.2971", never "41.2971,2.0785".
 		expect(url).toContain('2.0785,41.2971');
-		expect(url).toContain('2.1686,41.3874');
+		expect(url).toContain('2.0925,41.3128');
 		expect(url).not.toContain('41.2971,2.0785');
 	});
 
@@ -237,6 +247,87 @@ describe('createOsrmTransferProvider / searchTransfers', () => {
 		expect(result.ok).toBe(true);
 		if (!result.ok) return;
 		expect(result.data.map((t) => t.mode)).toEqual(['drive']);
+	});
+
+	// Issue #204 -------------------------------------------------------------
+
+	it('never asks for a walking route nobody could walk', async () => {
+		// Production, on the owner's own URL: a bed 48 km from Gatwick made this adapter ask
+		// the shared FOSSGIS instance for a 48 km foot route four times, and every one came
+		// back `net::ERR_CONNECTION_RESET`. `search/resources.ts` would have discarded that
+		// walk on arrival anyway (`MAX_PLAUSIBLE_WALK_MINUTES`), so the request could only
+		// ever have been waste. Great-circle distance is a lower bound on any real path, so
+		// this can be decided before spending anything.
+		const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(routeBody(600, 800)));
+		const provider = createOsrmTransferProvider({ store: new MemoryCacheStore(), fetchImpl });
+
+		const result = await provider.searchTransfers(
+			{ from: AIRPORT, to: DISTANT_HOTEL, modes: ['walk'] },
+			ctxFor()
+		);
+
+		expect(fetchImpl).not.toHaveBeenCalled();
+		expect(result.ok).toBe(true);
+		if (!result.ok) return;
+		expect(result.data).toEqual([]);
+		expect(result.requestsUsed).toBe(0);
+	});
+
+	it('still routes the drive when the walk is too far to be worth asking about', async () => {
+		// The distance gate must not cost the traveller the answer that does exist. A bed
+		// across the city is reachable, just not on foot.
+		const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(routeBody(1500, 12_000)));
+		const provider = createOsrmTransferProvider({ store: new MemoryCacheStore(), fetchImpl });
+
+		const result = await provider.searchTransfers(
+			{ from: AIRPORT, to: DISTANT_HOTEL, modes: ['walk', 'drive', 'taxi'] },
+			ctxFor()
+		);
+
+		expect(fetchImpl).toHaveBeenCalledTimes(1); // the driving route, and only that
+		expect(result.ok).toBe(true);
+		if (!result.ok) return;
+		expect(result.data.map((t) => t.mode)).toEqual(['drive', 'taxi']);
+	});
+
+	it('keeps a working drive when the walk request itself fails', async () => {
+		// The production defect underneath the one above, and the one that survives any
+		// radius: `getCachedRoute` rethrows a network failure, the walking lookup runs
+		// first, and one try/catch wrapped both profiles. So a reset on the foot route
+		// skipped the driving route entirely and failed the whole call, `resources.ts` found
+		// no transfer, and a bed Hostelworld had priced at EUR 13.00 was dropped and
+		// reported as "No bed priced for this stopover".
+		const fetchImpl = vi
+			.fn()
+			.mockRejectedValueOnce(new TypeError('Failed to fetch'))
+			.mockResolvedValueOnce(jsonResponse(routeBody(300, 2500)));
+		const provider = createOsrmTransferProvider({ store: new MemoryCacheStore(), fetchImpl });
+
+		const result = await provider.searchTransfers(
+			{ from: AIRPORT, to: HOTEL, modes: ['walk', 'drive'] },
+			ctxFor()
+		);
+
+		expect(result.ok).toBe(true);
+		if (!result.ok) return;
+		expect(result.data.map((t) => t.mode)).toEqual(['drive']);
+	});
+
+	it('still fails, with the provider\'s own error, when every mode fails', async () => {
+		// An empty `ok` result would read as "asked, and there is nothing here", which is a
+		// different answer and the one issues #130/#135 exist to stop us inventing.
+		const fetchImpl = vi.fn().mockRejectedValue(new TypeError('Failed to fetch'));
+		const provider = createOsrmTransferProvider({ store: new MemoryCacheStore(), fetchImpl });
+
+		const result = await provider.searchTransfers(
+			{ from: AIRPORT, to: HOTEL, modes: ['walk', 'drive'] },
+			ctxFor()
+		);
+
+		expect(result.ok).toBe(false);
+		if (result.ok) return;
+		expect(result.error.code).toBe('network-error');
+		expect(result.error.message).toContain('Failed to fetch');
 	});
 
 	it('maps a non-2xx HTTP response to a network-error', async () => {

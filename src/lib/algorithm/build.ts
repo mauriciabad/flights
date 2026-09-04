@@ -163,7 +163,13 @@ export function scaleFareForParty(offer: FlightOffer, travellers: number): Money
 
 /** Totals Money values that must already share one currency — converting between
  * currencies is out of scope here, left to whichever module normalises provider prices
- * before they reach the builder. Exported for the same reason as `minutesBetween` above. */
+ * before they reach the builder. Exported for the same reason as `minutesBetween` above.
+ *
+ * Skipping `undefined` is a deliberate "this part contributed nothing", NOT "this part is
+ * free". Issue #204: for a transfer those are opposite claims, and every caller passing a
+ * `Transfer.price` here has to say which of the two it left out. See
+ * `domain/itinerary.ts`'s `unpricedTransferLegs`, which is what both call sites below
+ * hand to the ranking and the card. */
 export function sumMoney(first: Money, ...rest: (Money | undefined)[]): Money {
 	let total = first.minorUnits;
 	for (const part of rest) {
@@ -192,9 +198,12 @@ export type TransferAnchor = 'stay' | 'city-centre';
  * without a bed there is nowhere for a hotel-bound transfer to go. Issue #161 found the
  * better destination that reasoning missed: the city centre. Both transfers can now be
  * present with `stay` absent (`transferAnchor === 'city-centre'`), which is the ordinary
- * state of a search with no stay-provider key — every first visit. `stay` present without
- * them is still impossible; `resources.ts`'s `fetchConnectionResources` is what enforces
- * that direction.
+ * state of a search with no stay-provider key — every first visit.
+ *
+ * Issue #211 removed the other half of that invariant. `stay` present with neither
+ * transfer is now a real state: a bed a provider quoted a price for, which no transfer
+ * provider could find a route to. `resources.ts` used to delete such a bed and report it
+ * as never priced, which told the traveller the wrong one of two different answers.
  *
  * Issue #94 still holds otherwise: a connection with no bed reachable produces an
  * itinerary anyway, just one with no bed priced. A connection with no entry in
@@ -347,6 +356,13 @@ export function buildItineraries(input: BuildItinerariesInput): Itinerary[] {
 			// Ryanair fare needs `travellers` applied, an already-party-total Skyscanner
 			// fare must not be multiplied again. The stay's per-night rate is never scaled
 			// either way — issue #80/#94's own deliberate flat-per-party choice.
+			//
+			// Issue #204: the four transfer prices below are, today, always `undefined`,
+			// because no `TransferProvider` in this codebase quotes a fare. That does not make the
+			// legs free, and this total does not pretend it does: `unpricedTransferLegs`
+			// names every one of them, `score.ts` charges the ranking for them, and the
+			// card prints them as an omission. The number here stays exactly what was
+			// quoted, which is the whole reason it can be trusted.
 			const totalPrice = sumMoney(
 				scaleFareForParty(outbound, travellers),
 				scaleFareForParty(onward, travellers),

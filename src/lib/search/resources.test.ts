@@ -42,8 +42,13 @@ vi.mock('../providers/transfers/osrm', async (importOriginal) => {
 
 // Imported after the mock is registered, per vitest's hoisting contract for vi.mock (same
 // pattern as providers-adapter.test.ts).
-const { fetchConnectionResources, isPlausibleTransfer, MAX_PLAUSIBLE_WALK_MINUTES, pickBestTransfer } =
-	await import('./resources');
+const {
+	DEFAULT_STAY_RADIUS_KM,
+	fetchConnectionResources,
+	isPlausibleTransfer,
+	MAX_PLAUSIBLE_WALK_MINUTES,
+	pickBestTransfer
+} = await import('./resources');
 
 // Every id passed through here is a fixture-only stand-in, not a real registered adapter —
 // cast rather than widening ProviderSource.providerId itself, which is exactly the closed
@@ -382,6 +387,57 @@ describe('fetchConnectionResources: transfer candidates for both connection-side
 
 		expect(resources.transferToHotelCandidates).toEqual([]);
 		expect(resources.transferToConnectionAirportCandidates).toEqual([]);
+	});
+
+	// Issue #211 -------------------------------------------------------------
+
+	/** A transfer provider that is simply down, the way OSRM was on production. */
+	function brokenTransferProvider(): TransferProvider {
+		return {
+			...configurableTransferProvider([]),
+			async searchTransfers(): Promise<ProviderResult<Transfer[]>> {
+				return {
+					ok: false,
+					error: { code: 'network-error', message: 'Failed to fetch' },
+					source: source('transfer-fixture'),
+					requestsUsed: 1
+				};
+			}
+		};
+	}
+
+	it('keeps a priced bed when no transfer provider can route to it', async () => {
+		// Measured on production with OSRM as the only variable: answering gave "Bed, 6
+		// nights EUR 78.00"; refused gave "Bed not priced", three times running, on
+		// identical Hostelworld responses. A bed a provider quoted a real price for was
+		// being deleted because a routing service was unreachable, and the traveller was
+		// told the wrong one of two different answers.
+		const bed = stay('Reachable-in-principle Hostel', 'dorm', 1300);
+		const resources = await fetchConnectionResources(
+			baseInput([fakeStayProvider('stays', [bed])], {
+				transferProviders: [brokenTransferProvider()],
+				currency: 'EUR'
+			})
+		);
+
+		expect(resources.stay).toEqual(bed);
+		expect(resources.transferToHotel).toBeUndefined();
+		expect(resources.transferToConnectionAirport).toBeUndefined();
+		expect(resources.transferAnchor).toBeUndefined();
+	});
+
+	it('still reports no bed when there was never a bed to report', async () => {
+		// The other side of the same distinction. A transfer provider being down must not
+		// start inventing a stay, and "nothing was found" stays its own answer.
+		const resources = await fetchConnectionResources(
+			baseInput([fakeStayProvider('stays', [])], {
+				transferProviders: [brokenTransferProvider()],
+				currency: 'EUR'
+			})
+		);
+
+		expect(resources.stay).toBeUndefined();
+		expect(resources.stayCandidates).toEqual([]);
 	});
 });
 
@@ -787,5 +843,78 @@ describe('fetchConnectionResources: routing to the city centre when no bed is pr
 		expect(resources.transferAnchor).toBeUndefined();
 		expect(resources.transferToHotel).toBeUndefined();
 		expect(resources.transferToConnectionAirport).toBeUndefined();
+	});
+});
+
+/**
+ * Issue #204. The radius is a product decision (the brief's line 76 says 100km), so what
+ * is worth pinning is the argument, not the number: a constant asserted against itself
+ * catches nothing, and the next person to change it should have to confront the same
+ * evidence rather than a failing equality.
+ */
+describe('DEFAULT_STAY_RADIUS_KM', () => {
+	const EARTH_RADIUS_KM = 6371;
+	function distanceKm(a: Coordinates, b: Coordinates): number {
+		const toRad = (deg: number) => (deg * Math.PI) / 180;
+		const dLat = toRad(b.latitude - a.latitude);
+		const dLon = toRad(b.longitude - a.longitude);
+		const h =
+			Math.sin(dLat / 2) ** 2 +
+			Math.cos(toRad(a.latitude)) * Math.cos(toRad(b.latitude)) * Math.sin(dLon / 2) ** 2;
+		return 2 * EARTH_RADIUS_KM * Math.asin(Math.min(1, Math.sqrt(h)));
+	}
+
+	it('reaches every city this app is willing to name an airport after', async () => {
+		// `data/airport-city-names.ts` is a hand-checked list of the places a connection
+		// actually is, one airport at a time. If a stay search cannot reach the centre of a
+		// city whose name the app prints on the card, the radius is too small. The whole
+		// pitch is "the connection city becomes the trip", and MXP -> Milan at 40.4km is
+		// the furthest of them.
+		const { loadAirports } = await import('../data/airports');
+		const withCentres = (await loadAirports()).filter((airport) => airport.city.coordinates);
+		expect(withCentres.length).toBeGreaterThan(5); // the table exists at all
+
+		for (const airport of withCentres) {
+			expect(
+				distanceKm(airport.coordinates, airport.city.coordinates!),
+				`${airport.iataCode} -> ${airport.city.name}`
+			).toBeLessThan(DEFAULT_STAY_RADIUS_KM);
+		}
+	});
+
+	it('does not reach the marketed city of an airport nowhere near it', async () => {
+		// The other half of the argument. `airport-city-names.ts` deliberately refuses to
+		// rename these, "because each is a real town far from the city on the ticket...
+		// Displaying the marketed city would be the same lie in the other direction". At
+		// 100km the stay search told that lie anyway: it offered a Barcelona bed for a
+		// Girona layover, then totalled the coach nobody priced at zero.
+		//
+		// City points are OpenStreetMap centres, the same source the naming table cites.
+		const marketedCity: Record<string, { name: string; at: Coordinates }> = {
+			GRO: { name: 'Barcelona', at: { latitude: 41.3874, longitude: 2.1686 } },
+			BVA: { name: 'Paris', at: { latitude: 48.8566, longitude: 2.3522 } },
+			TRF: { name: 'Oslo', at: { latitude: 59.9139, longitude: 10.7522 } },
+			NYO: { name: 'Stockholm', at: { latitude: 59.3293, longitude: 18.0686 } },
+			FMM: { name: 'Munich', at: { latitude: 48.1351, longitude: 11.582 } }
+		};
+
+		const { getAirport } = await import('../data/airports');
+		for (const [code, city] of Object.entries(marketedCity)) {
+			const airport = await getAirport(code);
+			expect(airport, code).toBeDefined();
+			expect(
+				distanceKm(airport!.coordinates, city.at),
+				`${code} -> ${city.name}`
+			).toBeGreaterThan(DEFAULT_STAY_RADIUS_KM);
+		}
+	});
+
+	it('stays above the smallest radius a stay provider will accept', async () => {
+		// booking-client.ts measured `radius=5` rejected as "Invalid value" and `radius=10`
+		// accepted, and clamps upward rather than failing. A default below that would be
+		// silently widened by one adapter and honoured by the other, so the two would
+		// search different areas for the same connection.
+		const { MIN_SEARCH_RADIUS_KM } = await import('../providers/stays/booking-client');
+		expect(DEFAULT_STAY_RADIUS_KM).toBeGreaterThanOrEqual(MIN_SEARCH_RADIUS_KM);
 	});
 });
