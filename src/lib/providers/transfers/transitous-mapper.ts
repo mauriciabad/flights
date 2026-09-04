@@ -91,7 +91,7 @@ function isValidItinerary(value: unknown): value is TransitousItinerary {
  *
  * `transitous-client.ts` already leaves `AIRPLANE` out of the modes it asks MOTIS to route
  * with, so on a healthy day nothing here has anything to drop. It runs anyway because a
- * query parameter is a request, not a guarantee — an older MOTIS behind the same URL, or a
+ * query parameter is a request, not a guarantee. An older MOTIS behind the same URL, or a
  * feed whose route type lands on `AIRPLANE` some other way, and the app is back to quoting
  * the traveller a flight it already sold them under "Public transport" and adding its hours
  * to the door-to-door total.
@@ -271,10 +271,18 @@ function mapLeg(leg: TransitousLeg): TransferLeg {
 	return {
 		mode,
 		description: describeLeg(leg),
+		// Issue #220: the same word `describeLeg` puts at the front of its sentence, kept as
+		// its own field so a summary line can say "Bus, then metro" without pulling the
+		// sentence apart again.
+		vehicle: mode === 'transit' ? vehicleLabel(leg) : undefined,
 		departure: utcInstantToLocalDateTime(leg.startTime, leg.from.tz ?? 'UTC'),
 		arrival: utcInstantToLocalDateTime(leg.endTime, leg.to.tz ?? 'UTC'),
 		duration: secondsToDuration(leg.duration)
 	};
+}
+
+function vehicleLabel(leg: TransitousLeg): string {
+	return TRANSIT_MODE_LABELS[leg.mode] ?? 'Transit';
 }
 
 /** Issue #8: "Include each leg's operator and line name so the timeline can name them." */
@@ -282,7 +290,7 @@ function describeLeg(leg: TransitousLeg): string | undefined {
 	if (leg.mode === 'WALK') {
 		return typeof leg.distance === 'number' ? `Walk (${Math.round(leg.distance)} m)` : 'Walk';
 	}
-	const kind = TRANSIT_MODE_LABELS[leg.mode] ?? 'Transit';
+	const kind = vehicleLabel(leg);
 	const line = leg.routeShortName || leg.routeLongName;
 	const label = line ? `${kind} ${line}` : kind;
 	const withHeadsign = leg.headsign ? `${label} to ${leg.headsign}` : label;

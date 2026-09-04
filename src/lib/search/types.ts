@@ -188,7 +188,7 @@ export interface TransitLegAnswer {
 	/**
 	 * Issue #220: a route came back for this leg and `search/resources.ts` refused it as
 	 * implausible for the distance. Only ever set alongside `answer: 'answered'`, and only
-	 * when nothing survived the filter — a leg with one absurd option and one real bus has
+	 * when nothing survived the filter. A leg with one absurd option and one real bus has
 	 * a real bus to show and nothing to explain.
 	 *
 	 * It exists so a card can print the observation rather than a conclusion. Without it

@@ -64,7 +64,7 @@ describe('fetchTransitousPlan', () => {
 		const [url] = fetchImpl.mock.calls[0] as [string];
 		const modes = new URL(url).searchParams.get('transitModes')?.split(',') ?? [];
 		expect(modes).not.toContain('AIRPLANE');
-		// MOTIS's own definition of `TRANSIT`, minus AIRPLANE — not a hand-picked subset.
+		// MOTIS's own definition of `TRANSIT`, minus AIRPLANE, not a hand-picked subset.
 		// Losing one of these silently would delete real service from every search.
 		expect(modes).toEqual([...GROUND_TRANSIT_MODES]);
 		expect(modes).toContain('BUS');

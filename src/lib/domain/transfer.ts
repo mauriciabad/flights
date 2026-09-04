@@ -45,7 +45,7 @@ export const MAX_PLAUSIBLE_WALK_MINUTES = 45 as Duration;
  * What a transit transfer is allowed to cost that has nothing to do with how far it goes:
  * the walk to the stop, the walk off at the other end, and the changes in between.
  *
- * 90 minutes. Generous on purpose — this is one half of a rule that only has to catch the
+ * 90 minutes. Generous on purpose. This is one half of a rule that only has to catch the
  * absurd, and every minute of slack here is a real journey it cannot delete by mistake.
  */
 export const TRANSIT_FIXED_ALLOWANCE_MINUTES = 90;
@@ -56,7 +56,7 @@ export const TRANSIT_FIXED_ALLOWANCE_MINUTES = 90;
  *
  * Measured, not guessed. Barcelona airport to Plaça Catalunya is 12.6 km apart in a
  * straight line, and on 2026-09-05 Transitous answered it with six itineraries between 50
- * and 62 minutes, every one of them two or three buses with changes — about the slowest
+ * and 62 minutes, every one of them two or three buses with changes, about the slowest
  * shape a city transfer takes. That is 12.2 km/h at its worst. Rounding down to 10 keeps
  * the gate below anything observed, the same direction `providers/transfers/osrm.ts` errs
  * in with `FASTEST_PLAUSIBLE_WALK_KM_PER_HOUR`: the bound must never reject a journey a
@@ -105,6 +105,18 @@ export interface TransferLeg {
 	mode: TransferMode;
 	/** e.g. "Bus 100 to City Airport Station" — not always available from a provider. */
 	description?: string;
+	/**
+	 * What kind of vehicle this leg rides, spelled for a traveller: "Bus", "Metro",
+	 * "Train", "Coach", "Ferry". Absent on a walk, and absent whenever a provider did not
+	 * say (issue #220 added it; a `Transfer` cached before that has no `vehicle` on any
+	 * leg, so every reader needs a fallback).
+	 *
+	 * Separate from `description` rather than parsed back out of it. The description is
+	 * one sentence built for a person, "Bus 46 to Aeroport BCN (TMB)", and a summary line
+	 * that needs only the word "Bus" would otherwise have to take it apart by string
+	 * surgery, which breaks the first time an operator's name contains a comma.
+	 */
+	vehicle?: string;
 	departure?: LocalDateTime;
 	arrival?: LocalDateTime;
 	duration: Duration;

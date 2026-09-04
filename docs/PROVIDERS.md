@@ -1100,6 +1100,30 @@ Their terms require a `User-Agent` naming the app with contact details, ask that
 project be open-source and non-commercial, and ask for attribution. Honour all three.
 The service is free and run by volunteers.
 
+**MOTIS will route a ground transfer through four flights if you let it** (issue #220).
+Asked for the 9.7 km from Birmingham airport to a hostel in Birmingham at 03:00, it
+answered with a 21h 27m itinerary flying BHX to Olbia, Rome, Cagliari and Amsterdam, then
+a train to Den Haag, a FlixBus to London Victoria and a National Express coach to Digbeth.
+The default `transitModes` is `TRANSIT`, and MOTIS's own `openapi.yaml` defines that as
+`TRAM,FERRY,AIRPLANE,BUS,COACH,RAIL,ODM,RIDE_SHARING,FUNICULAR,AERIAL_LIFT,OTHER`. So this
+adapter sends that list with `AIRPLANE` removed, and the mapper drops an air leg again on
+the way in.
+
+Two things to know before touching that parameter. An unrecognised mode name is a hard
+`500` with MOTIS's own `enum ModeEnum: unknown value NOT_A_MODE` in the body, so a typo
+takes out every transit lookup rather than degrading. And a mode added to `TRANSIT` later
+would not be asked for here until someone updates the list, since MOTIS has no "everything
+except" form.
+
+**The reason it reaches for a flight is coverage, not a routing bug.** Measured 2026-09-05,
+ground modes only, all `200` with an empty `itineraries` array: Birmingham airport to a
+Birmingham hostel (9.7 km), Vienna airport to Vienna centre (18.2 km), and Stansted to
+central London (48.9 km). The last two answered with six itineraries each when `AIRPLANE`
+was allowed, every one of them a flight. Tomorrow's date gives the same empty answers, so
+it is not the timetable horizon. Barcelona airport to Plaça Catalunya (12.6 km) is
+unaffected either way: the same six bus itineraries, 50 to 62 minutes. Do not read
+Transitous's silence on a British or Austrian airport run as this adapter being broken.
+
 **The same server also geocodes** (issue #64), which turned out to matter more for
 timezones than for the search form it was originally asked for. Two endpoints:
 

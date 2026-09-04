@@ -218,7 +218,7 @@ const NO_ROUTE_RESPONSE: TransitousPlanResponse = { itineraries: [], direct: [] 
 /** How far apart the endpoints of each captured fixture actually are, in a straight line.
  * Issue #220's plausibility rule is measured against this: 12.6 km allows 2h 46m and the
  * Barcelona itineraries are 52 minutes, 17.2 km allows 3h 13m and the Garrotxa buses are
- * 45. Nothing in this file is near the bound, which is the point — the rule is meant to be
+ * 45. Nothing in this file is near the bound, which is the point. The rule is meant to be
  * invisible to a real answer. */
 const BARCELONA_KM = 12.6;
 const RURAL_KM = 17.2;

@@ -302,7 +302,7 @@ function readLegAnswer(
 }
 
 /** Issue #220: the refused routes, reduced to the numbers a card can print. The caller
- * decides whether there is anything to report at all — see its own comment. */
+ * decides whether there is anything to report at all. See its own comment. */
 function readWithheld(refused: {
 	rejected: readonly Transfer[];
 	straightLineKm: number;

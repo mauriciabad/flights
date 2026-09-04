@@ -54,7 +54,7 @@ export const TRANSITOUS_USER_AGENT = 'flights.mauri.app/0.1 (https://github.com/
  * The default is `TRANSIT`, and MOTIS's own openapi.yaml defines that as
  * `TRAM,FERRY,AIRPLANE,BUS,COACH,RAIL,ODM,RIDE_SHARING,FUNICULAR,AERIAL_LIFT,OTHER`. The
  * list below is that definition with `AIRPLANE` removed and nothing else changed, so this
- * is not a hand-picked subset of public transport — it is the server's own idea of transit,
+ * is not a hand-picked subset of public transport. It is the server's own idea of transit,
  * minus the one mode a ground transfer cannot contain.
  *
  * It has to be spelled out because MOTIS has no "everything except" form; a mode list is

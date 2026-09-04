@@ -308,7 +308,7 @@ export interface TransferSearchOutcome {
    * duration in it, instead of the "there is no service here" the traveller would otherwise
    * read. AGENTS.md: "say what you do not know rather than guessing."
    *
-   * Empty on nearly every leg, which is the point — it fills only when a provider answered
+   * Empty on nearly every leg, which is the point. It fills only when a provider answered
    * with a journey nobody could take.
    */
   rejected: Transfer[];

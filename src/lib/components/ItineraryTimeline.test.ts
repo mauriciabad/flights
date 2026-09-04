@@ -555,3 +555,56 @@ describe('ItineraryTimeline, selection binding for the map (issue #73)', () => {
 		}
 	});
 });
+
+describe('ItineraryTimeline, the transfer row reads as one line (issue #220)', () => {
+	/** The shape the owner was shown, minus the flights: a transit transfer whose legs the
+	 * row used to print in full, joined by commas. */
+	function transitTransfer(): Transfer {
+		return {
+			mode: 'transit',
+			duration: 52 as Duration,
+			legs: [
+				{ mode: 'walk', description: 'Walk (38 m)', duration: 1 as Duration },
+				{
+					mode: 'transit',
+					description: 'Metro L1 to Hospital de Bellvitge (TMB)',
+					vehicle: 'Metro',
+					duration: 22 as Duration
+				},
+				{ mode: 'walk', description: 'Walk (341 m)', duration: 3 as Duration },
+				{ mode: 'transit', description: 'Bus 46 to Aeroport BCN (TMB)', vehicle: 'Bus', duration: 9 as Duration },
+				{ mode: 'walk', description: 'Walk (120 m)', duration: 2 as Duration }
+			]
+		};
+	}
+
+	function hotelRowText(transfer: Transfer): string {
+		const itinerary = { ...makeItinerary(), transferToHotel: transfer };
+		const root = renderTimeline(itinerary);
+		const row = root.querySelector('[data-segment="transfer-to-hotel"]');
+		if (!row) throw new Error('no transfer-to-hotel row');
+		return row.querySelector('.tl-label')?.textContent?.replace(/\s+/g, ' ').trim() ?? '';
+	}
+
+	it('summarises the journey instead of printing every leg', () => {
+		const text = hotelRowText(transitTransfer());
+
+		expect(text).toContain('Metro, then bus (1 change)');
+		// The brick, gone: no line numbers, no operators, no walk distances on this row.
+		expect(text).not.toContain('Walk (38 m)');
+		expect(text).not.toContain('(TMB)');
+	});
+
+	it('separates the label from the detail with a character, not only with a margin', () => {
+		// The owner's report of this row began "To Birmingham Central BackpackersPublic
+		// transport". A CSS margin is invisible to anything that reads the page as text.
+		const text = hotelRowText(transitTransfer());
+		expect(text).toContain('·');
+		expect(text).not.toMatch(/[a-z]Metro/);
+	});
+
+	it('still names the mode when no provider named a vehicle', () => {
+		const text = hotelRowText({ mode: 'walk', duration: 30 as Duration, legs: [] });
+		expect(text).toContain('· Walk');
+	});
+});

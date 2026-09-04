@@ -10,7 +10,7 @@
  * the providers came back with no route for it.
  */
 
-import type { TransferMode } from '../domain';
+import type { Transfer, TransferLeg, TransferMode } from '../domain';
 
 export {
 	calendarDayOffset,
@@ -37,6 +37,68 @@ const TRANSFER_MODE_LABELS: Record<TransferMode, string> = {
  * spelled out for a traveller rather than shown as the raw domain literal. */
 export function transferModeLabel(mode: TransferMode): string {
 	return TRANSFER_MODE_LABELS[mode];
+}
+
+/** Past this many rides, naming each one is longer than counting them. Four vehicles
+ * spelled out is "Bus, then train, then coach, then bus", which no longer fits a row and
+ * stopped being a summary somewhere around the second "then". */
+const MAX_NAMED_VEHICLES = 3;
+
+/**
+ * One line for a whole journey: what you ride, in order, and how many times you change.
+ *
+ * Issue #220, the owner's own words: **"the transport item in timeline has a brick of
+ * unformated text that is impossible to understand."** The row printed every leg's full
+ * description joined by commas, so a four-leg trip read "Walk (0 m), Transit OLB-BHX to
+ * Aeroporto di Olbia (OLB) (JET TWO COM), Walk (0 m), Transit OLB-FCO to ..." and ran off
+ * the row. Even a correct journey is unreadable that way.
+ *
+ * What is dropped, and why it is safe to drop it here: the walks between rides, the line
+ * numbers, the operators and the times. All of them are still one tap away in the picker's
+ * step list, which is where somebody who has decided to take this route reads them. A
+ * summary that keeps everything is the brick again.
+ *
+ * `undefined` when there is nothing to summarise: a transfer with no legs (every OSRM
+ * answer) or one whose legs are all walking. The caller falls back to the mode label,
+ * which is the whole truth for those.
+ */
+export function summariseTransferLegs(legs: readonly TransferLeg[]): string | undefined {
+	const rides = legs.filter((leg) => leg.mode !== 'walk');
+	if (rides.length === 0) return undefined;
+
+	const changes = rides.length - 1;
+	const suffix = changes === 0 ? '' : changes === 1 ? ' (1 change)' : ` (${changes} changes)`;
+
+	// A `Transfer` cached before this field existed has no `vehicle` on any leg, and so does
+	// any future adapter that does not name its vehicles. Counting them is still a real
+	// answer, and a better one than printing "undefined, then undefined".
+	const vehicles = rides.map((ride) => ride.vehicle).filter((vehicle): vehicle is string => Boolean(vehicle));
+	if (vehicles.length !== rides.length || rides.length > MAX_NAMED_VEHICLES) {
+		return `${rides.length} ${rides.length === 1 ? 'ride' : 'rides'}${suffix}`;
+	}
+
+	// Sentence case, so the line reads as a sentence fragment rather than as three proper
+	// nouns: "Metro, then bus, then coach".
+	const named = vehicles.map((vehicle, index) => (index === 0 ? vehicle : vehicle.toLocaleLowerCase()));
+	return `${named.join(', then ')}${suffix}`;
+}
+
+/** What a transfer row's one-line detail says: the vehicles when a provider named them,
+ * and the mode on its own when it did not. "Bus, then metro (1 change)" tells a traveller
+ * more than "Public transport" does, and for a walk or a taxi the mode already is the
+ * whole answer. */
+export function transferDetailLine(transfer: Transfer): string {
+	return summariseTransferLegs(transfer.legs) ?? transferModeLabel(transfer.mode);
+}
+
+/**
+ * A straight-line distance, for the one sentence that has to justify a refusal
+ * (`TransportPicker`'s withheld-route notice, issue #220). Whole kilometres above 1 km,
+ * one decimal below it, and a non-breaking space so "9 km" cannot wrap in half.
+ */
+export function formatStraightLineKm(km: number): string {
+	const rounded = km < 1 ? Math.round(km * 10) / 10 : Math.round(km);
+	return `${rounded}\u00a0km`;
 }
 
 /**

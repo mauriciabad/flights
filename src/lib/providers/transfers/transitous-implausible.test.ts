@@ -3,8 +3,8 @@
  * traveller can get across Birmingham in 33 hours by way of Sardinia.
  *
  * `transitous-plan-bhx-air-legs.json` is a real `/api/v1/plan` response, captured on
- * 2026-09-05 for the owner's own pair — Birmingham airport (52.453899,-1.74803) to
- * Birmingham Central Backpackers (52.4763977,-1.8859854), 9.7 km apart — asked at
+ * 2026-09-05 for the owner's own pair, Birmingham airport (52.453899,-1.74803) to
+ * Birmingham Central Backpackers (52.4763977,-1.8859854), 9.7 km apart, asked at
  * 2026-10-07T02:00:00Z. Trimmed to the fields this adapter reads (routing geometry,
  * turn-by-turn walking steps and the `debugOutput` block removed), nothing else changed.
  * Both itineraries in it fly out of Birmingham to Olbia, Rome, Cagliari and Amsterdam and
@@ -87,7 +87,7 @@ describe('the recorded Birmingham response (issue #220)', () => {
 describe('an air itinerary next to a real one', () => {
 	it('never wins on departure time, which is how it reached the card in the first place', () => {
 		// The recorded flight boards at 03:05Z; the bus is half an hour behind it. Ordered
-		// by departure alone — what this mapper did before #220 — the flight is "the" one.
+		// by departure alone, which is what this mapper did before #220, the flight wins.
 		const mixed: TransitousPlanResponse = {
 			itineraries: [
 				...(RECORDED.itineraries ?? []),
