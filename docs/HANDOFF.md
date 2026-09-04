@@ -95,3 +95,15 @@ those two new components inside a picker row defeats the `flightKey` equality.
 Do not merge a red PR to clear the queue. The whole reason the owner's route works today is
 that several agents stopped and reported instead of pushing through something they had not
 understood.
+
+**#173, the transit timing work, is finished but needs a rebase before it can merge.** It
+fixes every Transitous query being planned for the second you pressed search rather than for
+the journey, and it delivers the brief's "what happens if you miss the last one" at zero extra
+requests, because MOTIS already returns the later departures in the same response. Seven
+commits landed on main while it was being written; its author left a PR comment naming the
+overlapping files, and expects real conflicts in `pipeline.ts` and `resources.ts`. Not done: an
+e2e spec for the new copy, and `svelte-autofixer` over the two touched components.
+
+It also fixed a bug nobody had filed: the mapper took `itineraries[0]`, but MOTIS returns that
+array unordered. A real response came back 02:16, 02:17, 02:40, 02:43, 02:31, 02:46, 03:08.
+That is where the "13:28 before 13:27" ordering in #135 came from.
