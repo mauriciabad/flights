@@ -70,6 +70,24 @@ that are easy to make and hard to spot.
 Prefer `$state` and `$derived` over stores. Reach for a store only when state genuinely has
 to outlive a component tree, and say why in a comment.
 
+## `main` moves while you work
+
+Check `origin/main` again immediately before you open your PR, not only when you start.
+
+A dozen agents are working at once and things merge underneath you. Two agents have already
+concluded the provider interface did not exist, each built its own narrow substitute, and
+were both correct at the moment they looked and both wrong by the time they finished. The
+result was two modules with contracts that disagreed at the seam.
+
+So before you finalise:
+
+```bash
+git fetch origin main && git log --oneline HEAD..origin/main
+```
+
+If something landed that your issue depends on, rebase and use the real thing. Deleting your
+placeholder is cheaper now than reconciling two designs later.
+
 ## Definition of done
 
 - `pnpm check` passes. No new type errors, no `any` smuggled in to silence one.
