@@ -314,11 +314,27 @@ interface RouteData {
 	path?: Coordinates[];
 }
 
+/**
+ * `geometry: 'simplified-geojson'` is not a real query parameter — it is a discriminator
+ * that exists purely so this key changes when the *shape of the cached value* changes.
+ * Before this field existed, a route was fetched with `overview=false` and cached as
+ * `{ durationSeconds, distanceMeters }`; `fetchRoute` now asks for
+ * `overview=simplified&geometries=geojson` and caches `path` alongside those two. Both
+ * versions hash to the exact same key for the same origin/destination/profile, and the
+ * cache TTL is 30 days, so without this discriminator every entry written by the old
+ * code would keep being read back as a "fresh" hit with no `path` for up to a month —
+ * silently reverting this fix to a straight line for anyone who had already used the
+ * app, the owner very much included. Bump this string again the next time this
+ * function's cached value shape changes, for the same reason.
+ */
+const ROUTE_CACHE_SHAPE_VERSION = 'simplified-geojson';
+
 function routeCacheKey(profile: OsrmProfile, origin: Coordinates, destination: Coordinates): CacheKey {
 	return defineCacheKey(
 		OSRM_PROVIDER_ID,
 		{
 			service: 'route',
+			geometry: ROUTE_CACHE_SHAPE_VERSION,
 			profile,
 			origin: { lat: roundCoordinate(origin.latitude), lon: roundCoordinate(origin.longitude) },
 			destination: { lat: roundCoordinate(destination.latitude), lon: roundCoordinate(destination.longitude) }
