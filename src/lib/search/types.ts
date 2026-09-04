@@ -35,9 +35,10 @@
 
 import type { ConnectionCandidate as AlgorithmConnectionCandidate } from '../algorithm/connections';
 import type { ItineraryScore } from '../algorithm/score';
-import type { Airport, IataAirportCode, IsoCalendarDate, IsoCurrencyCode, SearchQuery, Stay } from '../domain';
+import type { Airport, IataAirportCode, IsoCalendarDate, IsoCurrencyCode, SearchQuery, Stay, Transfer } from '../domain';
 import type { ProviderRegistry } from '../providers/registry';
 import type { AvailableKeys, ProviderError, ProviderId, ProviderKind, ProviderSource } from '../providers/types';
+import type { TaxiFareEstimate } from '../providers/transfers/taxi-rate-table';
 
 export type { Airport };
 export type ConnectionCandidate = AlgorithmConnectionCandidate;
@@ -123,6 +124,39 @@ export interface ItinerarySources {
 export interface ItineraryResult {
 	score: ItineraryScore;
 	sources: ItinerarySources;
+}
+
+/**
+ * Issue #114: one transfer leg's real alternatives — mirroring `stayCandidatesByConnection`'s
+ * pattern (issue #80) for transfers instead of stays. `candidates` is every `Transfer` a
+ * usable provider returned for this exact A-to-B, not only the one `resources.ts` picked to
+ * build the itinerary with (an itinerary's own `transferToHotel`/etc. field is always one of
+ * these, when any exist). `taxiFareEstimate` is OSRM's distance-based fare range for this
+ * same pair, present only when a `taxi` candidate is among `candidates` — it is never folded
+ * into any candidate's own `Transfer.price` (`providers/transfers/osrm.ts`'s own header
+ * comment on why that separation is deliberate), so a component renders it as its own
+ * clearly-labelled range instead of a quoted fare.
+ */
+export interface TransferLegOptions {
+	candidates: Transfer[];
+	taxiFareEstimate?: TaxiFareEstimate;
+}
+
+/** The two connection-side legs' alternatives for one candidate airport (connection airport
+ * to hotel, and back) — `resources.ts`'s `fetchConnectionResources` produces one of these per
+ * connection that resolves a stay. */
+export interface ConnectionTransferOptions {
+	transferToHotel: TransferLegOptions;
+	transferToConnectionAirport: TransferLegOptions;
+}
+
+/** The two "outer" legs' alternatives (origin location to origin airport, destination airport
+ * to destination location) — resolved once per search by `pipeline.ts`'s
+ * `fetchOuterTransfers`, never per connection candidate, since neither leg depends on which
+ * stopover wins. */
+export interface OuterTransferOptions {
+	transferToOriginAirport: TransferLegOptions;
+	transferToDestinationLocation: TransferLegOptions;
 }
 
 /**
@@ -235,6 +269,23 @@ export interface SearchSnapshot {
 	 * produced no stay resources at all.
 	 */
 	stayCandidatesByConnection: Record<IataAirportCode, Stay[]>;
+	/**
+	 * Issue #114: every transfer alternative found for each connection's two hotel-bound
+	 * legs, keyed by `ConnectionCandidate.airportCode` — the transfer equivalent of
+	 * `stayCandidatesByConnection` just above. A connection with no entry here either hasn't
+	 * finished yet or resolved with no stay at all (issue #94: no stay means nowhere for
+	 * these two legs to go, so there is nothing to offer alternatives for either).
+	 */
+	transferOptionsByConnection: Record<IataAirportCode, ConnectionTransferOptions>;
+	/**
+	 * Issue #114: alternatives for the two legs that never depend on which connection wins
+	 * (origin location to origin airport, destination airport to destination location).
+	 * Defaults to empty candidate lists before `runSearch`/`widenSearch` has resolved them
+	 * (there is no "hasn't arrived yet" signal needed here the way there is for
+	 * `transferOptionsByConnection`, since this is the same fixed value on every snapshot
+	 * once computed, and there is nothing else it could be beforehand).
+	 */
+	outerTransferOptions: OuterTransferOptions;
 	/**
 	 * Issue #107: `true` once `runSearch` has confirmed, via a free keyless source
 	 * (`algorithm/connections.ts`'s `hasKnownDirectRoute`), that the query's origin and

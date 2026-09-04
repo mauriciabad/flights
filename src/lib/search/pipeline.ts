@@ -63,27 +63,43 @@ import { raceToCompletion } from './race';
 import {
 	applyLandingBuffer,
 	DEFAULT_STAY_RADIUS_KM,
+	estimateTaxiFareForLeg,
 	fetchBestTransfer,
 	fetchConnectionResources,
+	pickBestTransfer,
 	pickLandingToTransportTime
 } from './resources';
 import type {
 	ConnectionCandidate,
+	ConnectionTransferOptions,
 	ItineraryResult,
 	ItinerarySources,
+	OuterTransferOptions,
 	ProviderStatus,
 	SearchDependencies,
 	SearchQuery,
 	SearchRunOptions,
 	SearchSnapshot,
 	SearchStage,
+	TransferLegOptions,
 	WidenOption,
 	WidenRequest
 } from './types';
 
+/** Empty alternatives for a leg that was never asked about (no `originLocation`/
+ * `destinationLocation` on this query) — `fetchOuterTransfers` returns this rather than
+ * `undefined`, so a caller (`SearchSnapshot.outerTransferOptions`) never has to distinguish
+ * "not asked for" from "asked for, nothing found" itself. */
+const NO_TRANSFER_LEG_OPTIONS: TransferLegOptions = { candidates: [] };
+
 /** Resolves the two "outer" legs (leaving `originLocation`, arriving at
  * `destinationLocation`) once per search — they never depend on which connection candidate
- * ends up winning, so re-fetching them per candidate would just be the same query repeated. */
+ * ends up winning, so re-fetching them per candidate would just be the same query repeated.
+ *
+ * Issue #114: also returns each leg's full candidate list and taxi fare estimate
+ * (`TransferLegOptions`), the outer-leg equivalent of `resources.ts`'s per-connection
+ * candidates — a `TransportPicker` for "travel to the airport"/"travel to the destination"
+ * needs real alternatives exactly the same way the connection-side pickers do. */
 async function fetchOuterTransfers(
 	query: SearchQuery,
 	originAirport: Airport,
@@ -94,8 +110,13 @@ async function fetchOuterTransfers(
 	landingToTransportRules: readonly LandingToTransportRule[],
 	sources: SourceTracker,
 	record: RecordProviderCall
-): Promise<{ transferToOriginAirport?: Transfer; transferToDestinationLocation?: Transfer }> {
-	const [transferToOriginAirport, transferToDestinationLocationRaw] = await Promise.all([
+): Promise<{
+	transferToOriginAirport?: Transfer;
+	transferToDestinationLocation?: Transfer;
+	transferToOriginAirportOptions: TransferLegOptions;
+	transferToDestinationLocationOptions: TransferLegOptions;
+}> {
+	const [originOutcome, destinationOutcome] = await Promise.all([
 		query.originLocation
 			? fetchBestTransfer(
 					{ from: query.originLocation.coordinates, to: originAirport.coordinates },
@@ -105,7 +126,7 @@ async function fetchOuterTransfers(
 					sources,
 					record
 				)
-			: Promise.resolve(undefined),
+			: undefined,
 		query.destinationLocation
 			? fetchBestTransfer(
 					{ from: destinationAirport.coordinates, to: query.destinationLocation.coordinates },
@@ -115,21 +136,57 @@ async function fetchOuterTransfers(
 					sources,
 					record
 				)
-			: Promise.resolve(undefined)
+			: undefined
 	]);
 
 	// The destination-location leg starts right after landing, same as transferToHotel does
 	// for a connection — see resources.ts's own comment on why the buffer only applies to
-	// legs that begin at a runway, never one ending at a departure gate.
-	const transferToDestinationLocation = transferToDestinationLocationRaw
-		? applyLandingBuffer(
-				transferToDestinationLocationRaw,
-				pickLandingToTransportTime(landingToTransportRules, destinationAirport.sizeClass),
-				sources
-			)
-		: undefined;
+	// legs that begin at a runway, never one ending at a departure gate. Applied to every
+	// candidate, not just the pick, for the same reason resources.ts now does the same for
+	// transferToHotel: a traveller who picks a different mode via TransportPicker still needs
+	// this padding, and re-deriving the pick from the buffered list keeps one code path
+	// deciding "which is best" instead of two that could disagree.
+	const destinationCandidates = (destinationOutcome?.candidates ?? []).map((transfer) =>
+		applyLandingBuffer(transfer, pickLandingToTransportTime(landingToTransportRules, destinationAirport.sizeClass), sources)
+	);
+	const transferToDestinationLocation = pickBestTransfer(destinationCandidates);
 
-	return { transferToOriginAirport, transferToDestinationLocation };
+	// Sequenced after both `fetchBestTransfer` calls above resolve, never alongside them —
+	// see `estimateTaxiFareForLeg`'s own doc comment for why that ordering is what keeps this
+	// a cache hit rather than a second driving-route request for the same pair.
+	const [originTaxiFareEstimate, destinationTaxiFareEstimate] = await Promise.all([
+		query.originLocation
+			? estimateTaxiFareForLeg(
+					originOutcome?.candidates ?? [],
+					query.originLocation.coordinates,
+					originAirport.coordinates,
+					originAirport.country.isoCode,
+					signal,
+					record
+				)
+			: undefined,
+		query.destinationLocation
+			? estimateTaxiFareForLeg(
+					destinationCandidates,
+					destinationAirport.coordinates,
+					query.destinationLocation.coordinates,
+					destinationAirport.country.isoCode,
+					signal,
+					record
+				)
+			: undefined
+	]);
+
+	return {
+		transferToOriginAirport: originOutcome?.selected,
+		transferToDestinationLocation,
+		transferToOriginAirportOptions: query.originLocation
+			? { candidates: originOutcome?.candidates ?? [], taxiFareEstimate: originTaxiFareEstimate }
+			: NO_TRANSFER_LEG_OPTIONS,
+		transferToDestinationLocationOptions: query.destinationLocation
+			? { candidates: destinationCandidates, taxiFareEstimate: destinationTaxiFareEstimate }
+			: NO_TRANSFER_LEG_OPTIONS
+	};
 }
 
 /** Adapts a `SearchDependencies.resolveAirport` into `algorithm/connections.ts`'s
@@ -310,6 +367,13 @@ function buildCandidateTasks(
 	return candidatesToProcess.map((candidate) => processCandidate({ ...base, candidate }));
 }
 
+/** Issue #114: both connection-side legs' alternatives with nothing found yet — the
+ * `CandidateOutcome`/empty-result equivalent of `stayCandidates: []`. */
+const NO_CONNECTION_TRANSFER_OPTIONS: ConnectionTransferOptions = {
+	transferToHotel: { candidates: [] },
+	transferToConnectionAirport: { candidates: [] }
+};
+
 interface CandidateOutcome {
 	candidate: ConnectionCandidate;
 	itineraries: ItineraryResult[];
@@ -319,6 +383,9 @@ interface CandidateOutcome {
 	 * Empty when the candidate produced no resources at all (nothing found, or every part
 	 * failed to resolve). */
 	stayCandidates: Stay[];
+	/** Issue #114: both connection-side legs' transfer alternatives and taxi fare estimates,
+	 * the transfer equivalent of `stayCandidates` above. */
+	transferOptions: ConnectionTransferOptions;
 }
 
 /**
@@ -332,7 +399,12 @@ interface CandidateOutcome {
  * provider.
  */
 async function processCandidate(input: ProcessCandidateInput): Promise<CandidateOutcome> {
-	const empty: CandidateOutcome = { candidate: input.candidate, itineraries: [], stayCandidates: [] };
+	const empty: CandidateOutcome = {
+		candidate: input.candidate,
+		itineraries: [],
+		stayCandidates: [],
+		transferOptions: NO_CONNECTION_TRANSFER_OPTIONS
+	};
 	if (input.signal.aborted) return empty;
 
 	const connectionAirport = await input.resolveAirport(input.candidate.airportCode);
@@ -356,6 +428,7 @@ async function processCandidate(input: ProcessCandidateInput): Promise<Candidate
 		fetchConnectionResources({
 			connectionCoordinates: connectionAirport.coordinates,
 			connectionAirportSize: connectionAirport.sizeClass,
+			connectionCountryCode: connectionAirport.country.isoCode,
 			stayProviders: input.stayProviders,
 			transferProviders: input.transferProviders,
 			keys: input.keys,
@@ -400,7 +473,21 @@ async function processCandidate(input: ProcessCandidateInput): Promise<Candidate
 		const results = rankItineraries(itineraries, input.airlinesToAvoid, input.weights).map(
 			(score): ItineraryResult => ({ score, sources: sourcesForItinerary(score.itinerary, input.sources) })
 		);
-		return { candidate: input.candidate, itineraries: results, stayCandidates: resources.stayCandidates };
+		return {
+			candidate: input.candidate,
+			itineraries: results,
+			stayCandidates: resources.stayCandidates,
+			transferOptions: {
+				transferToHotel: {
+					candidates: resources.transferToHotelCandidates,
+					taxiFareEstimate: resources.transferToHotelTaxiFareEstimate
+				},
+				transferToConnectionAirport: {
+					candidates: resources.transferToConnectionAirportCandidates,
+					taxiFareEstimate: resources.transferToConnectionAirportTaxiFareEstimate
+				}
+			}
+		};
 	} catch {
 		// buildItineraries throws only for a currency mismatch across a candidate's own
 		// parts (its own doc comment) — SearchDependencies.currency asks every provider for
@@ -411,15 +498,29 @@ async function processCandidate(input: ProcessCandidateInput): Promise<Candidate
 	}
 }
 
+/** Issue #114: no outer-leg alternatives resolved yet — every `SearchSnapshot` before
+ * `fetchOuterTransfers` completes reports this, so a UI never sees a missing field, only an
+ * empty one, before the first real answer arrives. */
+const NO_OUTER_TRANSFER_OPTIONS: OuterTransferOptions = {
+	transferToOriginAirport: { candidates: [] },
+	transferToDestinationLocation: { candidates: [] }
+};
+
 /** Small closure factory shared by `runSearch` and `widenSearch` so both build a
  * `SearchSnapshot` the same way — bumping `sequence`, re-deriving `itineraryGroups` from
- * whatever has accumulated in `results` so far, and reading the live `providerStatus` and
- * `stayCandidatesByConnection` maps (issue #80: the latter is what keeps a connection's
- * full stay candidate list alive into the snapshot instead of collapsing to one pick). */
+ * whatever has accumulated in `results` so far, and reading the live `providerStatus`,
+ * `stayCandidatesByConnection` and `transferOptionsByConnection` maps (issue #80/#114: these
+ * are what keep a connection's full stay/transfer candidate lists alive into the snapshot
+ * instead of collapsing to one pick each). `outerTransferOptionsRef` is a mutable holder
+ * (not a map — there is only ever one value, computed once) so a caller can update it in
+ * place the moment `fetchOuterTransfers` resolves and have every snapshot from then on pick
+ * up the new value, the same way the maps below are read live rather than passed by value. */
 function makeSnapshotFn(
 	results: ItineraryResult[],
 	providerStatus: Map<ProviderId, ProviderStatus>,
-	stayCandidatesByConnection: Map<IataAirportCode, Stay[]>
+	stayCandidatesByConnection: Map<IataAirportCode, Stay[]>,
+	transferOptionsByConnection: Map<IataAirportCode, ConnectionTransferOptions>,
+	outerTransferOptionsRef: { current: OuterTransferOptions }
 ) {
 	let sequence = 0;
 	return function snapshot(
@@ -438,6 +539,8 @@ function makeSnapshotFn(
 			providers: Object.fromEntries(providerStatus),
 			widenOptions,
 			stayCandidatesByConnection: Object.fromEntries(stayCandidatesByConnection),
+			transferOptionsByConnection: Object.fromEntries(transferOptionsByConnection),
+			outerTransferOptions: outerTransferOptionsRef.current,
 			hasDirectRoute
 		};
 	};
@@ -568,7 +671,15 @@ export async function* runSearch(
 	const sources = new SourceTracker();
 	const results: ItineraryResult[] = [];
 	const stayCandidatesByConnection = new Map<IataAirportCode, Stay[]>();
-	const snapshot = makeSnapshotFn(results, providerStatus, stayCandidatesByConnection);
+	const transferOptionsByConnection = new Map<IataAirportCode, ConnectionTransferOptions>();
+	const outerTransferOptionsRef = { current: NO_OUTER_TRANSFER_OPTIONS };
+	const snapshot = makeSnapshotFn(
+		results,
+		providerStatus,
+		stayCandidatesByConnection,
+		transferOptionsByConnection,
+		outerTransferOptionsRef
+	);
 
 	const { originAirport, destinationAirport } = await resolveOuterAirports(query, resolveAirport);
 	if (signal.aborted) {
@@ -638,7 +749,12 @@ export async function* runSearch(
 		return;
 	}
 
-	const { transferToOriginAirport, transferToDestinationLocation } = await fetchOuterTransfers(
+	const {
+		transferToOriginAirport,
+		transferToDestinationLocation,
+		transferToOriginAirportOptions,
+		transferToDestinationLocationOptions
+	} = await fetchOuterTransfers(
 		query,
 		originAirport,
 		destinationAirport,
@@ -649,6 +765,10 @@ export async function* runSearch(
 		sources,
 		record
 	);
+	outerTransferOptionsRef.current = {
+		transferToOriginAirport: transferToOriginAirportOptions,
+		transferToDestinationLocation: transferToDestinationLocationOptions
+	};
 
 	if (signal.aborted) {
 		yield snapshot('done', candidates, true, widenOptions);
@@ -693,6 +813,7 @@ export async function* runSearch(
 		if (signal.aborted) break;
 		results.push(...outcome.itineraries);
 		stayCandidatesByConnection.set(outcome.candidate.airportCode, outcome.stayCandidates);
+		transferOptionsByConnection.set(outcome.candidate.airportCode, outcome.transferOptions);
 		yield snapshot('stage1', candidates, false, widenOptions);
 	}
 
@@ -747,6 +868,7 @@ export async function* runSearch(
 				if (signal.aborted) break;
 				results.push(...outcome.itineraries);
 				stayCandidatesByConnection.set(outcome.candidate.airportCode, outcome.stayCandidates);
+				transferOptionsByConnection.set(outcome.candidate.airportCode, outcome.transferOptions);
 				yield snapshot('stage1', finalCandidates, false, finalWidenOptions);
 			}
 		}
@@ -801,7 +923,15 @@ export async function* widenSearch(
 	const sources = new SourceTracker();
 	const results: ItineraryResult[] = [];
 	const stayCandidatesByConnection = new Map<IataAirportCode, Stay[]>();
-	const snapshot = makeSnapshotFn(results, providerStatus, stayCandidatesByConnection);
+	const transferOptionsByConnection = new Map<IataAirportCode, ConnectionTransferOptions>();
+	const outerTransferOptionsRef = { current: NO_OUTER_TRANSFER_OPTIONS };
+	const snapshot = makeSnapshotFn(
+		results,
+		providerStatus,
+		stayCandidatesByConnection,
+		transferOptionsByConnection,
+		outerTransferOptionsRef
+	);
 
 	const { originAirport, destinationAirport } = await resolveOuterAirports(query, resolveAirport);
 	if (signal.aborted) {
@@ -852,7 +982,12 @@ export async function* widenSearch(
 		return;
 	}
 
-	const { transferToOriginAirport, transferToDestinationLocation } = await fetchOuterTransfers(
+	const {
+		transferToOriginAirport,
+		transferToDestinationLocation,
+		transferToOriginAirportOptions,
+		transferToDestinationLocationOptions
+	} = await fetchOuterTransfers(
 		query,
 		originAirport,
 		destinationAirport,
@@ -863,6 +998,10 @@ export async function* widenSearch(
 		sources,
 		record
 	);
+	outerTransferOptionsRef.current = {
+		transferToOriginAirport: transferToOriginAirportOptions,
+		transferToDestinationLocation: transferToDestinationLocationOptions
+	};
 	if (signal.aborted) {
 		yield snapshot('done', candidates, true);
 		return;
@@ -935,6 +1074,7 @@ export async function* widenSearch(
 
 		results.push(...outcome.itineraries);
 		stayCandidatesByConnection.set(outcome.candidate.airportCode, outcome.stayCandidates);
+		transferOptionsByConnection.set(outcome.candidate.airportCode, outcome.transferOptions);
 		yield snapshot('stage2', candidates, false);
 	}
 
