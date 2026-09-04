@@ -231,11 +231,21 @@
 		background: var(--color-warning-bg);
 	}
 
+	/* `--color-warning` directly on this card's own gradient background (`.card-ticket`'s
+	   surface-hover-to-surface fade) clears 4.5:1 in the dark palette but not reliably in
+	   light — 4.45:1 against the gradient's `--color-surface-hover` end, just under WCAG
+	   AA. Giving it the same warning-tinted background `.freshness-warning` above already
+	   uses fixes the pairing for real (that combination is picked together, not against
+	   an arbitrary card background) instead of leaving it to whatever this card happens
+	   to render on. */
 	.no-stay-note {
 		margin: 0;
+		padding: var(--space-1) var(--space-2);
+		border-radius: var(--radius-sm);
 		font-size: var(--font-size-xs);
 		font-weight: var(--font-weight-medium);
 		color: var(--color-warning);
+		background: var(--color-warning-bg);
 	}
 
 	.stats {

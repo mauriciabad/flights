@@ -69,7 +69,11 @@
 </script>
 
 <div class={['field', className]}>
-	<span id={`${inputId}-label`} class="field-label">{label}</span>
+	<!-- A real <label for>, not a bare span: the text input below has no other
+	     accessible-name source (placeholder text isn't a substitute — axe's
+	     label-title-only check flags exactly that), and the `id` here still
+	     doubles as the chip <ul>'s own aria-labelledby target below. -->
+	<label for={inputId} id={`${inputId}-label`} class="field-label">{label}</label>
 	{#if values.length}
 		<ul class="chip-list" aria-labelledby={`${inputId}-label`}>
 			{#each values as chipValue, i (chipValue)}

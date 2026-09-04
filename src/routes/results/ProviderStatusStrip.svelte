@@ -109,6 +109,14 @@
 	}
 
 	.provider-button {
+		/* The pill's own visible height comes from the Chip inside (1.75rem); this row is
+		   the only content on its line (a single horizontally-scrolling strip, nothing
+		   stacked above or below it), so padding out to the 44px touch-target minimum
+		   here is a free, layout-safe change rather than the chip-in-a-wrapped-grid case
+		   Chip.svelte itself has to solve with an invisible hit area instead. */
+		display: inline-flex;
+		align-items: center;
+		padding-block: var(--space-2);
 		flex-shrink: 0;
 		border-radius: var(--radius-full);
 	}

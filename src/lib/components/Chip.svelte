@@ -127,11 +127,27 @@
 	}
 
 	.chip-toggle {
+		position: relative;
 		height: 100%;
 		border-radius: var(--radius-full);
 		color: inherit;
 		font: inherit;
 		cursor: pointer;
+	}
+
+	/* The chip pill itself stays 1.75rem (28px) tall by design — growing every chip to
+	   44px would visibly balloon every filter/tag list in the app, a redesign call, not
+	   an accessibility fix. This invisible pseudo-element instead pads the real tap
+	   target up to the 44px minimum (WCAG 2.5.5) without touching the chip's rendered
+	   size: it's part of the button's own box for hit-testing even though nothing paints
+	   there. Width stays at 100% (not wider) so it never reaches into a neighbouring
+	   chip in the same wrapped row. */
+	.chip-toggle::after {
+		content: '';
+		position: absolute;
+		inset: 50% 0 auto 0;
+		height: 2.75rem;
+		transform: translateY(-50%);
 	}
 
 	.chip-toggle:hover:not(:disabled) {
@@ -182,6 +198,7 @@
 	}
 
 	.chip-remove {
+		position: relative;
 		display: inline-flex;
 		align-items: center;
 		justify-content: center;
@@ -191,6 +208,21 @@
 		border-radius: var(--radius-full);
 		color: inherit;
 		cursor: pointer;
+	}
+
+	/* Same invisible-hit-area trick as .chip-toggle::after above: the visible "x" glyph
+	   stays a small 20px dot (shrinking it further would make it hard to see against a
+	   chip's own edge), but the actual tappable region reaches the 44px minimum — the
+	   one place on a chip someone one-handed on a phone actually needs to land
+	   precisely, since missing it re-triggers the chip's own click instead. */
+	.chip-remove::after {
+		content: '';
+		position: absolute;
+		top: 50%;
+		left: 50%;
+		width: 2.75rem;
+		height: 2.75rem;
+		transform: translate(-50%, -50%);
 	}
 
 	.chip-remove:hover:not(:disabled) {

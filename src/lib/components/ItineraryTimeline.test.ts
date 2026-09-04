@@ -286,13 +286,16 @@ describe('ItineraryTimeline, selection binding for the map (issue #73)', () => {
 
 		const row = root.querySelector<HTMLLIElement>('[data-segment="outbound-flight"]');
 		expect(row).not.toBeNull();
-		expect(row!.getAttribute('aria-selected')).toBe('false');
+		// `aria-current` (not `aria-selected` — see the component's own comment on why
+		// none of these rows carry an ARIA option/listbox role any more) is absent
+		// entirely on an unselected row, not `'false'`.
+		expect(row!.getAttribute('aria-current')).toBeNull();
 
 		row!.click();
 		flushSync();
 
 		expect(harness.currentSelection()).toBe('outbound-flight');
-		expect(row!.getAttribute('aria-selected')).toBe('true');
+		expect(row!.getAttribute('aria-current')).toBe('true');
 		expect(row!.classList.contains('is-selected')).toBe(true);
 	});
 
@@ -309,9 +312,9 @@ describe('ItineraryTimeline, selection binding for the map (issue #73)', () => {
 
 		expect(harness.currentSelection()).toBe('onward-flight');
 		expect(
-			root.querySelector('[data-segment="origin-waiting"]')!.getAttribute('aria-selected')
-		).toBe('false');
-		expect(root.querySelector('[data-segment="onward-flight"]')!.getAttribute('aria-selected')).toBe(
+			root.querySelector('[data-segment="origin-waiting"]')!.getAttribute('aria-current')
+		).toBeNull();
+		expect(root.querySelector('[data-segment="onward-flight"]')!.getAttribute('aria-current')).toBe(
 			'true'
 		);
 	});
@@ -324,11 +327,9 @@ describe('ItineraryTimeline, selection binding for the map (issue #73)', () => {
 		flushSync();
 
 		expect(
-			root.querySelector('[data-segment="connection-waiting"]')!.getAttribute('aria-selected')
+			root.querySelector('[data-segment="connection-waiting"]')!.getAttribute('aria-current')
 		).toBe('true');
-		expect(root.querySelector('[data-segment="outbound-flight"]')!.getAttribute('aria-selected')).toBe(
-			'false'
-		);
+		expect(root.querySelector('[data-segment="outbound-flight"]')!.getAttribute('aria-current')).toBeNull();
 	});
 
 	it('Enter and Space activate a focused row the same way a click does', () => {

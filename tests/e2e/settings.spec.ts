@@ -37,12 +37,21 @@ test.describe('settings: API keys', () => {
 		// `header` snippet prop was suspected of dropping the first card's heading after
 		// hydration, so `ProviderKeyCard.svelte` rendered its heading as plain body
 		// content instead. Checking against the accessible heading name alone (the test
-		// above) would pass either way, since an `<h3>` reads the same to a screen reader
+		// above) would pass either way, since a heading reads the same to a screen reader
 		// whether it sits in `Card`'s `.card-header` or in its `.card-body`. This test
 		// checks the DOM structure itself, against a real production build served the
 		// way GitHub Pages serves it (see playwright.config.ts) and hydrated by a real
 		// browser, not SSR output alone — so a regression here would fail this test even
 		// though it renders exactly the same to assistive tech.
+		//
+		// The selector below matches any heading level, not specifically `h3`: issue #19
+		// promoted this heading to `h2` (it used to skip straight past the settings
+		// page's own `h1`, an axe `heading-order` violation), which is a document-outline
+		// concern, not what this test is guarding. What #77 needs is "the header slot is
+		// populated after hydration" — that a heading of *some* level renders inside
+		// `.card-header` rather than in `.card-body` — so asserting on the tag name here
+		// would make this test fail on a future, unrelated, and entirely correct heading-
+		// level change the same way it would fail on a real regression.
 		await page.goto('/settings/');
 
 		const cards = page.locator('.provider-card');
@@ -52,7 +61,7 @@ test.describe('settings: API keys', () => {
 		for (let i = 0; i < count; i++) {
 			const card = cards.nth(i);
 			await expect(card.locator('.card-header')).toBeVisible();
-			await expect(card.locator('.card-header h3')).not.toBeEmpty();
+			await expect(card.locator('.card-header :is(h1, h2, h3, h4, h5, h6)')).not.toBeEmpty();
 		}
 
 		// The first card by itself, named explicitly: this is the exact position issue
