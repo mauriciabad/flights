@@ -1,0 +1,94 @@
+- generic [active] [ref=f11e1]:
+  - alert [ref=f11e2]
+  - region "Notifications alt+T"
+  - generic [ref=f11e4]:
+    - banner [ref=f11e5]:
+      - generic [ref=f11e6]:
+        - button [ref=f11e8]:
+          - link [ref=f11e9] [cursor=pointer]:
+            - /url: /hub
+            - 'img "RapidAPI Hub: public API Marketplace" [ref=f11e10]'
+        - generic [ref=f11e11]: Search APIs
+        - generic [ref=f11e17]:
+          - button "Help" [ref=f11e18]:
+            - img [aria-hidden] [ref=f11e19] [cursor=pointer]
+          - button "Sign In" [ref=f11e21]
+          - button "Sign Up" [ref=f11e22]
+    - main [ref=f11e29]:
+      - generic [ref=f11e32]:
+        - generic [ref=f11e34] [cursor=pointer]:
+          - img "Flights Scraper Sky thumbnail" [ref=f11e38]
+          - button "Flights Scraper Sky" [ref=f11e39]
+        - generic [ref=f11e40]:
+          - generic [ref=f11e41]: Choose the plan that’s rightfor You
+          - generic [ref=f11e42]: RapidAPI partners directly with API providers to give you no-fuss, transparent pricing.
+        - region [ref=f11e44]:
+          - generic [ref=f11e46]:
+            - generic [ref=f11e47]:
+              - generic [ref=f11e48]:
+                - generic [ref=f11e50]:
+                  - generic [ref=f11e51]: Basic
+                  - generic [ref=f11e53]:
+                    - generic [ref=f11e54]: $0.00
+                    - generic [ref=f11e55]: /mo
+                - generic [ref=f11e58]:
+                  - generic [ref=f11e59]:
+                    - generic [ref=f11e60]: Requests
+                    - button [ref=f11e61]
+                  - generic [ref=f11e64]:
+                    - generic [ref=f11e65]: 50 / Month
+                    - generic [ref=f11e66]: Hard Limit
+              - generic [ref=f11e67]:
+                - generic [ref=f11e69]:
+                  - generic [ref=f11e70]: Rate Limit
+                  - generic [ref=f11e71]: 1000 requests per hour
+                - generic [ref=f11e75]:
+                  - generic [ref=f11e76]: Bandwidth Platform Fee
+                  - generic [ref=f11e78]:
+                    - generic [ref=f11e79]: 10240MB / Month
+                    - generic [ref=f11e80]: + $0.001 per 1MB
+                - button "Start Free Plan" [ref=f11e81]
+            - generic [ref=f11e82]:
+              - generic [ref=f11e83]:
+                - generic [ref=f11e85]:
+                  - generic [ref=f11e86]: Pro
+                  - generic [ref=f11e88]:
+                    - generic [ref=f11e89]: $15.00
+                    - generic [ref=f11e90]: /mo
+                - generic [ref=f11e93]:
+                  - generic [ref=f11e94]:
+                    - generic [ref=f11e95]: Requests
+                    - button [ref=f11e96]
+                  - generic [ref=f11e99]:
+                    - generic [ref=f11e100]: 15,000 / Month
+                    - generic [ref=f11e101]: Hard Limit
+              - generic [ref=f11e102]:
+                - generic [ref=f11e104]:
+                  - generic [ref=f11e105]: Rate Limit
+                  - generic [ref=f11e106]: 3 requests per second
+                - generic [ref=f11e110]:
+                  - generic [ref=f11e111]: Bandwidth Platform Fee
+                  - generic [ref=f11e113]:
+                    - generic [ref=f11e114]: 10240MB / Month
+                    - generic [ref=f11e115]: + $0.001 per 1MB
+                - button "Choose This Plan" [ref=f11e116]
+        - generic [ref=f11e118]:
+          - generic [ref=f11e119]: Pricing FAQs
+          - generic [ref=f11e120]:
+            - heading [level=3] [ref=f11e122]:
+              - button "Is my payment information secure?" [ref=f11e123]
+            - heading [level=3] [ref=f11e127]:
+              - button "Why do you require a credit card for a freemium API?" [ref=f11e128]
+            - heading [level=3] [ref=f11e132]:
+              - button "What if I exceed my plan limits?" [ref=f11e133]
+            - heading [level=3] [ref=f11e137]:
+              - button "When will I be billed?" [ref=f11e138]
+            - heading [level=3] [ref=f11e142]:
+              - button "How are refunds handled?" [ref=f11e143]
+  - iframe [ref=f11e148]:
+    - generic [ref=f13e6]:
+      - text: protected by
+      - strong [ref=f13e7]: reCAPTCHA
+  - generic [ref=f11e149] [cursor=pointer]:
+    - button "Manage Preferences" [ref=f11e151]
+    - text: Manage Preferences

@@ -1,0 +1,251 @@
+- generic [ref=f78e1]:
+  - alert [ref=f78e6]: rome2rio APIs (Free Tutorials, SDK Documentation & Pricing)
+  - region "Notifications alt+T"
+  - generic [ref=f78e8]:
+    - banner [ref=f78e9]:
+      - generic [ref=f78e10]:
+        - generic [ref=f78e11]:
+          - button [ref=f78e12]:
+            - link [ref=f78e13] [cursor=pointer]:
+              - /url: /hub
+              - 'img "RapidAPI Hub: public API Marketplace" [ref=f78e14]'
+          - generic "Selected context thumbnail" [ref=f78e16] [cursor=pointer]:
+            - img "Personal Account thumbnail" [ref=f78e18]
+            - generic [ref=f78e19]: Personal Account
+        - generic [ref=f78e1171] [cursor=pointer]:
+          - generic [ref=f78e1172]: Search APIs
+          - generic [ref=f78e1176]: ⌘K
+        - generic [ref=f78e31]:
+          - generic [ref=f78e33]:
+            - button "API Marketplace" [ref=f78e34]:
+              - link "API Marketplace" [ref=f78e35] [cursor=pointer]:
+                - /url: /hub
+            - button "Console" [ref=f78e36]:
+              - link "Console" [ref=f78e37] [cursor=pointer]:
+                - /url: /console/3937890/applications
+            - button "Studio" [ref=f78e38]:
+              - link "Studio" [ref=f78e39] [cursor=pointer]:
+                - /url: /studio
+            - link "Favorites link" [ref=f78e40] [cursor=pointer]:
+              - /url: /my-saved-apis
+          - generic [ref=f78e44]:
+            - button "Notifications" [ref=f78e45]:
+              - img [aria-hidden] [ref=f78e46] [cursor=pointer]
+            - button "Approvals" [ref=f78e48]:
+              - img [aria-hidden] [ref=f78e49] [cursor=pointer]
+            - button "Inbox" [ref=f78e51]:
+              - img [aria-hidden] [ref=f78e52] [cursor=pointer]
+            - button "Help" [ref=f78e54]:
+              - img [aria-hidden] [ref=f78e55] [cursor=pointer]
+          - button "User Profile" [ref=f78e57]:
+            - img "Maurici Abad Gutierrez thumbnail" [ref=f78e59] [cursor=pointer]
+    - main [ref=f78e66]:
+      - main [ref=f78e1178]:
+        - generic [ref=f78e1179]:
+          - generic [ref=f78e1181]:
+            - generic [ref=f78e1182]:
+              - generic [ref=f78e1183]: Showing results matching your search criteria. Utilize filters and facets to fine-tune your search
+              - button "Copy Link" [ref=f78e1185]:
+                - img [aria-hidden] [ref=f78e1186] [cursor=pointer]
+            - paragraph
+          - generic [ref=f78e1188]:
+            - generic [ref=f78e1189]:
+              - generic [ref=f78e1190]: Show APIs
+              - generic [ref=f78e1191]: Filter by
+              - generic [ref=f78e1192]:
+                - generic [ref=f78e1193]:
+                  - generic [ref=f78e1194]: Category
+                  - list [ref=f78e1200]:
+                    - listitem [ref=f78e1201] [cursor=pointer]:
+                      - generic [ref=f78e1202]: Artificial Intelligence/Machine Learning
+                      - generic [ref=f78e1203]: "0"
+                    - listitem [ref=f78e1204] [cursor=pointer]:
+                      - generic [ref=f78e1205]: Translation
+                      - generic [ref=f78e1206]: "0"
+                    - listitem [ref=f78e1207] [cursor=pointer]:
+                      - generic [ref=f78e1208]: News, Media
+                      - generic [ref=f78e1209]: "0"
+                    - listitem [ref=f78e1210] [cursor=pointer]:
+                      - generic [ref=f78e1211]: Energy
+                      - generic [ref=f78e1212]: "0"
+                    - listitem [ref=f78e1213] [cursor=pointer]:
+                      - generic [ref=f78e1214]: Media
+                      - generic [ref=f78e1215]: "0"
+                    - listitem [ref=f78e1216] [cursor=pointer]:
+                      - generic [ref=f78e1217]: Email
+                      - generic [ref=f78e1218]: "0"
+                    - listitem [ref=f78e1219] [cursor=pointer]:
+                      - generic [ref=f78e1220]: Location
+                      - generic [ref=f78e1221]: "0"
+                    - listitem [ref=f78e1222] [cursor=pointer]:
+                      - generic [ref=f78e1223]: Weather
+                      - generic [ref=f78e1224]: "0"
+                    - listitem [ref=f78e1225] [cursor=pointer]:
+                      - generic [ref=f78e1226]: Agriculture & Farming
+                      - generic [ref=f78e1227]: "0"
+                    - listitem [ref=f78e1228] [cursor=pointer]:
+                      - generic [ref=f78e1229]: Social
+                      - generic [ref=f78e1230]: "0"
+                    - listitem [ref=f78e1231] [cursor=pointer]:
+                      - generic [ref=f78e1232]: Storage
+                      - generic [ref=f78e1233]: "0"
+                    - listitem [ref=f78e1234] [cursor=pointer]:
+                      - generic [ref=f78e1235]: Jobs
+                      - generic [ref=f78e1236]: "0"
+                    - listitem [ref=f78e1237] [cursor=pointer]:
+                      - generic [ref=f78e1238]: Music
+                      - generic [ref=f78e1239]: "0"
+                    - listitem [ref=f78e1240] [cursor=pointer]:
+                      - generic [ref=f78e1241]: Text Analysis
+                      - generic [ref=f78e1242]: "0"
+                    - listitem [ref=f78e1243] [cursor=pointer]:
+                      - generic [ref=f78e1244]: Gaming
+                      - generic [ref=f78e1245]: "0"
+                    - listitem [ref=f78e1246] [cursor=pointer]:
+                      - generic [ref=f78e1247]: Medical
+                      - generic [ref=f78e1248]: "0"
+                    - listitem [ref=f78e1249] [cursor=pointer]:
+                      - generic [ref=f78e1250]: Monitoring
+                      - generic [ref=f78e1251]: "0"
+                    - listitem [ref=f78e1252] [cursor=pointer]:
+                      - generic [ref=f78e1253]: Reward
+                      - generic [ref=f78e1254]: "0"
+                    - listitem [ref=f78e1255] [cursor=pointer]:
+                      - generic [ref=f78e1256]: Events
+                      - generic [ref=f78e1257]: "0"
+                    - listitem [ref=f78e1258] [cursor=pointer]:
+                      - generic [ref=f78e1259]: Education
+                      - generic [ref=f78e1260]: "0"
+                    - listitem [ref=f78e1261] [cursor=pointer]:
+                      - generic [ref=f78e1262]: Devices
+                      - generic [ref=f78e1263]: "0"
+                    - listitem [ref=f78e1264] [cursor=pointer]:
+                      - generic [ref=f78e1265]: Tools
+                      - generic [ref=f78e1266]: "0"
+                    - listitem [ref=f78e1267] [cursor=pointer]:
+                      - generic [ref=f78e1268]: Business Software
+                      - generic [ref=f78e1269]: "0"
+                    - listitem [ref=f78e1270] [cursor=pointer]:
+                      - generic [ref=f78e1271]: Health and Fitness
+                      - generic [ref=f78e1272]: "0"
+                    - listitem [ref=f78e1273] [cursor=pointer]:
+                      - generic [ref=f78e1274]: Food
+                      - generic [ref=f78e1275]: "0"
+                    - listitem [ref=f78e1276] [cursor=pointer]:
+                      - generic [ref=f78e1277]: Other
+                      - generic [ref=f78e1278]: "0"
+                    - listitem [ref=f78e1279] [cursor=pointer]:
+                      - generic [ref=f78e1280]: SMS
+                      - generic [ref=f78e1281]: "0"
+                    - listitem [ref=f78e1282] [cursor=pointer]:
+                      - generic [ref=f78e1283]: Visual Recognition
+                      - generic [ref=f78e1284]: "0"
+                    - listitem [ref=f78e1285] [cursor=pointer]:
+                      - generic [ref=f78e1286]: Cryptography
+                      - generic [ref=f78e1287]: "0"
+                    - listitem [ref=f78e1288] [cursor=pointer]:
+                      - generic [ref=f78e1289]: Logistics
+                      - generic [ref=f78e1290]: "0"
+                    - listitem [ref=f78e1291] [cursor=pointer]:
+                      - generic [ref=f78e1292]: Finance
+                      - generic [ref=f78e1293]: "0"
+                    - listitem [ref=f78e1294] [cursor=pointer]:
+                      - generic [ref=f78e1295]: Transportation
+                      - generic [ref=f78e1296]: "0"
+                    - listitem [ref=f78e1297] [cursor=pointer]:
+                      - generic [ref=f78e1298]: Search
+                      - generic [ref=f78e1299]: "0"
+                    - listitem [ref=f78e1300] [cursor=pointer]:
+                      - generic [ref=f78e1301]: Data
+                      - generic [ref=f78e1302]: "0"
+                    - listitem [ref=f78e1303] [cursor=pointer]:
+                      - generic [ref=f78e1304]: Science
+                      - generic [ref=f78e1305]: "0"
+                    - listitem [ref=f78e1306] [cursor=pointer]:
+                      - generic [ref=f78e1307]: Business
+                      - generic [ref=f78e1308]: "0"
+                    - listitem [ref=f78e1309] [cursor=pointer]:
+                      - generic [ref=f78e1310]: Movies
+                      - generic [ref=f78e1311]: "0"
+                    - listitem [ref=f78e1312] [cursor=pointer]:
+                      - generic [ref=f78e1313]: Entertainment
+                      - generic [ref=f78e1314]: "0"
+                    - listitem [ref=f78e1315] [cursor=pointer]:
+                      - generic [ref=f78e1316]: Cybersecurity
+                      - generic [ref=f78e1317]: "0"
+                    - listitem [ref=f78e1318] [cursor=pointer]:
+                      - generic [ref=f78e1319]: Database
+                      - generic [ref=f78e1320]: "0"
+                    - listitem [ref=f78e1321] [cursor=pointer]:
+                      - generic [ref=f78e1322]: Agriculture, Farming & Homesteading
+                      - generic [ref=f78e1323]: "0"
+                    - listitem [ref=f78e1324] [cursor=pointer]:
+                      - generic [ref=f78e1325]: Commerce
+                      - generic [ref=f78e1326]: "0"
+                    - listitem [ref=f78e1327] [cursor=pointer]:
+                      - generic [ref=f78e1328]: Video, Images
+                      - generic [ref=f78e1329]: "0"
+                    - listitem [ref=f78e1330] [cursor=pointer]:
+                      - generic [ref=f78e1331]: Advertising
+                      - generic [ref=f78e1332]: "0"
+                    - listitem [ref=f78e1333] [cursor=pointer]:
+                      - generic [ref=f78e1334]: Mapping
+                      - generic [ref=f78e1335]: "0"
+                    - listitem [ref=f78e1336] [cursor=pointer]:
+                      - generic [ref=f78e1337]: Travel
+                      - generic [ref=f78e1338]: "0"
+                    - listitem [ref=f78e1339] [cursor=pointer]:
+                      - generic [ref=f78e1340]: Sports
+                      - generic [ref=f78e1341]: "0"
+                    - listitem [ref=f78e1342] [cursor=pointer]:
+                      - generic [ref=f78e1343]: eCommerce
+                      - generic [ref=f78e1344]: "0"
+                    - listitem [ref=f78e1345] [cursor=pointer]:
+                      - generic [ref=f78e1346]: Financial
+                      - generic [ref=f78e1347]: "0"
+                    - listitem [ref=f78e1348] [cursor=pointer]:
+                      - generic [ref=f78e1349]: Communication
+                      - generic [ref=f78e1350]: "0"
+                    - listitem [ref=f78e1351] [cursor=pointer]:
+                      - generic [ref=f78e1352]: Payments
+                      - generic [ref=f78e1353]: "0"
+                - generic [ref=f78e1354]:
+                  - generic [ref=f78e1355]: Tags
+                  - generic [ref=f78e1356]:
+                    - log [ref=f78e1358]
+                    - generic [ref=f78e1360] [cursor=pointer]:
+                      - generic [ref=f78e1361]: Select Tags
+                      - combobox [ref=f78e1363]
+                - generic [ref=f78e1370]:
+                  - generic [ref=f78e1371]: Need help with an API?
+                  - link "Search in RapidAPI Learning Center" [ref=f78e1372] [cursor=pointer]:
+                    - /url: https://rapidapi.com/learn
+            - generic [ref=f78e1375]:
+              - generic [ref=f78e1376]:
+                - generic [ref=f78e1377]: All Results For "rome2rio" (0)
+                - generic [ref=f78e1378]:
+                  - generic:
+                    - log
+                    - generic:
+                      - generic:
+                        - generic: ByRelevance
+                        - combobox [disabled]
+              - generic [ref=f78e1381]:
+                - generic [ref=f78e1384]:
+                  - generic [ref=f78e1385]: rome2rio
+                  - 'textbox "Search (example: org:, team:, user:)" [active] [ref=f78e1387]': rome2rio
+                - generic [ref=f78e1388]:
+                  - generic [ref=f78e1389] [cursor=pointer]: Clear
+                  - generic [ref=f78e1390]: Enter
+              - generic [ref=f78e1392]:
+                - img "empty state icon" [ref=f78e1396]
+                - generic [ref=f78e1402]:
+                  - generic [ref=f78e1403]: There are no results that match your search
+                  - generic [ref=f78e1404]: Please try modifying your search to get more results.
+  - iframe [ref=f78e1151]:
+    - generic [ref=f79e6]:
+      - text: protected by
+      - strong [ref=f79e7]: reCAPTCHA
+  - generic [ref=f78e1152] [cursor=pointer]:
+    - button "Manage Preferences" [ref=f78e1154]
+    - text: Manage Preferences
