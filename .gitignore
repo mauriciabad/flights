@@ -48,3 +48,7 @@ vite.config.ts.timestamp-*
 !static/**/*.jpg
 !src/**/*.png
 !src/**/*.jpg
+# Real e2e fixtures (issue #119: a stub airline-logo image mockAirlineLogos serves),
+# not a review screenshot — the blanket rule above would otherwise silently drop it.
+!tests/e2e/fixtures/**/*.png
+!tests/e2e/fixtures/**/*.jpg
