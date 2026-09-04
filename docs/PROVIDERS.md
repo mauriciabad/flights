@@ -441,3 +441,27 @@ The owner's claim, in his words:
 The app should test that rather than assume it. Ryanair is ground truth for Ryanair
 flights, so any aggregator quoting a different price for the same flight number is
 measurably wrong. Issue #17 tracks turning this into a number instead of a belief.
+
+
+### Hostel data is weak in both stay providers, measured 2026-09-04
+
+Hostelworld has no API, so Agoda and Booking carry all hostel coverage between them. Both are
+hotel-first and it shows.
+
+**Agoda's `isDormitory` flag is broken.** It reads `false` on rooms literally named "N-Bed
+Dormitory". Classification therefore runs on the room name, with a guard against "Private N Bed
+Dorm", which is a whole private room at four to five times the price of a bed in one.
+
+**Booking returns no rooms at all for a hostel.** Querying `getRoomList` for Wombat's City
+Hostel Vienna (`hotel_id=274237`) on 2026-10-06 returns `status: true, message: "Success"` with
+an **empty `block` array** and no `is_dormitory` field anywhere in the response. Not an error, no
+message, simply nothing. Whether that is a sold-out date, a parameter we have wrong, or the
+endpoint being unreliable for this property class is unknown.
+
+`is_dormitory` also does not appear in the `searchHotels` response, only in the room list, so
+there is currently no confirmed path to dorm pricing through Booking at all.
+
+**Consequence for the product.** A dorm bed is the cheapest option in a stopover city and is what
+makes the "free trip" arithmetic work, so this is not a cosmetic gap. Until it is solved, prefer
+Agoda with name-based classification, and be explicit in the UI about what kind of bed a price
+refers to rather than implying a dorm rate when only a private room was priced.
