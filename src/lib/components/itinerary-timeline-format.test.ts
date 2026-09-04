@@ -10,6 +10,7 @@ import {
 	formatTimeDelta,
 	formatUtcOffset,
 	isDifferentCalendarDate,
+	unpricedTransferNote,
 	unroutedLegNote
 } from './itinerary-timeline-format';
 
@@ -142,13 +143,17 @@ describe('formatTimeDelta', () => {
 });
 
 describe('unroutedLegNote', () => {
-	it('names the missing bed, in the direction the row is describing', () => {
+	it('names both missing halves, in the direction the row is describing', () => {
+		// Issue #161 gave these legs a second destination — the city centre — so "no bed,
+		// therefore nowhere to go" stopped being the whole story. An empty row now means
+		// neither a bed nor a city route, and the sentence states both rather than pinning
+		// it on the bed alone.
 		const overnight = { hasStay: false, nightsInConnection: 6 };
 		expect(unroutedLegNote('to-hotel', overnight)).toBe(
-			'No bed priced for this stopover, so there is nowhere to travel to.'
+			'No bed priced for this stopover, and nothing routed into the city either.'
 		);
 		expect(unroutedLegNote('from-hotel', overnight)).toBe(
-			'No bed priced for this stopover, so there is nowhere to travel back from.'
+			'No bed priced for this stopover, and nothing routed back from the city either.'
 		);
 	});
 
@@ -185,6 +190,29 @@ describe('unroutedLegNote', () => {
 			for (const context of contexts) {
 				expect(unroutedLegNote(leg, context)).not.toMatch(/\byet\b/i);
 			}
+		}
+	});
+});
+
+describe('unpricedTransferNote (issue #119)', () => {
+	it('says a walk has no fare, which is a fact, not a missing number', () => {
+		expect(unpricedTransferNote('walk')).toBe('No fare');
+		expect(unpricedTransferNote('walk', true)).toBe('no fare');
+	});
+
+	it('says a paid mode with no quote is a gap in the data, not a free ride', () => {
+		for (const mode of ['transit', 'taxi', 'drive'] as const) {
+			expect(unpricedTransferNote(mode)).toBe('Price not available');
+			expect(unpricedTransferNote(mode, true)).toBe('price n/a');
+		}
+	});
+
+	it('never prints a zero for any mode, in either form', () => {
+		// The owner's complaint in full: "price of walk is 0\u20ac". A zero next to real
+		// fares invites a comparison the number cannot support, whatever the mode.
+		for (const mode of ['walk', 'transit', 'taxi', 'drive'] as const) {
+			expect(unpricedTransferNote(mode)).not.toMatch(/0/);
+			expect(unpricedTransferNote(mode, true)).not.toMatch(/0/);
 		}
 	});
 });

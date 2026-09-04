@@ -87,9 +87,17 @@
 	const distanceToAirportKm = $derived(
 		openProperty ? haversineDistanceKm(openProperty.coordinates, connectionAirport.coordinates) : 0
 	);
-	const distanceToCentreKm = $derived(
-		openProperty ? haversineDistanceKm(openProperty.coordinates, connectionAirport.city.coordinates) : 0
-	);
+	// Issue #162: `undefined`, and the line below it goes away, unless this airport has a
+	// hand-checked city point (`data/airport-city-names.ts`). It used to measure against
+	// `connectionAirport.city.coordinates` when that was the airport's own position, so
+	// this card printed one number under two labels — "6.0 km from the airport" above
+	// "6.0 km from the city centre" — and the second one read as a promise about a real
+	// old town.
+	const distanceToCentreKm = $derived.by(() => {
+		const centre = connectionAirport.city.coordinates;
+		if (!openProperty || !centre) return undefined;
+		return haversineDistanceKm(openProperty.coordinates, centre);
+	});
 
 	// Whether the whole property list has anything that isn't a plain private room -
 	// gates the one general data-quality note below rather than showing it on a
@@ -161,7 +169,11 @@
 						</span>
 					{/if}
 					<span class="stay-open-distance">{formatDistanceKm(distanceToAirportKm)} from the airport</span>
-					<span class="stay-open-distance">{formatDistanceKm(distanceToCentreKm)} from the city centre</span>
+					{#if distanceToCentreKm !== undefined}
+						<span class="stay-open-distance">
+							{formatDistanceKm(distanceToCentreKm)} from the centre of {connectionAirport.city.name}
+						</span>
+					{/if}
 				</div>
 
 				<div class="stay-room-kinds" role="group" aria-label="Room type for this stay">

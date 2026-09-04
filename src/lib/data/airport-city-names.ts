@@ -38,7 +38,7 @@
  * genuinely different place from the one a traveller would say.
  */
 
-import type { IataAirportCode } from '$lib/domain';
+import type { Coordinates, IataAirportCode } from '$lib/domain';
 
 /**
  * One airport's naming, when OurAirports' own column is not enough.
@@ -57,6 +57,35 @@ interface AirportCityNaming {
 	/** Extra names the typeahead should match. A city the airport is sold under but is
 	 * not in, and nothing that ever reaches the screen. */
 	alsoFoundAs?: readonly string[];
+	/**
+	 * Issue #162: a point in the middle of `city`, when one has been checked.
+	 *
+	 * OurAirports ships no city geometry, only the runway's, so before this field
+	 * `Airport.city.coordinates` WAS `Airport.coordinates` — and two stay cards printed the
+	 * same number twice, once labelled "from the airport" and once "from the city centre".
+	 * Bergamo's old town is 5 km from its runway and both lines read 5.0 km.
+	 *
+	 * Only the airports below have one, and only they need one: they are the entries this
+	 * table already exists for, where the runway sits in a different place from the city on
+	 * the ticket. Everywhere else the municipality IS the airport's own town and this app
+	 * has no better point than the runway, so the field is absent, the domain type says
+	 * `undefined`, and both readers (the stay cards, issue #161's city-centre routing) drop
+	 * what they cannot state rather than restating the airport's own position under a
+	 * different label.
+	 *
+	 * Each was read off Transitous's own `/geocode` on 2026-09-04 — keyless, free, the
+	 * geocoder this app already talks to — and kept only where the response named the place
+	 * asked for and its admin trail confirmed it. Four decimal places, roughly 11 m, which
+	 * is as precise as "the middle of a city" deserves to be. The per-entry comments below
+	 * record which query and which returned place each one came from, so the next person
+	 * can re-run exactly what produced it. Not fetched at runtime: the same session that
+	 * produced these also had `/geocode` answer "Zagreb, Croatia" with three unrelated
+	 * places all named "Croatia", "Athens, Greece" with a HERE Technologies office, and
+	 * "Girona, Spain" with a street in Barcelona. A geocoder is a fine way to LOOK a
+	 * coordinate up once by hand and a bad way to trust one sight-unseen, which is the same
+	 * conclusion `providers/geocode/airport-city.ts` reached the other way round.
+	 */
+	centre?: Coordinates;
 }
 
 /**
@@ -81,25 +110,37 @@ const AIRPORT_CITY_NAMING: Readonly<Record<IataAirportCode, AirportCityNaming>> 
 	// "Il Caravaggio International Airport", OurAirports keyword "Milan Bergamo Airport";
 	// Ryanair's own fare payload says `city: { name: "Bergamo" }`. Bergamo is 5 km away
 	// and is a city people actually visit, so it is the name, with Milan searchable.
-	BGY: { city: 'Bergamo', alsoFoundAs: ['Milan'] },
+	// Centre: /geocode "Bergamo, Italy" -> PLACE "Bergamo", trail Italia/Lombardia/
+	// Bergamo/Bergamo. About 4 km from the runway, which is the gap this whole issue is
+	// about.
+	BGY: { city: 'Bergamo', alsoFoundAs: ['Milan'], centre: { latitude: 45.6945, longitude: 9.6699 } },
 	// "Milan Malpensa International Airport". Ferno is a village next to the runway;
 	// Malpensa is Milan's main long-haul airport and nobody calls it anything else.
-	MXP: { city: 'Milan' },
+	// Centre: /geocode "Milano, Italy" -> PLACE "Milano", trail Italia/Lombardia/Milano/
+	// Milano/Municipio 1, the Duomo district. Shared with LIN below: one city, one point.
+	MXP: { city: 'Milan', centre: { latitude: 45.4642, longitude: 9.1896 } },
 	// "Milano Linate Airport", inside Milan's own urban area. Named alongside MXP because
 	// a Milan search returns all three of these and naming them inconsistently would read
 	// worse than either choice on its own.
-	LIN: { city: 'Milan' },
+	LIN: { city: 'Milan', centre: { latitude: 45.4642, longitude: 9.1896 } },
 	// "Marseille Provence Airport". Marignane is the commune; the airport is Marseille's.
-	MRS: { city: 'Marseille' },
+	// Centre: /geocode "Marseille, France" -> PLACE "Marseille", trail ending Marseille
+	// 1er Arrondissement/Belsunce, beside the Vieux-Port.
+	MRS: { city: 'Marseille', centre: { latitude: 43.2964, longitude: 5.3778 } },
 	// "Bucharest Henri Coandă International Airport", OurAirports keyword "BUH";
 	// Ryanair's payload says `city: { name: "Bucharest" }`. Otopeni is the commune.
-	OTP: { city: 'Bucharest' },
+	// Centre: /geocode "Bucuresti, Romania" -> PLACE "București", trail România/
+	// București/Sector 1.
+	OTP: { city: 'Bucharest', centre: { latitude: 44.4361, longitude: 26.1027 } },
 	// "Aristides Pereira International Airport" on Boa Vista island, municipality "Rabil".
 	// docs/ACCEPTANCE.md's reference trip starts here, and the empty-results copy said
 	// "no route out of Rabil (BVC)" for an airport the owner searched for as Boa Vista.
 	// "Rabil" stays searchable without being listed: `citySearchAliases` keeps every
 	// municipality it renames.
-	BVC: { city: 'Boa Vista' },
+	// Centre: /geocode "Sal Rei, Boa Vista" -> PLACE "Sal Rei", trail Cabo Verde/Boa
+	// Vista. The island's one town, not the island's midpoint: "Boa Vista" is the name a
+	// traveller says, Sal Rei is where they would actually stay.
+	BVC: { city: 'Boa Vista', centre: { latitude: 16.176, longitude: -22.917 } },
 	// "Frankfurt-Hahn Airport", 120 km from Frankfurt. Its municipality reads
 	// "Frankfurt am Main (Lautzenhausen)", so the cleanup alone would promise the city
 	// itself. The airport's own name is the honest middle: findable under Frankfurt,
@@ -109,7 +150,11 @@ const AIRPORT_CITY_NAMING: Readonly<Record<IataAirportCode, AirportCityNaming>> 
 	// town 10 km down the road that the runway happens to sit in. Reported by the owner
 	// against a real stopover card that read "Velika Gorica ZAG". It is the same defect
 	// BGY and MXP above are here for, on the only airport Zagreb has.
-	ZAG: { city: 'Zagreb' },
+	// Centre: /geocode "Trg bana Josipa Jelacica, Zagreb" -> PLACE of that name, trail
+	// Hrvatska/Grad Zagreb/Zagreb/Donji grad. Asking for "Zagreb, Croatia" instead
+	// returned three unrelated places all called "Croatia", which is why the query here
+	// names the main square rather than the city.
+	ZAG: { city: 'Zagreb', centre: { latitude: 45.813, longitude: 15.9757 } },
 	// The three below are the identical defect, found by scanning the dataset for
 	// airports whose own OurAirports `name` opens with a city its municipality never
 	// mentions, the corroboration rule this table already uses. Each is a plausible
@@ -117,15 +162,22 @@ const AIRPORT_CITY_NAMING: Readonly<Record<IataAirportCode, AirportCityNaming>> 
 	// other ~160 candidates of varying quality are not.
 	// "Athens Eleftherios Venizelos International Airport"; municipality
 	// "Spata-Artemida", the coastal municipality 25 km east that hosts the runway.
-	ATH: { city: 'Athens' },
+	// Centre: /geocode "Syntagma, Athina" -> PLACE "Syntagma-Platz", trail ending Δήμος
+	// Αθηναίων/1η Κοινότητα Αθηνών. "Athens, Greece" returned a HERE Technologies
+	// office in Chalandri, so this one is the square, same as ZAG above.
+	ATH: { city: 'Athens', centre: { latitude: 37.9755, longitude: 23.7341 } },
 	// "Brussels Airport"; municipality "Zaventem", the Flemish town it is built in and
 	// is often called after. Brussels is what every carrier sells it as, and Zaventem
 	// stays searchable through `citySearchAliases`.
-	BRU: { city: 'Brussels' },
+	// Centre: /geocode "Brussels, Belgium" -> PLACE "Brussels", trail ending Quartier du
+	// Centre - Centrumwijk, the Grand-Place quarter.
+	BRU: { city: 'Brussels', centre: { latitude: 50.8467, longitude: 4.3525 } },
 	// "Edinburgh Airport"; municipality "Ingliston, Edinburgh". Here the cleanup itself
 	// is what goes wrong: it keeps the segment before the comma, which for this row is
 	// the suburb rather than the city, so the card read "Ingliston".
-	EDI: { city: 'Edinburgh' },
+	// Centre: /geocode "Edinburgh, United Kingdom" -> PLACE "Edinburgh", trail United
+	// Kingdom/Alba/Scotland/City of Edinburgh/Old Town.
+	EDI: { city: 'Edinburgh', centre: { latitude: 55.9533, longitude: -3.1884 } },
 
 	// Search-only, moved here verbatim from `MARKETED_CITY_KEYWORDS` in
 	// scripts/prepare-airports.mjs (issue #133) so one table answers both questions.
@@ -173,6 +225,21 @@ export function displayCityName(iataCode: IataAirportCode, municipality: string)
 	const curated = AIRPORT_CITY_NAMING[iataCode]?.city;
 	if (curated) return curated;
 	return cleanMunicipality(municipality) || municipality;
+}
+
+/**
+ * A point in the middle of the city this airport serves, or `undefined` when nobody has
+ * checked one (issue #162).
+ *
+ * `undefined` is the normal answer and the honest one. It is not "the airport will do":
+ * `data/airports.ts` used to fill `City.coordinates` with the runway's own position for
+ * every airport in the dataset, which is why "6.0 km from the airport" and "6.0 km from
+ * the city centre" appeared side by side on the same card as if they were two facts.
+ * `City.coordinates` is optional now precisely so this function can say "no" and every
+ * reader has to handle it.
+ */
+export function cityCentreOf(iataCode: IataAirportCode): Coordinates | undefined {
+	return AIRPORT_CITY_NAMING[iataCode]?.centre;
 }
 
 /**

@@ -178,18 +178,38 @@ export function sumMoney(first: Money, ...rest: (Money | undefined)[]): Money {
 	return { minorUnits: total, currency: first.currency };
 }
 
-/** The hotel and the two connection-side transfers already resolved for one candidate
- * connection airport. Fetching these for real is issues #7-#10's job.
+/** What the two connection-side transfers were routed to and from — issue #161. `'stay'`
+ * is a booked bed's own address; `'city-centre'` is the connection city's hand-checked
+ * centre point (`data/airport-city-names.ts`), used when no bed was priced but the ride
+ * into town is still a real thing to know about. */
+export type TransferAnchor = 'stay' | 'city-centre';
+
+/**
+ * The bed, if one was priced, and the two connection-side transfers already resolved for
+ * one candidate connection airport. Fetching these for real is issues #7-#10's job.
  *
- * All three optional together, never independently (`resources.ts`'s `fetchConnectionResources`
- * is what enforces this trio) — issue #94: a connection with no stay reachable (no provider
- * key, every one out of quota or erroring, or nothing this party can book nearby) still
- * produces an itinerary, just one with no bed priced and nowhere for a hotel-bound transfer
- * to go. A connection with no entry in `BuildItinerariesInput.connectionResources` AT ALL is
- * the one case that still drops it — the flights themselves never got as far as being asked
- * about, e.g. no dataset entry for the connection airport at all. */
+ * The two transfers used to be optional strictly alongside `stay`, on the reasoning that
+ * without a bed there is nowhere for a hotel-bound transfer to go. Issue #161 found the
+ * better destination that reasoning missed: the city centre. Both transfers can now be
+ * present with `stay` absent (`transferAnchor === 'city-centre'`), which is the ordinary
+ * state of a search with no stay-provider key — every first visit. `stay` present without
+ * them is still impossible; `resources.ts`'s `fetchConnectionResources` is what enforces
+ * that direction.
+ *
+ * Issue #94 still holds otherwise: a connection with no bed reachable produces an
+ * itinerary anyway, just one with no bed priced. A connection with no entry in
+ * `BuildItinerariesInput.connectionResources` AT ALL is the one case that still drops it —
+ * the flights themselves never got as far as being asked about, e.g. no dataset entry for
+ * the connection airport.
+ */
 export interface ConnectionResources {
 	stay?: Stay;
+	/** Which of the two destinations above these transfers describe, or `undefined` when
+	 * there are none. Present so `buildItineraries` can tell "these legs belong to a bed
+	 * this itinerary had to discard" from "these legs go into town and stand on their own"
+	 * — see its `stayCurrencyMatches` block for the one case where that distinction
+	 * decides whether the transfers survive. */
+	transferAnchor?: TransferAnchor;
 	transferToHotel?: Transfer;
 	transferToConnectionAirport?: Transfer;
 }
@@ -272,12 +292,15 @@ export function buildItineraries(input: BuildItinerariesInput): Itinerary[] {
 				flightLengthClass(onward.duration)
 			);
 
-			// Issue #94: `resources.stay` is optional, and `transferToHotel`/
-			// `transferToConnectionAirport` exist only alongside it (`resources.ts`'s own
-			// contract enforces that trio), so `stay` truthy already proves both transfers
-			// are defined too, with no non-null assertion needed on either. No stay means
-			// nowhere to travel to during the layover: free time runs runway to runway, with
-			// no in-city transfer legs to add or subtract.
+			// Issue #94: `resources.stay` is optional, and an itinerary with no bed priced is
+			// still a real itinerary.
+			// Issue #161: the two connection-side transfers are NOT gated on the bed any
+			// more. With no stay they may still be a real route between the runway and the
+			// city centre, and free time then runs from arriving in town to leaving it,
+			// which is the honest reading of "six free days in Bergamo". They are dropped
+			// only when they were routed to a bed this itinerary has just had to discard for
+			// the currency reason below: those two legs end at an address that is no longer
+			// part of this trip.
 			// Issue #152: a stay quoted in a currency this itinerary cannot total loses the
 			// BED, never the trip. `sumMoney` below refuses to add a mix and throws, and the
 			// only thing catching that was `pipeline.ts`, which discarded the entire
@@ -294,8 +317,11 @@ export function buildItineraries(input: BuildItinerariesInput): Itinerary[] {
 			const outboundCurrency = outbound.price.currency;
 			const stayCurrencyMatches = resources.stay?.pricePerNight.currency === outboundCurrency;
 			const stay = stayCurrencyMatches ? resources.stay : undefined;
-			const transferToHotel = stay ? resources.transferToHotel : undefined;
-			const transferToConnectionAirport = stay ? resources.transferToConnectionAirport : undefined;
+			const keepConnectionTransfers = resources.transferAnchor === 'city-centre' || stay !== undefined;
+			const transferToHotel = keepConnectionTransfers ? resources.transferToHotel : undefined;
+			const transferToConnectionAirport = keepConnectionTransfers
+				? resources.transferToConnectionAirport
+				: undefined;
 
 			// Free time is what is left of the layover after both airport-side transfers
 			// and the pre-boarding buffer, expressed as the real hotel check-in/check-out
@@ -428,14 +454,17 @@ export function recomputeItineraryWaitingTimes(
 	// connectionWaitingTime changed, and neither touches the outbound arrival or the
 	// hotel-bound transfer that anchors freeStart.
 	//
-	// Issue #94: `itinerary.stay` may be `undefined` (no bed priced for this connection),
-	// in which case `transferToHotel`/`transferToConnectionAirport` are too — same "all
-	// three together or none" contract `build.ts`'s own `buildItineraries` keeps.
+	// Issue #94: `itinerary.stay` may be `undefined` (no bed priced for this connection).
+	// Issue #161: the transfers are read on their own rather than gated on `stay`, because
+	// an itinerary with no bed can still carry a real route to the city centre, and the
+	// minutes it takes to get into town come off free time whether or not anyone priced a
+	// place to sleep at the other end. `buildItineraries` computes `freeTime` the same way,
+	// so an edit here can never disagree with the value it is recomputing.
 	const { stay, transferToHotel, transferToConnectionAirport } = itinerary;
-	const freeStart = stay && transferToHotel
+	const freeStart = transferToHotel
 		? addLocalMinutes(itinerary.outboundFlight.arrival, transferToHotel.duration)
 		: itinerary.outboundFlight.arrival;
-	const freeEnd = stay && transferToConnectionAirport
+	const freeEnd = transferToConnectionAirport
 		? addLocalMinutes(itinerary.onwardFlight.departure, -(transferToConnectionAirport.duration + connectionWaitingTime))
 		: addLocalMinutes(itinerary.onwardFlight.departure, -connectionWaitingTime);
 	const freeDuration = minutesBetween(freeStart, freeEnd);

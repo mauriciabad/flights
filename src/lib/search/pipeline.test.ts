@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type {
 	Airport,
 	City,
+	Coordinates,
 	Country,
 	Duration,
 	FlightOffer,
@@ -45,19 +46,35 @@ const FAST = 'ZFA'; // stands in for Vienna: detour ratio ~1.23
 const SLOW = 'ZSL'; // stands in for Milan: detour ratio ~1.10
 
 const country = (isoCode: string, name: string): Country => ({ isoCode, name });
-const city = (name: string, lat: number, lon: number, c: Country): City => ({
+const city = (name: string, c: Country, centre?: Coordinates): City => ({
 	name,
-	coordinates: { latitude: lat, longitude: lon },
+	coordinates: centre,
 	country: c
 });
 
-function airport(code: string, lat: number, lon: number, countryCode: string, cityName: string): Airport {
+/**
+ * Issue #162: `city.coordinates` is left unset here, matching what the real dataset says
+ * for all but a handful of airports — OurAirports ships no city geometry, so
+ * `data/airports.ts` fills this in only from the hand-checked table in
+ * `data/airport-city-names.ts`. This fixture used to hand the airport's own point over as
+ * the city's, which is exactly the confusion that issue existed for, and it quietly gave
+ * every test airport a city-centre route (issue #161) that no real airport in its
+ * position would have. Pass `cityCentre` to opt one in.
+ */
+function airport(
+	code: string,
+	lat: number,
+	lon: number,
+	countryCode: string,
+	cityName: string,
+	cityCentre?: Coordinates
+): Airport {
 	const c = country(countryCode, countryCode);
 	return {
 		iataCode: code,
 		name: `${code} airport`,
 		coordinates: { latitude: lat, longitude: lon },
-		city: city(cityName, lat, lon, c),
+		city: city(cityName, c, cityCentre),
 		country: c,
 		sizeClass: 'medium'
 	};

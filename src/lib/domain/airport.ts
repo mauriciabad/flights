@@ -19,7 +19,22 @@ export interface Country {
  */
 export interface City {
 	name: string;
-	coordinates: Coordinates;
+	/**
+	 * A point in the middle of the city, when one is known — issue #162.
+	 *
+	 * Optional, and usually absent. The airport dataset this app ships (OurAirports) has
+	 * no city geometry at all, only the runway's, so this field was the airport's own
+	 * coordinates for every city in it. Two stay cards measured a hotel against both
+	 * points and printed the identical number twice, one line labelled "from the airport"
+	 * and the next "from the city centre".
+	 *
+	 * `data/airport-city-names.ts` `cityCentreOf` fills this in for the hand-checked
+	 * airports whose runway genuinely sits somewhere other than the city on the ticket.
+	 * Everywhere else it is `undefined`, which is a fact this app knows and must state
+	 * rather than paper over: a reader with no city point drops the line, and nothing
+	 * substitutes the airport's position for it.
+	 */
+	coordinates?: Coordinates;
 	country: Country;
 }
 

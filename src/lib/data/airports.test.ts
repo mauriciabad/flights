@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import type { Coordinates } from '$lib/domain';
 import {
 	deriveSizeClass,
 	getAirport,
@@ -237,5 +238,54 @@ describe('searchAirports', () => {
 		for (const airport of results.slice(0, sfo)) {
 			expect(airport.sizeClass).toBe('large');
 		}
+	});
+});
+
+describe('city coordinates (issue #162)', () => {
+	const EARTH_RADIUS_KM = 6371;
+	function distanceKm(a: Coordinates, b: Coordinates): number {
+		const toRad = (deg: number) => (deg * Math.PI) / 180;
+		const dLat = toRad(b.latitude - a.latitude);
+		const dLon = toRad(b.longitude - a.longitude);
+		const h =
+			Math.sin(dLat / 2) ** 2 +
+			Math.cos(toRad(a.latitude)) * Math.cos(toRad(b.latitude)) * Math.sin(dLon / 2) ** 2;
+		return 2 * EARTH_RADIUS_KM * Math.asin(Math.min(1, Math.sqrt(h)));
+	}
+
+	it('leaves the city point unset for an airport nobody has checked one for', async () => {
+		// The normal case by a wide margin. `toAirport` used to hand the runway's own
+		// position over as the city's, which is why two stay-card lines printed the same
+		// number under different labels.
+		expect((await getAirport('VIE'))?.city.coordinates).toBeUndefined();
+		expect((await getAirport('LTN'))?.city.coordinates).toBeUndefined();
+		expect((await getAirport('AHO'))?.city.coordinates).toBeUndefined();
+	});
+
+	it('never puts a curated city point on top of the runway, which is the bug itself', async () => {
+		// Issue #162's own example: "a hostel 2 km from Bergamo's old town and 6 km from the
+		// runway reads 6.0 km from the airport, 6.0 km from the city centre".
+		for (const code of ['BGY', 'OTP', 'ZAG', 'MXP', 'ATH', 'BRU', 'EDI', 'MRS', 'BVC']) {
+			const airport = (await getAirport(code))!;
+			expect(airport.city.coordinates, code).toBeDefined();
+			expect(distanceKm(airport.coordinates, airport.city.coordinates!), code).toBeGreaterThan(1);
+		}
+	});
+
+	it('keeps every curated city point near the airport it belongs to', async () => {
+		// Loose on purpose, at 130 km: it clears Malpensa-to-Milan (~43 km) without letting a
+		// transposed sign or a swapped latitude and longitude reach a shipped card.
+		for (const code of ['BGY', 'MXP', 'LIN', 'MRS', 'OTP', 'BVC', 'ZAG', 'ATH', 'BRU', 'EDI']) {
+			const airport = (await getAirport(code))!;
+			expect(distanceKm(airport.coordinates, airport.city.coordinates!), code).toBeLessThan(130);
+		}
+	});
+
+	it('gives Milan one city point, whichever of its airports was asked', async () => {
+		const malpensa = await getAirport('MXP');
+		const linate = await getAirport('LIN');
+		expect(malpensa?.city.name).toBe('Milan');
+		expect(linate?.city.name).toBe('Milan');
+		expect(malpensa?.city.coordinates).toEqual(linate?.city.coordinates);
 	});
 });
