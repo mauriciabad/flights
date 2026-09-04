@@ -5,6 +5,9 @@ import {
 	formatClockTime,
 	formatDuration,
 	formatMoney,
+	formatMoneyDelta,
+	formatMoneyRange,
+	formatTimeDelta,
 	formatUtcOffset,
 	isDifferentCalendarDate
 } from './itinerary-timeline-format';
@@ -96,5 +99,43 @@ describe('formatMoney', () => {
 
 	it('does not divide JPY, a zero-decimal currency', () => {
 		expect(formatMoney({ minorUnits: 1500, currency: 'JPY' })).toBe('¥1,500');
+	});
+});
+
+describe('formatMoneyDelta', () => {
+	it('reads "same price" for a zero delta rather than "+€0.00"', () => {
+		expect(formatMoneyDelta(0, 'EUR')).toBe('same price');
+	});
+
+	it('signs a positive delta', () => {
+		expect(formatMoneyDelta(1200, 'EUR')).toBe('+€12.00');
+	});
+
+	it('signs a negative delta with a minus, not the raw negative number', () => {
+		expect(formatMoneyDelta(-800, 'EUR')).toBe('-€8.00');
+	});
+});
+
+describe('formatMoneyRange', () => {
+	it('renders both bounds, never collapsing a taxi estimate to one figure', () => {
+		expect(formatMoneyRange(1800, 2400, 'EUR')).toBe('€18.00-€24.00');
+	});
+});
+
+describe('formatTimeDelta', () => {
+	it('reads "same time" for a zero delta', () => {
+		expect(formatTimeDelta(0)).toBe('same time');
+	});
+
+	it('reads "later" for a positive delta, matching the brief\'s own "40 minutes later" example', () => {
+		expect(formatTimeDelta(40)).toBe('40m later');
+	});
+
+	it('reads "earlier" for a negative delta', () => {
+		expect(formatTimeDelta(-75)).toBe('1h 15m earlier');
+	});
+
+	it('accepts custom later/earlier wording', () => {
+		expect(formatTimeDelta(15, 'after you land', 'before you land')).toBe('15m after you land');
 	});
 });
