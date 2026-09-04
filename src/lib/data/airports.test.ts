@@ -126,6 +126,61 @@ describe('searchAirports', () => {
 		expect(disambiguated.map((a) => a.iataCode)).toEqual(['BVC']);
 	});
 
+	// Issue #129: the owner typed "Paris" looking for a Ryanair fare into Beauvais —
+	// which Ryanair itself books as "Paris Beauvais" — and got CDG, ORY and XCR back but
+	// not BVA. OurAirports' own `keywords` column has nothing linking Beauvais to Paris
+	// (confirmed against a fresh copy of the upstream CSV), unlike Warsaw Modlin or
+	// Frankfurt-Hahn where the marketed city is already there; see
+	// `MARKETED_CITY_KEYWORDS` in scripts/prepare-airports.mjs for why this one is a
+	// small hand-written addition rather than a data-driven derivation.
+	it('finds Paris-Beauvais by the city Ryanair markets it under, not just its own name', async () => {
+		const results = await searchAirports('Paris');
+		expect(results.some((a) => a.iataCode === 'BVA')).toBe(true);
+	});
+
+	// Same root cause as BVA, each confirmed missing from OurAirports' `keywords` for
+	// that airport and added the same way: Girona and Reus are both sold as "Barcelona"
+	// fares, Sandefjord Torp as "Oslo Torp", and Memmingen as "Munich West".
+	it('finds other airports a budget carrier markets under a city they are not in', async () => {
+		const barcelona = await searchAirports('Barcelona');
+		expect(barcelona.map((a) => a.iataCode)).toEqual(expect.arrayContaining(['GRO', 'REU']));
+
+		const oslo = await searchAirports('Oslo');
+		expect(oslo.some((a) => a.iataCode === 'TRF')).toBe(true);
+
+		const munich = await searchAirports('Munich');
+		expect(munich.some((a) => a.iataCode === 'FMM')).toBe(true);
+	});
+
+	// Forlì has been sold and search-indexed as "Forlì-Bologna" since Ryanair's original
+	// service there — also missing from OurAirports' `keywords`, also added by hand.
+	it('finds Forlì by the "Bologna" name it has long been marketed under', async () => {
+		const results = await searchAirports('Bologna');
+		expect(results.map((a) => a.iataCode)).toEqual(expect.arrayContaining(['BLQ', 'FRL']));
+	});
+
+	// These four are already findable by their marketed city with no data addition at
+	// all: Stockholm Skavsta and Frankfurt-Hahn have the city baked into OurAirports'
+	// own `name` for the airport, Brussels South Charleroi the same, and Västerås'
+	// `municipality` is already "Stockholm / Västerås". Regression guards, not fixes —
+	// the owner's issue comment measured these as already working and this pins that.
+	it('keeps finding secondary bases that were already findable by their marketed city', async () => {
+		const stockholm = await searchAirports('Stockholm');
+		expect(stockholm.map((a) => a.iataCode)).toEqual(
+			expect.arrayContaining(['ARN', 'VST', 'BMA', 'NYO'])
+		);
+
+		const frankfurt = await searchAirports('Frankfurt');
+		expect(frankfurt.map((a) => a.iataCode)).toEqual(expect.arrayContaining(['FRA', 'HHN']));
+
+		const brussels = await searchAirports('Brussels');
+		expect(brussels.map((a) => a.iataCode)).toEqual(expect.arrayContaining(['BRU', 'CRL']));
+
+		// Treviso's OurAirports `keywords` already includes "Venice-Treviso".
+		const venice = await searchAirports('Venice');
+		expect(venice.some((a) => a.iataCode === 'TSF')).toBe(true);
+	});
+
 	it('never lets a keyword hit outrank a real city or name match', async () => {
 		// Eday (EOI), a small Orkney airfield, carries "London Airport" as an old
 		// OurAirports keyword unrelated to London the city. It must not bury Gatwick,

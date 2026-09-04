@@ -131,6 +131,51 @@ function toKeywords(raw) {
 	return kept;
 }
 
+/**
+ * Issue #129: a handful of secondary airports that a budget carrier sells under a big
+ * city's name, even though the airport sits a real distance from that city — Ryanair's
+ * own booking flow calls Beauvais "Paris", Girona and Reus "Barcelona", Memmingen
+ * "Munich (West)", and Sandefjord Torp "Oslo Torp"; Forlì has been marketed and search-
+ * indexed as "Forlì-Bologna" since Ryanair's original 1998 service there. That is the
+ * exact information `keywords` (above) already carries for most comparable cases
+ * straight from OurAirports' own column: Warsaw Modlin's `keywords` already says
+ * "Warsaw", and Stockholm Skavsta, Frankfurt-Hahn and Brussels South Charleroi all have
+ * the city baked into their OurAirports `name` instead. This is the data-driven route
+ * working, not something to route around.
+ *
+ * Checked against a fresh copy of the upstream CSV (2026-09-04): these six simply have
+ * no such link anywhere in their `name` or `keywords` column, so there is no OurAirports
+ * data left to derive this from. Rather than leave "Paris" unable to find the airport
+ * the free tier's own README depends on, this is the small, explicit exception
+ * AGENTS.md asks for when the systematic fix runs out of data to be systematic about —
+ * kept to branding with a real source, added one reported case at a time the way #116
+ * added "Boa Vista" and "Pafos", not a guess at every airport within some radius of a
+ * hub (which would misdescribe a real regional airport that no airline brands that way).
+ */
+const MARKETED_CITY_KEYWORDS = {
+	BVA: ['Paris'], // Beauvais-Tillé, ~85 km from Paris — Ryanair's original "Paris" base
+	GRO: ['Barcelona'], // Girona-Costa Brava, ~100 km from Barcelona
+	REU: ['Barcelona'], // Reus, ~100 km from Barcelona; no OurAirports keywords at all
+	TRF: ['Oslo'], // Sandefjord Torp, ~110 km from Oslo; booked as "Oslo Torp"
+	FMM: ['Munich'], // Memmingen Allgäu, ~120 km from Munich; marketed as "Munich West"
+	FRL: ['Bologna'] // Forlì, ~70 km from Bologna; long-standing "Forlì-Bologna" branding
+};
+
+/**
+ * Adds this airport's marketed-city keyword, if it has one, to what OurAirports already
+ * gave it. Not folded into `toKeywords` itself: that function's job stays "parse and
+ * budget-cap the raw CSV column", and the six entries above are short enough (one word
+ * each) that re-running `MAX_KEYWORDS_CHARS` against them would only add risk of
+ * silently dropping a hand-picked value for no real size reason.
+ */
+function withMarketedCityKeywords(keywords, iataCode) {
+	const marketed = MARKETED_CITY_KEYWORDS[iataCode];
+	if (!marketed) return keywords;
+	const base = keywords ?? [];
+	const merged = [...base, ...marketed.filter((k) => !base.includes(k))];
+	return merged.length > 0 ? merged : undefined;
+}
+
 function toCompactAirport(row) {
 	const iataCode = row.iata_code?.trim();
 	if (!iataCode) return null;
@@ -139,7 +184,7 @@ function toCompactAirport(row) {
 	const longitude = Number.parseFloat(row.longitude_deg);
 	if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
 
-	const keywords = toKeywords(row.keywords);
+	const keywords = withMarketedCityKeywords(toKeywords(row.keywords), iataCode);
 
 	return {
 		iataCode,
