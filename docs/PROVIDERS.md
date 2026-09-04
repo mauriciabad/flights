@@ -73,6 +73,35 @@ Provider slugs, since finding these cost real time:
 `rapidapi.com/apiheya/api/sky-scrapper`, `rapidapi.com/ntd119/api/flights-sky`,
 `rapidapi.com/ntd119/api/agoda-com`, `rapidapi.com/DataCrawler/api/booking-com15`.
 
+### Sky Scrapper costs one request PER DATE, which changes the search design
+
+Measured against the live API on 2026-09-04: `searchFlights` takes exactly one `date`
+parameter and has no date-range form. There is one request per route per day.
+
+Do the arithmetic against a 20-request month. A search over a ten-day departure window, on
+two legs, is 20 requests. One search consumes the entire month.
+
+So Skyscanner cannot explore a date range on the free tier. It can only confirm a specific
+route on a specific day. Any pipeline that loops over dates calling it is broken by
+construction, no matter how careful its caching is.
+
+That makes the sequencing non-negotiable rather than merely preferable:
+
+1. Free sources (Ryanair, and Travelpayouts' cached data via the build step) find which
+   stopover cities and which dates are worth looking at.
+2. The user picks a candidate.
+3. Skyscanner is spent, deliberately and visibly, on that one route and date.
+
+Two related findings from the same session. The v1 `searchFlightEverywhere` endpoint, which
+would have backed `listDirectDestinations`, returns `{"status":false,"message":"Deprecated
+version."}`, and its v2 replacement only returns country-level results, never per-airport
+IATA codes. And responses carry **no time zone or offset at all**, only bare local datetime
+strings, so an adapter has to supply the zone itself or silently mistime every overnight
+flight.
+
+Also worth knowing: `searchAirport?query=barcelona` returns both Barcelona and Barcelona,
+Venezuela, so matching must compare `skyId` exactly rather than taking the first result.
+
 ### Rome2Rio cannot be subscribed to
 
 The gateway route is alive. A nonexistent host returns 404 "API doesn't exists", while
