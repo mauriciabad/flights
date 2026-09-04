@@ -7,8 +7,13 @@ beforeEach(() => {
 
 describe('loadKeysFromStorage / saveKeysToStorage', () => {
 	it('round-trips through localStorage', () => {
-		saveKeysToStorage({ skyscanner: 'sk-live-1234' });
-		expect(loadKeysFromStorage()).toEqual({ skyscanner: 'sk-live-1234' });
+		saveKeysToStorage({ skyscanner: { apiKey: 'sk-live-1234' } });
+		expect(loadKeysFromStorage()).toEqual({ skyscanner: { apiKey: 'sk-live-1234' } });
+	});
+
+	it('round-trips a provider with more than one field', () => {
+		saveKeysToStorage({ amadeus: { apiKey: 'am-key', apiSecret: 'am-secret' } });
+		expect(loadKeysFromStorage()).toEqual({ amadeus: { apiKey: 'am-key', apiSecret: 'am-secret' } });
 	});
 
 	it('reads as empty when nothing has been saved yet', () => {
@@ -20,9 +25,27 @@ describe('loadKeysFromStorage / saveKeysToStorage', () => {
 		expect(loadKeysFromStorage()).toEqual({});
 	});
 
-	it('drops non-string values instead of returning something the rest of the app cannot use', () => {
-		localStorage.setItem('flights.byokKeys.v1', JSON.stringify({ skyscanner: 'ok', broken: 42 }));
-		expect(loadKeysFromStorage()).toEqual({ skyscanner: 'ok' });
+	it('drops a provider entry that is a bare string instead of a field map', () => {
+		// The pre-issue-#49 shape stored one string per provider directly; an entry in
+		// that old shape reads as corrupt now, the same as any other unreadable entry.
+		localStorage.setItem(
+			'flights.byokKeys.v1',
+			JSON.stringify({ skyscanner: { apiKey: 'ok' }, broken: 'a-bare-string' })
+		);
+		expect(loadKeysFromStorage()).toEqual({ skyscanner: { apiKey: 'ok' } });
+	});
+
+	it('drops non-string field values instead of returning something the rest of the app cannot use', () => {
+		localStorage.setItem(
+			'flights.byokKeys.v1',
+			JSON.stringify({ skyscanner: { apiKey: 'ok', broken: 42 } })
+		);
+		expect(loadKeysFromStorage()).toEqual({ skyscanner: { apiKey: 'ok' } });
+	});
+
+	it('drops a provider entry left with no fields once the bad ones are removed', () => {
+		localStorage.setItem('flights.byokKeys.v1', JSON.stringify({ broken: { onlyField: 42 } }));
+		expect(loadKeysFromStorage()).toEqual({});
 	});
 
 	it('reads as empty when the stored value is an array or primitive, not an object', () => {
@@ -33,7 +56,7 @@ describe('loadKeysFromStorage / saveKeysToStorage', () => {
 
 describe('clearKeysFromStorage', () => {
 	it('removes everything that was saved', () => {
-		saveKeysToStorage({ skyscanner: 'sk-live-1234' });
+		saveKeysToStorage({ skyscanner: { apiKey: 'sk-live-1234' } });
 		clearKeysFromStorage();
 		expect(loadKeysFromStorage()).toEqual({});
 	});
@@ -59,8 +82,8 @@ describe('when localStorage throws', () => {
 		vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
 			throw new DOMException('QuotaExceededError');
 		});
-		expect(() => saveKeysToStorage({ skyscanner: 'sk-live-1234' })).not.toThrow();
-		expect(saveKeysToStorage({ skyscanner: 'sk-live-1234' })).toBe(false);
+		expect(() => saveKeysToStorage({ skyscanner: { apiKey: 'sk-live-1234' } })).not.toThrow();
+		expect(saveKeysToStorage({ skyscanner: { apiKey: 'sk-live-1234' } })).toBe(false);
 	});
 
 	it('clearKeysFromStorage does not throw', () => {

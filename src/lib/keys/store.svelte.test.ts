@@ -6,60 +6,104 @@ beforeEach(() => {
 });
 
 describe('KeyStore persistence', () => {
-	it('set a key, then survives a reload', () => {
+	it('set a field, then survives a reload', () => {
 		const before = new KeyStore();
-		before.setKey('skyscanner', 'sk-live-1234');
+		before.setFieldValue('skyscanner', 'apiKey', 'sk-live-1234');
 
 		// Simulate a reload: a fresh instance reads whatever the first one
 		// wrote to localStorage, exactly like a new page load re-running this
 		// module from scratch.
 		const afterReload = new KeyStore();
-		expect(afterReload.getKey('skyscanner')).toBe('sk-live-1234');
+		expect(afterReload.getFieldValue('skyscanner', 'apiKey')).toBe('sk-live-1234');
 		expect(afterReload.hasKey('skyscanner')).toBe(true);
 	});
 
-	it('a cleared key does not come back after a reload', () => {
+	it('a cleared field does not come back after a reload', () => {
 		const before = new KeyStore();
-		before.setKey('skyscanner', 'sk-live-1234');
-		before.clearKey('skyscanner');
+		before.setFieldValue('skyscanner', 'apiKey', 'sk-live-1234');
+		before.clearField('skyscanner', 'apiKey');
 
 		const afterReload = new KeyStore();
 		expect(afterReload.hasKey('skyscanner')).toBe(false);
-		expect(afterReload.getKey('skyscanner')).toBeUndefined();
+		expect(afterReload.getFieldValue('skyscanner', 'apiKey')).toBeUndefined();
 	});
 
-	it('setting a key to a blank value clears it instead of storing an empty string', () => {
+	it('a provider with more than one field stores and reloads both', () => {
+		const before = new KeyStore();
+		before.setFieldValue('amadeus', 'apiKey', 'am-key');
+		before.setFieldValue('amadeus', 'apiSecret', 'am-secret');
+
+		const afterReload = new KeyStore();
+		expect(afterReload.getValues('amadeus')).toEqual({ apiKey: 'am-key', apiSecret: 'am-secret' });
+	});
+
+	it('clearing one field of a multi-field provider leaves the other field intact', () => {
 		const store = new KeyStore();
-		store.setKey('skyscanner', 'sk-live-1234');
-		store.setKey('skyscanner', '   ');
+		store.setFieldValue('amadeus', 'apiKey', 'am-key');
+		store.setFieldValue('amadeus', 'apiSecret', 'am-secret');
+		store.clearField('amadeus', 'apiSecret');
+
+		expect(store.getValues('amadeus')).toEqual({ apiKey: 'am-key' });
+	});
+
+	it('clearing the last field of a provider removes the provider entirely', () => {
+		const store = new KeyStore();
+		store.setFieldValue('skyscanner', 'apiKey', 'sk-live-1234');
+		store.clearField('skyscanner', 'apiKey');
+
+		expect(store.getValues('skyscanner')).toBeUndefined();
+		expect(store.providerIds).toEqual([]);
+	});
+
+	it('clearProvider removes every field for that provider in one call', () => {
+		const store = new KeyStore();
+		store.setFieldValue('amadeus', 'apiKey', 'am-key');
+		store.setFieldValue('amadeus', 'apiSecret', 'am-secret');
+		store.clearProvider('amadeus');
+
+		expect(store.getValues('amadeus')).toBeUndefined();
+	});
+
+	it('setting a field to a blank value clears it instead of storing an empty string', () => {
+		const store = new KeyStore();
+		store.setFieldValue('skyscanner', 'apiKey', 'sk-live-1234');
+		store.setFieldValue('skyscanner', 'apiKey', '   ');
 		expect(store.hasKey('skyscanner')).toBe(false);
 	});
 
-	it('trims the key before storing it', () => {
+	it('trims the field value before storing it', () => {
 		const store = new KeyStore();
-		store.setKey('skyscanner', '  sk-live-1234  ');
-		expect(store.getKey('skyscanner')).toBe('sk-live-1234');
+		store.setFieldValue('skyscanner', 'apiKey', '  sk-live-1234  ');
+		expect(store.getFieldValue('skyscanner', 'apiKey')).toBe('sk-live-1234');
 	});
 });
 
-describe('KeyStore.getRedactedKey', () => {
+describe('KeyStore.availableKeys', () => {
+	it('is exactly the shape the provider registry expects, with no conversion needed', () => {
+		const store = new KeyStore();
+		store.setFieldValue('sky', 'apiKey', 'secret');
+		expect(store.availableKeys).toEqual({ sky: { apiKey: 'secret' } });
+	});
+});
+
+describe('KeyStore.getRedactedFieldValue', () => {
 	it('never returns the raw key', () => {
 		const store = new KeyStore();
-		store.setKey('skyscanner', 'sk-live-1234');
-		expect(store.getRedactedKey('skyscanner')).toBe('••••1234');
+		store.setFieldValue('skyscanner', 'apiKey', 'sk-live-1234');
+		expect(store.getRedactedFieldValue('skyscanner', 'apiKey')).toBe('••••1234');
 	});
 
-	it('is undefined for a provider with no key', () => {
+	it('is undefined for a field with no value', () => {
 		const store = new KeyStore();
-		expect(store.getRedactedKey('skyscanner')).toBeUndefined();
+		expect(store.getRedactedFieldValue('skyscanner', 'apiKey')).toBeUndefined();
 	});
 });
 
 describe('KeyStore export / import round trip', () => {
 	it('export, clear, import: the keys come back identical', () => {
 		const store = new KeyStore();
-		store.setKey('skyscanner', 'sk-live-1234');
-		store.setKey('agoda', 'ag-live-5678');
+		store.setFieldValue('skyscanner', 'apiKey', 'sk-live-1234');
+		store.setFieldValue('agoda', 'apiKey', 'ag-live-5678');
 
 		const envelope = store.exportEnvelope();
 
@@ -68,8 +112,8 @@ describe('KeyStore export / import round trip', () => {
 
 		const outcome = store.importFromFile(envelope);
 
-		expect(store.getKey('skyscanner')).toBe('sk-live-1234');
-		expect(store.getKey('agoda')).toBe('ag-live-5678');
+		expect(store.getFieldValue('skyscanner', 'apiKey')).toBe('sk-live-1234');
+		expect(store.getFieldValue('agoda', 'apiKey')).toBe('ag-live-5678');
 		expect(outcome.added.sort()).toEqual(['agoda', 'skyscanner']);
 		expect(outcome.updated).toEqual([]);
 		expect(outcome.warnings).toEqual([]);
@@ -77,46 +121,51 @@ describe('KeyStore export / import round trip', () => {
 
 		// And it survives a reload too, not just the in-memory instance.
 		const afterReload = new KeyStore();
-		expect(afterReload.getKey('skyscanner')).toBe('sk-live-1234');
-		expect(afterReload.getKey('agoda')).toBe('ag-live-5678');
+		expect(afterReload.getFieldValue('skyscanner', 'apiKey')).toBe('sk-live-1234');
+		expect(afterReload.getFieldValue('agoda', 'apiKey')).toBe('ag-live-5678');
 	});
 
-	it('import merges rather than replacing: keys the file does not mention survive', () => {
+	it('import merges rather than replacing: fields the file does not mention survive', () => {
 		const store = new KeyStore();
-		store.setKey('skyscanner', 'sk-live-1234');
-		store.setKey('agoda', 'ag-live-5678');
+		store.setFieldValue('skyscanner', 'apiKey', 'sk-live-1234');
+		store.setFieldValue('amadeus', 'apiKey', 'am-key');
+		store.setFieldValue('amadeus', 'apiSecret', 'am-secret');
 
-		const partialExport = { version: 1 as const, exportedAt: new Date().toISOString(), keys: { agoda: 'ag-new-key' } };
+		const partialExport = {
+			version: 2 as const,
+			exportedAt: new Date().toISOString(),
+			keys: { amadeus: { apiKey: 'am-new-key' } }
+		};
 		const outcome = store.importFromFile(partialExport);
 
-		expect(store.getKey('skyscanner')).toBe('sk-live-1234'); // untouched
-		expect(store.getKey('agoda')).toBe('ag-new-key'); // overwritten
-		expect(outcome.updated).toEqual(['agoda']);
+		expect(store.getFieldValue('skyscanner', 'apiKey')).toBe('sk-live-1234'); // untouched
+		expect(store.getValues('amadeus')).toEqual({ apiKey: 'am-new-key', apiSecret: 'am-secret' }); // one field overwritten, one survives
+		expect(outcome.updated).toEqual(['amadeus']);
 	});
 
 	it('an unknown provider id in the import warns but does not discard the other keys in the file', () => {
 		const store = new KeyStore();
 		const raw = {
-			version: 1 as const,
+			version: 2 as const,
 			exportedAt: new Date().toISOString(),
-			keys: { skyscanner: 'sk-live-1234', 'future-provider': 'future-key' }
+			keys: { skyscanner: { apiKey: 'sk-live-1234' }, 'future-provider': { apiKey: 'future-key' } }
 		};
 
 		const outcome = store.importFromFile(raw, ['skyscanner', 'agoda']);
 
-		expect(store.getKey('skyscanner')).toBe('sk-live-1234');
-		expect(store.getKey('future-provider')).toBe('future-key');
+		expect(store.getFieldValue('skyscanner', 'apiKey')).toBe('sk-live-1234');
+		expect(store.getFieldValue('future-provider', 'apiKey')).toBe('future-key');
 		expect(outcome.warnings).toHaveLength(1);
 		expect(outcome.warnings[0].providerId).toBe('future-provider');
 	});
 
 	it('rejects an invalid file without touching the existing keys', () => {
 		const store = new KeyStore();
-		store.setKey('skyscanner', 'sk-live-1234');
+		store.setFieldValue('skyscanner', 'apiKey', 'sk-live-1234');
 
 		const outcome = store.importFromFile({ version: 999, keys: {} });
 
 		expect(outcome.error).toBeDefined();
-		expect(store.getKey('skyscanner')).toBe('sk-live-1234');
+		expect(store.getFieldValue('skyscanner', 'apiKey')).toBe('sk-live-1234');
 	});
 });

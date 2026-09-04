@@ -1,4 +1,4 @@
-import type { ProviderKeys } from './types';
+import type { ProviderKeys, ProviderKeyValues } from './types';
 
 /** Namespaced so this doesn't collide with some other feature's storage key. */
 const STORAGE_KEY = 'flights.byokKeys.v1';
@@ -37,18 +37,27 @@ function removeRaw(): void {
 	}
 }
 
-/** Reads every stored key. Never throws — corrupt or missing data reads as "no keys yet". */
+/** Reads every stored key. Never throws — corrupt or missing data reads as "no keys yet".
+ * A provider entry that isn't itself an object (the pre-issue-#49 shape stored a bare
+ * string) is dropped the same as any other corrupt entry, rather than half-read — this is
+ * the same "unreadable reads as absent" rule the try/catch below already applies. */
 export function loadKeysFromStorage(): ProviderKeys {
 	const raw = readRaw();
 	if (!raw) return {};
 	try {
 		const parsed: unknown = JSON.parse(raw);
 		if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return {};
-		const keys: ProviderKeys = {};
+		// Mutable while building, read-only once handed back as `ProviderKeys`.
+		const keys: Record<string, ProviderKeyValues> = {};
 		for (const [providerId, value] of Object.entries(parsed as Record<string, unknown>)) {
-			// Do not log `parsed` or `value` here, even on this defensive path — one is a
-			// live provider key.
-			if (typeof value === 'string') keys[providerId] = value;
+			if (typeof value !== 'object' || value === null || Array.isArray(value)) continue;
+			const fields: Record<string, string> = {};
+			for (const [fieldId, fieldValue] of Object.entries(value as Record<string, unknown>)) {
+				// Do not log `fieldValue` here, even on this defensive path — it may be a
+				// live provider key.
+				if (typeof fieldValue === 'string') fields[fieldId] = fieldValue;
+			}
+			if (Object.keys(fields).length > 0) keys[providerId] = fields;
 		}
 		return keys;
 	} catch {

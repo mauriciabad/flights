@@ -1,26 +1,32 @@
 /**
  * BYOK key store types.
  *
- * The canonical set of provider ids belongs to the provider registry
- * (issue #2 — `src/lib/providers/`), which does not exist yet. This module
- * treats a provider id as a plain string on purpose, rather than inventing
- * a competing enum of "the providers": doing that here would go stale the
- * moment the registry lands with its own ids. A caller that already knows
- * the canonical list (the settings UI in issue #29, once #2 lands) can pass
- * it into `parseImportedKeysFile` to get real "unknown provider" warnings.
+ * A provider's key material is the provider registry's `AvailableKeys` shape
+ * (`src/lib/providers/types.ts`, issue #2): a field id to string map, not a single string,
+ * because a provider can need more than one piece of credential material — Amadeus wants a
+ * key and a secret, Google Maps wants a key plus optional referrer restrictions. This
+ * module re-exports those types under names that read naturally for "the whole store's
+ * data" and "one provider's data," rather than defining a second, incompatible shape the
+ * way it used to (issue #49 reconciled the two).
  */
-export type ProviderId = string;
+import type { AvailableKeys, ProviderId, ProviderKeyValues } from '../providers/types';
 
-/** One API key string per provider id, exactly as the user pasted it. */
-export type ProviderKeys = Record<ProviderId, string>;
+export type { ProviderId, ProviderKeyValues };
+
+/** Every provider's key material, keyed by provider id. An alias for `AvailableKeys`
+ * (providers/types.ts): same shape, named for how this module talks about it. */
+export type ProviderKeys = AvailableKeys;
 
 /**
- * Current export/import file format version. Bump this and add a branch in
- * `parseImportedKeysFile` that upgrades the old shape when the envelope
- * changes — never rewrite this constant's meaning in place, or an old
- * export silently gets reinterpreted as a new one.
+ * Current export/import file format version. Bumped from 1 to 2 when this module's `keys`
+ * entries changed from a single string per provider to a `ProviderKeyValues` field map
+ * (issue #49), so an old export is rejected rather than silently reinterpreted with the
+ * new meaning. No version-1 file was ever produced by a shipped settings UI (issue #29
+ * isn't built yet), so there was nothing in the wild to write an upgrade branch for. A
+ * future bump that changes the envelope again should add one here instead of following
+ * this precedent — never rewrite this constant's meaning in place.
  */
-export const KEY_FILE_VERSION = 1 as const;
+export const KEY_FILE_VERSION = 2 as const;
 
 /** The JSON shape written by export and read back by import. */
 export interface KeyFileEnvelope {
