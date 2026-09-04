@@ -25,7 +25,7 @@
 	import type { ProviderAnswer } from '$lib/search';
 	import { describeProviderError } from '$lib/results/types';
 	import type { ProviderStatus } from '$lib/results/types';
-	import { formatAge } from '$lib/results/format';
+	import { formatAge } from '$lib/format';
 
 	interface Props {
 		statuses: ProviderStatus[];

@@ -14,8 +14,12 @@
  * pass, landing in `$lib/format` rather than `$lib/domain` because `domain/index.ts`
  * states its own contract as "types and constants only, no logic".
  *
- * Both old modules now re-export from here, so every caller keeps its import path and
- * there is exactly one implementation behind all of them.
+ * `results/format.ts` is gone and its five callers import from here directly. Leaving it
+ * behind as a re-export would have been kinder to the diff and worse for the next reader,
+ * who would find two modules named "format" and have to work out which one to reach for.
+ * `components/itinerary-timeline-format.ts` survives because it still owns something of
+ * its own, how a transfer mode is spelled and what a row says when no route came back; it
+ * re-exports the rest from here.
  *
  * AGENTS.md "Money" and "Timezones" both apply and both point the same way: these are
  * read-only views. The canonical value stays integer minor units plus a currency code,

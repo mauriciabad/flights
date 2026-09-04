@@ -14,7 +14,7 @@
  * marker on the card itself rather than the fifth branch of a paragraph.
  */
 
-import { formatAge } from './format';
+import { formatAge } from '$lib/format';
 import type { PriceFreshness, ScoredResult } from './types';
 
 /** "+2 more flight times through here", brief line 67: "user can see alternative

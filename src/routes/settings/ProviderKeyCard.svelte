@@ -15,7 +15,7 @@
 	import type { ProviderIssueReason } from '$lib/components';
 	import { getProviderQuotaSnapshot } from '$lib/providers/budget';
 	import type { ProviderQuotaSnapshot } from '$lib/providers/budget';
-	import { formatAge } from '$lib/results/format';
+	import { formatAge } from '$lib/format';
 	import { checkProviderKey } from '$lib/settings/key-check';
 	import type { KeyCheckOutcome } from '$lib/settings/key-check';
 	import type { SettingsProviderDescriptor } from '$lib/settings/provider-catalog';

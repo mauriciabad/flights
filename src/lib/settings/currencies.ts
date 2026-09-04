@@ -37,7 +37,7 @@
  * what the picker offers.
  *
  * `symbol` is display-only and never used to format an amount. `formatMoney`
- * (`results/format.ts`) asks `Intl` for that, which also knows each currency's exponent,
+ * (`$lib/format`) asks `Intl` for that, which also knows each currency's exponent,
  * so a zero-decimal currency would still print correctly without a table here.
  */
 

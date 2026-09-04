@@ -34,7 +34,7 @@
 	import { AirlineLogo, Card, Flag, MetricRail, PriceLine, TripStrip } from '$lib/components';
 	import { CARD_METRIC_IDS } from '$lib/components/itinerary-metrics';
 	import type { Airport } from '$lib/domain';
-	import { formatAge } from '$lib/results/format';
+	import { formatAge } from '$lib/format';
 	import { connectionAirportCode } from '$lib/results/types';
 	import type { ScoredResult } from '$lib/results/types';
 	import { describePriceFreshness, describeVariants } from '$lib/results/view-model';
