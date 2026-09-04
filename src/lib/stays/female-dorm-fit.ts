@@ -18,9 +18,9 @@
  * change, not this picker's.
  */
 
-import { DEFAULT_TRAVELLERS } from '$lib/domain';
+import { DEFAULT_TRAVELLERS, type Stay } from "$lib/domain";
 
-export type FemaleDormFit = 'all' | 'some' | 'none' | 'unspecified';
+export type FemaleDormFit = "all" | "some" | "none" | "unspecified";
 
 /**
  * - `'none'` (`females === 0`): the hard rule above. Never selectable, never the
@@ -38,17 +38,36 @@ export type FemaleDormFit = 'all' | 'some' | 'none' | 'unspecified';
  * - `'all'` (`females >= travellers`): the whole party is female, so a female-only dorm
  *   is exactly as usable as any other room kind.
  */
-export function femaleDormFit(travellers: number | undefined, females: number | undefined): FemaleDormFit {
-	const travellerCount = travellers ?? DEFAULT_TRAVELLERS;
-	if (females === undefined) return 'unspecified';
-	if (females <= 0) return 'none';
-	if (females >= travellerCount) return 'all';
-	return 'some';
+export function femaleDormFit(
+  travellers: number | undefined,
+  females: number | undefined,
+): FemaleDormFit {
+  const travellerCount = travellers ?? DEFAULT_TRAVELLERS;
+  if (females === undefined) return "unspecified";
+  if (females <= 0) return "none";
+  if (females >= travellerCount) return "all";
+  return "some";
 }
 
 /** Whether a female-only dorm at this fit can be the group's one itinerary stay. */
 export function isFemaleDormSelectable(fit: FemaleDormFit): boolean {
-	return fit === 'all' || fit === 'unspecified';
+  return fit === "all" || fit === "unspecified";
+}
+
+/**
+ * Whether this stay is restricted to women, by its room kind OR by the whole property.
+ *
+ * Both mappers classify a room by matching its own NAME, so "Hostelle - women only hostel
+ * London" passed through as an ordinary `dorm`: the restriction is on the property and
+ * nothing was reading the property. The owner found it recommended to a party with no
+ * female travellers, and said "it seems that it is being ignored because i cant go there".
+ *
+ * The two callers that gate selection both used to test `roomKind === 'female-dorm'`
+ * directly, which is exactly the check that missed this. They call here now, so a new
+ * restriction only has to be taught to one function.
+ */
+export function isWomenOnlyStay(stay: Stay): boolean {
+  return stay.roomKind === "female-dorm" || stay.property.womenOnly === true;
 }
 
 /** User-facing copy for why a female-only dorm is, or is not, this group's stay -
@@ -56,19 +75,19 @@ export function isFemaleDormSelectable(fit: FemaleDormFit): boolean {
  * case states the assumption or the shortfall plainly rather than leaving the picker to
  * imply a female-only dorm was silently checked and found fine. */
 export function femaleDormFitMessage(
-	fit: FemaleDormFit,
-	travellers: number | undefined,
-	females: number | undefined
+  fit: FemaleDormFit,
+  travellers: number | undefined,
+  females: number | undefined,
 ): string | undefined {
-	const travellerCount = travellers ?? DEFAULT_TRAVELLERS;
-	switch (fit) {
-		case 'none':
-			return 'Not bookable for this group: no female travellers to use a female-only dorm.';
-		case 'some':
-			return `Covers ${females} of ${travellerCount} travellers only - the rest need a different room, so this can't be one stay yet.`;
-		case 'unspecified':
-			return 'Assumed available: no gender breakdown was given for this search.';
-		case 'all':
-			return undefined;
-	}
+  const travellerCount = travellers ?? DEFAULT_TRAVELLERS;
+  switch (fit) {
+    case "none":
+      return "Not bookable for this group: no female travellers, and this is women only.";
+    case "unspecified":
+      return "Assumed available: no gender breakdown was given for this search.";
+    case "some":
+      return `Covers ${females} of ${travellerCount} travellers only - the rest need a different room, so this can't be one stay yet.`;
+    case "all":
+      return undefined;
+  }
 }

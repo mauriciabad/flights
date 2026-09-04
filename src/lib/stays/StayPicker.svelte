@@ -13,7 +13,7 @@
 	import { Button, Card, EmptyState } from '$lib/components';
 	import RoomKindTile from './RoomKindTile.svelte';
 	import StayAlternativeCard from './StayAlternativeCard.svelte';
-	import { femaleDormFit, femaleDormFitMessage } from './female-dorm-fit';
+	import { femaleDormFit, femaleDormFitMessage, isWomenOnlyStay } from './female-dorm-fit';
 	import { formatDistanceKm, haversineDistanceKm } from './distance';
 	import { stayTotalDelta, stayTotalForNights } from './pricing';
 	import { cheapestSelectableOption, isOptionSelectable, rankProperties } from './rank';
@@ -178,7 +178,7 @@
 
 				<div class="stay-room-kinds" role="group" aria-label="Room type for this stay">
 					{#each openGroup.options as option (option.stay.roomKind)}
-						{@const fit = option.stay.roomKind === 'female-dorm' ? femaleDormFit(travellers, females) : 'all'}
+						{@const fit = isWomenOnlyStay(option.stay) ? femaleDormFit(travellers, females) : 'all'}
 						{@const selectable = isOptionSelectable(option, travellers, females)}
 						{@const caveat =
 							option.stay.roomKind === 'female-dorm'
