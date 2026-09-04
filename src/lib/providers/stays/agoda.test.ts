@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { MemoryCacheStore } from '../../cache';
+import { clearInFlightForTests, clearProviderQuotaStateForTests, resetPermanentFailuresForTests } from '../budget';
 import { createAgodaStayProvider } from './agoda';
 import agodaGetPricesWombats from './fixtures/agoda-get-prices-wombats-hostel.json';
 import agodaSearchVienna from './fixtures/agoda-search-vienna.json';
@@ -11,7 +12,13 @@ import nominatimVienna from './fixtures/nominatim-vienna.json';
  * here touches the network. Real network round trips against the live Agoda and Nominatim
  * endpoints were done by hand, once, during development; see the PR body for those exact
  * requests and results.
+ *
+ * Issue #69: this adapter now routes every real request through `callProviderWithBudget`
+ * (../budget), which keeps module-level state (in-flight dedup, the permanently-
+ * unsubscribed set, and a `localStorage`-backed monthly counter) that must be reset between
+ * tests, same as flights-sky.test.ts does.
  */
+const instantSleep = async () => {};
 
 const EMPTY_GET_PRICES = { data: { currencyInfo: { code: 'USD' }, roomGridData: { masterRooms: [] } } };
 
@@ -53,6 +60,10 @@ const apiKeys = { apiKey: 'test-key' };
 beforeEach(() => {
 	fetchCallCount = 0;
 	searchUrlsSeen = [];
+	localStorage.clear();
+	clearInFlightForTests();
+	resetPermanentFailuresForTests();
+	clearProviderQuotaStateForTests();
 });
 
 describe('searchStays', () => {
@@ -150,13 +161,16 @@ describe('searchStays', () => {
 			'https://agoda-com.p.rapidapi.com/hotels-homes/overnight-stays/search': () =>
 				new Response('{}', { status: 429, headers: { 'retry-after': '30' } })
 		});
-		const provider = createAgodaStayProvider({ store: new MemoryCacheStore(), fetchImpl });
+		const provider = createAgodaStayProvider({ store: new MemoryCacheStore(), fetchImpl, sleep: instantSleep });
 		const result = await provider.searchStays(query, { signal: new AbortController().signal, keys: apiKeys });
 
+		// `callProviderWithBudget` (../budget) retries a 429 with backoff before giving up —
+		// every attempt here gets the same response, so it spends all 3 default attempts
+		// (requestsUsed: 3) before reporting the last one's Retry-After hint.
 		expect(result).toMatchObject({
 			ok: false,
 			error: { code: 'quota-exceeded', status: 429, retryAfterSeconds: 30 },
-			requestsUsed: 1
+			requestsUsed: 3
 		});
 	});
 

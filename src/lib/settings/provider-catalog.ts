@@ -1,5 +1,8 @@
-import type { ProviderId } from '../keys';
-import type { ProviderKeyField } from '../providers/types';
+// Imported from `../providers/types` directly, not `../keys`: this catalog's ids are
+// always one of the real registered adapters, exactly what the closed `ProviderId` union
+// models (issue #69) — `../keys`'s own `ProviderId` is deliberately wider, for a BYOK key
+// file's forward-compatible id (see that module's doc comment).
+import type { ProviderId, ProviderKeyField } from '../providers/types';
 
 /**
  * The settings screen's own list of RapidAPI-metered providers (issue #29), independent of
@@ -24,19 +27,14 @@ import type { ProviderKeyField } from '../providers/types';
  * it landed while this file was in flight (see git history for what was a guess when
  * written and what was confirmed once the real adapter existed to check against).
  *
- * That alignment already caught one real gap worth knowing about: `providers/budget/
- * caps.ts` (issue #22) keys its `DEFAULT_PROVIDER_CAPS` table by RapidAPI's host slugs
- * (`sky-scrapper`, `agoda-com`, `booking-com15`, `flights-sky`), on the assumption that
- * adapter ids would match those slugs. Flights Sky's own `PROVIDER_ID` does (`flights-sky`,
- * and its adapter is the one that already routes through `callProviderWithBudget`, so this
- * one entry's cap is correctly tuned today), but Skyscanner, Agoda and Booking's adapters
- * use `skyscanner`/`agoda`/`booking` instead. This catalog uses those exact ids (matching
- * the real adapters, which matters far more than matching a cap table, since a mismatched
- * id here would make a saved key invisible to the real adapter's own `ctx.keys` lookup), so
- * three of four providers here fall back to `FALLBACK_PROVIDER_CAP` (10) instead of their
- * tuned default (15/400/40) until that table is updated — filed as issue #69 rather than
- * fixed here, since `caps.ts` belongs to issue #22, not #29. The fallback is a safe
- * direction to be wrong in: it undercounts the safety margin, never overcounts it.
+ * That alignment already caught one real gap, since fixed: `providers/budget/caps.ts`
+ * (issue #22) used to key its `DEFAULT_PROVIDER_CAPS` table by RapidAPI's host slugs
+ * (`sky-scrapper`, `agoda-com`, `booking-com15`) rather than each adapter's own `id`
+ * (`skyscanner`, `agoda`, `booking`) — this catalog's own ids, matching the real adapters,
+ * exposed the mismatch. Issue #69 fixed `caps.ts` to key by the real adapter ids and made
+ * `ProviderId` (`providers/types.ts`) a closed union of them, imported here instead of a
+ * bare string, so this catalog's own ids drifting from the real adapters' would now be a
+ * compile error rather than a silent cap-table miss.
  *
  * Ids and RapidAPI hosts/slugs come straight from docs/PROVIDERS.md's "Provider slugs"
  * list, which also names the exact `tests/e2e/support/providers.ts` mocks already wired

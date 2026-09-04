@@ -13,7 +13,7 @@ import type {
 	Transfer
 } from '../domain';
 import { buildItineraries } from '../algorithm/build';
-import type { ProviderSource } from '../providers/types';
+import type { ProviderId, ProviderSource } from '../providers/types';
 import Comparator from './Comparator.svelte';
 import type { ComparedItinerary } from './comparator-types';
 import { formatDuration, formatMoney } from './itinerary-timeline-format';
@@ -113,7 +113,7 @@ function makeItinerary(options: FixtureOptions = {}): Itinerary {
 	return itinerary;
 }
 
-function source(providerId: string, fetchedAt: string): ProviderSource {
+function source(providerId: ProviderId, fetchedAt: string): ProviderSource {
 	return { providerId, fetchedAt };
 }
 

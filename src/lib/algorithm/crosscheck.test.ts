@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Duration, FlightOffer, Money } from '../domain';
-import type { ProviderResult } from '../providers/types';
+import type { ProviderId, ProviderResult } from '../providers/types';
 import {
 	RYANAIR_PROVIDER_ID,
 	cheapestSourceNote,
@@ -39,7 +39,7 @@ function offer(overrides: Partial<FlightOffer> & { carrierCode: string }): Fligh
 	};
 }
 
-function from(providerId: string, o: FlightOffer): SourcedOffer {
+function from(providerId: ProviderId, o: FlightOffer): SourcedOffer {
 	return { providerId, offer: o };
 }
 
@@ -286,8 +286,8 @@ describe('summarizeComparisons and mergeCrosscheckSummaries', () => {
 
 		const merged = mergeCrosscheckSummaries(first, second);
 		expect(merged.comparisonsConsidered).toBe(2);
-		expect(merged.byCurrency['EUR'].providers['ryanair'].timesCheapest).toBe(2);
-		expect(merged.byCurrency['EUR'].providers['skyscanner'].totalOverpaidMinorUnits).toBe(700);
+		expect(merged.byCurrency['EUR'].providers['ryanair']?.timesCheapest).toBe(2);
+		expect(merged.byCurrency['EUR'].providers['skyscanner']?.totalOverpaidMinorUnits).toBe(700);
 		expect(merged.groundTruthDisagreements).toHaveLength(2);
 	});
 

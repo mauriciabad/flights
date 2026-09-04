@@ -27,6 +27,7 @@ import type {
 	ProviderContext,
 	ProviderError,
 	ProviderHealth,
+	ProviderId,
 	ProviderResult,
 	ProviderSource
 } from '../types';
@@ -34,7 +35,10 @@ import { fetchActiveAirports, fetchDirectDestinations, fetchOneWayFares } from '
 import { buildTimeZoneIndex, mapFaresToFlightOffers, mapRoutesToDestinations } from './ryanair-mapper';
 import type { RyanairFetchError, RyanairFetchResult } from './ryanair-types';
 
-export const RYANAIR_PROVIDER_ID = 'ryanair';
+/** Keyless and unmetered — no `../budget` cap or wiring applies — but still a real
+ * registered adapter id, so it is checked against `ProviderId` (../types.ts, issue #69)
+ * like every other adapter's id. */
+export const RYANAIR_PROVIDER_ID: ProviderId = 'ryanair';
 
 /** Matches the `Cache-Control: max-age=60, s-maxage=300` Ryanair's own fare-finder
  * endpoint sends (observed 2026-09-04) — short, because a price is only ground truth for

@@ -27,10 +27,13 @@ import { defineCacheKey, getDefaultStore } from '../../cache';
 import type { CacheKey, CacheStore } from '../../cache';
 import { DEFAULT_TRAVELLERS } from '../../domain';
 import type { Coordinates, Stay } from '../../domain';
+import { callProviderWithBudget } from '../budget';
+import { classifyClientResultError, unwrapOrThrow } from '../client-result-budget';
 import type {
 	ProviderContext,
 	ProviderError,
 	ProviderHealth,
+	ProviderId,
 	ProviderResult,
 	ProviderSource,
 	StayProvider,
@@ -51,7 +54,9 @@ import {
 	type AgodaCandidate
 } from './agoda-mapper';
 
-export const AGODA_PROVIDER_ID = 'agoda';
+/** Also the id `../budget/caps.ts`'s `DEFAULT_PROVIDER_CAPS` is keyed by — enforced at
+ * compile time by `ProviderId` (../types.ts, issue #69), not by convention. */
+export const AGODA_PROVIDER_ID: ProviderId = 'agoda';
 
 /** How many cheapest-ranked candidates this adapter will spend a `get-prices` request
  * drilling into per search. Five properties is comfortably enough alternatives to
@@ -80,6 +85,14 @@ export interface AgodaProviderOptions {
 	/** Overrides the global `fetch` for BOTH hosts this adapter calls (RapidAPI and
 	 * Nominatim) — tests key their stub by URL, same pattern as ryanair.test.ts. */
 	fetchImpl?: typeof fetch;
+	/** Overrides `callProviderWithBudget`'s stored/default monthly cap. Mainly for tests —
+	 * see `CallProviderWithBudgetOptions.cap` (../budget/call-with-budget.ts). */
+	cap?: number;
+	/** Overrides the real timer-based backoff delay. Tests pass an instant no-op so a
+	 * 429-retry test doesn't take real seconds. */
+	sleep?: (ms: number) => Promise<void>;
+	/** Overrides `Date.now`. Mainly for tests. */
+	now?: () => number;
 }
 
 function source(): ProviderSource {
@@ -181,6 +194,18 @@ async function resolveLocation(
 }
 
 function createAgodaStayProvider(options: AgodaProviderOptions = {}): StayProvider {
+	function budgetCall<T>(dedupeKey: string, execute: () => Promise<T>): Promise<ProviderResult<T>> {
+		return callProviderWithBudget({
+			providerId: AGODA_PROVIDER_ID,
+			dedupeKey,
+			execute,
+			classifyError: classifyClientResultError,
+			cap: options.cap,
+			sleep: options.sleep,
+			now: options.now
+		});
+	}
+
 	async function searchStays(query: StaySearchQuery, ctx: ProviderContext): Promise<ProviderResult<Stay[]>> {
 		if (ctx.signal.aborted) {
 			return {
@@ -228,15 +253,22 @@ function createAgodaStayProvider(options: AgodaProviderOptions = {}): StayProvid
 		let requestsUsed = 0;
 
 		if (!candidates) {
-			const searchResponse = await fetchOvernightStaysSearch(
-				{ location: locationLabel, checkinDate: query.checkIn, checkoutDate: query.checkOut },
-				{ signal: ctx.signal, apiKey, fetchImpl: options.fetchImpl }
+			const searchResult = await budgetCall(
+				`${AGODA_PROVIDER_ID}:search:${locationLabel}:${query.checkIn}:${query.checkOut}`,
+				() =>
+					unwrapOrThrow(
+						fetchOvernightStaysSearch(
+							{ location: locationLabel, checkinDate: query.checkIn, checkoutDate: query.checkOut },
+							{ signal: ctx.signal, apiKey, fetchImpl: options.fetchImpl }
+						),
+						toProviderError
+					)
 			);
-			requestsUsed += 1;
-			if (!searchResponse.ok) {
-				return { ok: false, error: toProviderError(searchResponse.error), source: source(), requestsUsed };
+			requestsUsed += searchResult.requestsUsed;
+			if (!searchResult.ok) {
+				return { ok: false, error: searchResult.error, source: source(), requestsUsed };
 			}
-			const properties = searchResponse.data.data?.properties ?? [];
+			const properties = searchResult.data.data?.properties ?? [];
 			candidates = [];
 			for (const property of properties) {
 				const candidate = mapSearchPropertyToCandidate(property);
@@ -269,19 +301,26 @@ function createAgodaStayProvider(options: AgodaProviderOptions = {}): StayProvid
 			);
 			let candidateStays = await readCache<Stay[]>(store, pricesCacheKey);
 			if (!candidateStays) {
-				const pricesResponse = await fetchGetPrices(
-					{ propertyId: candidate.propertyId, checkinDate: query.checkIn, checkoutDate: query.checkOut, adults: travellers, currencyId },
-					{ signal: ctx.signal, apiKey, fetchImpl: options.fetchImpl }
+				const pricesResult = await budgetCall(
+					`${AGODA_PROVIDER_ID}:getPrices:${candidate.propertyId}:${query.checkIn}:${query.checkOut}:${travellers}:${currencyId}`,
+					() =>
+						unwrapOrThrow(
+							fetchGetPrices(
+								{ propertyId: candidate.propertyId, checkinDate: query.checkIn, checkoutDate: query.checkOut, adults: travellers, currencyId },
+								{ signal: ctx.signal, apiKey, fetchImpl: options.fetchImpl }
+							),
+							toProviderError
+						)
 				);
-				requestsUsed += 1;
-				if (!pricesResponse.ok) {
+				requestsUsed += pricesResult.requestsUsed;
+				if (!pricesResult.ok) {
 					// One property's drill-down failing must not sink the whole search —
 					// the same "one provider failing must never fail a search" contract
 					// types.ts asks of adapters as a whole, applied one level down to a
 					// single candidate within this adapter.
 					continue;
 				}
-				candidateStays = mapGetPricesToStays(candidate.property, pricesResponse.data);
+				candidateStays = mapGetPricesToStays(candidate.property, pricesResult.data);
 				await writeCache(store, pricesCacheKey, candidateStays);
 			}
 			stays.push(...candidateStays);
@@ -322,23 +361,33 @@ function createAgodaStayProvider(options: AgodaProviderOptions = {}): StayProvid
 		// "can this key reach Agoda at all" check (ProviderBase.healthCheck's own warning
 		// against calling it before every search already keeps this rare), not a
 		// pre-warm of any particular search.
-		const response = await fetchOvernightStaysSearch(
-			{ location: 'Paris, France', checkinDate: nearFutureDate(30), checkoutDate: nearFutureDate(32) },
-			{ signal: ctx.signal, apiKey, fetchImpl: options.fetchImpl }
+		const result = await budgetCall(`${AGODA_PROVIDER_ID}:healthCheck`, () =>
+			unwrapOrThrow(
+				fetchOvernightStaysSearch(
+					{ location: 'Paris, France', checkinDate: nearFutureDate(30), checkoutDate: nearFutureDate(32) },
+					{ signal: ctx.signal, apiKey, fetchImpl: options.fetchImpl }
+				),
+				toProviderError
+			)
 		);
-		if (!response.ok) {
-			return { ok: false, error: toProviderError(response.error), source: source(), requestsUsed: 1 };
+		if (!result.ok) {
+			return { ok: false, error: result.error, source: source(), requestsUsed: result.requestsUsed };
 		}
-		const count = response.data.data?.properties?.length ?? 0;
+		const count = result.data.data?.properties?.length ?? 0;
 		if (count === 0) {
 			return {
 				ok: false,
 				error: { code: 'malformed-response', message: 'Agoda returned zero properties for a known city' },
 				source: source(),
-				requestsUsed: 1
+				requestsUsed: result.requestsUsed
 			};
 		}
-		return { ok: true, data: { message: `${count} Agoda properties reachable` }, source: source(), requestsUsed: 1 };
+		return {
+			ok: true,
+			data: { message: `${count} Agoda properties reachable` },
+			source: source(),
+			requestsUsed: result.requestsUsed
+		};
 	}
 
 	return {

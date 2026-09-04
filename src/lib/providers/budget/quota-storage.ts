@@ -1,11 +1,15 @@
-import type { ProviderId } from './types';
-
 export interface ProviderQuotaRecord {
 	monthKey: string;
 	used: number;
 }
 
-export type ProviderQuotaState = Record<ProviderId, ProviderQuotaRecord>;
+/** Keyed by plain `string`, not the closed `ProviderId` union (../types.ts) — this is
+ * parsed straight out of localStorage JSON (`loadProviderQuotaState` below), so it has to
+ * tolerate a stored entry for a provider id this build no longer registers (a removed
+ * adapter, a renamed one mid-transition) without that parse itself becoming a type error.
+ * `quota.ts`'s functions always read and write this with a real `ProviderId`, which indexes
+ * a `string`-keyed record just fine. */
+export type ProviderQuotaState = Record<string, ProviderQuotaRecord>;
 
 /** Namespaced so this doesn't collide with some other feature's storage key. */
 const STORAGE_KEY = 'flights.providerBudget.v1';

@@ -125,7 +125,7 @@ const SOURCE_PARTS = [
 
 function buildProvenance(
 	sources: ItinerarySources,
-	providers: Record<ProviderId, ProviderStatus>,
+	providers: Partial<Record<ProviderId, ProviderStatus>>,
 	done: boolean
 ): ResultProvenance {
 	const parts: ProvenancePart[] = [];

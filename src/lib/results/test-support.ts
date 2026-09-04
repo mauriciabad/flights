@@ -9,6 +9,7 @@
 
 import { scoreItinerary } from '$lib/algorithm/score';
 import type { Airport, Duration, FlightOffer, Itinerary, LocalDateTime, Money } from '$lib/domain';
+import type { ProviderId } from '$lib/providers/types';
 import type { ScoredResult } from './types';
 
 function localDateTime(local: string): LocalDateTime {
@@ -128,7 +129,10 @@ export function makeScoredResult(
 			parts: [
 				{
 					part: 'outboundFlight',
-					providerId: 'test-provider',
+					// Fixture-only stand-in id, not a real registered adapter — cast rather
+					// than widening ProvenancePart.providerId itself, which is exactly the
+					// closed `ProviderId` union issue #69 exists to enforce for real adapters.
+					providerId: 'test-provider' as ProviderId,
 					providerLabel: 'Test Provider',
 					fetchedAt: '2026-10-14T00:00:00.000Z'
 				}

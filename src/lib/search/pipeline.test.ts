@@ -16,6 +16,7 @@ import type {
 	FlightProvider,
 	FlightSearchQuery,
 	ProviderContext,
+	ProviderId,
 	ProviderResult,
 	ProviderSource,
 	StayProvider,
@@ -137,8 +138,11 @@ function standardOfferBuilder(query: FlightSearchQuery): FlightOffer[] {
 	return [];
 }
 
+// Every id passed through here is a fixture-only stand-in, not a real registered adapter —
+// cast rather than widening ProviderSource.providerId itself, which is exactly the closed
+// `ProviderId` union issue #69 exists to enforce for real adapters.
 function source(providerId: string): ProviderSource {
-	return { providerId, fetchedAt: new Date().toISOString() };
+	return { providerId: providerId as ProviderId, fetchedAt: new Date().toISOString() };
 }
 
 interface FlightFixture {
@@ -194,7 +198,7 @@ function createFakeFlightProvider(options: {
 
 	const provider: FlightProvider = {
 		kind: 'flight',
-		id: options.id,
+		id: options.id as ProviderId, // fixture-only stand-in id, see source() above
 		label: `Fixture flights (${options.id})`,
 		needsKey,
 		keyFields: needsKey ? [{ id: 'apiKey', label: 'API key' }] : [],
@@ -219,7 +223,7 @@ function createFakeStayProvider(options: {
 }): StayProvider {
 	return {
 		kind: 'stay',
-		id: options.id,
+		id: options.id as ProviderId, // fixture-only stand-in id, see source() above
 		label: `Fixture stays (${options.id})`,
 		needsKey: false,
 		keyFields: [],
@@ -243,7 +247,7 @@ function createFakeTransferProvider(id = 'transit-fixture'): TransferProvider {
 	const transfer = (): Transfer => ({ mode: 'transit', duration: 20 as Duration, legs: [] });
 	return {
 		kind: 'transfer',
-		id,
+		id: id as ProviderId, // fixture-only stand-in id, see source() above
 		label: `Fixture transfers (${id})`,
 		needsKey: false,
 		keyFields: [],
@@ -335,7 +339,7 @@ describe('runSearch: stage 1 spends nothing metered', () => {
 
 		// The metered provider still shows up as a widen option, at a real non-zero cost —
 		// "ask what widening would cost" must work without ever spending anything.
-		const meteredOption = final.widenOptions.find((option) => option.providerId === 'metered-flights');
+		const meteredOption = final.widenOptions.find((option) => option.providerId === ('metered-flights' as ProviderId));
 		expect(meteredOption).toBeDefined();
 		expect(meteredOption!.requests).toBeGreaterThan(0);
 		expect(meteredOption!.requiresKey).toBe(true); // no key configured in `deps.keys`
@@ -367,8 +371,8 @@ describe('runSearch: one provider failing never fails the search', () => {
 		const final = snapshots.at(-1)!;
 
 		expect(final.itineraryGroups.length).toBeGreaterThan(0);
-		expect(final.providers['flaky-flights']?.lastError?.code).toBe('network-error');
-		expect(final.providers['healthy-flights']?.lastError).toBeUndefined();
+		expect(final.providers['flaky-flights' as ProviderId]?.lastError?.code).toBe('network-error');
+		expect(final.providers['healthy-flights' as ProviderId]?.lastError).toBeUndefined();
 	});
 });
 
@@ -502,7 +506,7 @@ describe('runSearch: stay gender-fit filtering and candidate survival (issue #80
 		];
 		return {
 			kind: 'stay',
-			id: 'gender-mix-stays',
+			id: 'gender-mix-stays' as ProviderId, // fixture-only stand-in id, see source() above
 			label: 'Fixture stays (gender mix)',
 			needsKey: false,
 			keyFields: [],
@@ -616,8 +620,8 @@ describe('widenSearch', () => {
 		expect(final.candidates.map((c) => c.airportCode)).toEqual([FAST]); // SLOW was never a target
 		expect(final.itineraryGroups.length).toBeGreaterThan(0);
 		expect(metered.searchOffers).toHaveBeenCalled();
-		expect(final.providers['metered-flights']?.requestsUsed).toBeGreaterThan(0);
-		expect(final.providers['metered-flights']!.requestsUsed).toBeLessThanOrEqual(10);
+		expect(final.providers['metered-flights' as ProviderId]?.requestsUsed).toBeGreaterThan(0);
+		expect(final.providers['metered-flights' as ProviderId]!.requestsUsed).toBeLessThanOrEqual(10);
 	});
 
 	it('never exceeds maxMeteredRequests even when a metered provider would otherwise be called for both legs', async () => {
@@ -657,7 +661,7 @@ describe('widenSearch', () => {
 		);
 
 		expect(metered.searchOffers).not.toHaveBeenCalled();
-		expect(snapshots.at(-1)!.providers['metered-flights']?.requestsUsed ?? 0).toBe(0);
+		expect(snapshots.at(-1)!.providers['metered-flights' as ProviderId]?.requestsUsed ?? 0).toBe(0);
 	});
 });
 
