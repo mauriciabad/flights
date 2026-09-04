@@ -1,4 +1,5 @@
 import { test, expect } from './support/fixtures';
+import { routeRyanairFlights } from './support/providers';
 import { FIXTURE_FLIGHT_NUMBERS, FIXTURE_NAMES, FIXTURE_PRICES } from './support/fixture-markers';
 import { mockKiwiPublic } from './support/providers';
 
@@ -37,41 +38,6 @@ import { mockKiwiPublic } from './support/providers';
  */
 
 const EMPTY_MAP_STYLE = JSON.stringify({ version: 8, name: 'empty', sources: {}, layers: [] });
-
-interface FareSpec {
-	dep: string;
-	arr: string;
-	depDate: string;
-	arrDate: string;
-	price: number;
-	flightNumber: string;
-}
-
-function ryanairFare({ dep, arr, depDate, arrDate, price, flightNumber }: FareSpec) {
-	const [whole, frac] = price.toFixed(2).split('.');
-	return {
-		outbound: {
-			departureAirport: {
-				countryName: FIXTURE_NAMES.country,
-				iataCode: dep,
-				name: FIXTURE_NAMES.airportA,
-				seoName: 'fixture-alpha'
-			},
-			arrivalAirport: {
-				countryName: FIXTURE_NAMES.country,
-				iataCode: arr,
-				name: FIXTURE_NAMES.airportB,
-				seoName: 'fixture-bravo'
-			},
-			departureDate: depDate,
-			arrivalDate: arrDate,
-			price: { value: price, valueMainUnit: whole, valueFractionalUnit: frac, currencySymbol: '€', currencyCode: 'EUR' },
-			flightNumber,
-			flightKey: `ZZ~${flightNumber}~~${dep}~${arr}~${depDate.slice(0, 10)}~${depDate.slice(0, 10)}~1`,
-			previousPrice: null
-		}
-	};
-}
 
 // Real-ish, but fixed, coordinates so this test controls exactly which OSRM request
 // answers which leg rather than depending on the live demo server's actual road network.
@@ -199,40 +165,24 @@ test.describe('itinerary map: every transfer leg, distinct markers, honest geome
 				])
 			})
 		);
-		await page.context().route('https://services-api.ryanair.com/**', async (route) => {
-			const url = new URL(route.request().url());
-			const dep = url.searchParams.get('departureAirportIataCode');
-			const arr = url.searchParams.get('arrivalAirportIataCode');
-			let fares: unknown[] = [];
-			if (dep === 'KEF' && (arr === 'OSL' || !arr)) {
-				fares = [
-					ryanairFare({
-						dep: 'KEF',
-						arr: 'OSL',
-						depDate: '2027-03-08T06:20:00',
-						arrDate: '2027-03-08T10:05:00',
-						price: FIXTURE_PRICES.first,
-						flightNumber: FIXTURE_FLIGHT_NUMBERS[5]
-					})
-				];
-			} else if (dep === 'OSL' && (arr === 'TBS' || !arr)) {
-				fares = [
-					ryanairFare({
-						dep: 'OSL',
-						arr: 'TBS',
-						depDate: '2027-03-11T09:30:00',
-						arrDate: '2027-03-11T16:10:00',
-						price: FIXTURE_PRICES.second,
-						flightNumber: FIXTURE_FLIGHT_NUMBERS[6]
-					})
-				];
+		await routeRyanairFlights(page.context(), [
+			{
+				dep: 'KEF',
+				arr: 'OSL',
+				depDate: '2027-03-08T06:20:00',
+				arrDate: '2027-03-08T10:05:00',
+				price: FIXTURE_PRICES.first,
+				flightNumber: FIXTURE_FLIGHT_NUMBERS[5]
+			},
+			{
+				dep: 'OSL',
+				arr: 'TBS',
+				depDate: '2027-03-11T09:30:00',
+				arrDate: '2027-03-11T16:10:00',
+				price: FIXTURE_PRICES.second,
+				flightNumber: FIXTURE_FLIGHT_NUMBERS[6]
 			}
-			await route.fulfill({
-				status: 200,
-				contentType: 'application/json',
-				body: JSON.stringify({ fares, size: fares.length, currency: 'EUR' })
-			});
-		});
+		]);
 
 		// -----------------------------------------------------------------
 		// 2b. Kiwi.com's keyless endpoint, answering with nothing. This spec builds one

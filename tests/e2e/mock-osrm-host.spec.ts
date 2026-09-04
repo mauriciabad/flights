@@ -1,6 +1,6 @@
 import { test, expect } from './support/fixtures';
 import { FIXTURE_FLIGHT_NUMBERS, FIXTURE_NAMES, FIXTURE_PRICES } from './support/fixture-markers';
-import { mockAllKeylessProviders, OSRM_BASE_URL } from './support/providers';
+import { mockAllKeylessProviders, OSRM_BASE_URL, routeRyanairFlights } from './support/providers';
 
 /**
  * Issue #132: `mockOsrm` used to intercept `router.project-osrm.org`, a host
@@ -25,41 +25,6 @@ import { mockAllKeylessProviders, OSRM_BASE_URL } from './support/providers';
  * read as a working search.
  */
 
-interface FareSpec {
-	dep: string;
-	arr: string;
-	depDate: string;
-	arrDate: string;
-	price: number;
-	flightNumber: string;
-}
-
-function ryanairFare({ dep, arr, depDate, arrDate, price, flightNumber }: FareSpec) {
-	const [whole, frac] = price.toFixed(2).split('.');
-	return {
-		outbound: {
-			departureAirport: {
-				countryName: FIXTURE_NAMES.country,
-				iataCode: dep,
-				name: FIXTURE_NAMES.airportA,
-				seoName: 'fixture-alpha'
-			},
-			arrivalAirport: {
-				countryName: FIXTURE_NAMES.country,
-				iataCode: arr,
-				name: FIXTURE_NAMES.airportB,
-				seoName: 'fixture-bravo'
-			},
-			departureDate: depDate,
-			arrivalDate: arrDate,
-			price: { value: price, valueMainUnit: whole, valueFractionalUnit: frac, currencySymbol: '€', currencyCode: 'EUR' },
-			flightNumber,
-			flightKey: `ZZ~${flightNumber}~~${dep}~${arr}~${depDate.slice(0, 10)}~${depDate.slice(0, 10)}~1`,
-			previousPrice: null
-		}
-	};
-}
-
 test.describe('mockOsrm intercepts the host the adapter really calls (issue #132)', () => {
 	test('a search with an origin location sends every OSRM request through the mock, never the retired host', async ({
 		page
@@ -73,40 +38,24 @@ test.describe('mockOsrm intercepts the host the adapter really calls (issue #132
 		// pairing. `mockOsrm` here is the one thing this test exists to exercise.
 		await mockAllKeylessProviders(page.context());
 
-		await page.context().route('https://services-api.ryanair.com/**', async (route) => {
-			const url = new URL(route.request().url());
-			const dep = url.searchParams.get('departureAirportIataCode');
-			const arr = url.searchParams.get('arrivalAirportIataCode');
-			let fares: unknown[] = [];
-			if (dep === 'BCN' && (arr === 'VIE' || !arr)) {
-				fares = [
-					ryanairFare({
-						dep: 'BCN',
-						arr: 'VIE',
-						depDate: '2027-03-08T08:00:00',
-						arrDate: '2027-03-08T10:15:00',
-						price: FIXTURE_PRICES.first,
-						flightNumber: FIXTURE_FLIGHT_NUMBERS[7]
-					})
-				];
-			} else if (dep === 'VIE' && (arr === 'TLL' || !arr)) {
-				fares = [
-					ryanairFare({
-						dep: 'VIE',
-						arr: 'TLL',
-						depDate: '2027-03-10T11:00:00',
-						arrDate: '2027-03-10T13:20:00',
-						price: FIXTURE_PRICES.third,
-						flightNumber: FIXTURE_FLIGHT_NUMBERS[8]
-					})
-				];
+		await routeRyanairFlights(page.context(), [
+			{
+				dep: 'BCN',
+				arr: 'VIE',
+				depDate: '2027-03-08T08:00:00',
+				arrDate: '2027-03-08T10:15:00',
+				price: FIXTURE_PRICES.first,
+				flightNumber: FIXTURE_FLIGHT_NUMBERS[7]
+			},
+			{
+				dep: 'VIE',
+				arr: 'TLL',
+				depDate: '2027-03-10T11:00:00',
+				arrDate: '2027-03-10T13:20:00',
+				price: FIXTURE_PRICES.third,
+				flightNumber: FIXTURE_FLIGHT_NUMBERS[8]
 			}
-			await route.fulfill({
-				status: 200,
-				contentType: 'application/json',
-				body: JSON.stringify({ fares, size: fares.length, currency: 'EUR' })
-			});
-		});
+		]);
 
 		const params = new URLSearchParams({
 			dep: '2027-03-08',

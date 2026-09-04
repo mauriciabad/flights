@@ -8,7 +8,6 @@ an adapter exists (issues #5 through #10).
 
 | File | Provider | Endpoint shape modelled |
 |---|---|---|
-| `ryanair/one-way-fares.json` | Ryanair (keyless) | `farfnd/v4/oneWayFares` |
 | `ryanair/active-airports.json` | Ryanair (keyless) | `api/views/locate/3/airports/en/active` — timezones AND each airport's `routes` |
 | `skyscanner/search-flights.json` | Skyscanner via RapidAPI `sky-scrapper` | `api/v2/flights/searchFlights` |
 | `rome2rio/search.json` | Rome2Rio via RapidAPI | `search` (stops/segments/routes graph) |
@@ -16,6 +15,13 @@ an adapter exists (issues #5 through #10).
 | `transitous/plan.json` | Transitous/MOTIS (keyless) | `/api/v1/plan` (OTP-style itinerary) |
 | `osrm/route.json` | OSRM (keyless) | `/route/v1/{profile}/{coordinates}` |
 | `markers.json` | — | the tokens below, read by the specs and by `tools/probe-results.mjs` |
+
+Ryanair's two fare endpoints have no fixture file. `cheapestPerDay` and
+`timtbl/3/schedules` have to agree with each other flight by flight — a fare the timetable
+does not name never becomes an offer — so they are generated together from one list of
+flights by `routeRyanairFlights` in `tests/e2e/support/providers.ts` rather than kept as
+two files that can drift apart. The captured real responses live in
+`src/lib/providers/flights/fixtures/` instead, where the unit tests exercise the join.
 
 If the real shape turns out to differ once an adapter is written against it, fix the
 fixture, not the mock helper in `tests/e2e/support/providers.ts` — the helper is just

@@ -574,11 +574,8 @@ an arbitrary route work at all. Full evidence in its own section near the top of
 adapter in `providers/flights/kiwi-public.ts`.
 
 **Ryanair** publishes fares directly. Real prices, flight numbers, local times, plus a route
-graph — **for Ryanair's own network only**:
-
-```
-https://services-api.ryanair.com/farfnd/v4/oneWayFares?departureAirportIataCode=BCN&outboundDepartureDateFrom=2026-10-01&outboundDepartureDateTo=2026-10-20
-```
+graph — **for Ryanair's own network only**. Which endpoints, and why it takes two of them
+for the fares, is the next section down.
 
 An earlier version of this line said "direct destinations from any airport", which is wrong
 and cost real time. Counted from the bundled snapshot issue #145 now ships
@@ -594,6 +591,50 @@ for the connection graph to produce no candidate at all.
 It is one airline, so it is not a substitute for an aggregator. Its real value is as
 ground truth: these fares come from the airline itself, so when an aggregator quotes a
 different price for the same flight number, the aggregator is wrong.
+
+#### Fares are a calendar plus a timetable, and it takes both (issue #137)
+
+`farfnd/v4/oneWayFares` is a fare *finder*, not a schedule. Pinned to one route it returns
+exactly **one** fare for the whole date range, however wide the range, and `limit`/`offset`
+do not change that (measured 2026-09-04, `size: 1` with and without). One fare per leg is
+one date pair per stopover, which is why the flight picker used to have a single row in it.
+
+The same API answers per day. Keyless, CORS-open, one request per calendar month:
+
+```
+https://services-api.ryanair.com/farfnd/v4/oneWayFares/BCN/BGY/cheapestPerDay?outboundMonthOfDate=2026-10-01&currency=EUR
+```
+
+Its rows are `{day, departureDate, arrivalDate, price, soldOut, unavailable}` and nothing
+else. **No flight number, no carrier code, not even the airport objects.** Two traps in
+that response, both measured rather than guessed:
+
+- It always returns the whole calendar month, whatever range you ask about, so a caller
+  has to clip to its own window or it will offer dates nobody asked for.
+- A route Ryanair does not fly answers `200` with a month of `unavailable: true` rows, not
+  a `404`. BCN→OTP and BVC→LGW both do. Ignore that flag and you have invented a month of
+  flights on a route with no service, which docs/ACCEPTANCE.md ranks ahead of every feature
+  as a bug.
+
+The flight's identity comes from the timetable, same host, also keyless:
+
+```
+https://services-api.ryanair.com/timtbl/3/schedules/BCN/BGY/years/2026/months/10
+```
+
+`{month, days: [{day, flights: [{carrierCode, number, departureTime, arrivalTime}]}]}`,
+listing only days that have a flight, and `days: []` for a route not flown. Joined to the
+fares on the departure minute: across 10 routes and 235 priced days on 2026-09-04, every
+priced fare matched a scheduled departure, arrival times included.
+
+**`carrierCode` is not always `FR`.** STN→DUB in October 2026 mixes `FR` and `RK` (Ryanair
+UK) rows in the same month. Take the carrier from the feed; hardcoding "Ryanair" puts an
+airline's name on a flight it does not operate.
+
+So a leg-month costs two requests where it used to cost one. The timetable is cached for a
+week against the fares' five minutes, because a schedule moves seasonally and a price moves
+hourly, and both are keyed by calendar month rather than the search's exact dates, so
+nudging a date is a cache hit rather than a fresh sweep.
 
 #### The route graph is one request, not one per airport (issue #121)
 
@@ -615,6 +656,9 @@ Against the local 140-request run, endpoint by endpoint:
 | `farfnd/v4/oneWayFares` | 48 | 48 |
 | **total, cold cache** | **140** | **49** |
 | same search again | 0 | 0 |
+
+(Issue #137 then replaced that `oneWayFares` row with a `cheapestPerDay` request and a
+`timtbl/3/schedules` request per leg-month — see the fare section above for the numbers.)
 
 Same three itineraries found. The twelve active-airports calls were one table fetched
 twelve times over, because a dozen concurrent fare searches all missed the same cold cache
