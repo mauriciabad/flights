@@ -89,9 +89,15 @@ test.describe('result detail (issue #104)', () => {
 		await expect(detail.getByRole('region', { name: /Route map/ })).toBeVisible();
 
 		const totalPriceRow = detail.locator('.itinerary-timeline-totals .metric', { hasText: 'Total price' });
-		// 9,111.11 (cheaper outbound) + 9,333.33 onward. Absurd figures on purpose — see
-		// support/fixture-markers.ts — but the sum is still the real arithmetic under test.
-		await expect(totalPriceRow).toContainText('€18,444.44');
+		// 9,222.22 (the 9 March outbound) + 9,333.33 onward. Absurd figures on purpose, see
+		// support/fixture-markers.ts, but the sum is still the real arithmetic under test.
+		//
+		// Issue #224 changed which pairing this is. Both outbounds reach the same 10 March
+		// onward flight, so the 8 March one is a two-night stopover and the 9 March one is a
+		// single night, and the card now opens on the shorter trip even though the longer
+		// one is 111.11 cheaper and scores better for its extra night. That is the fix: the
+		// nights a traveller is shown are the fewest the flights force on them.
+		await expect(totalPriceRow).toContainText('€18,555.55');
 
 		// Switch to the pricier outbound option through the flight picker and confirm the
 		// total follows it exactly — brief line 67's "selecting updates ui", proven against
@@ -102,7 +108,9 @@ test.describe('result detail (issue #104)', () => {
 		await expect(outboundRow).toContainText('2 flights');
 		await outboundRow.click();
 		const outboundPicker = detail.getByRole('radiogroup', { name: /Outbound/ });
-		const alternativeRow = outboundPicker.locator('.picker-row', { hasText: '€9,222.22' });
+		// The 8 March outbound, which is the one the card is NOT on since issue #224 made the
+		// shorter stopover the default.
+		const alternativeRow = outboundPicker.locator('.picker-row', { hasText: '€9,111.11' });
 		await expect(alternativeRow).toBeVisible();
 		// Click the row, which is what a traveller clicks: FlightPicker.svelte styles the
 		// whole `<label>` as the control and the `<input>` inside it is `visually-hidden`,
@@ -114,6 +122,81 @@ test.describe('result detail (issue #104)', () => {
 		await alternativeRow.click();
 
 		await expect(alternativeRow).toContainText('Current pick');
-		await expect(totalPriceRow).toContainText('€18,555.55'); // 9,222.22 + 9,333.33
+		await expect(totalPriceRow).toContainText('€18,444.44'); // 9,111.11 + 9,333.33
+	});
+
+	/**
+	 * Issue #224. The same two-pairing fixture, read from the card instead of the panel:
+	 * one night by default, two nights when the traveller asks for them, and the card
+	 * saying what that cost and which flight moved to allow it.
+	 *
+	 * The owner: "the nights should be kept to a minimum by default", "and i can decide to
+	 * add more nights if the city is interesting and the hotel in the center".
+	 */
+	test('the card opens at the fewest nights and extends only when asked', async ({ page }) => {
+		await mockAllKeylessProviders(page.context());
+		await routeRyanairFlights(page.context(), [
+			{
+				dep: 'BCN',
+				arr: 'VIE',
+				depDate: '2027-03-08T08:00:00',
+				arrDate: '2027-03-08T10:15:00',
+				price: FIXTURE_PRICES.first,
+				flightNumber: FIXTURE_FLIGHT_NUMBERS[2]
+			},
+			{
+				dep: 'BCN',
+				arr: 'VIE',
+				depDate: '2027-03-09T16:30:00',
+				arrDate: '2027-03-09T18:45:00',
+				price: FIXTURE_PRICES.second,
+				flightNumber: FIXTURE_FLIGHT_NUMBERS[3]
+			},
+			{
+				dep: 'VIE',
+				arr: 'TLL',
+				depDate: '2027-03-10T11:00:00',
+				arrDate: '2027-03-10T13:20:00',
+				price: FIXTURE_PRICES.third,
+				flightNumber: FIXTURE_FLIGHT_NUMBERS[4]
+			}
+		]);
+
+		await page.goto('/results/?dep=2027-03-08&arr=2027-03-27&from=BCN&to=TLL');
+		await expect(page.getByText('still searching')).toHaveCount(0, { timeout: 20_000 });
+
+		const card = page.locator('.result-card').first();
+		const nights = card.locator('.stopover-nights');
+		const stripCaption = card.locator('.trip-strip-caption-mid');
+
+		// The 8 March outbound would give two nights and a cheaper total. The card opens on
+		// the 9 March one anyway, because one night is the fewest these flights allow.
+		await expect(nights.locator('.nights-value')).toHaveText('1 night');
+		await expect(stripCaption).toContainText('1 night');
+		await expect(card).toContainText('€18,555.55');
+
+		// Nothing to shorten to, and the button says so by being disabled rather than by
+		// disappearing and moving the other one under a finger already on its way down.
+		const [fewer, more] = [nights.locator('.nights-step').first(), nights.locator('.nights-step').last()];
+		await expect(fewer).toBeDisabled();
+		// The outcome and its price, before it is pressed: "2 nights in FIXTURE Vienna, one
+		// more night, -€111.11".
+		await expect(more).toHaveAttribute('aria-label', /2 nights.*one more night/);
+		await expect(more).toBeEnabled();
+
+		await more.click();
+
+		await expect(nights.locator('.nights-value')).toHaveText('2 nights');
+		await expect(stripCaption).toContainText('2 nights');
+		await expect(card).toContainText('€18,444.44');
+		// Issue #224: "the card must say the price moved and why, never silently." The
+		// second night is only available on the earlier outbound, so the flight changed.
+		await expect(nights.locator('.nights-note')).toHaveText('-€111.11 vs 1 night, on a different outbound flight');
+
+		// And back, with no trace left of the detour.
+		await expect(fewer).toBeEnabled();
+		await fewer.click();
+		await expect(nights.locator('.nights-value')).toHaveText('1 night');
+		await expect(nights.locator('.nights-note')).toHaveCount(0);
 	});
 });

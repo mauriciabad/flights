@@ -10,7 +10,7 @@
 import { scoreItinerary } from '$lib/algorithm/score';
 import type { Airport, Duration, FlightOffer, Itinerary, LocalDateTime, Money } from '$lib/domain';
 import type { ProviderId } from '$lib/providers/types';
-import type { ScoredResult } from './types';
+import type { ScoredResult, StopoverLengths } from './types';
 
 function localDateTime(local: string): LocalDateTime {
 	return { local, timeZone: 'Europe/Vienna', utcOffsetMinutes: 120 };
@@ -127,16 +127,31 @@ let idCounter = 0;
 /** A minimal, valid ScoredResult, for tests of filtering/sorting/streaming that don't
  * care about the score breakdown's own correctness (score.test.ts already covers that). */
 export function makeScoredResult(
-	overrides: Parameters<typeof makeItinerary>[0] & { id?: string; sequence?: number; variantCount?: number } = {}
+	overrides: Parameters<typeof makeItinerary>[0] & {
+		id?: string;
+		sequence?: number;
+		variantCount?: number;
+		stopoverLengths?: StopoverLengths;
+	} = {}
 ): ScoredResult {
 	idCounter += 1;
 	const itinerary = makeItinerary(overrides);
+	const nights = itinerary.nightsInConnection;
 	return {
 		id: overrides.id ?? `result-${idCounter}`,
 		sequence: overrides.sequence ?? idCounter,
 		itinerary,
 		score: scoreItinerary(itinerary),
 		variantCount: overrides.variantCount ?? 1,
+		// Issue #224: a fixture with one pairing is a stopover that can only be its own
+		// length, which is what almost every test here wants. `stopoverLengths` above
+		// overrides it for the tests that are about the ladder itself.
+		stopover: overrides.stopoverLengths ?? {
+			options: [{ nights, itinerary }],
+			minimum: nights,
+			minimumItinerary: itinerary,
+			isFlightChange: nights === 0
+		},
 		price: {
 			parts: [
 				{

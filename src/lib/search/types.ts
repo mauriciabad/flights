@@ -258,15 +258,24 @@ export interface OuterTransferOptions {
  * Every scored pairing through one connection airport, grouped — brief line 83: "Group
  * results into variants for same itinerary"; line 67: "user can see alternative flights for
  * same location with their price and difference from selected one, selecting updates ui."
- * `best` is a convenience (`variants[0]`) so a caller that only wants the headline card per
- * stopover doesn't have to know `variants` is pre-sorted.
  */
 export interface ItineraryGroup {
 	connectionAirportCode: IataAirportCode;
+	/**
+	 * The pairing this stopover's card opens on: the SHORTEST one it can do, at least one
+	 * night whenever the city offers one (issue #224, `algorithm/stopover-length.ts`).
+	 *
+	 * It is not `variants[0]`, and that is the fix. `variants` is sorted by score, score
+	 * pays for nights, so `variants[0]` was always this city's longest pairing: six nights
+	 * beside Gatwick on a six-day search window, with the one-night trip present in
+	 * `variants` and never shown. Every longer pairing is still here for the card's own
+	 * nights control to move to.
+	 */
 	best: ItineraryResult;
-	/** Sorted best-first, `best` included. Length 1 is the common case (one viable flight
-	 * pairing through this stopover); more than one means the traveller has a real choice
-	 * of times or fares through the same city. */
+	/** Sorted best score first, `best` included (usually not at index 0, see above).
+	 * Length 1 is the common case (one viable flight pairing through this stopover); more
+	 * than one means the traveller has a real choice of times, fares, or stopover
+	 * lengths through the same city. */
 	variants: ItineraryResult[];
 }
 

@@ -99,6 +99,43 @@ function tripItinerary(options: { withStay?: boolean } = {}): Itinerary {
 	return itinerary;
 }
 
+/**
+ * An overnight connection with a five-hour layover: lands at 22:00, away again at 03:00, so
+ * one night in the stopover with two hours of it free after the walk into town and the
+ * pre-boarding buffer.
+ *
+ * This is the shape issue #224 made the default and the shape a slow transit plan can
+ * break, and the ten-day stopover above cannot stand in for it: ten days absorb any
+ * transfer without noticing, which is exactly why the defect went unseen while only the
+ * longest pairing through each city was ever refined.
+ *
+ * The bed sits 11km out so a two-and-a-half-hour ride to it stays plausible for the
+ * distance (#220's own rule), leaving the layover as the only thing it fails.
+ */
+function shortStopoverItinerary(): Itinerary {
+	const origin = airport('BCN', 41.2971, 2.07846);
+	const connection = airport('BGY', 45.6689, 9.7);
+	const destination = airport('OTP', 44.5718, 26.1033);
+
+	const [itinerary] = buildItineraries({
+		originAirport: origin,
+		destinationAirport: destination,
+		outboundOffers: [flight(at('2026-10-04T20:00:00'), at('2026-10-04T22:00:00'), 'BCN', 'BGY')],
+		onwardOffers: [flight(at('2026-10-05T03:00:00'), at('2026-10-05T05:00:00'), 'BGY', 'OTP')],
+		connectionAirports: { BGY: connection },
+		connectionResources: {
+			BGY: {
+				stay: { ...stay, property: { ...stay.property, coordinates: { latitude: 45.7627, longitude: 9.7 } } },
+				transferToHotel: { mode: 'walk', duration: 30 as Duration, legs: [] },
+				transferToConnectionAirport: { mode: 'walk', duration: 30 as Duration, legs: [] }
+			}
+		},
+		waitingTimeRules: [{ waitingTime: 120 as Duration }]
+	});
+	if (!itinerary) throw new Error('fixture itinerary failed to build');
+	return itinerary;
+}
+
 function transitTransfer(): Transfer {
 	return {
 		mode: 'transit',
@@ -285,6 +322,36 @@ describe('fetchTransitSchedules', () => {
 		await run([provider], { itinerary: tripItinerary({ withStay: true }) });
 
 		expect(queries.map((query) => query.arriveBy)).toEqual([true, false, true, false]);
+	});
+
+	it('keeps the road leg when a plausible transit plan would still swallow the stopover', async () => {
+		// Measured on production for BVC to PFO once issue #224 made the SHORTEST pairing
+		// the one refined: the Birmingham card printed "-19h 38m in Birmingham", because
+		// `recomputeItinerarySelection` returned an itinerary with an
+		// `insufficient-connection-time` warning and this module dropped the warning and
+		// kept the itinerary.
+		//
+		// Distinct from #220's plausibility rule, which refuses a route that is absurd for
+		// its distance. A 2h30m ride to a bed 11km out is a perfectly ordinary answer, and
+		// it is still more than a five-hour layover can pay for.
+		const slowPlan = (): Transfer => ({ ...transitTransfer(), duration: 150 as Duration });
+		const { provider } = fakeTransitProvider({
+			answer: () => ({
+				ok: true,
+				data: [slowPlan()],
+				source: { providerId: 'transitous' as ProviderId, fetchedAt: '2026-10-01T00:00:00Z' },
+				requestsUsed: 1
+			})
+		});
+		const before = shortStopoverItinerary();
+
+		const { itinerary, answers } = await run([provider], { itinerary: before });
+
+		expect(itinerary.freeTime.duration).toBeGreaterThanOrEqual(0);
+		expect(itinerary.transferToHotel?.mode).toBe('walk');
+		// The timetable still reported what it found. "We asked and this is the journey"
+		// stays true whether or not this trip can afford it.
+		expect(answers.transferToHotel?.answer).toBe('answered');
 	});
 
 	describe('a route refused as implausible (issue #220)', () => {

@@ -51,6 +51,10 @@
 
 	interface Props {
 		itinerary: Itinerary;
+		/** Issue #224: whether `itinerary` is the shortest stopover this connection can do,
+		 * which is the one `pipeline.ts` refined transit timetables for. False once the
+		 * traveller has extended the stay on the card above. */
+		atDefaultLength?: boolean;
 		/** The full group behind this connection (issue #104: "confirm what search/
 		 * resources.ts already retains"): every (outbound, onward) pairing the free tier
 		 * already fetched for this stopover, which is exactly the flight-alternatives pool
@@ -87,6 +91,7 @@
 
 	let {
 		itinerary: initialItinerary,
+		atDefaultLength = true,
 		group,
 		stayCandidates = [],
 		transferOptions,
@@ -177,7 +182,15 @@
 	// the frozen local copy the traveller edits below — an itinerary rebuilt from a picked
 	// alternative was never the one these lookups were planned for, and pretending otherwise
 	// is the defect this issue is about.
-	const transitAnswers = $derived(itinerary === initialItinerary ? group?.best.transit : undefined);
+	//
+	// Issue #224 adds the second way this component can be looking at something other than
+	// `group.best`: the traveller extended the stopover on the card above. `pipeline.ts`
+	// spends its one timetable lookup on the shortest pairing, which is what `group.best`
+	// is, so a longer one has no answers of its own and says so rather than borrowing the
+	// short trip's bus times.
+	const transitAnswers = $derived(
+		itinerary === initialItinerary && atDefaultLength ? group?.best.transit : undefined
+	);
 
 	// The timeline's "2 flights" / "3 options" marks: only rows whose fold offers more than
 	// one thing to pick, gated on the same conditions the fold itself renders under, so a

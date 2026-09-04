@@ -42,7 +42,6 @@ import type { Coordinates, Duration, Itinerary, Transfer, TransitPlanMoment } fr
 import { greatCircleDistanceKm } from '../domain';
 import { addLocalMinutes } from '../algorithm/build';
 import { recomputeItinerarySelection } from '../algorithm/recompute-selection';
-import type { SelectionOverrides } from '../algorithm/recompute-selection';
 import type { AvailableKeys, ProviderError, ProviderResult, TransferProvider } from '../providers/types';
 import { applyLandingBuffer, fetchBestTransfer } from './resources';
 import type { RecordProviderCall, SourceTracker } from './provenance';
@@ -217,7 +216,10 @@ export interface TransitScheduleOutcome {
 export async function fetchTransitSchedules(input: FetchTransitSchedulesInput): Promise<TransitScheduleOutcome> {
 	const plans = planTransitLegs(input);
 	const answers: TransitLegAnswers = {};
-	const overrides: SelectionOverrides = {};
+	// Keyed by transit leg rather than typed as the whole `SelectionOverrides`: this only
+	// ever replaces transfers, and naming that lets `applyUsableOverrides` fold them in one
+	// at a time without casting a flight-shaped field back to a `Transfer`.
+	const overrides: Partial<Record<TransitLegField, Transfer>> = {};
 
 	// Sequential, not `Promise.all`: the budget is the point, and a leg that would have been
 	// refused should not have been sent while three siblings were in flight. It also keeps
@@ -257,13 +259,45 @@ export async function fetchTransitSchedules(input: FetchTransitSchedulesInput): 
 		overrides[plan.field] = pickShortest(buffered);
 	}
 
-	const changed = Object.keys(overrides).length > 0;
-	return {
-		itinerary: changed
-			? recomputeItinerarySelection(input.itinerary, overrides, input.minLayoverTime).itinerary
-			: input.itinerary,
-		answers
-	};
+	return { itinerary: applyUsableOverrides(input, overrides), answers };
+}
+
+/**
+ * Folds the transit picks into the itinerary one leg at a time, keeping only the ones that
+ * leave the traveller some free time in the stopover.
+ *
+ * A transit plan is only better than the road leg it replaces while the trip survives it.
+ * Transitous can answer a short connection with a three-change journey that takes longer
+ * than the whole layover, and `recomputeItinerarySelection` returns exactly that itinerary
+ * with an `insufficient-connection-time` warning attached, which this function used to
+ * discard along with the warning. The card then printed "-19h 38m in Birmingham".
+ *
+ * That was invisible while only the longest pairing through each city was ever refined:
+ * a four-night stopover absorbs a slow bus without noticing. Issue #224 makes the SHORTEST
+ * pairing the one on screen and therefore the one refined, and a short layover is where the
+ * arithmetic actually bites. Nothing about the old behaviour was right, it was just never
+ * exercised.
+ *
+ * Rejecting one leg rather than the whole refinement: the two ends of a stopover are
+ * independent, and a night bus into town is worth keeping even when the ride back is a
+ * three-change trek this drops. The dropped leg keeps its road-mode transfer, which is what
+ * the itinerary already had, and its `answers` entry still reports what the timetable said,
+ * because "we asked and this is the journey" stays true whether or not the trip can afford
+ * it.
+ */
+function applyUsableOverrides(
+	input: FetchTransitSchedulesInput,
+	overrides: Partial<Record<TransitLegField, Transfer>>
+): Itinerary {
+	let itinerary = input.itinerary;
+	for (const field of Object.keys(overrides) as TransitLegField[]) {
+		const transfer = overrides[field];
+		if (!transfer) continue;
+		const recomputed = recomputeItinerarySelection(itinerary, { [field]: transfer }, input.minLayoverTime);
+		if (recomputed.warnings.some((warning) => warning.code === 'insufficient-connection-time')) continue;
+		itinerary = recomputed.itinerary;
+	}
+	return itinerary;
 }
 
 /**

@@ -19,10 +19,11 @@
  * time and price of each part, and the totals.
  */
 
-import type { Itinerary, Money } from '$lib/domain';
-import { unpricedTransferLegs } from '$lib/domain';
+import type { Coordinates, Itinerary, Money } from '$lib/domain';
+import { greatCircleDistanceKm, unpricedTransferLegs } from '$lib/domain';
 import { scaleFareForParty, sumMoney } from '$lib/algorithm/build';
 import { formatDuration, formatLongDuration, formatMoney } from '$lib/format';
+import { formatDistanceKm } from '$lib/stays/distance';
 
 export type ItineraryMetricId =
 	| 'in-flight'
@@ -229,7 +230,34 @@ export interface PriceBreakdown {
  * and this total is complete" or "nobody quoted these rides", and the two are told apart
  * rather than blurred into one silence.
  */
-export function priceBreakdown(itinerary: Itinerary): PriceBreakdown {
+/**
+ * How far the booked bed is from the middle of the stopover city, straight-line, or
+ * `undefined` when either point is unknown. Never the walking or driving distance: those
+ * are a routing provider's answer and this is arithmetic on two coordinates, which is
+ * exactly why `formatDistanceKm` keeps it to one decimal.
+ */
+function distanceFromCentre(itinerary: Itinerary, cityCentre: Coordinates | undefined): string | undefined {
+	if (!itinerary.stay || !cityCentre) return undefined;
+	return `${formatDistanceKm(greatCircleDistanceKm(itinerary.stay.property.coordinates, cityCentre))} from centre`;
+}
+
+/** What the bed line can say beyond its own amount, when the caller knows it. */
+export interface PriceBreakdownContext {
+	/**
+	 * The stopover city's hand-checked centre point (`Airport.city.coordinates`, issue
+	 * #162), when one exists. Present, the bed line says how far out the bed is; absent,
+	 * it says nothing rather than measuring against the runway and calling that the
+	 * centre, which is the mistake #196 fixed.
+	 *
+	 * Issue #224: the owner's two stated reasons for extending a stopover are "if the city
+	 * is interesting and the hotel in the center", and this is the measurable one. It rides
+	 * on the line that already prints what the bed costs, so the card answers "is it worth
+	 * another night here" without spending a row on it.
+	 */
+	cityCentre?: Coordinates;
+}
+
+export function priceBreakdown(itinerary: Itinerary, context: PriceBreakdownContext = {}): PriceBreakdown {
 	const flights = sumMoney(
 		scaleFareForParty(itinerary.outboundFlight, itinerary.travellers),
 		scaleFareForParty(itinerary.onwardFlight, itinerary.travellers)
@@ -238,6 +266,13 @@ export function priceBreakdown(itinerary: Itinerary): PriceBreakdown {
 
 	if (itinerary.stay && itinerary.nightsInConnection > 0) {
 		const nights = itinerary.nightsInConnection;
+		// The nightly rate beside the night count, so the line explains its own total and
+		// answers issue #225's "+x€per night" for accommodation on the card itself rather
+		// than only inside the stay picker.
+		const detail = [
+			`${nights} ${nights === 1 ? 'night' : 'nights'} x ${formatMoney(itinerary.stay.pricePerNight)}`,
+			distanceFromCentre(itinerary, context.cityCentre)
+		].filter((part): part is string => part !== undefined);
 		parts.push({
 			id: 'stay',
 			label: 'Bed',
@@ -245,7 +280,7 @@ export function priceBreakdown(itinerary: Itinerary): PriceBreakdown {
 				minorUnits: itinerary.stay.pricePerNight.minorUnits * nights,
 				currency: itinerary.stay.pricePerNight.currency
 			},
-			detail: `${nights} ${nights === 1 ? 'night' : 'nights'}`
+			detail: detail.join(', ')
 		});
 	}
 
