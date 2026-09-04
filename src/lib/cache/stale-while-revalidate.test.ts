@@ -51,10 +51,16 @@ describe('staleWhileRevalidate', () => {
 
 		expect(results).toHaveLength(2);
 		expect(results[0]).toEqual({ value: { price: 100 }, state: 'stale', isRevalidating: true });
-		expect(results[1].value).toEqual({ price: 100 });
-		expect(results[1].state).toBe('stale');
-		expect(results[1].isRevalidating).toBe(false);
-		expect(results[1].revalidationError).toBeInstanceOf(Error);
+		const second = results[1];
+		expect(second.value).toEqual({ price: 100 });
+		expect(second.state).toBe('stale');
+		expect(second.isRevalidating).toBe(false);
+		// Narrowed only so `revalidationError` type-checks: `state` is now a
+		// discriminated union (issue #35 added `'expired-fallback'`, which has no
+		// such field), so reading it needs the same narrowing a real caller would
+		// have to do, even though the runtime assertion above already proved it.
+		if (second.state !== 'stale') throw new Error('unreachable');
+		expect(second.revalidationError).toBeInstanceOf(Error);
 
 		// The failure must not have overwritten what is actually in storage either
 		// — a later, unrelated read must still see the last good value.
@@ -72,7 +78,15 @@ describe('staleWhileRevalidate', () => {
 		);
 	});
 
-	it('treats an entry past its TTL as a miss for the instant paint, not as truth', async () => {
+	// Changed by issue #35: an entry past its TTL used to be treated as a plain
+	// miss here, painting nothing until the fetch settled. It is now painted
+	// immediately too, same as a within-TTL entry, because the whole point of
+	// #35 is that a past-TTL value is the best the app has until a fresh one
+	// actually arrives (or the refetch fails, see 'yields an expired entry as a
+	// fallback...' below). The refetch itself is unaffected: it still runs and
+	// still wins on success, so a five-minute-old fare is still never the last
+	// word if the network says otherwise.
+	it('paints an entry past its TTL immediately too, then replaces it once the refetch succeeds', async () => {
 		const store = new MemoryCacheStore();
 		const key = defineCacheKey('fares', { origin: 'BCN' }, 10); // 10ms TTL: a fare goes stale fast
 
@@ -82,8 +96,54 @@ describe('staleWhileRevalidate', () => {
 		const fetcher = vi.fn().mockResolvedValue({ price: 130 });
 		const results = await collect(staleWhileRevalidate(key, fetcher, { store }));
 
-		// No stale emission this time: the cached price is old enough that
-		// showing it as current would be a wrong price, not a fast one.
-		expect(results).toEqual([{ value: { price: 130 }, state: 'fresh', isRevalidating: false }]);
+		expect(results).toEqual([
+			{ value: { price: 100 }, state: 'stale', isRevalidating: true },
+			{ value: { price: 130 }, state: 'fresh', isRevalidating: false }
+		]);
+	});
+
+	it('yields an expired entry as an expired-fallback, with its age and the failure reason, when the refetch fails', async () => {
+		const store = new MemoryCacheStore();
+		const key = defineCacheKey('skyscanner', { origin: 'BCN' }, 10); // 10ms TTL
+
+		await collect(staleWhileRevalidate(key, vi.fn().mockResolvedValue({ price: 100 }), { store }));
+		await new Promise((resolve) => setTimeout(resolve, 30));
+
+		const quotaError = { code: 'quota-exceeded', message: 'Monthly quota used up.', status: 429 };
+		const failingFetcher = vi.fn().mockRejectedValue(quotaError);
+		const results = await collect(staleWhileRevalidate(key, failingFetcher, { store }));
+
+		expect(results).toHaveLength(2);
+		expect(results[0]).toEqual({ value: { price: 100 }, state: 'stale', isRevalidating: true });
+
+		const fallback = results[1];
+		expect(fallback.state).toBe('expired-fallback');
+		expect(fallback.value).toEqual({ price: 100 });
+		expect(fallback.isRevalidating).toBe(false);
+		if (fallback.state !== 'expired-fallback') throw new Error('unreachable');
+		// >= 10 (the TTL) rather than an exact number: real time passed between
+		// storing the entry and reading it back, this only pins down the floor.
+		expect(fallback.ageMs).toBeGreaterThanOrEqual(10);
+		expect(fallback.reason).toEqual({ code: 'quota-exceeded', message: 'Monthly quota used up.' });
+
+		// A failed refetch must not touch what is actually in storage: the next
+		// unrelated read should still see the same expired-but-real entry, not
+		// something rewritten by the failed attempt.
+		const stored = await store.get(key.raw);
+		expect(stored?.value).toEqual({ price: 100 });
+	});
+
+	it('still rejects on a cold cache even for a classifiable error, since there is nothing to fall back to', async () => {
+		const store = new MemoryCacheStore();
+		const key = defineCacheKey('skyscanner', { origin: 'BCN' }, 60_000);
+		const quotaError = { code: 'quota-exceeded', message: 'Monthly quota used up.', status: 429 };
+		const failingFetcher = vi.fn().mockRejectedValue(quotaError);
+
+		// A quota-shaped rejection is exactly the kind of error the
+		// expired-fallback tier classifies, but a cold cache has no old value to
+		// tag with it, so it must still reject rather than invent one.
+		await expect(collect(staleWhileRevalidate(key, failingFetcher, { store }))).rejects.toBe(
+			quotaError
+		);
 	});
 });
