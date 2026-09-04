@@ -144,6 +144,33 @@ function isFiniteNumber(value: unknown): value is number {
 	return typeof value === 'number' && Number.isFinite(value);
 }
 
+/**
+ * Issue #118: turns OSRM's GeoJSON `LineString` geometry (a plain `{type, coordinates}`
+ * object once `geometries=geojson` is asked for — see `fetchRoute` below) into this
+ * codebase's `Coordinates[]`, or `undefined` if the shape isn't what OSRM is documented
+ * to send. Same "fail closed on a malformed shape rather than propagate garbage"
+ * discipline as `isFiniteNumber` above (issue #68): a corrupted or future-changed
+ * geometry object must degrade to "no path known" (the map's honest straight-line
+ * fallback), never a `Transfer.path` full of `NaN`s or swapped lat/lon.
+ */
+function parseGeoJsonLineString(geometry: unknown): Coordinates[] | undefined {
+	if (typeof geometry !== 'object' || geometry === null) return undefined;
+	const coordinates = (geometry as { coordinates?: unknown }).coordinates;
+	if (!Array.isArray(coordinates) || coordinates.length < 2) return undefined;
+
+	const points: Coordinates[] = [];
+	for (const pair of coordinates) {
+		// OSRM's GeoJSON order is [longitude, latitude], like every GeoJSON geometry and
+		// like every OSRM request URL this file builds (toOsrmCoordinate) — the reverse
+		// of this codebase's own {latitude, longitude} field order.
+		if (!Array.isArray(pair) || pair.length < 2) return undefined;
+		const [longitude, latitude] = pair;
+		if (!isFiniteNumber(longitude) || !isFiniteNumber(latitude)) return undefined;
+		points.push({ latitude, longitude });
+	}
+	return points;
+}
+
 function toProviderError(error: unknown): ProviderError {
 	if (isAbortError(error)) {
 		return { code: 'cancelled', message: 'the request was aborted' };
@@ -279,6 +306,12 @@ interface RouteData {
 	 * caller that does need distance (getTaxiFareEstimate) treats such an entry as a
 	 * miss and fetches a full single route instead of guessing. */
 	distanceMeters?: number;
+	/** Issue #118: the route's shape, present whenever `fetchRoute` got a well-formed
+	 * geometry back — never set by the table lookup, which doesn't ask OSRM for one
+	 * (see `distanceMeters`'s own comment; the same "entry from a different fetcher" gap
+	 * applies here too, and callers already treat a path-less entry as "no shape known"
+	 * rather than a bug). */
+	path?: Coordinates[];
 }
 
 function routeCacheKey(profile: OsrmProfile, origin: Coordinates, destination: Coordinates): CacheKey {
@@ -331,7 +364,7 @@ async function writeEntry<T>(store: CacheStore, key: CacheKey, value: T): Promis
 // ---------------------------------------------------------------------------
 
 interface OsrmRouteResponse extends OsrmResponseBase {
-	routes: { distance: number; duration: number }[];
+	routes: { distance: number; duration: number; geometry?: unknown }[];
 }
 
 async function fetchRoute(
@@ -346,7 +379,17 @@ async function fetchRoute(
 		profile,
 		'route',
 		coords,
-		{ overview: 'false' },
+		// Issue #118: `overview=simplified` (OSRM's own default, tuned for exactly this —
+		// drawing a route on a map, not turn-by-turn precision) plus
+		// `geometries=geojson` asks this SAME request for the route's shape alongside
+		// the duration/distance it was already fetching — one more field in the JSON
+		// body, not a second request. `overview=false` (the previous value here) was
+		// this file's own explicit choice to ask OSRM for nothing more than the number
+		// this adapter used to need; there was never a request-count reason not to ask
+		// for the shape too. `geometries=geojson` avoids also needing a polyline
+		// decoder for OSRM's terser default encoding, at the cost of a larger response
+		// body — worth it for `simplified`'s point count (tens, not hundreds).
+		{ overview: 'simplified', geometries: 'geojson' },
 		options,
 		signal
 	);
@@ -358,7 +401,11 @@ async function fetchRoute(
 	if (!isFiniteNumber(route.duration) || !isFiniteNumber(route.distance)) {
 		throw new OsrmMalformedResponseError('OSRM route had a non-numeric duration or distance');
 	}
-	return { durationSeconds: route.duration, distanceMeters: route.distance };
+	return {
+		durationSeconds: route.duration,
+		distanceMeters: route.distance,
+		path: parseGeoJsonLineString(route.geometry)
+	};
 }
 
 interface OsrmTableResponse extends OsrmResponseBase {
@@ -444,7 +491,7 @@ async function getCachedRoute(
 function routeToTransfer(mode: TransferMode, route: RouteData): Transfer {
 	const duration = Math.round(route.durationSeconds / 60) as Duration;
 	const leg: TransferLeg = { mode, duration };
-	return { mode, duration, legs: [leg] };
+	return { mode, duration, legs: [leg], path: route.path };
 }
 
 // ---------------------------------------------------------------------------

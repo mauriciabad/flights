@@ -129,7 +129,8 @@ describe('buildItineraryMapModel', () => {
 			{
 				coordinates: destinationAirport.coordinates,
 				label: 'Tallinn (TLL)',
-				tone: 'neutral'
+				tone: 'neutral',
+				markerKind: 'airport'
 			}
 		]);
 	});
@@ -193,9 +194,37 @@ describe('buildItineraryMapModel', () => {
 			id: 'transfer-to-hotel',
 			role: 'transfer',
 			tone: 'stopover',
-			label: 'Transfer to Test Hostel',
+			geometryKind: 'schematic',
+			label: 'Transfer to Test Hostel (straight-line estimate)',
 			coordinates: [connectionAirport.coordinates, stay.property.coordinates]
 		});
+	});
+
+	it('draws a transfer\'s real OSRM geometry when the Transfer carries a path (issue #118), clamped to the exact endpoints', () => {
+		const path = [
+			{ latitude: 48.109, longitude: 16.57 }, // OSRM's own nearest-road snap, not the airport's exact point
+			{ latitude: 48.15, longitude: 16.5 },
+			{ latitude: 48.207, longitude: 16.375 } // ditto for the hotel end
+		];
+		const itinerary: Itinerary = {
+			...baseItinerary(),
+			transferToHotel: { mode: 'walk', duration: 15 as Duration, legs: [], path }
+		};
+
+		const model = buildItineraryMapModel(itinerary, connectionAirport);
+		const toHotel = findSegment(model, 'transfer-to-hotel');
+
+		expect(toHotel?.kind).toBe('line');
+		if (toHotel?.kind !== 'line') return;
+		expect(toHotel.geometryKind).toBe('real');
+		// Real, provider-fetched geometry, but the very first and last points are
+		// replaced with the itinerary's own known coordinates rather than OSRM's
+		// nearest-road snap, so the line touches the marker instead of stopping short.
+		expect(toHotel.coordinates).toEqual([
+			connectionAirport.coordinates,
+			path[1],
+			stay.property.coordinates
+		]);
 	});
 });
 
@@ -222,6 +251,7 @@ describe('buildItineraryMapModel: no stay priced (issue #94)', () => {
 			kind: 'point',
 			id: 'free-time',
 			tone: 'stopover',
+			markerKind: 'stay',
 			label: 'Stopover at Vienna',
 			coordinates: connectionAirport.coordinates
 		});
@@ -231,6 +261,32 @@ describe('buildItineraryMapModel: no stay priced (issue #94)', () => {
 		const model = buildItineraryMapModel(itineraryWithoutStay(), connectionAirport);
 		const stopoverIds = model.segments.filter((s) => s.tone === 'stopover').map((s) => s.id);
 		expect(stopoverIds).toEqual(['free-time', 'connection-waiting']);
+	});
+});
+
+describe('markerKind (issue #118: start/hotel/end distinct from airports)', () => {
+	it('gives the origin/hotel/destination points their own marker kind, distinct from every airport', () => {
+		const itinerary: Itinerary = {
+			...baseItinerary(),
+			originLocation: { label: 'Home', coordinates: { latitude: 40.42, longitude: -3.7 } },
+			transferToOriginAirport: transfer(),
+			destinationLocation: { label: 'Office', coordinates: { latitude: 59.44, longitude: 24.75 } },
+			transferToDestinationLocation: transfer()
+		};
+
+		const model = buildItineraryMapModel(itinerary, connectionAirport);
+		const markerKindById = Object.fromEntries(
+			model.segments.filter((s) => s.kind === 'point').map((s) => [s.id, s.markerKind])
+		);
+
+		expect(markerKindById).toEqual({
+			'origin-location': 'start',
+			'origin-waiting': 'airport',
+			'free-time': 'stay',
+			'connection-waiting': 'airport',
+			'destination-location': 'end'
+		});
+		expect(model.extraWaypoints.every((w) => w.markerKind === 'airport')).toBe(true);
 	});
 });
 
