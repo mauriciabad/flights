@@ -21,6 +21,10 @@ real app, and a live search returns itineraries. A plateau is not a stop.
 | 11 | Design system merged (#15), replacing the scaffold look | yes | assets fetched individually, tokens confirmed live |
 | 12 | Custom domain closed (#21) after fetching a hashed asset, not just the page | yes | CSS 200, HTTP 301 to HTTPS |
 
+| 13 | Ryanair, Transitous, OSRM, cross-check, expired-cache and E2E harness merged | yes | 209 tests on integrated main |
+| 14 | Travelpayouts cheap-route data now fetched nightly in CI | yes | 29 real BCN routes, 6.9 KB committed |
+| 15 | Provider budget, key-model reconciliation and Skyscanner adapter queued | partly | PRs open |
+
 ## Decisions worth auditing
 
 **Amadeus was abandoned before any code was written.** It was the intended source for both
@@ -75,3 +79,22 @@ nothing would have looked broken. Switched to `routing.openstreetmap.de`.
 by two of my own `git add -A` calls. The whole `.git` is 6.3MB and six PR branches were open,
 so a force-push would have invalidated every one of them for a saving nobody would notice.
 Fixed by ignore rules instead, which addresses the recurrence rather than the artefact.
+
+**The single most useful discovery came from checking a fallback.** After Kiwi's backend
+turned out to be switched off upstream, probing the already-subscribed Flights Sky revealed a
+price calendar: one request returns a price for EVERY DAY across about a month. Sky Scrapper
+charges one request per date, so a ten-day window over two legs costs its entire 20-request
+month; the same question costs 2 requests here against a 50-request month.
+
+The free tiers were never comparable by headline numbers, and the search is three tiers rather
+than two: free sources, then the calendar to find which cities and dates are cheap, then a
+per-date confirmation only on the itinerary the user picks. The pipeline brief was rewritten
+mid-flight because of it.
+
+**A geocoder was already in the stack, unnoticed.** The search form shipped unable to turn
+free text into coordinates, documented honestly as a limitation. Transitous, which we already
+use for timetables, geocodes keylessly with CORS and returns a timezone alongside the
+coordinates. That second field matters more than the first: Skyscanner sends no timezone at
+all, so its adapter hand-curates an IATA-to-IANA table and drops any airport missing from it.
+A hand-maintained timezone table rots silently, and when it is wrong an overnight itinerary
+gains or loses a night, which is a wrong hotel booking and a wrong total.
