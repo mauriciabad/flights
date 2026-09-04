@@ -148,6 +148,13 @@ EUR 238 of flights via London Gatwick.
 - **Whether its price scales with `passengers.adults` was not measured**, so the adapter
   sends `adults: 1` always and declares `'per-person'` — true by construction rather than by
   assumption (issue #109).
+- **Route lookups are capped at 40 per session**, because `connections.ts` asks
+  `listDirectDestinations` once per candidate and only caps the candidate list afterwards. A
+  real cold BCN→OTP search spent **120 requests** against this endpoint before the cap, which
+  is the same shape issue #121 measured for Ryanair (80) and #145 fixed with a bundled
+  network snapshot. Kiwi has no whole-network endpoint to fix it that way. With the cap the
+  same search spends 52 and still returns 4 itineraries; BVC→PFO, the origin this adapter
+  exists for, spends 19 and never reaches the cap at all.
 
 ## What died
 

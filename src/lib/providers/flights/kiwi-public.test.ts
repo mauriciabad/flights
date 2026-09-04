@@ -255,6 +255,46 @@ describe('listDirectDestinations', () => {
 		expect(second.ok && second.requestsUsed).toBe(0);
 	});
 
+	it('stops looking routes up past its ceiling instead of hammering an unofficial endpoint', async () => {
+		// A real BCN->OTP search asked this adapter for 120 route lookups before the ceiling
+		// existed — the same shape issue #121 measured for Ryanair and #145 fixed. Kiwi has
+		// no whole-network endpoint to fix it the same way, so it stops instead.
+		const provider = createKiwiPublicFlightProvider({
+			store: new MemoryCacheStore(),
+			fetchImpl: fixtureFetch(),
+			now: () => Date.parse('2026-09-04T00:00:00Z'),
+			maxRouteLookups: 2
+		});
+
+		const first = await provider.listDirectDestinations('BVC', ctx());
+		const second = await provider.listDirectDestinations('LIS', ctx());
+		const third = await provider.listDirectDestinations('OPO', ctx());
+
+		expect(first.ok && first.data.length).toBeGreaterThan(0);
+		expect(second.ok && second.data.length).toBeGreaterThan(0);
+		// Past the ceiling: an empty ok, which connections.ts reads as "this source doesn't
+		// know" and falls through — never a failure, because it did not fail.
+		expect(third).toMatchObject({ ok: true, data: [], requestsUsed: 0 });
+		expect(requests).toHaveLength(2);
+	});
+
+	it('does not spend the ceiling on airports it can answer from cache', async () => {
+		const provider = createKiwiPublicFlightProvider({
+			store: new MemoryCacheStore(),
+			fetchImpl: fixtureFetch(),
+			now: () => Date.parse('2026-09-04T00:00:00Z'),
+			maxRouteLookups: 1
+		});
+
+		await provider.listDirectDestinations('BVC', ctx());
+		const cached = await provider.listDirectDestinations('BVC', ctx());
+
+		// A repeated search over the same airports must stay free, not eat the ceiling and
+		// then start answering "I don't know" about airports it already knows.
+		expect(cached.ok && cached.data.length).toBeGreaterThan(0);
+		expect(requests).toHaveLength(1);
+	});
+
 	it('caches an empty answer, so a dead-end origin is not re-asked every search', async () => {
 		const store = new MemoryCacheStore();
 		const fetchImpl = fixtureFetch(

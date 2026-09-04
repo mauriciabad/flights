@@ -104,6 +104,36 @@ const DESTINATIONS_LIMIT = 100;
 const DESTINATIONS_WINDOW_START_DAYS = 14;
 const DESTINATIONS_WINDOW_LENGTH_DAYS = 30;
 
+/**
+ * How many airports this adapter will look routes up for before it stops answering and
+ * lets cheaper sources carry the rest of a search.
+ *
+ * Measured, not guessed. `algorithm/connections.ts` asks `listDirectDestinations` once for
+ * the origin and then once per candidate it found, and it caps the candidate list only
+ * AFTER that loop. So the cost is one request per outbound edge across every free source
+ * unioned together, which for a hub is a lot of edges: a real BCN→OTP search on a cold
+ * cache spent **120 requests** against this endpoint, while BVC→PFO — an origin with a
+ * small network, the case this adapter exists for — spent 19.
+ *
+ * That 120 is the exact shape issue #121 measured for Ryanair (80 requests for the same
+ * route) and issue #145 then fixed by shipping its whole network as one snapshot. Kiwi has
+ * no equivalent "entire network in one response" endpoint, so the fix here is a ceiling
+ * instead: past it, this source answers "I don't know" rather than continuing to hammer an
+ * undocumented endpoint that belongs to someone else and can start refusing traffic at any
+ * time. Getting blocked would cost every user the feature; a slightly shorter candidate
+ * list costs one search a few options it very likely had covered anyway.
+ *
+ * 40 sits above what a thin-network origin needs — BVC's whole search fits in 19 — so the
+ * searches this adapter was built for never reach it. A hub search does, and for a hub the
+ * cheaper sources (Ryanair's bundled snapshot, the build-time dataset, the fallback table)
+ * are exactly where coverage is already good.
+ *
+ * Counted per provider instance, which is per app session (`kiwiPublicFlightProvider` is a
+ * module singleton), and cache hits do not count against it — only real requests do, so a
+ * second search over the same airports is free and unaffected.
+ */
+const MAX_ROUTE_LOOKUPS_PER_SESSION = 40;
+
 export interface KiwiPublicProviderOptions {
 	/** Overrides the shared IndexedDB-or-memory store. Tests inject a `MemoryCacheStore`. */
 	store?: CacheStore;
@@ -112,6 +142,9 @@ export interface KiwiPublicProviderOptions {
 	/** Overrides `Date.now`, so the derived destinations window above is deterministic in
 	 * tests instead of moving with the calendar. */
 	now?: () => number;
+	/** Overrides `MAX_ROUTE_LOOKUPS_PER_SESSION`. Tests set it low enough to reach without
+	 * stubbing forty responses. */
+	maxRouteLookups?: number;
 }
 
 function source(): ProviderSource {
@@ -193,6 +226,9 @@ async function writeCache<T>(store: CacheStore, key: CacheKey, value: T): Promis
 
 function createKiwiPublicFlightProvider(options: KiwiPublicProviderOptions = {}): FlightProvider {
 	const now = options.now ?? Date.now;
+	const maxRouteLookups = options.maxRouteLookups ?? MAX_ROUTE_LOOKUPS_PER_SESSION;
+	/** Real route requests spent by this instance. See `MAX_ROUTE_LOOKUPS_PER_SESSION`. */
+	let routeLookupsSpent = 0;
 
 	async function searchOffers(
 		query: FlightSearchQuery,
@@ -279,6 +315,17 @@ function createKiwiPublicFlightProvider(options: KiwiPublicProviderOptions = {})
 		if (cached) return ok(cached, 0);
 
 		if (ctx.maxRequests !== undefined && ctx.maxRequests < 1) return ok([], 0);
+
+		if (routeLookupsSpent >= maxRouteLookups) {
+			// An empty ok, not an error: `connections.ts` documents an empty answer and a
+			// failed one as the same thing ("this source doesn't know") and falls through to
+			// the next source either way, and `ProviderContext.maxRequests` already
+			// establishes that running out of budget mid-search is a partial result rather
+			// than a failure. Reporting it as an error instead would put a red "Kiwi failed"
+			// on a search where Kiwi did not fail — it stopped on purpose.
+			return ok([], 0);
+		}
+		routeLookupsSpent += 1;
 
 		const response = await fetchOnePerCityDirect(
 			ONE_PER_CITY_DIRECT_QUERY,
