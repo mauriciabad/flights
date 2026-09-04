@@ -15,6 +15,7 @@ That made CORS the first thing to check, before any code was written.
 | Endpoint | Preflight | `Access-Control-Allow-Origin` |
 |---|---|---|
 | `sky-scrapper.p.rapidapi.com` | 200 | reflects the request origin |
+| `agoda-com.p.rapidapi.com` | 200 | reflects the request origin |
 | `booking-com15.p.rapidapi.com` | 200 | reflects the request origin |
 | `rome2rio.p.rapidapi.com` | 200 | reflects the request origin |
 | `api.transitous.org` | 200 | `*` |
@@ -149,6 +150,83 @@ flight.
 
 Also worth knowing: `searchAirport?query=barcelona` returns both Barcelona and Barcelona,
 Venezuela, so matching must compare `skyId` exactly rather than taking the first result.
+
+### Agoda and Booking (stays, issue #10), and the honest state of hostel data
+
+Spent 7 of Agoda's 500-request/month quota and 5 of Booking's 50, all on 2026-09-04, mostly
+searching Vienna since it has real, well-known hostels to check against.
+
+**Agoda has no coordinate search at all.** Its RapidAPI wrapper (`agoda-com.p.rapidapi.com`,
+four Hotels & Homes endpoints total: `auto-complete`, `overnight-stays/search`,
+`overnight-stays/get-filters`, `detail`, `get-prices`) takes a free-text `location` string.
+Passing `latitude`/`longitude` instead returns `{"status":false,"message":"The location
+cannot be empty"}` — checked live, not assumed. The stays/agoda.ts adapter reverse-geocodes
+through Nominatim (free, keyless, CORS `*`) to turn a coordinate into a place name before
+ever calling Agoda, then re-applies the caller's radius itself against each result's own
+coordinates, since Agoda's search has no radius concept to honour in the first place.
+
+That workaround has its own real limitation: Nominatim returns the administrative area that
+literally contains a point, not the nearest well-known city. Vienna International Airport
+(48.1103, 16.5697) reverse-geocodes to **"Fischamend"** — a separate town of a few thousand
+people that the airport happens to sit inside — never "Vienna", because Fischamend's
+municipal boundary, not Vienna's, contains that exact point. Searching Agoda for
+"Fischamend, Austria" will surface a fraction of what "Vienna, Austria" would. There is no
+keyless, reliable way to ask Nominatim for "the nearest notable city" instead of "the
+containing administrative area" — worth a follow-up if it turns out to matter in practice
+for connections through other satellite airports.
+
+**Booking's coordinate search is real.** `searchHotelsByCoordinates` takes
+`latitude`/`longitude`/`radius` directly and is the one part of this pair that fulfils issue
+#10's "search by coordinate and radius" without a workaround. Its only quirk found live:
+`radius=5` is rejected as an "Invalid value", `radius=10` is accepted — the true floor sits
+somewhere in between, not pinned down more precisely since finding out costs real,
+tightly-budgeted quota.
+
+**Both search endpoints price a property once, not per room kind.** Neither Agoda's search
+nor Booking's gives dorm/private prices in the same call — getting them means a second,
+per-property request (`get-prices` / `getRoomList`). That is the real reason issue #10's two
+adapters rank candidates cheapest-first before drilling into any of them, and why Booking's
+default is to drill into far fewer candidates than Agoda's: at 50 requests/month, a single
+search that drills into five properties is a tenth of the whole month gone.
+
+**The hostel data itself: better than expected on Agoda, unverified on Booking.** A plain
+Agoda search for "Vienna, Austria" surfaced 49 properties, and its `accommodationType` field
+correctly picked out seven real hostels among them by name (a&o Wien Hauptbahnhof, Wombat's
+City Hostel Vienna Naschmarkt, St Christopher's Vienna, Do Step Inn Central, Vienna
+Boutique - Premium Hostel, Stadtaffe - Chic Hostel VIE, a&o Wien Stadthalle) plus one capsule
+hotel — a genuine, useful signal for finding hostel inventory in the first place.
+
+Drilling into Wombat's (`get-prices`, propertyId 417108) is where it gets worse. Its 13 real
+room types include four mixed dorms (4/6/8-bed) and, encouragingly, two actual **female-only
+dorm variants** ("1 Bed in 6 Bedded Female Room Ensuite", "1 Bed in 4 Bedded Female Room
+Ensuite") — exactly the inventory issue #10 needs flagged. But:
+
+- `isDormitory`, the one field that should make this easy, was **`false` on all 13 room
+  types**, including the ones literally named "N-Bed Dormitory". Wrong on every row, not
+  occasionally wrong. stays/agoda.ts classifies from the room name instead and gives this
+  field no weight at all — see agoda-mapper.ts's `classifyAgodaRoomKind`.
+- Some rooms are named "4 Bed Private Dorm" / "Private 6 Bed Dorm Room" — a private room
+  with bunk beds, booked and priced as one whole unit (~130-185 EUR/night) alongside actual
+  per-bed dorm beds (~30-40 EUR/night) at the same hostel. Classifying by "contains the word
+  dorm" would report a private room's price as a dorm bed's price — roughly 4-5x too high.
+  The mapper checks for "private" first and lets it win regardless of what else is in the
+  name.
+
+Booking's `getRoomList` has its own real `is_dormitory` field — genuine site-wide schema,
+not a broken flag like Agoda's same-named one — but the only room list actually pulled
+live (Ibis Vienna Airport, an ordinary hotel with no dorm rooms) correctly read `0` for its
+Standard/Superior Twin Rooms. Whether it reads `1` for a real dorm room, and whether Booking
+has any dedicated female-only-dorm signal at all, was **not verified live**: the 50-request
+budget ran out on confirming the coordinate search and the room-list shape itself. This is
+a real gap, not a guess papered over — stays/booking.ts's `classifyBookingRoomKind` trusts
+`is_dormitory` for now and falls back to the same name-matching Agoda needed, but that trust
+is unearned until someone spends a Booking request confirming it against an actual hostel.
+
+**Verdict:** Agoda's hostel and female-dorm coverage for a well-known city is real and
+better than the issue's "expect it to be poor" warning suggested, once you stop trusting its
+own `isDormitory` flag and read room names instead. Booking's dorm handling is structurally
+promising (a real, non-broken-looking field) but unconfirmed. Both need re-checking against
+more cities before either is trusted for a booking a traveller actually relies on.
 
 ### Rome2Rio cannot be subscribed to
 

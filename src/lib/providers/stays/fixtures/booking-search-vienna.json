@@ -1,0 +1,54 @@
+{
+	"data": {
+		"result": [
+			{
+				"hotel_id": 71662,
+				"hotel_name": "Ibis Vienna Airport",
+				"latitude": 48.1229461354855,
+				"longitude": 16.4396694302559,
+				"main_photo_url": "https://cf.bstatic.com/xdata/images/hotel/square60/751028262.jpg?k=763506dd7aef0b3a2f070946ddc0c2531a421c031cbd286f07bb5841aa8b9ff4&o=",
+				"review_score": 7.8,
+				"composite_price_breakdown": {
+					"gross_amount_per_night": {
+						"amount_rounded": "\u20ac\u00a065",
+						"currency": "EUR",
+						"value": 65.45455,
+						"amount_unrounded": "\u20ac\u00a065.45"
+					}
+				}
+			},
+			{
+				"hotel_id": 16600815,
+				"hotel_name": "CANVAS Living by GT7",
+				"latitude": 48.2073681,
+				"longitude": 16.3515747,
+				"main_photo_url": "https://cf.bstatic.com/xdata/images/hotel/square60/903830908.jpg?k=e50f8d8a066ce971a112c82f988b92d80695273150425eab18a28fbe231db349&o=",
+				"review_score": null,
+				"composite_price_breakdown": {
+					"gross_amount_per_night": {
+						"value": 140.86955,
+						"amount_unrounded": "\u20ac\u00a0140.87",
+						"currency": "EUR",
+						"amount_rounded": "\u20ac\u00a0141"
+					}
+				}
+			},
+			{
+				"hotel_id": 484567,
+				"hotel_name": "KIBI Rooms self check-in",
+				"latitude": 48.2037882512999,
+				"longitude": 16.3894893229008,
+				"main_photo_url": "https://cf.bstatic.com/xdata/images/hotel/square60/599543434.jpg?k=8cf485fef6254b2bc8634bfa5d6b093361c169177f974d327473abb64c89e765&o=",
+				"review_score": 7.4,
+				"composite_price_breakdown": {
+					"gross_amount_per_night": {
+						"currency": "EUR",
+						"amount_rounded": "\u20ac\u00a085",
+						"amount_unrounded": "\u20ac\u00a084.91",
+						"value": 84.91305
+					}
+				}
+			}
+		]
+	}
+}

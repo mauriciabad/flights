@@ -1,0 +1,239 @@
+{
+	"data": {
+		"properties": [
+			{
+				"propertyId": 50373,
+				"content": {
+					"informationSummary": {
+						"displayName": "Mercure Wien Westbahnhof Hotel",
+						"rating": 4.0,
+						"geoInfo": {
+							"latitude": 48.198333740234375,
+							"longitude": 16.337356567382812
+						}
+					},
+					"images": {
+						"hotelImages": [
+							{
+								"urls": [
+									{
+										"key": "original",
+										"value": "//q-xx.bstatic.com/xdata/images/hotel/max500/884585431.jpg?k=377f58fca6f67dd1062d82d073b968eb9cb5e28e8a1708a249511ca54ba448a7&o="
+									}
+								]
+							},
+							{
+								"urls": [
+									{
+										"key": "original",
+										"value": "//pix8.agoda.net/hotelImages/21638014/459349742/4b6bcbdaa4794d0170d42674e1e9f066.jpeg?va=1&ce=2"
+									}
+								]
+							}
+						]
+					}
+				},
+				"pricing": {
+					"offers": [
+						{
+							"roomOffers": [
+								{
+									"room": {
+										"mseRoomSummaries": [
+											{
+												"pricingSummaries": [
+													{
+														"currency": "USD",
+														"price": {
+															"perRoomPerNight": {
+																"exclusive": {
+																	"display": 109.19
+																},
+																"inclusive": {
+																	"display": 118.68
+																}
+															}
+														}
+													}
+												]
+											}
+										]
+									}
+								}
+							]
+						}
+					]
+				}
+			},
+			{
+				"propertyId": 417108,
+				"content": {
+					"informationSummary": {
+						"displayName": "Wombat's City Hostel Vienna Naschmarkt\u00a0",
+						"rating": 5.0,
+						"geoInfo": {
+							"latitude": 48.19685745239258,
+							"longitude": 16.36066246032715
+						}
+					},
+					"images": {
+						"hotelImages": [
+							{
+								"urls": [
+									{
+										"key": "original",
+										"value": "//pix8.agoda.net/hotelImages/417108/0/c8efa945512ccad1b821cad1055e2d28.jpg?va=1&ce=3"
+									}
+								]
+							},
+							{
+								"urls": [
+									{
+										"key": "original",
+										"value": "//pix8.agoda.net/property/77009531/0/b018ebc4cd7084cef78a36f5cf8f1de1.jpeg?va=1&ce=2"
+									}
+								]
+							}
+						]
+					}
+				},
+				"pricing": {
+					"offers": [
+						{
+							"roomOffers": [
+								{
+									"room": {
+										"mseRoomSummaries": [
+											{
+												"pricingSummaries": [
+													{
+														"currency": "USD",
+														"price": {
+															"perRoomPerNight": {
+																"exclusive": {
+																	"display": 27.14
+																},
+																"inclusive": {
+																	"display": 31.2
+																}
+															}
+														}
+													}
+												]
+											}
+										]
+									}
+								}
+							]
+						}
+					]
+				}
+			},
+			{
+				"propertyId": 91217408,
+				"content": {
+					"informationSummary": {
+						"displayName": "Wahringer Rooms",
+						"rating": 1.5,
+						"geoInfo": {
+							"latitude": 48.22226333618164,
+							"longitude": 16.343753814697266
+						}
+					},
+					"images": {
+						"hotelImages": [
+							{
+								"urls": [
+									{
+										"key": "original",
+										"value": "//q-xx.bstatic.com/xdata/images/hotel/max500/892745028.jpg?k=4e744ef9fcefbe12151aeef9eda231917969e97edaf4865fc6c4878cbf50ffb2&o="
+									}
+								]
+							},
+							{
+								"urls": [
+									{
+										"key": "original",
+										"value": "//q-xx.bstatic.com/xdata/images/hotel/max500/892745027.jpg?k=d5ce993655213cf92f321e868c190c94f6b9be1e35b98a150fdc4a028ab44dca&o="
+									}
+								]
+							}
+						]
+					}
+				},
+				"pricing": {
+					"offers": [
+						{
+							"roomOffers": [
+								{
+									"room": {
+										"mseRoomSummaries": [
+											{
+												"pricingSummaries": [
+													{
+														"currency": "USD",
+														"price": {
+															"perRoomPerNight": {
+																"exclusive": {
+																	"display": 44.62
+																},
+																"inclusive": {
+																	"display": 51.31
+																}
+															}
+														}
+													}
+												]
+											}
+										]
+									}
+								}
+							]
+						}
+					]
+				}
+			},
+			{
+				"propertyId": 65548,
+				"content": {
+					"informationSummary": {
+						"displayName": "Spark by Hilton Vienna Messe Prater",
+						"rating": 3.0,
+						"geoInfo": {
+							"latitude": 48.215782165527344,
+							"longitude": 16.405071258544922
+						}
+					},
+					"images": {
+						"hotelImages": [
+							{
+								"urls": [
+									{
+										"key": "original",
+										"value": "//pix8.agoda.net/hotelImages/65548/-1/fcd58627005ffa83b952b1f38fe89f79.jpg?va=1&ca=11&ce=1"
+									}
+								]
+							},
+							{
+								"urls": [
+									{
+										"key": "original",
+										"value": "//pix8.agoda.net/hotelImages/65548/993155304/e0dffc1468db71fe2db4db60390aeb1b.jpg?va=1&ce=3"
+									}
+								]
+							}
+						]
+					}
+				},
+				"soldOut": {
+					"soldOutPrice": {
+						"averagePrice": 146.2925
+					}
+				},
+				"pricing": {
+					"offers": []
+				}
+			}
+		]
+	}
+}

@@ -1,0 +1,32 @@
+{
+	"data": {
+		"block": [
+			{
+				"room_name": "Standard Twin Room",
+				"is_dormitory": 0,
+				"max_occupancy": 2,
+				"product_price_breakdown": {
+					"gross_amount_per_night": {
+						"value": 75.27275,
+						"amount_unrounded": "\u20ac\u00a075.27",
+						"currency": "EUR",
+						"amount_rounded": "\u20ac\u00a075"
+					}
+				}
+			},
+			{
+				"room_name": "Superior Twin Room",
+				"is_dormitory": 0,
+				"max_occupancy": 2,
+				"product_price_breakdown": {
+					"gross_amount_per_night": {
+						"amount_rounded": "\u20ac\u00a088",
+						"currency": "EUR",
+						"amount_unrounded": "\u20ac\u00a087.55",
+						"value": 87.54545
+					}
+				}
+			}
+		]
+	}
+}

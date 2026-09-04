@@ -1,0 +1,297 @@
+{
+	"data": {
+		"currencyInfo": {
+			"code": "EUR"
+		},
+		"roomGridData": {
+			"masterRooms": [
+				{
+					"name": "Double Room",
+					"isDormitory": false,
+					"maxOccupancy": 2,
+					"rooms": [
+						{
+							"currency": "EUR",
+							"inclusivePricePerNightWithoutExtraBed": {
+								"couponCrossedOut": 0.0,
+								"crossedOut": 0.0,
+								"display": 133.11,
+								"extraBed": 0.0
+							},
+							"inclusivePrice": {
+								"couponCrossedOut": 0.0,
+								"crossedOut": 0.0,
+								"display": 133.11,
+								"extraBed": 0.0
+							}
+						}
+					]
+				},
+				{
+					"name": "4 Bed Private Dorm",
+					"isDormitory": false,
+					"maxOccupancy": 4,
+					"rooms": [
+						{
+							"currency": "EUR",
+							"inclusivePricePerNightWithoutExtraBed": {
+								"couponCrossedOut": 0.0,
+								"crossedOut": 0.0,
+								"display": 134.78,
+								"extraBed": 0.0
+							},
+							"inclusivePrice": {
+								"couponCrossedOut": 0.0,
+								"crossedOut": 0.0,
+								"display": 134.78,
+								"extraBed": 0.0
+							}
+						}
+					]
+				},
+				{
+					"name": "Private 4 Bed Dorm Room",
+					"isDormitory": false,
+					"maxOccupancy": 4,
+					"rooms": [
+						{
+							"currency": "EUR",
+							"inclusivePricePerNightWithoutExtraBed": {
+								"couponCrossedOut": 0.0,
+								"crossedOut": 0.0,
+								"display": 155.94,
+								"extraBed": 0.0
+							},
+							"inclusivePrice": {
+								"couponCrossedOut": 0.0,
+								"crossedOut": 0.0,
+								"display": 155.94,
+								"extraBed": 0.0
+							}
+						}
+					]
+				},
+				{
+					"name": "Twin Room",
+					"isDormitory": false,
+					"maxOccupancy": 2,
+					"rooms": [
+						{
+							"currency": "EUR",
+							"inclusivePricePerNightWithoutExtraBed": {
+								"couponCrossedOut": 0.0,
+								"crossedOut": 0.0,
+								"display": 169.47,
+								"extraBed": 0.0
+							},
+							"inclusivePrice": {
+								"couponCrossedOut": 0.0,
+								"crossedOut": 0.0,
+								"display": 169.47,
+								"extraBed": 0.0
+							}
+						}
+					]
+				},
+				{
+					"name": "Private 6 Bed Dorm Room",
+					"isDormitory": false,
+					"maxOccupancy": 6,
+					"rooms": [
+						{
+							"currency": "EUR",
+							"inclusivePricePerNightWithoutExtraBed": {
+								"couponCrossedOut": 0.0,
+								"crossedOut": 0.0,
+								"display": 183.32,
+								"extraBed": 0.0
+							},
+							"inclusivePrice": {
+								"couponCrossedOut": 0.0,
+								"crossedOut": 0.0,
+								"display": 183.32,
+								"extraBed": 0.0
+							}
+						}
+					]
+				},
+				{
+					"name": "1 Person in 8-Bed Dormitory - Mixed",
+					"isDormitory": false,
+					"maxOccupancy": 1,
+					"rooms": [
+						{
+							"currency": "EUR",
+							"inclusivePricePerNightWithoutExtraBed": {
+								"couponCrossedOut": 0.0,
+								"crossedOut": 0.0,
+								"display": 29.46,
+								"extraBed": 0.0
+							},
+							"inclusivePrice": {
+								"couponCrossedOut": 0.0,
+								"crossedOut": 0.0,
+								"display": 29.46,
+								"extraBed": 0.0
+							}
+						}
+					]
+				},
+				{
+					"name": "1 Bed in 6 Bedded Female Room Ensuite",
+					"isDormitory": false,
+					"maxOccupancy": 1,
+					"rooms": [
+						{
+							"currency": "EUR",
+							"inclusivePricePerNightWithoutExtraBed": {
+								"couponCrossedOut": 0.0,
+								"crossedOut": 0.0,
+								"display": 30.56,
+								"extraBed": 0.0
+							},
+							"inclusivePrice": {
+								"couponCrossedOut": 0.0,
+								"crossedOut": 0.0,
+								"display": 30.56,
+								"extraBed": 0.0
+							}
+						}
+					]
+				},
+				{
+					"name": "1 Person in 6-Bed Dormitory - Mixed",
+					"isDormitory": false,
+					"maxOccupancy": 1,
+					"rooms": [
+						{
+							"currency": "EUR",
+							"inclusivePricePerNightWithoutExtraBed": {
+								"couponCrossedOut": 0.0,
+								"crossedOut": 0.0,
+								"display": 30.56,
+								"extraBed": 0.0
+							},
+							"inclusivePrice": {
+								"couponCrossedOut": 0.0,
+								"crossedOut": 0.0,
+								"display": 30.56,
+								"extraBed": 0.0
+							}
+						}
+					]
+				},
+				{
+					"name": "1 Bed in 4 Bedded Female Room Ensuite",
+					"isDormitory": false,
+					"maxOccupancy": 1,
+					"rooms": [
+						{
+							"currency": "EUR",
+							"inclusivePricePerNightWithoutExtraBed": {
+								"couponCrossedOut": 0.0,
+								"crossedOut": 0.0,
+								"display": 33.7,
+								"extraBed": 0.0
+							},
+							"inclusivePrice": {
+								"couponCrossedOut": 0.0,
+								"crossedOut": 0.0,
+								"display": 33.7,
+								"extraBed": 0.0
+							}
+						}
+					]
+				},
+				{
+					"name": "1 Person in 4-Bed Dormitory - Mixed",
+					"isDormitory": false,
+					"maxOccupancy": 1,
+					"rooms": [
+						{
+							"currency": "EUR",
+							"inclusivePricePerNightWithoutExtraBed": {
+								"couponCrossedOut": 0.0,
+								"crossedOut": 0.0,
+								"display": 33.7,
+								"extraBed": 0.0
+							},
+							"inclusivePrice": {
+								"couponCrossedOut": 0.0,
+								"crossedOut": 0.0,
+								"display": 33.7,
+								"extraBed": 0.0
+							}
+						}
+					]
+				},
+				{
+					"name": "Bed in 6 Bed Mixed Dormitory",
+					"isDormitory": false,
+					"maxOccupancy": 1,
+					"rooms": [
+						{
+							"currency": "EUR",
+							"inclusivePricePerNightWithoutExtraBed": {
+								"couponCrossedOut": 0.0,
+								"crossedOut": 0.0,
+								"display": 38.25,
+								"extraBed": 0.0
+							},
+							"inclusivePrice": {
+								"couponCrossedOut": 0.0,
+								"crossedOut": 0.0,
+								"display": 38.25,
+								"extraBed": 0.0
+							}
+						}
+					]
+				},
+				{
+					"name": "Bed in 4 Bed Mixed Dormitory Room with Ensuite Bathroom",
+					"isDormitory": false,
+					"maxOccupancy": 1,
+					"rooms": [
+						{
+							"currency": "EUR",
+							"inclusivePricePerNightWithoutExtraBed": {
+								"couponCrossedOut": 0.0,
+								"crossedOut": 0.0,
+								"display": 41.39,
+								"extraBed": 0.0
+							},
+							"inclusivePrice": {
+								"couponCrossedOut": 0.0,
+								"crossedOut": 0.0,
+								"display": 41.39,
+								"extraBed": 0.0
+							}
+						}
+					]
+				},
+				{
+					"name": "Bed in 4 Bed Mixed Dormitory",
+					"isDormitory": false,
+					"maxOccupancy": 1,
+					"rooms": [
+						{
+							"currency": "EUR",
+							"inclusivePricePerNightWithoutExtraBed": {
+								"couponCrossedOut": 0.0,
+								"crossedOut": 0.0,
+								"display": 41.39,
+								"extraBed": 0.0
+							},
+							"inclusivePrice": {
+								"couponCrossedOut": 0.0,
+								"crossedOut": 0.0,
+								"display": 41.39,
+								"extraBed": 0.0
+							}
+						}
+					]
+				}
+			]
+		}
+	}
+}
