@@ -17,6 +17,8 @@ function providerStatus(overrides: Partial<ProviderStatus> = {}): ProviderStatus
 		kind: 'flight',
 		label: 'Ryanair',
 		requestsUsed: 1,
+		okCalls: 1,
+		okCallsWithData: 1,
 		...overrides
 	};
 }

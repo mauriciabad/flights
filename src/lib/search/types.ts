@@ -104,6 +104,19 @@ export interface ProviderStatus {
 	/** ISO instant of the most recent successful response from this provider, for a
 	 * "fetched 2 minutes ago" style badge. */
 	lastFetchedAt?: string;
+	/**
+	 * Issue #130: calls that resolved `{ ok: true }` in this search, whatever they carried.
+	 * Ryanair `404`s its routes endpoint for an airport outside its network and its adapter
+	 * turns that into an ok, empty answer on purpose (`providers/flights/ryanair.ts`'s
+	 * `isRouteNotFound`) — a real answer from a real request, and the exact case the results
+	 * page used to render as "nothing has answered yet."
+	 */
+	okCalls: number;
+	/** Of `okCalls`, how many carried at least one row. Zero while `okCalls` is above zero
+	 * is the "answered with nothing" state: asked, answered, knows nothing about this
+	 * query. See `providerAnswer` (`provenance.ts`) for the four-way reading a UI renders
+	 * from these counters. */
+	okCallsWithData: number;
 }
 
 /** Where one itinerary's numbers came from, keyed the same way as `Itinerary`'s own fields
@@ -251,7 +264,9 @@ export interface SearchSnapshot {
 	/** Per-provider status for every provider this search has called at least once, keyed
 	 * by `ProviderId`. `Partial`, not total: most searches never call every registered
 	 * adapter (a widen the user never opted into, a kind the query doesn't need), so a
-	 * provider simply absent here has not been called yet, not called-and-empty. */
+	 * provider simply absent here has not been called yet. Called-and-empty is a present
+	 * entry with `okCalls > 0` and `okCallsWithData === 0` (issue #130) — the two used to be
+	 * indistinguishable, and the results page reported both as "nothing has answered yet." */
 	providers: Partial<Record<ProviderId, ProviderStatus>>;
 	/** What widening to a metered provider would cost, for the top-ranked candidates, at the
 	 * query's full date range — see `WidenOption`. Narrows to a specific date only once the

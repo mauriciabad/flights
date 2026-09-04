@@ -9,6 +9,8 @@ export { runSearch, widenSearch, widenWithPriceCalendar } from './pipeline';
 export { estimatePriceCalendarWidenCost } from './price-calendar';
 export type { PriceCalendarDay, PriceCalendarOutcome, PriceCalendarQuery } from './price-calendar';
 export { groupItineraryResults } from './group';
+export { providerAnswer } from './provenance';
+export type { ProviderAnswer } from './provenance';
 export { DEFAULT_STAY_RADIUS_KM } from './resources';
 
 export type {

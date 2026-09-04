@@ -1,28 +1,40 @@
 <script lang="ts">
 	/**
 	 * Issue #23: "Some providers will be missing, out of quota, or down. That is the
-	 * normal case, not an error page." One pill per provider this search actually
+	 * normal case, not an error page." One plate per provider this search actually
 	 * touched (`SearchSnapshot.providers`), expanding to the full reason and a fix on
 	 * click. A provider this search never called at all (every metered one, until the
 	 * traveller widens) is `WidenOptionsPanel`'s concern, not this one's, showing it
 	 * here as "unavailable" would misreport "never asked" as "asked and failed."
 	 *
-	 * Chip's own `interactive`/`selected` toggle is deliberately NOT used here: clicking
-	 * one pill has to collapse whichever other pill was open, and Chip only knows about
-	 * its own click, not a sibling's, so this component owns `expandedId` itself and
-	 * wraps a plain (non-interactive) Chip in its own button for the pill's look without
-	 * inheriting a self-managed state that could desync across pills.
+	 * Issue #130 split what used to be one state in two. Ryanair `404`s its routes endpoint
+	 * for an airport it does not serve, which its adapter correctly treats as an ok, empty
+	 * answer — so on BVC to PFO this strip had a provider that had answered twice and no way
+	 * to say so, and rendered "Nothing has answered yet" instead. "Answered with nothing" and
+	 * "never answered" are different facts about a search, and a traveller deciding whether
+	 * to paste in a key needs to tell them apart. `providerAnswer` (`$lib/search`) is the
+	 * one place that reading is derived; this component only renders it.
+	 *
+	 * Each plate is a split-flap cell from the departure board `app.css` describes, the same
+	 * shape `NoResultsBoard.svelte` uses for the same information at full size: provider
+	 * name, then its verdict on an inset flap, then what it cost. A row of identical grey
+	 * pills could not carry the distinction this issue is about.
 	 */
-	import { Chip, ErrorState } from '$lib/components';
+	import { ErrorState } from '$lib/components';
+	import { providerAnswer } from '$lib/search';
+	import type { ProviderAnswer } from '$lib/search';
 	import { describeProviderError } from '$lib/results/types';
 	import type { ProviderStatus } from '$lib/results/types';
 	import { formatAge } from '$lib/results/format';
 
 	interface Props {
 		statuses: ProviderStatus[];
+		/** True while any search stream is still running, so an empty strip can say which of
+		 * "not yet" and "not at all" is true rather than always claiming the first. */
+		searching?: boolean;
 	}
 
-	let { statuses }: Props = $props();
+	let { statuses, searching = false }: Props = $props();
 
 	let expandedId = $state<string | undefined>(undefined);
 
@@ -30,57 +42,78 @@
 		expandedId = expandedId === providerId ? undefined : providerId;
 	}
 
-	function variantFor(status: ProviderStatus): 'success' | 'warning' {
-		return status.lastError ? 'warning' : 'success';
-	}
+	const FLAP_TEXT: Record<ProviderAnswer, string> = {
+		answered: 'answered',
+		'nothing-found': 'nothing found',
+		failed: 'failed',
+		'not-asked': 'not asked'
+	};
 
-	function summaryFor(status: ProviderStatus): string {
-		if (status.lastError) return `${status.label}: unavailable`;
-		const requests = status.requestsUsed;
-		return `${status.label}: answered${requests > 0 ? ` (${requests} request${requests === 1 ? '' : 's'})` : ''}`;
-	}
+	const rows = $derived(
+		statuses.map((status) => ({
+			status,
+			answer: providerAnswer(status),
+			error: status.lastError ? describeProviderError(status.lastError) : undefined
+		}))
+	);
 
-	const expanded = $derived(statuses.find((status) => status.providerId === expandedId));
-	const expandedError = $derived(expanded?.lastError ? describeProviderError(expanded.lastError) : undefined);
+	const expanded = $derived(rows.find((row) => row.status.providerId === expandedId));
 </script>
 
 <div class="provider-strip">
-	<p class="provider-strip-label" id="provider-strip-label">Providers that answered</p>
+	<p class="provider-strip-label" id="provider-strip-label">Providers asked</p>
 	<div class="scroll-x provider-row" role="group" aria-labelledby="provider-strip-label">
-		{#each statuses as status (status.providerId)}
-			{#if status.lastError}
+		{#each rows as row (row.status.providerId)}
+			{#if row.answer === 'failed'}
 				<button
 					type="button"
-					class="provider-button"
-					aria-expanded={expandedId === status.providerId}
-					onclick={() => toggle(status.providerId)}
+					class="provider-plate is-interactive"
+					data-answer={row.answer}
+					aria-expanded={expandedId === row.status.providerId}
+					onclick={() => toggle(row.status.providerId)}
 				>
-					<Chip variant={variantFor(status)} label={summaryFor(status)} />
+					<span class="plate-name">{row.status.label}</span>
+					<span class="plate-flap">{FLAP_TEXT[row.answer]}</span>
+					<span class="plate-cost font-mono tabular-nums">
+						{row.status.requestsUsed}<span class="plate-cost-unit"
+							>&nbsp;{row.status.requestsUsed === 1 ? 'req' : 'reqs'}</span
+						>
+					</span>
 				</button>
 			{:else}
-				<Chip variant={variantFor(status)} label={summaryFor(status)} />
+				<span class="provider-plate" data-answer={row.answer}>
+					<span class="plate-name">{row.status.label}</span>
+					<span class="plate-flap">{FLAP_TEXT[row.answer]}</span>
+					<span class="plate-cost font-mono tabular-nums">
+						{row.status.requestsUsed}<span class="plate-cost-unit"
+							>&nbsp;{row.status.requestsUsed === 1 ? 'req' : 'reqs'}</span
+						>
+					</span>
+				</span>
 			{/if}
 		{/each}
-		{#if statuses.length === 0}
-			<p class="provider-empty">Nothing has answered yet.</p>
+		{#if rows.length === 0}
+			<p class="provider-empty">
+				{searching ? 'Waiting for the first answer.' : 'No provider was called for this search.'}
+			</p>
 		{/if}
 	</div>
 
-	{#if expanded?.lastError && expandedError}
+	{#if expanded?.error}
 		<ErrorState
-			title={`${expanded.label} is not contributing results`}
-			message={expandedError.message}
-			reason={expandedError.reason}
-			provider={expanded.label}
+			title={`${expanded.status.label} is not contributing results`}
+			message={expanded.error.message}
+			reason={expanded.error.reason}
+			provider={expanded.status.label}
 			severity="warning"
 		>
 			{#snippet action()}
 				<a class="settings-link" href="/settings/">Open settings to fix this</a>
 			{/snippet}
 		</ErrorState>
-		{#if expanded.lastFetchedAt}
+		{#if expanded.status.lastFetchedAt}
 			<p class="last-success">
-				Last answered {formatAge(Date.now() - new Date(expanded.lastFetchedAt).getTime())}.
+				Last answered {formatAge(Date.now() - new Date(expanded.status.lastFetchedAt).getTime())}.
 			</p>
 		{/if}
 	{/if}
@@ -103,22 +136,111 @@
 
 	.provider-row {
 		display: flex;
-		align-items: center;
+		align-items: stretch;
 		gap: var(--space-2);
 		padding-bottom: var(--space-1);
 	}
 
-	.provider-button {
-		/* The pill's own visible height comes from the Chip inside (1.75rem); this row is
-		   the only content on its line (a single horizontally-scrolling strip, nothing
-		   stacked above or below it), so padding out to the 44px touch-target minimum
-		   here is a free, layout-safe change rather than the chip-in-a-wrapped-grid case
-		   Chip.svelte itself has to solve with an invisible hit area instead. */
+	/* One departure-board cell: the provider's name, its verdict on a flap, and what it
+	   spent. The left border is the only colour-coded part, and it is never the only signal
+	   — the flap always spells the verdict out. */
+	.provider-plate {
 		display: inline-flex;
 		align-items: center;
-		padding-block: var(--space-2);
+		gap: var(--space-2);
 		flex-shrink: 0;
-		border-radius: var(--radius-full);
+		/* 44px minimum touch target for the interactive variant, and the same height for the
+		   static ones so the row does not step up and down. */
+		min-height: 2.75rem;
+		padding: var(--space-1) var(--space-3);
+		border: 1px solid var(--color-border);
+		border-left: 3px solid var(--color-text-faint);
+		border-radius: var(--radius-md);
+		background: var(--color-surface);
+		color: var(--color-text);
+		font-size: var(--font-size-sm);
+		text-align: left;
+	}
+
+	.provider-plate.is-interactive {
+		cursor: pointer;
+		transition:
+			background-color var(--transition-fast),
+			border-color var(--transition-fast);
+	}
+
+	.provider-plate.is-interactive:hover {
+		background: var(--color-surface-hover);
+	}
+
+	.provider-plate.is-interactive:active {
+		transform: translateY(1px);
+	}
+
+	.provider-plate[data-answer='answered'] {
+		border-left-color: var(--color-success);
+	}
+
+	.provider-plate[data-answer='nothing-found'] {
+		border-left-color: var(--color-info);
+	}
+
+	.provider-plate[data-answer='failed'] {
+		border-left-color: var(--color-warning);
+	}
+
+	.plate-name {
+		max-width: 12rem;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		font-weight: var(--font-weight-medium);
+	}
+
+	/* The split-flap plate, seam and all — see NoResultsBoard.svelte, which uses the same
+	   treatment for the full-size version of this row. */
+	.plate-flap {
+		position: relative;
+		padding: 0.1rem var(--space-2);
+		border-radius: var(--radius-sm);
+		background: var(--color-bg-inset);
+		font-family: var(--font-mono);
+		font-size: var(--font-size-xs);
+		line-height: var(--line-height-xs);
+		text-transform: uppercase;
+		letter-spacing: var(--tracking-wide);
+		white-space: nowrap;
+		color: var(--color-text-muted);
+	}
+
+	.plate-flap::after {
+		content: '';
+		position: absolute;
+		inset: 50% 0 auto 0;
+		height: 1px;
+		background: var(--color-border);
+	}
+
+	.provider-plate[data-answer='answered'] .plate-flap {
+		color: var(--color-success);
+	}
+
+	.provider-plate[data-answer='nothing-found'] .plate-flap {
+		color: var(--color-info);
+	}
+
+	.provider-plate[data-answer='failed'] .plate-flap {
+		color: var(--color-warning);
+	}
+
+	.plate-cost {
+		font-size: var(--font-size-xs);
+		color: var(--color-text-faint);
+		white-space: nowrap;
+	}
+
+	.plate-cost-unit {
+		font-family: var(--font-sans);
 	}
 
 	.provider-empty {
