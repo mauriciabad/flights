@@ -1,0 +1,422 @@
+{
+	"status": true,
+	"timestamp": 1788495398415,
+	"data": {
+		"context": {
+			"status": "incomplete",
+			"sessionId": "KLUv_SD9XQUAEswmIaCpDf9cVcV-x19hKVNev7Xo9InszZWbFlHr0WNSp9GWuIoEQ3gW53GEjXHzj69v11PIv1Sp2Pr2mcFOjccDYshDtgfQIJJx2pk7dzAlB2qu3b5jIeiPtXM31wZZSH2YZnMJLEllEqE4biVnyBBtJ_1fh7K2S1W3pI-fQo6xgoBxPL7X0aH3vsLEreh_adqm1DlFVEhFLp6lYWQEABwUNOMCOlbZCQAl"
+		},
+		"itineraries": [
+			{
+				"id": "9772-2610150805--31685-0-17517-2610151035",
+				"token": "H4sIAAAAAAAA_-Py4_Lh4uLisDQ1NTM1sDAVArPNzI1NTEykuDle8QtwSfArcGiwKsE5XBrKWmy6xoZmFqZGUNqKxcLc0MSB0YsBAB4ffepQAAAA",
+				"price": {
+					"raw": 17.99,
+					"formatted": "18 €",
+					"pricingOptionId": "tK1-g1mB46LE"
+				},
+				"legs": [
+					{
+						"id": "9772-2610150805--31685-0-17517-2610151035",
+						"origin": {
+							"id": "BCN",
+							"entityId": "95565085",
+							"name": "Barcelona",
+							"displayCode": "BCN",
+							"city": "Barcelona",
+							"country": "Spain",
+							"isHighlighted": false
+						},
+						"destination": {
+							"id": "VIE",
+							"entityId": "95673444",
+							"name": "Vienna",
+							"displayCode": "VIE",
+							"city": "Vienna",
+							"country": "Austria",
+							"isHighlighted": false
+						},
+						"durationInMinutes": 150,
+						"stopCount": 0,
+						"isSmallestStops": false,
+						"departure": "2026-10-15T08:05:00",
+						"arrival": "2026-10-15T10:35:00",
+						"timeDeltaInDays": 0,
+						"carriers": {
+							"marketing": [
+								{
+									"id": -31685,
+									"alternateId": "07",
+									"logoUrl": "https://logos.skyscnr.com/images/airlines/favicon/07.png",
+									"name": "Vueling Airlines"
+								}
+							],
+							"operationType": "fully_operated"
+						},
+						"segments": [
+							{
+								"id": "9772-17517-2610150805-2610151035--31685",
+								"origin": {
+									"entityId": "95565085",
+									"flightPlaceId": "BCN",
+									"displayCode": "BCN",
+									"parent": {
+										"entityId": "27548283",
+										"flightPlaceId": "BARC",
+										"displayCode": "BCN",
+										"name": "Barcelona",
+										"type": "City"
+									},
+									"name": "Barcelona",
+									"type": "Airport",
+									"country": "Spain"
+								},
+								"destination": {
+									"entityId": "95673444",
+									"flightPlaceId": "VIE",
+									"displayCode": "VIE",
+									"parent": {
+										"entityId": "27547395",
+										"flightPlaceId": "VIEN",
+										"displayCode": "VIE",
+										"name": "Vienna",
+										"type": "City"
+									},
+									"name": "Vienna",
+									"type": "Airport",
+									"country": "Austria"
+								},
+								"departure": "2026-10-15T08:05:00",
+								"arrival": "2026-10-15T10:35:00",
+								"durationInMinutes": 150,
+								"flightNumber": "8714",
+								"marketingCarrier": {
+									"id": -31685,
+									"name": "Vueling Airlines",
+									"alternateId": "07",
+									"allianceId": 0,
+									"displayCode": "VY"
+								},
+								"operatingCarrier": {
+									"id": -31685,
+									"name": "Vueling Airlines",
+									"alternateId": "07",
+									"allianceId": 0,
+									"displayCode": "VY"
+								}
+							}
+						]
+					}
+				],
+				"isSelfTransfer": false,
+				"isProtectedSelfTransfer": false,
+				"farePolicy": {
+					"isChangeAllowed": false,
+					"isPartiallyChangeable": false,
+					"isCancellationAllowed": false,
+					"isPartiallyRefundable": false
+				},
+				"fareAttributes": {},
+				"tags": [
+					"cheapest",
+					"shortest"
+				],
+				"isMashUp": false,
+				"hasFlexibleOptions": false,
+				"score": 0.999
+			},
+			{
+				"id": "9772-2610151015--31915-0-17517-2610151245",
+				"token": "H4sIAAAAAAAA_-Py4fLi4uLisDQ1NTM1sDAVArPNzI1NTEykuDle8QtwSfArcGnwK8E5PBq6Wmy6xoaWhqZGQNrA1MTYisnQyIHRiwEAL_mYT04AAAA=",
+				"price": {
+					"raw": 34.47,
+					"formatted": "35 €",
+					"pricingOptionId": "_jfJdZMfKpfO"
+				},
+				"legs": [
+					{
+						"id": "9772-2610151015--31915-0-17517-2610151245",
+						"origin": {
+							"id": "BCN",
+							"entityId": "95565085",
+							"name": "Barcelona",
+							"displayCode": "BCN",
+							"city": "Barcelona",
+							"country": "Spain",
+							"isHighlighted": false
+						},
+						"destination": {
+							"id": "VIE",
+							"entityId": "95673444",
+							"name": "Vienna",
+							"displayCode": "VIE",
+							"city": "Vienna",
+							"country": "Austria",
+							"isHighlighted": false
+						},
+						"durationInMinutes": 150,
+						"stopCount": 0,
+						"isSmallestStops": false,
+						"departure": "2026-10-15T10:15:00",
+						"arrival": "2026-10-15T12:45:00",
+						"timeDeltaInDays": 0,
+						"carriers": {
+							"marketing": [
+								{
+									"id": -31915,
+									"alternateId": "FR",
+									"logoUrl": "https://logos.skyscnr.com/images/airlines/favicon/FR.png",
+									"name": "Ryanair"
+								}
+							],
+							"operating": [
+								{
+									"id": -30543,
+									"alternateId": "4P",
+									"logoUrl": "https://logos.skyscnr.com/images/airlines/favicon/4P.png",
+									"name": "Lauda Europe"
+								}
+							],
+							"operationType": "not_operated"
+						},
+						"segments": [
+							{
+								"id": "9772-17517-2610151015-2610151245--31915",
+								"origin": {
+									"entityId": "95565085",
+									"flightPlaceId": "BCN",
+									"displayCode": "BCN",
+									"parent": {
+										"entityId": "27548283",
+										"flightPlaceId": "BARC",
+										"displayCode": "BCN",
+										"name": "Barcelona",
+										"type": "City"
+									},
+									"name": "Barcelona",
+									"type": "Airport",
+									"country": "Spain"
+								},
+								"destination": {
+									"entityId": "95673444",
+									"flightPlaceId": "VIE",
+									"displayCode": "VIE",
+									"parent": {
+										"entityId": "27547395",
+										"flightPlaceId": "VIEN",
+										"displayCode": "VIE",
+										"name": "Vienna",
+										"type": "City"
+									},
+									"name": "Vienna",
+									"type": "Airport",
+									"country": "Austria"
+								},
+								"departure": "2026-10-15T10:15:00",
+								"arrival": "2026-10-15T12:45:00",
+								"durationInMinutes": 150,
+								"flightNumber": "12",
+								"marketingCarrier": {
+									"id": -31915,
+									"name": "Ryanair",
+									"alternateId": "FR",
+									"allianceId": 0,
+									"displayCode": "FR"
+								},
+								"operatingCarrier": {
+									"id": -30543,
+									"name": "Lauda Europe",
+									"alternateId": "4P",
+									"allianceId": 0,
+									"displayCode": "LW"
+								}
+							}
+						]
+					}
+				],
+				"isSelfTransfer": false,
+				"isProtectedSelfTransfer": false,
+				"farePolicy": {
+					"isChangeAllowed": false,
+					"isPartiallyChangeable": false,
+					"isCancellationAllowed": false,
+					"isPartiallyRefundable": false
+				},
+				"fareAttributes": {},
+				"tags": [
+					"second_cheapest",
+					"second_shortest"
+				],
+				"isMashUp": false,
+				"hasFlexibleOptions": false,
+				"score": 0.515738
+			},
+			{
+				"id": "9772-2610151325--32132-1-17517-2610151910",
+				"token": "H4sIAAAAAAAA_-Oaw8jlw8XFxWFpampmamBhKgRnm5hIcXO84hfgkuBX4NWQVIJz-DU0tNh0jY0MjY2MoLQVi6GpoYkDoxcDsmkmJhDTzMyNTZBNE0Q2TViDC4tplgamINMAG6N9IZ8AAAA=",
+				"price": {
+					"raw": 102.13,
+					"formatted": "103 €",
+					"pricingOptionId": "2S5ZVyzIpT3-"
+				},
+				"legs": [
+					{
+						"id": "9772-2610151325--32132-1-17517-2610151910",
+						"origin": {
+							"id": "BCN",
+							"entityId": "95565085",
+							"name": "Barcelona",
+							"displayCode": "BCN",
+							"city": "Barcelona",
+							"country": "Spain",
+							"isHighlighted": false
+						},
+						"destination": {
+							"id": "VIE",
+							"entityId": "95673444",
+							"name": "Vienna",
+							"displayCode": "VIE",
+							"city": "Vienna",
+							"country": "Austria",
+							"isHighlighted": false
+						},
+						"durationInMinutes": 345,
+						"stopCount": 1,
+						"isSmallestStops": false,
+						"departure": "2026-10-15T13:25:00",
+						"arrival": "2026-10-15T19:10:00",
+						"timeDeltaInDays": 0,
+						"carriers": {
+							"marketing": [
+								{
+									"id": -32132,
+									"alternateId": "KL",
+									"logoUrl": "https://logos.skyscnr.com/images/airlines/favicon/KL.png",
+									"name": "KLM"
+								}
+							],
+							"operationType": "fully_operated"
+						},
+						"segments": [
+							{
+								"id": "9772-9451-2610151325-2610151540--32132",
+								"origin": {
+									"entityId": "95565085",
+									"flightPlaceId": "BCN",
+									"displayCode": "BCN",
+									"parent": {
+										"entityId": "27548283",
+										"flightPlaceId": "BARC",
+										"displayCode": "BCN",
+										"name": "Barcelona",
+										"type": "City"
+									},
+									"name": "Barcelona",
+									"type": "Airport",
+									"country": "Spain"
+								},
+								"destination": {
+									"entityId": "95565044",
+									"flightPlaceId": "AMS",
+									"displayCode": "AMS",
+									"parent": {
+										"entityId": "27536561",
+										"flightPlaceId": "AMST",
+										"displayCode": "AMS",
+										"name": "Amsterdam",
+										"type": "City"
+									},
+									"name": "Amsterdam Schiphol",
+									"type": "Airport",
+									"country": "Netherlands"
+								},
+								"departure": "2026-10-15T13:25:00",
+								"arrival": "2026-10-15T15:40:00",
+								"durationInMinutes": 135,
+								"flightNumber": "1514",
+								"marketingCarrier": {
+									"id": -32132,
+									"name": "KLM",
+									"alternateId": "KL",
+									"allianceId": -31998,
+									"displayCode": "KL"
+								},
+								"operatingCarrier": {
+									"id": -32132,
+									"name": "KLM",
+									"alternateId": "KL",
+									"allianceId": -31998,
+									"displayCode": "KL"
+								}
+							},
+							{
+								"id": "9451-17517-2610151725-2610151910--32132",
+								"origin": {
+									"entityId": "95565044",
+									"flightPlaceId": "AMS",
+									"displayCode": "AMS",
+									"parent": {
+										"entityId": "27536561",
+										"flightPlaceId": "AMST",
+										"displayCode": "AMS",
+										"name": "Amsterdam",
+										"type": "City"
+									},
+									"name": "Amsterdam Schiphol",
+									"type": "Airport",
+									"country": "Netherlands"
+								},
+								"destination": {
+									"entityId": "95673444",
+									"flightPlaceId": "VIE",
+									"displayCode": "VIE",
+									"parent": {
+										"entityId": "27547395",
+										"flightPlaceId": "VIEN",
+										"displayCode": "VIE",
+										"name": "Vienna",
+										"type": "City"
+									},
+									"name": "Vienna",
+									"type": "Airport",
+									"country": "Austria"
+								},
+								"departure": "2026-10-15T17:25:00",
+								"arrival": "2026-10-15T19:10:00",
+								"durationInMinutes": 105,
+								"flightNumber": "1905",
+								"marketingCarrier": {
+									"id": -32132,
+									"name": "KLM",
+									"alternateId": "KL",
+									"allianceId": -31998,
+									"displayCode": "KL"
+								},
+								"operatingCarrier": {
+									"id": -32132,
+									"name": "KLM",
+									"alternateId": "KL",
+									"allianceId": -31998,
+									"displayCode": "KL"
+								}
+							}
+						]
+					}
+				],
+				"isSelfTransfer": false,
+				"isProtectedSelfTransfer": false,
+				"farePolicy": {
+					"isChangeAllowed": false,
+					"isPartiallyChangeable": false,
+					"isCancellationAllowed": false,
+					"isPartiallyRefundable": false
+				},
+				"fareAttributes": {},
+				"isMashUp": false,
+				"hasFlexibleOptions": false,
+				"score": 0.196724
+			}
+		]
+	}
+}
+
