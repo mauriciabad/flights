@@ -1,0 +1,48 @@
+name: Cheap routes
+
+# Issue #52: Travelpayouts sends no CORS headers (docs/PROVIDERS.md), so the
+# browser cannot call it. This runs the fetch server-side, on a schedule, and
+# commits the result as a static JSON asset instead -- the no-backend rule bans
+# a server at runtime, not a build step.
+on:
+  schedule:
+    # 03:17 UTC nightly. An off-the-hour minute so this doesn't queue behind
+    # every other repo's cron jobs firing exactly on the hour.
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: cheap-routes
+  cancel-in-progress: false
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # No pnpm/install step: this script has no dependency beyond Node's own
+      # fetch and fs/promises, so it runs standalone.
+      - name: Fetch cheap routes
+        env:
+          TRAVELPAYOUTS_TOKEN: ${{ secrets.TRAVELPAYOUTS_TOKEN }}
+        run: node scripts/fetch-cheap-routes.mjs
+
+      - name: Commit if the data changed
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          if git diff --quiet -- src/lib/data/cheap-routes.generated.json; then
+            echo "Cheap routes data unchanged, nothing to commit."
+            exit 0
+          fi
+          git add src/lib/data/cheap-routes.generated.json
+          git commit -m "Update cheap routes data"
+          git push

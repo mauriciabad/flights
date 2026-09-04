@@ -18,6 +18,9 @@ export default defineConfig({
 	plugins: [sveltekit()],
 	test: {
 		environment: 'jsdom',
-		include: ['src/**/*.{test,spec}.ts']
+		// scripts/**: build-time scripts (issue #52's Travelpayouts fetch) get the
+		// same "pure logic is tested" treatment as everything under src, even
+		// though they never ship to the browser.
+		include: ['src/**/*.{test,spec}.ts', 'scripts/**/*.{test,spec}.mjs']
 	}
 });
