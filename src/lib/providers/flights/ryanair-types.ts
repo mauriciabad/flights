@@ -51,37 +51,12 @@ export interface RyanairOneWayFaresResponse {
 	size: number;
 }
 
-export interface RyanairRouteEntry {
-	arrivalAirport: {
-		code: string;
-		name: string;
-		seoName: string;
-		aliases: string[];
-		base: boolean;
-		city: { name: string; code: string; macCode?: string };
-		region?: { name: string; code: string };
-		country: {
-			code: string;
-			iso3code: string;
-			name: string;
-			currency: string;
-			defaultAirportCode: string;
-			schengen: boolean;
-		};
-		coordinates: { latitude: number; longitude: number };
-		timeZone: string;
-	};
-	recent: boolean;
-	seasonal: boolean;
-	/** IATA carrier code operating the route, e.g. "FR" for Ryanair itself, but this
-	 * endpoint also lists routes operated by Ryanair group carriers (e.g. "RK" for
-	 * Ryanair UK, "FR" covers the vast majority). Not filtered on here — see
-	 * ryanair-mapper.ts `mapRoutesToDestinations` for why. */
-	operator: string;
-	tags: string[];
-}
-
-export type RyanairRoutesResponse = RyanairRouteEntry[];
+// The per-airport route endpoint's own response shape used to be modelled here.
+// Issue #121 deleted it along with the calls: `/views/locate/searchWidget/routes/en/
+// airport/{IATA}` answers for one airport what the active-airports response below
+// answers for all 224 at once, and asking it per airport cost 80 requests on a single
+// BCN->OTP search. Nothing in this adapter fetches it any more, so there is no raw shape
+// left to model.
 
 export interface RyanairActiveAirport {
 	iataCode: string;
@@ -95,12 +70,19 @@ export interface RyanairActiveAirport {
 	cityCode: string;
 	macCityCode?: string;
 	currencyCode: string;
+	/** Every destination this airport connects to, each entry prefixed by what it names:
+	 * `airport:STN`, `city:LONDON`, `country:it`, `region:ENGLAND`, `connectingFlight:...`.
+	 * Only the `airport:` entries are routes to one specific airport, and together across
+	 * all 224 airports they are Ryanair's entire route graph — see `buildNetworkSnapshot`
+	 * in ryanair-mapper.ts, and issue #121 for why that matters. */
 	routes?: string[];
+	/** Same encoding as `routes`. Empty on every airport as of 2026-09-04; `routes`
+	 * already includes seasonal destinations. */
 	seasonalRoutes?: string[];
 	categories?: string[];
 	priority?: number;
-	/** IANA zone name, e.g. "Europe/Madrid" — the reason this adapter fetches this endpoint
-	 * at all: the fare-finder response above has no timezone field of its own. */
+	/** IANA zone name, e.g. "Europe/Madrid" — one of the two reasons this adapter fetches
+	 * this endpoint: the fare-finder response above has no timezone field of its own. */
 	timeZone: string;
 }
 

@@ -9,8 +9,7 @@ an adapter exists (issues #5 through #10).
 | File | Provider | Endpoint shape modelled |
 |---|---|---|
 | `ryanair/one-way-fares.json` | Ryanair (keyless) | `farfnd/v4/oneWayFares` |
-| `ryanair/routes.json` | Ryanair (keyless) | `api/views/locate/searchWidget/routes/en/airport/{code}` |
-| `ryanair/active-airports.json` | Ryanair (keyless) | `api/views/locate/3/airports/en/active` |
+| `ryanair/active-airports.json` | Ryanair (keyless) | `api/views/locate/3/airports/en/active` — timezones AND each airport's `routes` |
 | `skyscanner/search-flights.json` | Skyscanner via RapidAPI `sky-scrapper` | `api/v2/flights/searchFlights` |
 | `rome2rio/search.json` | Rome2Rio via RapidAPI | `search` (stops/segments/routes graph) |
 | `booking/hotels-search.json` | Booking.com via RapidAPI `booking-com15` | `api/v1/hotels/searchHotels` |

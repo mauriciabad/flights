@@ -349,6 +349,83 @@ It is one airline, so it is not a substitute for an aggregator. Its real value i
 ground truth: these fares come from the airline itself, so when an aggregator quotes a
 different price for the same flight number, the aggregator is wrong.
 
+#### The route graph is one request, not one per airport (issue #121)
+
+Measured 2026-09-04 on BCN to OTP, in an isolated Chromium with `flights-cache` deleted
+(`tools/probe-ryanair-requests.mjs`). Production answered a cold search with **97
+requests**; the same code built and served locally answered with **140**. The gap is not
+noise in the route graph, which cost the same 80 requests either way: it is the fare
+sweep. Issue #115 prices up to 24 candidates when the geography-ranked top 6 produce
+nothing, so a search where the top 6 happen to work costs 12 fare lookups and one where
+they do not costs 48. Comparing two runs that took different paths through that is how you
+talk yourself into a win you did not get, which is why the probe prints the split.
+
+Against the local 140-request run, endpoint by endpoint:
+
+| | before | after |
+|---|---|---|
+| `routes/en/airport/{IATA}`, one per candidate airport | 80 (72 × `200`, 8 × `404`) | **0** |
+| `airports/en/active`, the whole network | 12 | **1** |
+| `farfnd/v4/oneWayFares` | 48 | 48 |
+| **total, cold cache** | **140** | **49** |
+| same search again | 0 | 0 |
+
+Same three itineraries found. The twelve active-airports calls were one table fetched
+twelve times over, because a dozen concurrent fare searches all missed the same cold cache
+and nothing deduplicated them.
+
+The per-airport endpoint was the wrong shape for the data. This one call carries the whole
+network:
+
+```
+https://www.ryanair.com/api/views/locate/3/airports/en/active
+```
+
+278 KB, 224 airports, and each one's `routes` array holds every destination it serves,
+written as `airport:STN` alongside `city:`, `country:`, `region:` and `connectingFlight:`
+facets. A handful of legs carry a marketing carrier after a pipe (`airport:PMO|Air Malta`,
+the only two in the feed) next to a plain duplicate, so split on `|` and de-duplicate.
+
+**The two endpoints agree, checked rather than assumed.** Both were called for the same
+twelve airports on 2026-09-04 and the destination sets compared:
+
+| Airport | per-airport endpoint | `routes` in the bulk response |
+|---|---|---|
+| BCN | 64 | 64, identical set |
+| STN | 162 | 162, identical set |
+| DUB | 122 | 122, identical set |
+| BGY | 108 | 108, identical set |
+| MLA | 71 | 71, identical set |
+| PMO | 53 | 53, identical set |
+| OTP | 43 | 43, identical set |
+| PFO | 39 | 39, identical set |
+| WRO | 53 | 53, identical set |
+| AHO | 23 | 23, identical set |
+| AAR | 8 | 8, identical set |
+| LGW | 4 | 4, identical set |
+
+750 edges, no airport in one and not the other, in either direction. And every airport
+known to `404` — ALG, DUS, EVN, IST, LED, plus the reference route's BVC, RAI and SID —
+is absent from the bulk response, which is the same statement.
+
+The 404 the per-airport endpoint gave for ALG, DUS, EVN, IST and LED is real information,
+not a failure: it means "not in my network". Those airports are simply absent from the
+active-airports response, which is the same answer for free. Since that response
+enumerates the entire network, absence IS the answer, and nothing has to spend a request
+rediscovering it.
+
+So the per-airport endpoint is gone from this app. The network is snapshotted weekly into
+`src/lib/data/ryanair-network.generated.json` by `scripts/fetch-ryanair-network.mjs`
+(`.github/workflows/ryanair-network.yml`), which is the floor a cold search reads from, and
+the adapter refreshes the same data live at most once a day, deduplicated across a fan-out.
+Every remaining request a search makes to Ryanair is a fare it actually intends to price.
+
+**On the rate limit itself.** Issue #121 asked for the actual number and it is still not
+known, because finding it means deliberately hammering a free API that owes us nothing.
+Nothing was throttled at 140 requests in a burst from a quiet IP, and a search now sits
+well under half that, so the question stopped being urgent. If it has to be answered later,
+the honest way is one deliberate measurement, written down here.
+
 **Transitous / MOTIS** answers the question ordinary flight search cannot: is there
 actually a bus at the hour this flight lands, and if not, when is the next one.
 

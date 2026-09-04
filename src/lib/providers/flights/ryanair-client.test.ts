@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import oneWayFaresFixture from './fixtures/one-way-fares-single-route.json';
-import { fetchActiveAirports, fetchDirectDestinations, fetchOneWayFares } from './ryanair-client';
+import { fetchActiveAirports, fetchOneWayFares } from './ryanair-client';
 
 /** A `fetch` stub that never touches the network: it inspects the URL it was called with
  * and resolves with whatever `Response` the test configured for it. */
@@ -137,25 +137,6 @@ describe('fetchOneWayFares', () => {
 	});
 });
 
-describe('fetchDirectDestinations', () => {
-	it('requests the routes endpoint for the given origin', async () => {
-		let requestedUrl = '';
-		const fetchImpl = fakeFetch((url) => {
-			requestedUrl = url;
-			return new Response(JSON.stringify([]), { status: 200 });
-		});
-		await fetchDirectDestinations('BCN', { signal: new AbortController().signal, fetchImpl });
-		expect(requestedUrl).toBe('https://www.ryanair.com/api/views/locate/searchWidget/routes/en/airport/BCN');
-	});
-
-	it('rejects a non-array body as malformed', async () => {
-		const fetchImpl = fakeFetch(() => new Response(JSON.stringify({ not: 'an array' }), { status: 200 }));
-		const result = await fetchDirectDestinations('BCN', { signal: new AbortController().signal, fetchImpl });
-		expect(result.ok).toBe(false);
-		if (!result.ok) expect(result.error.code).toBe('malformed-response');
-	});
-});
-
 describe('fetchActiveAirports', () => {
 	it('requests the active-airports endpoint', async () => {
 		let requestedUrl = '';
@@ -166,4 +147,17 @@ describe('fetchActiveAirports', () => {
 		await fetchActiveAirports({ signal: new AbortController().signal, fetchImpl });
 		expect(requestedUrl).toBe('https://www.ryanair.com/api/views/locate/3/airports/en/active');
 	});
+
+	it('rejects a non-array body as malformed', async () => {
+		const fetchImpl = fakeFetch(() => new Response(JSON.stringify({ not: 'an array' }), { status: 200 }));
+		const result = await fetchActiveAirports({ signal: new AbortController().signal, fetchImpl });
+		expect(result.ok).toBe(false);
+		if (!result.ok) expect(result.error.code).toBe('malformed-response');
+	});
+
+	// Issue #121: this file used to export a `fetchDirectDestinations` hitting
+	// /views/locate/searchWidget/routes/en/airport/{IATA} once per airport. The endpoint
+	// above carries every airport's routes as well as every airport's zone, so the
+	// per-airport one was deleted rather than cached harder. No test replaces those two
+	// because there is no caller left to break.
 });

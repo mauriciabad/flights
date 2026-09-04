@@ -16,10 +16,20 @@
  * the range from 20 days to 60 days returned the same one fare. That is still real,
  * ground-truth pricing for a real flight number and date (exactly what issue #17 needs to
  * cross-check an aggregator), just not a full schedule.
+ *
+ * Issue #121 rewrote how the route graph gets here. It used to be one request per airport,
+ * which a BCN->OTP search turned into 80 of them (measured, production, cold cache), for
+ * data that changes seasonally. Now there is exactly one non-fare request this adapter can
+ * make — the active-airports endpoint — and it answers both "which airports fly where" and
+ * "what zone is each airport in" for the entire network at once. It is deduplicated across
+ * a fan-out, cached for a day, and floored by a snapshot shipped with the app
+ * (src/lib/data/ryanair-network.ts), so a cold search now spends nothing at all on routes.
  */
 
-import { defineCacheKey, getDefaultStore } from '../../cache';
-import type { CacheKey, CacheStore } from '../../cache';
+import { defineCacheKey, getDefaultStore, staleWhileRevalidate } from '../../cache';
+import type { CacheKey, CacheStore, StaleWhileRevalidateResult } from '../../cache';
+import { directDestinationsFrom, loadBundledRyanairNetwork, newerSnapshot } from '../../data/ryanair-network';
+import type { RyanairNetworkSnapshot } from '../../data/ryanair-network';
 import type { FlightOffer, IataAirportCode } from '../../domain';
 import type {
 	FlightProvider,
@@ -31,9 +41,9 @@ import type {
 	ProviderResult,
 	ProviderSource
 } from '../types';
-import { fetchActiveAirports, fetchDirectDestinations, fetchOneWayFares } from './ryanair-client';
-import { buildTimeZoneIndex, mapFaresToFlightOffers, mapRoutesToDestinations } from './ryanair-mapper';
-import type { RyanairFetchError, RyanairFetchResult } from './ryanair-types';
+import { fetchActiveAirports, fetchOneWayFares } from './ryanair-client';
+import { buildNetworkSnapshot, mapFaresToFlightOffers } from './ryanair-mapper';
+import type { RyanairFetchError } from './ryanair-types';
 
 /** Keyless and unmetered — no `../budget` cap or wiring applies — but still a real
  * registered adapter id, so it is checked against `ProviderId` (../types.ts, issue #69)
@@ -44,13 +54,17 @@ export const RYANAIR_PROVIDER_ID: ProviderId = 'ryanair';
  * endpoint sends (observed 2026-09-04) — short, because a price is only ground truth for
  * as long as it is actually still on sale. */
 const FARES_TTL_MS = 5 * 60_000;
-/** Ryanair's route network changes seasonally (a base opens or closes), not intraday, so a
- * day-old direct-destinations list is still correct almost always. */
-const ROUTES_TTL_MS = 24 * 60 * 60_000;
-/** Airport timezones effectively never change. This table is also the biggest payload
- * this adapter fetches (~220 airports), so it is worth refetching far less often than the
- * data that actually needs freshness. */
-const AIRPORT_TIME_ZONES_TTL_MS = 7 * 24 * 60 * 60_000;
+/**
+ * One TTL for the route graph and the airport timezone table, because they arrive in the
+ * same response and there is no way to refresh one without the other. A day is the route
+ * graph's number: a base opens or closes seasonally, not intraday. Timezones would happily
+ * live for a week, but a second cache entry with its own TTL would only mean two entries
+ * that can disagree about which airports exist, for no fewer requests.
+ *
+ * A day means at most one 278 KB response per device per day, and it is the only
+ * `www.ryanair.com` request this adapter makes at all.
+ */
+const NETWORK_SNAPSHOT_TTL_MS = 24 * 60 * 60_000;
 
 export interface RyanairProviderOptions {
 	/** Overrides the shared IndexedDB-or-memory store. Tests inject a `MemoryCacheStore`
@@ -62,17 +76,6 @@ export interface RyanairProviderOptions {
 
 function source(): ProviderSource {
 	return { providerId: RYANAIR_PROVIDER_ID, fetchedAt: new Date().toISOString() };
-}
-
-/**
- * Ryanair 404s the routes endpoint for any airport it doesn't fly from at all — true for
- * most of Europe's airports, since Ryanair is one airline with a finite network (issue
- * #89). That is this airline's normal answer to "does this airport connect anywhere on
- * your network", not a failure, so it's handled as its own case in `listDirectDestinations`
- * rather than falling into `toProviderError` below and coming back as `{ok: false}`.
- */
-function isRouteNotFound(error: RyanairFetchError): boolean {
-	return error.code === 'http-error' && error.status === 404;
 }
 
 function toProviderError(error: RyanairFetchError): ProviderError {
@@ -115,6 +118,10 @@ async function resolveStore(options: RyanairProviderOptions): Promise<CacheStore
  * skips the "fetch every time" half of that module, which is specific to progressive
  * rendering. A future UI layer that wants the two-phase behaviour can call
  * `staleWhileRevalidate` itself around a query built from `FlightSearchQuery`.
+ *
+ * `refreshNetworkSnapshot` is the one exception, and it proves the rule: it runs only
+ * after this function has already answered "no fresh entry", and only once per fan-out,
+ * so "fetch every time" costs one request rather than one per caller.
  */
 async function readCache<T>(store: CacheStore, key: CacheKey): Promise<T | undefined> {
 	const entry = await store.get(key.raw);
@@ -124,8 +131,8 @@ async function readCache<T>(store: CacheStore, key: CacheKey): Promise<T | undef
 }
 
 /** Reads whatever is cached under `key` regardless of freshness — used only as a
- * last-resort fallback when we are out of request budget or the network just failed, on
- * the belief that a slightly stale timezone table beats no timezone at all. */
+ * last-resort fallback when we are out of request budget, on the belief that an
+ * out-of-season route graph beats having none at all. */
 async function readCacheIgnoringTtl<T>(store: CacheStore, key: CacheKey): Promise<T | undefined> {
 	const entry = await store.get(key.raw);
 	return entry?.value as T | undefined;
@@ -156,44 +163,132 @@ async function writeCache<T>(store: CacheStore, key: CacheKey, value: T): Promis
 	});
 }
 
+function networkSnapshotKey(): CacheKey {
+	return defineCacheKey(RYANAIR_PROVIDER_ID, { op: 'networkSnapshot' }, NETWORK_SNAPSHOT_TTL_MS);
+}
+
 /**
- * Resolves the IATA-to-IANA-timezone lookup `mapFaresToFlightOffers` needs, spending at
- * most one network request and never more than `remainingBudget` allows.
+ * Refetches the network snapshot and reports the best answer available afterwards, never
+ * throwing and never leaving the caller with nothing.
  *
- * `remainingBudget === undefined` means "no caller-imposed cap" (ProviderContext.maxRequests
- * semantics). When the budget is exhausted, this falls back to a cached table even past
- * its TTL rather than returning nothing — airports do not change timezone, so a week-old
- * entry is still virtually certain to be correct, and the alternative is dropping every
- * offer in the search over it.
+ * This is the one place the adapter does use `staleWhileRevalidate`, and the reason is the
+ * three tiers it classifies (src/lib/cache/stale-while-revalidate.ts): a fresh fetch, the
+ * previous snapshot re-served with a `revalidationError`, or that snapshot re-tagged
+ * `expired-fallback` with its real age. The generator's "fetch every time" half, which is
+ * why the reads above avoid it, is exactly what is wanted here — this function is only
+ * ever called when the cached entry is already past its TTL or missing entirely, and only
+ * once per fan-out (see `RefreshState` below).
+ *
+ * Below `expired-fallback` sits one more tier the cache module cannot know about: the
+ * snapshot shipped with the app. `newerSnapshot` picks between it and the expired cached
+ * one by `fetchedAt` rather than assuming either is the more recent.
  */
-async function resolveAirportTimeZones(
+async function refreshNetworkSnapshot(
+	ctx: ProviderContext,
+	store: CacheStore,
+	fetchImpl: typeof fetch | undefined
+): Promise<RyanairNetworkSnapshot> {
+	const fetcher = async (): Promise<RyanairNetworkSnapshot> => {
+		const response = await fetchActiveAirports({ signal: ctx.signal, fetchImpl });
+		if (!response.ok) {
+			// Rejects with Ryanair's own code and verbatim message (AGENTS.md: "show the
+			// error you got"), which is also the shape `classifyExpiredFallbackReason`
+			// reads structurally to tell a 429 from being offline.
+			throw toProviderError(response.error);
+		}
+		return buildNetworkSnapshot(response.data, new Date().toISOString());
+	};
+
+	let last: StaleWhileRevalidateResult<RyanairNetworkSnapshot> | undefined;
+	try {
+		for await (const result of staleWhileRevalidate(networkSnapshotKey(), fetcher, { store })) {
+			last = result;
+		}
+	} catch {
+		// Cold cache and the refetch failed, so the generator had nothing to fall back on
+		// and rethrew. The bundled snapshot is what this adapter has instead of nothing.
+		return loadBundledRyanairNetwork();
+	}
+
+	if (last === undefined) return loadBundledRyanairNetwork();
+	if (last.state === 'expired-fallback') {
+		return newerSnapshot(last.value, await loadBundledRyanairNetwork());
+	}
+	return last.value;
+}
+
+/**
+ * Per-provider-instance state for the single refresh a fan-out is allowed to share.
+ * Instance-scoped rather than module-scoped so two tests (or a test and the production
+ * singleton) never join each other's in-flight request.
+ *
+ * The shared request carries whichever caller started it and therefore that caller's
+ * `AbortSignal`. If that one is cancelled mid-flight, everyone waiting gets the shipped
+ * snapshot instead of a fresh one — a slightly older route graph, never an error and never
+ * a second request. Giving each joiner its own cancellable fetch would mean giving each
+ * joiner its own request, which is the thing being removed.
+ */
+interface RefreshState {
+	inFlight?: Promise<RyanairNetworkSnapshot>;
+}
+
+/**
+ * Resolves Ryanair's route graph and timezone table, spending at most one network request
+ * per TTL window across every concurrent caller.
+ *
+ * The deduplication is the point, not an optimisation. A search fans `searchOffers` out
+ * across many candidate routes at once, and before issue #121 every one of those
+ * simultaneous cache misses fetched the same 278 KB table for itself: twelve copies of it
+ * in one measured search. A caller that joins an in-flight refresh reports
+ * `requestsUsed: 0`, so the budget accounting stays honest — only the caller that actually
+ * issued the request is charged for it.
+ *
+ * `remainingBudget === undefined` means "no caller-imposed cap"
+ * (ProviderContext.maxRequests semantics). With the budget spent, this answers from the
+ * shipped snapshot or an expired cached one rather than returning nothing: an
+ * out-of-season route list beats dropping every offer in the search, and unlike the old
+ * per-airport lookup there is no version of this that costs more requests.
+ */
+async function resolveNetworkSnapshot(
 	ctx: ProviderContext,
 	store: CacheStore,
 	fetchImpl: typeof fetch | undefined,
+	refreshState: RefreshState,
 	remainingBudget: number | undefined
-): Promise<{ zones: Record<string, string>; requestsUsed: number }> {
-	const key = defineCacheKey(RYANAIR_PROVIDER_ID, { op: 'airportTimeZones' }, AIRPORT_TIME_ZONES_TTL_MS);
+): Promise<{ snapshot: RyanairNetworkSnapshot; requestsUsed: number }> {
+	const fresh = await readCache<RyanairNetworkSnapshot>(store, networkSnapshotKey());
+	if (fresh) return { snapshot: fresh, requestsUsed: 0 };
 
-	const fresh = await readCache<Record<string, string>>(store, key);
-	if (fresh) return { zones: fresh, requestsUsed: 0 };
+	// Joining costs nothing, so this is checked before the budget: a caller with no budget
+	// left still gets the fresher answer a sibling is already paying for.
+	if (refreshState.inFlight) return { snapshot: await refreshState.inFlight, requestsUsed: 0 };
 
 	if (remainingBudget !== undefined && remainingBudget < 1) {
-		const stale = await readCacheIgnoringTtl<Record<string, string>>(store, key);
-		return { zones: stale ?? {}, requestsUsed: 0 };
+		return { snapshot: await bestSnapshotWithoutFetching(store), requestsUsed: 0 };
 	}
 
-	const response = await fetchActiveAirports({ signal: ctx.signal, fetchImpl });
-	if (!response.ok) {
-		const stale = await readCacheIgnoringTtl<Record<string, string>>(store, key);
-		return { zones: stale ?? {}, requestsUsed: 1 };
+	// Assigned with no `await` between the check above and here, so a sibling that resumes
+	// after this point joins rather than starting a second identical request.
+	const refresh = refreshNetworkSnapshot(ctx, store, fetchImpl);
+	refreshState.inFlight = refresh;
+	try {
+		return { snapshot: await refresh, requestsUsed: 1 };
+	} finally {
+		refreshState.inFlight = undefined;
 	}
+}
 
-	const zones = buildTimeZoneIndex(response.data);
-	await writeCache(store, key, zones);
-	return { zones, requestsUsed: 1 };
+/** The best snapshot reachable without touching the network: whichever of the expired
+ * cached entry and the shipped one was fetched more recently. */
+async function bestSnapshotWithoutFetching(store: CacheStore): Promise<RyanairNetworkSnapshot> {
+	const bundled = await loadBundledRyanairNetwork();
+	const cached = await readCacheIgnoringTtl<RyanairNetworkSnapshot>(store, networkSnapshotKey());
+	return cached ? newerSnapshot(cached, bundled) : bundled;
 }
 
 function createRyanairFlightProvider(options: RyanairProviderOptions = {}): FlightProvider {
+	const refreshState: RefreshState = {};
+
 	async function searchOffers(
 		query: FlightSearchQuery,
 		ctx: ProviderContext
@@ -237,17 +332,18 @@ function createRyanairFlightProvider(options: RyanairProviderOptions = {}): Flig
 		}
 
 		const remainingBudget = ctx.maxRequests === undefined ? undefined : ctx.maxRequests - 1;
-		const { zones, requestsUsed: tzRequestsUsed } = await resolveAirportTimeZones(
+		const { snapshot, requestsUsed: snapshotRequestsUsed } = await resolveNetworkSnapshot(
 			ctx,
 			store,
 			options.fetchImpl,
+			refreshState,
 			remainingBudget
 		);
 
-		const offers = mapFaresToFlightOffers(faresResponse.data, zones);
+		const offers = mapFaresToFlightOffers(faresResponse.data, snapshot.timeZonesByIataCode);
 		await writeCache(store, cacheKey, offers);
 
-		return { ok: true, data: offers, source: source(), requestsUsed: 1 + tzRequestsUsed };
+		return { ok: true, data: offers, source: source(), requestsUsed: 1 + snapshotRequestsUsed };
 	}
 
 	async function listDirectDestinations(
@@ -263,34 +359,30 @@ function createRyanairFlightProvider(options: RyanairProviderOptions = {}): Flig
 			};
 		}
 
+		// One lookup in the network snapshot, no per-airport request and no per-airport
+		// cache entry. `algorithm/connections.ts` calls this once for the origin and once
+		// per candidate airport — 80 distinct airports on a measured BCN->OTP search — so
+		// anything that can issue a request here gets multiplied by the size of the
+		// candidate list, which is what issue #121 is about.
 		const store = await resolveStore(options);
-		const cacheKey = defineCacheKey(RYANAIR_PROVIDER_ID, { op: 'listDirectDestinations', origin }, ROUTES_TTL_MS);
+		const { snapshot, requestsUsed } = await resolveNetworkSnapshot(
+			ctx,
+			store,
+			options.fetchImpl,
+			refreshState,
+			ctx.maxRequests
+		);
 
-		const cached = await readCache<IataAirportCode[]>(store, cacheKey);
-		if (cached) {
-			return { ok: true, data: cached, source: source(), requestsUsed: 0 };
-		}
-
-		if (ctx.maxRequests !== undefined && ctx.maxRequests < 1) {
-			return { ok: true, data: [], source: source(), requestsUsed: 0 };
-		}
-
-		const response = await fetchDirectDestinations(origin, { signal: ctx.signal, fetchImpl: options.fetchImpl });
-		if (!response.ok) {
-			if (isRouteNotFound(response.error)) {
-				// Not an error (see isRouteNotFound above): cache and return the same empty
-				// list a 200-with-no-routes response would have produced, and never surface
-				// this to a caller as a failure worth logging.
-				const noRoutes: IataAirportCode[] = [];
-				await writeCache(store, cacheKey, noRoutes);
-				return { ok: true, data: noRoutes, source: source(), requestsUsed: 1 };
-			}
-			return { ok: false, error: toProviderError(response.error), source: source(), requestsUsed: 1 };
-		}
-
-		const destinations = mapRoutesToDestinations(response.data);
-		await writeCache(store, cacheKey, destinations);
-		return { ok: true, data: destinations, source: source(), requestsUsed: 1 };
+		// An airport Ryanair does not serve resolves to `[]` from the snapshot's own
+		// absence of it, which is the same answer the deleted per-airport endpoint spent an
+		// HTTP 404 on (issue #89). Never an error, and never a second request to re-learn
+		// it: DUS is not in Ryanair's network today and will not be by the next candidate.
+		return {
+			ok: true,
+			data: directDestinationsFrom(snapshot, origin),
+			source: source(),
+			requestsUsed
+		};
 	}
 
 	async function healthCheck(ctx: ProviderContext): Promise<ProviderHealth> {

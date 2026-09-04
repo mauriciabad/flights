@@ -2,19 +2,19 @@ import { describe, expect, it } from 'vitest';
 import activeAirportsFixture from './fixtures/active-airports.json';
 import oneWayFaresMultiFixture from './fixtures/one-way-fares-multi.json';
 import oneWayFaresSingleFixture from './fixtures/one-way-fares-single-route.json';
-import routesBcnFixture from './fixtures/routes-bcn.json';
 import {
-	buildTimeZoneIndex,
+	buildNetworkSnapshot,
 	mapFareToFlightOffer,
 	mapFaresToFlightOffers,
-	mapRoutesToDestinations,
 	RYANAIR_CARRIER
 } from './ryanair-mapper';
-import type { RyanairOneWayFaresResponse, RyanairRoutesResponse } from './ryanair-types';
+import type { RyanairActiveAirportsResponse, RyanairOneWayFaresResponse } from './ryanair-types';
 
-const timeZones = buildTimeZoneIndex(activeAirportsFixture);
+const FETCHED_AT = '2026-09-04T10:00:00.000Z';
+const snapshot = buildNetworkSnapshot(activeAirportsFixture as RyanairActiveAirportsResponse, FETCHED_AT);
+const timeZones = snapshot.timeZonesByIataCode;
 
-describe('buildTimeZoneIndex', () => {
+describe('buildNetworkSnapshot', () => {
 	it('projects the active-airports fixture down to iataCode -> timeZone', () => {
 		expect(timeZones).toEqual({
 			BCN: 'Europe/Madrid',
@@ -22,6 +22,57 @@ describe('buildTimeZoneIndex', () => {
 			AHO: 'Europe/Rome',
 			BHX: 'Europe/London'
 		});
+	});
+
+	it('keeps only the `airport:` entries of each route list', () => {
+		// The fixture's BCN entry also carries `city:TALLINN`, `country:it` and
+		// `region:ENGLAND`, which are search-widget facets, not routes to one airport.
+		expect(snapshot.destinationsByOrigin.BCN.sort()).toEqual(['AHO', 'BHX', 'STN']);
+		expect(snapshot.destinationsByOrigin.BHX).toEqual(['BCN']);
+	});
+
+	it('records an airport that flies nowhere as an empty list, not a missing key', () => {
+		const grounded = buildNetworkSnapshot(
+			[{ iataCode: 'XXX', timeZone: 'Europe/Madrid', routes: ['city:NOWHERE'] }] as RyanairActiveAirportsResponse,
+			FETCHED_AT
+		);
+		expect(grounded.destinationsByOrigin).toEqual({ XXX: [] });
+	});
+
+	it('de-duplicates a destination listed in both routes and seasonalRoutes', () => {
+		const duplicated = buildNetworkSnapshot(
+			[
+				{
+					iataCode: 'BCN',
+					timeZone: 'Europe/Madrid',
+					routes: ['airport:STN', 'airport:AHO'],
+					seasonalRoutes: ['airport:STN']
+				}
+			] as RyanairActiveAirportsResponse,
+			FETCHED_AT
+		);
+		expect(duplicated.destinationsByOrigin.BCN).toEqual(['STN', 'AHO']);
+	});
+
+	it('drops the marketing-carrier suffix Ryanair appends to a codeshared leg', () => {
+		// Real, and the only two in the whole feed on 2026-09-04: MLA and PMO list each
+		// other as `airport:PMO|Air Malta` alongside a plain `airport:PMO`. Without the
+		// split, "PMO|Air Malta" becomes a destination no fare provider can be asked about.
+		const malta = buildNetworkSnapshot(
+			[
+				{
+					iataCode: 'MLA',
+					timeZone: 'Europe/Malta',
+					routes: ['airport:PMO', 'airport:PMO|Air Malta', 'airport:STN']
+				}
+			] as RyanairActiveAirportsResponse,
+			FETCHED_AT
+		);
+		expect(malta.destinationsByOrigin.MLA).toEqual(['PMO', 'STN']);
+	});
+
+	it('carries the fetch time through, since a snapshot that cannot date itself cannot be compared', () => {
+		expect(snapshot.fetchedAt).toBe(FETCHED_AT);
 	});
 });
 
@@ -180,12 +231,3 @@ describe('mapFaresToFlightOffers', () => {
 	});
 });
 
-describe('mapRoutesToDestinations', () => {
-	it('returns a deduplicated list of destination IATA codes', () => {
-		const routes = routesBcnFixture as RyanairRoutesResponse;
-		const destinations = mapRoutesToDestinations(routes);
-
-		// Fixture has AGP, AHO, and STN listed twice (a seasonal duplicate entry).
-		expect(destinations.sort()).toEqual(['AGP', 'AHO', 'STN']);
-	});
-});

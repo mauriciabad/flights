@@ -11,6 +11,8 @@
 		"cityCode": "BARCELONA",
 		"macCityCode": "BARCELONA",
 		"currencyCode": "EUR",
+		"routes": ["airport:STN", "airport:AHO", "airport:BHX", "city:TALLINN", "country:it", "region:ENGLAND"],
+		"seasonalRoutes": [],
 		"categories": ["GLF", "HEN", "SKI", "ROM", "FAM", "SPR", "NIT", "CTY", "CUL", "SEA"],
 		"priority": 4,
 		"timeZone": "Europe/Madrid"
@@ -27,6 +29,8 @@
 		"cityCode": "LONDON",
 		"macCityCode": "LONDON",
 		"currencyCode": "GBP",
+		"routes": ["airport:BCN", "airport:AHO", "city:CARCASSONNE", "country:es"],
+		"seasonalRoutes": [],
 		"categories": ["CTY", "CUL"],
 		"priority": 1,
 		"timeZone": "Europe/London"
@@ -42,6 +46,8 @@
 		"regionCode": "SARDINIA",
 		"cityCode": "ALGHERO",
 		"currencyCode": "EUR",
+		"routes": ["airport:BCN", "airport:STN", "city:BARI"],
+		"seasonalRoutes": [],
 		"categories": ["SEA", "CTY"],
 		"priority": 90,
 		"timeZone": "Europe/Rome"
@@ -57,6 +63,8 @@
 		"regionCode": "ENGLAND",
 		"cityCode": "BIRMINGHAM",
 		"currencyCode": "GBP",
+		"routes": ["airport:BCN", "city:VERONA"],
+		"seasonalRoutes": [],
 		"categories": ["CTY"],
 		"priority": 60,
 		"timeZone": "Europe/London"

@@ -47,6 +47,13 @@ Against production, in your own browser context, the way a person would.
 
 - `node tools/probe-results.mjs '<url>'` prints the itinerary count beside the network log.
 - `node tools/probe-search.mjs Paris` prints what the airport field really offers.
+- `node tools/probe-ryanair-requests.mjs` prints what one search costs Ryanair, split by
+  endpoint, cold cache and warm.
+
+The claims this file makes about Ryanair's network are also checkable offline, since the
+whole route graph now ships with the app (issue #121, docs/PROVIDERS.md). BVC, RAI and SID
+are absent from `src/lib/data/ryanair-network.generated.json`, and LGW's four Ryanair
+destinations are ALC, DUB, ORK and SNN, with no PFO among them.
 
 Both launch their own Chromium, for the reason AGENTS.md gives: the shared browser has
 moved tabs underneath an agent mid-measurement and produced two false bug reports.

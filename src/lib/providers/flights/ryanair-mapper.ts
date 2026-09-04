@@ -7,7 +7,14 @@
 
 import type { BaggageAllowance, Carrier, FlightOffer, IataAirportCode, Money } from '../../domain';
 import { computeFlightDuration, toLocalDateTime } from './ryanair-timezone';
-import type { RyanairFare, RyanairOneWayFaresResponse, RyanairPrice, RyanairRoutesResponse } from './ryanair-types';
+import type { RyanairNetworkSnapshot } from '../../data/ryanair-network';
+import type {
+	RyanairActiveAirport,
+	RyanairActiveAirportsResponse,
+	RyanairFare,
+	RyanairOneWayFaresResponse,
+	RyanairPrice
+} from './ryanair-types';
 
 export const RYANAIR_CARRIER: Carrier = { iataCode: 'FR', name: 'Ryanair' };
 
@@ -172,30 +179,67 @@ export function mapFaresToFlightOffers(
 	return offers;
 }
 
-/** IATA codes of every airport reachable directly from the origin the routes response was
- * fetched for. De-duplicated because the raw feed can list the same destination more than
- * once (e.g. a seasonal-route entry alongside the year-round one) — issue #12's connection
- * graph wants a set of candidate airports, not a count of how many route entries mention
- * each one. */
-export function mapRoutesToDestinations(routes: RyanairRoutesResponse): IataAirportCode[] {
-	const codes = new Set<string>();
-	for (const route of routes) {
-		if (route.arrivalAirport?.code) codes.add(route.arrivalAirport.code);
+/** Ryanair writes an airport edge in `RyanairActiveAirport.routes` as `airport:STN`. The
+ * same array also carries `city:`, `country:`, `region:` and `connectingFlight:` entries,
+ * which are search-widget facets rather than a route to one specific airport, so this
+ * prefix is the only one naming something a fare provider can be asked about. */
+const AIRPORT_ROUTE_PREFIX = 'airport:';
+
+/**
+ * A handful of entries carry a marketing carrier after a pipe — `airport:PMO|Air Malta`
+ * on the Malta-Palermo pair, the only two in the whole feed on 2026-09-04. It is an
+ * annotation, not a different route: the per-airport endpoint reports that same PMO leg
+ * with `operator: "FR"` and no marker, and the feed also lists a plain `airport:PMO`
+ * alongside it, which is why the caller de-duplicates. Keeping only the code before the
+ * pipe matches what the old `mapRoutesToDestinations` did, which deliberately never
+ * filtered on operator either.
+ */
+function iataCodeOf(entry: string): IataAirportCode {
+	return entry.slice(AIRPORT_ROUTE_PREFIX.length).split('|')[0];
+}
+
+/** IATA codes of every airport reachable directly from `airport`, de-duplicated: issue
+ * #12's connection graph wants a set of candidate airports, not a count of how many feed
+ * entries mention each one.
+ *
+ * `seasonalRoutes` is present on every airport and empty on every one of them (checked
+ * across all 224, 2026-09-04), and `routes` already carries the destinations the
+ * per-airport endpoint marks seasonal. Unioned anyway, so the day Ryanair starts
+ * populating that field a seasonal route shows up here instead of silently vanishing. */
+function directDestinationsOf(airport: RyanairActiveAirport): IataAirportCode[] {
+	const codes = new Set<IataAirportCode>();
+	for (const entry of [...(airport.routes ?? []), ...(airport.seasonalRoutes ?? [])]) {
+		if (typeof entry === 'string' && entry.startsWith(AIRPORT_ROUTE_PREFIX)) {
+			codes.add(iataCodeOf(entry));
+		}
 	}
 	return Array.from(codes);
 }
 
-/** Projects Ryanair's ~220-airport active-airports response down to just what this
- * adapter actually needs — IATA code to IANA timezone — before it goes anywhere near the
- * cache. The raw response carries route lists, categories and priority scores this
- * adapter has no use for; caching only the projection keeps the cached entry a few
- * kilobytes instead of a few hundred. */
-export function buildTimeZoneIndex(
-	airports: readonly { iataCode: string; timeZone: string }[]
-): Record<string, string> {
-	const index: Record<string, string> = {};
+/**
+ * Projects Ryanair's ~220-airport active-airports response down to the two things this
+ * adapter needs: which airports fly where, and each airport's IANA zone. The raw response
+ * is 278 KB of categories, priority scores and city facets; the projection is under
+ * 40 KB, and only the projection is ever cached.
+ *
+ * Issue #121: that one response IS the whole network, which is why this adapter no longer
+ * asks `/views/locate/searchWidget/routes/en/airport/{IATA}` anything. Verified
+ * 2026-09-04 — for BCN the `routes` array yields exactly the same 64 destination codes
+ * that endpoint returns, and every airport Ryanair does not serve (ALG, DUS, EVN, IST,
+ * LED) is absent from the response entirely, which is the same fact that endpoint spends
+ * a 404 stating. So an origin missing from `destinationsByOrigin` means "not in Ryanair's
+ * network", and no request has to be spent rediscovering that per airport per search.
+ */
+export function buildNetworkSnapshot(
+	airports: RyanairActiveAirportsResponse,
+	fetchedAt: string
+): RyanairNetworkSnapshot {
+	const destinationsByOrigin: Record<string, IataAirportCode[]> = {};
+	const timeZonesByIataCode: Record<string, string> = {};
 	for (const airport of airports) {
-		if (airport.iataCode && airport.timeZone) index[airport.iataCode] = airport.timeZone;
+		if (!airport?.iataCode) continue;
+		destinationsByOrigin[airport.iataCode] = directDestinationsOf(airport);
+		if (airport.timeZone) timeZonesByIataCode[airport.iataCode] = airport.timeZone;
 	}
-	return index;
+	return { fetchedAt, destinationsByOrigin, timeZonesByIataCode };
 }
