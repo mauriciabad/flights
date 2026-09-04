@@ -37,7 +37,13 @@
 	} as const;
 </script>
 
-<section class="board" role="status" aria-label="Why this search found nothing">
+<section
+	class="board"
+	role="status"
+	aria-label="Why this search found nothing"
+	data-testid="no-results-board"
+	data-cause={explanation.cause}
+>
 	<header class="board-head">
 		<p class="board-route">
 			<span class="board-code">{origin.code}</span>
@@ -51,7 +57,12 @@
 	{#if explanation.sources.length > 0}
 		<ul class="board-rows">
 			{#each explanation.sources as source (source.providerId)}
-				<li class="board-row" data-answer={source.answer}>
+				<li
+					class="board-row"
+					data-testid="no-results-source"
+					data-provider={source.providerId}
+					data-answer={source.answer}
+				>
 					<span class="row-rail" aria-hidden="true"></span>
 					<span class="row-source">{source.label}</span>
 					<span class="row-flap">{FLAP_TEXT[source.answer]}</span>
@@ -71,7 +82,9 @@
 	{#if explanation.fix}
 		<div class="board-fix">
 			<p class="fix-copy">{fixSentence(explanation.fix, destination)}</p>
-			<Button href={explanation.fix.href} size="sm">{explanation.fix.actionLabel}</Button>
+			<Button href={explanation.fix.href} size="sm" data-testid="no-results-fix">
+				{explanation.fix.actionLabel}
+			</Button>
 		</div>
 	{/if}
 </section>

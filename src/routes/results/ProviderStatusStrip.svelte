@@ -68,6 +68,8 @@
 				<button
 					type="button"
 					class="provider-plate is-interactive"
+					data-testid="provider-status"
+					data-provider={row.status.providerId}
 					data-answer={row.answer}
 					aria-expanded={expandedId === row.status.providerId}
 					onclick={() => toggle(row.status.providerId)}
@@ -81,7 +83,12 @@
 					</span>
 				</button>
 			{:else}
-				<span class="provider-plate" data-answer={row.answer}>
+				<span
+					class="provider-plate"
+					data-testid="provider-status"
+					data-provider={row.status.providerId}
+					data-answer={row.answer}
+				>
 					<span class="plate-name">{row.status.label}</span>
 					<span class="plate-flap">{FLAP_TEXT[row.answer]}</span>
 					<span class="plate-cost font-mono tabular-nums">
@@ -93,7 +100,7 @@
 			{/if}
 		{/each}
 		{#if rows.length === 0}
-			<p class="provider-empty">
+			<p class="provider-empty" data-testid="provider-strip-empty">
 				{searching ? 'Waiting for the first answer.' : 'No provider was called for this search.'}
 			</p>
 		{/if}
