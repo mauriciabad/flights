@@ -49,14 +49,16 @@ describe('callSkyscanner', () => {
 		expect(result).toEqual({
 			ok: false,
 			error: {
+				// The host's own sentence, with the status code that makes a 403 tellable
+				// apart from a 200-with-an-error-body (AGENTS.md, issue #122).
 				code: 'not-subscribed',
-				message: 'You are not subscribed to this API.',
+				message: 'Sky Scrapper returned HTTP 403: You are not subscribed to this API.',
 				status: 403
 			}
 		});
 	});
 
-	it('does not mislabel an unrelated 403 as not-subscribed', async () => {
+	it('does not mislabel an unrelated 403 as not-subscribed, and still quotes it', async () => {
 		const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(403, { message: 'Forbidden origin' }));
 		const result = await callSkyscanner(
 			'/api/v1/flights/searchAirport',
@@ -64,7 +66,10 @@ describe('callSkyscanner', () => {
 			{ apiKey: 'k', signal: new AbortController().signal, fetchImpl }
 		);
 		expect(result.ok).toBe(false);
-		if (!result.ok) expect(result.error.code).toBe('unknown');
+		if (!result.ok) {
+			expect(result.error.code).toBe('unknown');
+			expect(result.error.message).toBe('Sky Scrapper returned HTTP 403: Forbidden origin');
+		}
 	});
 
 	it('maps a 429 to quota-exceeded and carries Retry-After through', async () => {
@@ -80,7 +85,7 @@ describe('callSkyscanner', () => {
 			ok: false,
 			error: {
 				code: 'quota-exceeded',
-				message: 'Sky Scrapper rate limit or monthly quota reached',
+				message: 'Sky Scrapper returned HTTP 429: Too Many Requests',
 				status: 429,
 				retryAfterSeconds: 30
 			}
@@ -153,17 +158,78 @@ describe('callSkyscanner', () => {
 });
 
 /**
+ * Issue #171. Both of these branches used to answer from the status code alone: a 429 became
+ * "Sky Scrapper rate limit or monthly quota reached" and everything else became "Sky Scrapper
+ * responded with HTTP N", with the body never read. AGENTS.md's rule, and the owner's own
+ * words in it: "we should show the actual errors recieved, not invent our own".
+ */
+describe('callSkyscanner and the message the host actually sent', () => {
+	async function failWith(response: Response) {
+		const fetchImpl = vi.fn().mockResolvedValue(response);
+		return callSkyscanner(
+			'/api/v1/flights/searchAirport',
+			{},
+			{ apiKey: 'k', signal: new AbortController().signal, fetchImpl }
+		);
+	}
+
+	it('quotes the 429 body instead of describing the status code', async () => {
+		// The real wording from an exhausted RapidAPI plan (issue #157, observed live).
+		const result = await failWith(
+			jsonResponse(429, {
+				message:
+					'You have exceeded the MONTHLY quota for Requests on your current plan, BASIC. Upgrade your plan at https://rapidapi.com/'
+			})
+		);
+
+		expect(result.ok).toBe(false);
+		if (!result.ok) {
+			expect(result.error.message).toContain('MONTHLY quota');
+			expect(result.error.message).toContain('429');
+		}
+	});
+
+	it('quotes an unrecognised status body, and keeps the whole response on cause', async () => {
+		const result = await failWith(jsonResponse(400, { message: 'departDate is required' }));
+
+		expect(result.ok).toBe(false);
+		if (!result.ok && result.error.code === 'unknown') {
+			expect(result.error.message).toBe('Sky Scrapper returned HTTP 400: departDate is required');
+			expect(result.error.cause).toMatchObject({ status: 400, message: 'departDate is required' });
+		}
+	});
+
+	it('quotes a non-JSON error page rather than reporting only its status', async () => {
+		const result = await failWith(
+			new Response('<html>\n  <body>502 Bad Gateway</body>\n</html>', { status: 502 })
+		);
+
+		expect(result.ok).toBe(false);
+		if (!result.ok) expect(result.error.message).toContain('502 Bad Gateway');
+	});
+
+	it('says the body was empty rather than inventing a reason', async () => {
+		const result = await failWith(new Response(null, { status: 503 }));
+
+		expect(result.ok).toBe(false);
+		if (!result.ok) {
+			expect(result.error.message).toBe('Sky Scrapper returned HTTP 503 with an empty body');
+		}
+	});
+});
+
+/**
  * Issue #146. Sky Scrapper's free tier is 20 requests a month and this app's own counter
  * lives in one browser's `localStorage`, so a second profile has always believed it had
  * all 20. RapidAPI states the real figure in headers on every response, and until this
  * suite existed nothing in `src/` read them.
  */
-describe('callSkyscanner and the account’s own quota', () => {
+describe('callSkyscanner and the quota the account really has', () => {
 	beforeEach(() => {
 		localStorage.clear();
 	});
 
-	it('records what the response said about the key’s remaining quota', async () => {
+	it('records what the response said about the remaining quota on this key', async () => {
 		const fetchImpl = vi.fn().mockResolvedValue(
 			jsonResponse(
 				200,

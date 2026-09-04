@@ -5,12 +5,17 @@
  */
 
 import { recordRateLimitHeaders } from '../budget';
+import { describeProviderResponse, readProviderResponse, readRetryAfterSeconds } from '../response-evidence';
 import type { ProviderId } from '../types';
 import type { KiwiFetchResult, KiwiOneWayResponse, KiwiOneWaySearchParams } from './kiwi-types';
 
 const KIWI_PROVIDER_ID: ProviderId = 'kiwi';
 const BASE_URL = 'https://kiwi-com-cheap-flights.p.rapidapi.com';
 const HOST_HEADER = 'kiwi-com-cheap-flights.p.rapidapi.com';
+/** Matches this adapter's registry label (kiwi.ts). Spelled out rather than just "Kiwi"
+ * because the keyless `kiwi-public` adapter is a different backend with different failure
+ * modes, and an error badge naming both of them "Kiwi" sends the reader to the wrong file. */
+const LABEL = 'Kiwi.com (RapidAPI)';
 
 export interface KiwiHttpDeps {
 	signal: AbortSignal;
@@ -62,13 +67,13 @@ async function getJson<T>(
 		// `signal.aborted` is how this is told apart from a genuine network failure,
 		// mirroring ryanair-client.ts.
 		if (deps.signal.aborted) {
-			return { ok: false, error: { code: 'cancelled', message: 'Kiwi request was aborted' } };
+			return { ok: false, error: { code: 'cancelled', message: `${LABEL} request was aborted` } };
 		}
 		return {
 			ok: false,
 			error: {
 				code: 'network-error',
-				message: cause instanceof Error ? cause.message : 'Kiwi request failed',
+				message: cause instanceof Error ? cause.message : `${LABEL} request failed`,
 				cause
 			}
 		};
@@ -78,29 +83,38 @@ async function getJson<T>(
 	// and those are exactly the responses where the real remaining count matters (#146).
 	recordRateLimitHeaders(KIWI_PROVIDER_ID, response.headers);
 
+	// Issue #171: the body is read before anything is decided, so what reaches the traveller
+	// and the console is this listing's own sentence with its status code, not our paraphrase
+	// of the status code alone. The failure this adapter has actually measured is the one that
+	// makes the point: `402 {"error":{"code":"402","message":"Payment required"}}` with
+	// `x-vercel-error: DEPLOYMENT_DISABLED`, which used to arrive as "Kiwi returned HTTP 402"
+	// with both the sentence and the header thrown away.
 	if (!response.ok) {
-		if (response.status === 403) {
-			return {
-				ok: false,
-				error: { code: 'not-subscribed', message: 'Not subscribed to the Kiwi.com Cheap Flights API', status: 403 }
-			};
+		const evidence = await readProviderResponse(response);
+		const message = describeProviderResponse(LABEL, evidence);
+
+		// A 403 alone is not "not subscribed". That code is permanent for the session
+		// (budget/permanent-failures.ts marks the provider off for good), and AGENTS.md is
+		// explicit after issue #122 that it must only ever come from a real 403 carrying
+		// RapidAPI's own literal sentence. Any other 403 is a failure nobody here has
+		// profiled, so it stays an `http-error` and keeps its own words.
+		if (response.status === 403 && /not subscribed/i.test(evidence.message ?? '')) {
+			return { ok: false, error: { code: 'not-subscribed', message, status: 403 } };
 		}
 		if (response.status === 429) {
-			const retryAfterHeader = response.headers.get('retry-after');
-			const retryAfterSeconds = retryAfterHeader ? Number(retryAfterHeader) : undefined;
 			return {
 				ok: false,
 				error: {
 					code: 'rate-limited',
-					message: 'Kiwi rate-limited this request (HTTP 429)',
+					message,
 					status: 429,
-					retryAfterSeconds: Number.isFinite(retryAfterSeconds) ? retryAfterSeconds : undefined
+					retryAfterSeconds: readRetryAfterSeconds(response.headers)
 				}
 			};
 		}
 		return {
 			ok: false,
-			error: { code: 'http-error', message: `Kiwi returned HTTP ${response.status}`, status: response.status }
+			error: { code: 'http-error', message, status: response.status, cause: evidence }
 		};
 	}
 
@@ -108,13 +122,16 @@ async function getJson<T>(
 	try {
 		body = await response.json();
 	} catch (cause) {
-		return { ok: false, error: { code: 'malformed-response', message: 'Kiwi response was not valid JSON', cause } };
+		return { ok: false, error: { code: 'malformed-response', message: `${LABEL} response was not valid JSON`, cause } };
 	}
 
 	if (!isShapeValid(body)) {
 		return {
 			ok: false,
-			error: { code: 'malformed-response', message: `Kiwi response for ${url} did not match the shape this adapter expects` }
+			error: {
+				code: 'malformed-response',
+				message: `${LABEL} response for ${url} did not match the shape this adapter expects`
+			}
 		};
 	}
 

@@ -6,6 +6,9 @@ import { secondsUntilNextMonthUtc } from './month-key';
 import { isPermanentlyUnsubscribed, markNotSubscribed } from './permanent-failures';
 import { reserveProviderRequests } from './quota';
 import type { ReserveResult } from './quota';
+import { classifyRateLimit, describeRateLimit, secondsUntilReset } from './rate-limit-verdict';
+import type { RateLimitVerdict } from './rate-limit-verdict';
+import { getReportedProviderQuota } from './reported-quota';
 import type { ProviderError, ProviderErrorCode, ProviderId, ProviderResult } from './types';
 
 export interface CallProviderWithBudgetOptions<T> {
@@ -28,14 +31,6 @@ export interface CallProviderWithBudgetOptions<T> {
 	/** Overrides `Date.now`. Mainly for tests. */
 	now?: () => number;
 }
-
-// `quota-exceeded` here only ever means an upstream 429 — a local pre-flight
-// refusal (the cap already spent) returns immediately, before this set is
-// consulted at all. `network-error` is worth one more try; `unknown` is
-// deliberately NOT retried, because retrying a failure this layer does not
-// understand risks spending the rest of the month's budget on repeats of the
-// same mistake instead of surfacing it.
-const RETRYABLE: ReadonlySet<ProviderErrorCode> = new Set(['quota-exceeded', 'network-error']);
 
 /**
  * The one function a provider adapter is expected to route every request
@@ -116,25 +111,33 @@ async function runWithBudget<T>(options: CallProviderWithBudgetOptions<T>): Prom
 			if (code === 'not-subscribed') markNotSubscribed(providerId);
 
 			const retryAfterSeconds = retryAfterSecondsOf(rawError);
-			// Issue #124/#157: confirmed live that a bare 429 is not always the short
-			// per-minute limit this loop was built to ride out. Flights Sky's real account,
-			// once its 50-a-month tier was actually exhausted, answered "You have exceeded
-			// the MONTHLY quota" — also a 429, also classified `quota-exceeded`, and this
-			// loop retried it three times on a guessed few-second backoff before giving up,
-			// spending requests an account with zero left could not afford. A per-minute
-			// limit and a monthly one are indistinguishable from the status code alone, but
-			// only the former comes with a `Retry-After` header short enough for a caller to
-			// usefully sleep through (confirmed against the real 429 body: a monthly
-			// exhaustion carries none). So `quota-exceeded` only retries when the provider
-			// itself said how long to wait; no header means "not on any timeline this loop
-			// could sleep through," same treatment as `unknown`. `network-error` is
-			// unaffected — it was never gated on a header to begin with.
+			// Issues #124/#157/#159: a 429 is two failures wearing one status code. Flights
+			// Sky's real account, its 50-a-month tier actually exhausted, answered "You have
+			// exceeded the MONTHLY quota", and this loop retried it three times on a guessed
+			// backoff, spending requests an empty account could not afford. `rate-limit-
+			// verdict.ts` decides which of the two arrived, from the provider's own quota
+			// headers first and its wording second, and only a burst limit is worth another
+			// attempt. `network-error` is unaffected: it was never a 429 and was never gated
+			// on anything the provider said.
+			const verdict =
+				code === 'quota-exceeded'
+					? classifyRateLimit({
+							message: describeError(rawError, `${providerId} refused the call with HTTP 429.`),
+							retryAfterSeconds,
+							reported: getReportedProviderQuota(providerId, { now }),
+							nowMs: now()
+						})
+					: undefined;
+
 			const canRetry =
-				attempt < maxAttempts &&
-				(code === 'network-error' || (code === 'quota-exceeded' && retryAfterSeconds !== undefined)) &&
-				RETRYABLE.has(code);
+				attempt < maxAttempts && (code === 'network-error' || verdict?.retryable === true);
 			if (!canRetry) {
-				return { ok: false, requestsUsed, source: source(), error: toProviderError(code, rawError, providerId) };
+				return {
+					ok: false,
+					requestsUsed,
+					source: source(),
+					error: toProviderError(code, rawError, providerId, verdict, now())
+				};
 			}
 
 			const delayMs =
@@ -163,8 +166,23 @@ function describeRefusal(providerId: ProviderId, cost: number, reservation: Rese
 	return `${providerId} is at ${reservation.used}/${reservation.cap} requests for ${reservation.monthKey}; refusing to spend ${cost} more rather than collect a 403.`;
 }
 
-/** Builds the exact `ProviderError` shape (../types.ts) each code requires — a discriminated union whose members carry different fields, so this cannot be one shared object literal. */
-function toProviderError(code: ProviderErrorCode, rawError: unknown, providerId: ProviderId): ProviderError {
+/**
+ * Builds the exact `ProviderError` shape (../types.ts) each code requires — a discriminated
+ * union whose members carry different fields, so this cannot be one shared object literal.
+ *
+ * `verdict` is present only for a 429, and only changes two things: the message gains a
+ * sentence saying why no retry was attempted and when the window reopens, after the
+ * provider's own words rather than instead of them, and `retryAfterSeconds` becomes the wait
+ * until that reopening instead of a `Retry-After` this loop has already decided is too short
+ * to be the whole story.
+ */
+function toProviderError(
+	code: ProviderErrorCode,
+	rawError: unknown,
+	providerId: ProviderId,
+	verdict: RateLimitVerdict | undefined,
+	nowMs: number
+): ProviderError {
 	const message = describeError(rawError, `${providerId} call failed.`);
 	switch (code) {
 		case 'missing-key':
@@ -172,7 +190,15 @@ function toProviderError(code: ProviderErrorCode, rawError: unknown, providerId:
 		case 'not-subscribed':
 			return { code, message, status: 403 };
 		case 'quota-exceeded':
-			return { code, message, status: 429, retryAfterSeconds: retryAfterSecondsOf(rawError) };
+			if (verdict === undefined || verdict.kind === 'burst') {
+				return { code, message, status: 429, retryAfterSeconds: retryAfterSecondsOf(rawError) };
+			}
+			return {
+				code,
+				message: describeRateLimit(message, verdict),
+				status: 429,
+				retryAfterSeconds: secondsUntilReset(verdict, nowMs) ?? retryAfterSecondsOf(rawError)
+			};
 		case 'network-error':
 			return { code, message, cause: rawError };
 		case 'malformed-response':

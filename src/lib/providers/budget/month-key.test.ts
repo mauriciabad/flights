@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { monthKeyFor, secondsUntilNextMonthUtc } from './month-key';
+import { monthKeyFor, secondsUntilNextMonthUtc, startOfNextMonthUtc } from './month-key';
 
 describe('monthKeyFor', () => {
 	it('formats a UTC calendar month as YYYY-MM', () => {
@@ -46,5 +46,22 @@ describe('secondsUntilNextMonthUtc', () => {
 
 	it('defaults to the current time', () => {
 		expect(secondsUntilNextMonthUtc()).toBeGreaterThanOrEqual(0);
+	});
+});
+
+describe('startOfNextMonthUtc', () => {
+	it('lands on midnight UTC on the 1st, whatever the millisecond it was asked at', () => {
+		// The reason this is a moment and not `now + secondsUntilNextMonth * 1000`: that
+		// rounds to whole seconds, so a message built at 12:34:56.504 announced a quota
+		// resetting at 2026-10-01T00:00:00.496Z. Caught rendering the real settings card.
+		expect(startOfNextMonthUtc(Date.UTC(2026, 8, 4, 12, 34, 56, 504))).toBe(Date.UTC(2026, 9, 1));
+	});
+
+	it('wraps December into January of the next year', () => {
+		expect(startOfNextMonthUtc(Date.UTC(2026, 11, 31, 23, 59))).toBe(Date.UTC(2027, 0, 1));
+	});
+
+	it('accepts a Date as well as a timestamp', () => {
+		expect(startOfNextMonthUtc(new Date(Date.UTC(2026, 8, 4)))).toBe(Date.UTC(2026, 9, 1));
 	});
 });

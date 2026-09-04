@@ -180,8 +180,11 @@ function toProviderError(error: KiwiFetchError): ProviderError {
 		case 'http-error':
 			// Covers the live 402/DEPLOYMENT_DISABLED this adapter actually observed, and
 			// any other status this adapter hasn't seen — `unknown` is the documented
-			// catch-all for exactly that (types.ts), not a mis-mapping.
-			return { code: 'unknown', message: error.message, cause: { status: error.status } };
+			// catch-all for exactly that (types.ts), not a mis-mapping. `error.message`
+			// already quotes the status and the provider's own sentence; `cause` carries the
+			// rest of what the response said (raw body, `*-error` headers) so a developer
+			// reading it back does not have to go and reproduce the call (issue #171).
+			return { code: 'unknown', message: error.message, cause: error.cause ?? { status: error.status } };
 	}
 }
 

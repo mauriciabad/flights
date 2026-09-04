@@ -386,6 +386,40 @@ describe('createSkyscannerFlightProvider', () => {
 			expect(fetchImpl).toHaveBeenCalledTimes(1);
 		});
 
+		/**
+		 * Issues #159 and #171 meeting, which is where each is worth the most: the client has
+		 * to read the 429's body for the budget module to have any wording to judge, and the
+		 * budget module has to judge it for the request not to be spent three times. The cap
+		 * here is deliberately generous, so nothing but the verdict itself can stop the retry.
+		 */
+		it('spends one request, not three, on an exhausted monthly quota that sends a Retry-After', async () => {
+			const cacheStore = new MemoryCacheStore();
+			await setCachedAirportEntity('BCN', { skyId: 'BCN', entityId: '95565085' }, cacheStore);
+			await setCachedAirportEntity('VIE', { skyId: 'VIE', entityId: '95673444' }, cacheStore);
+			const fetchImpl = fakeFetch({
+				searchFlights: () =>
+					jsonResponse(
+						429,
+						{
+							message:
+								'You have exceeded the MONTHLY quota for Requests on your current plan, BASIC. Upgrade your plan at https://rapidapi.com/apiheya/api/sky-scrapper'
+						},
+						{ 'retry-after': '60' }
+					)
+			});
+			const provider = createSkyscannerFlightProvider({ fetchImpl, cacheStore, cap: 15, sleep: instantSleep });
+
+			const result = await provider.searchOffers(baseQuery, contextWithKey());
+
+			expect(fetchImpl).toHaveBeenCalledTimes(1);
+			expect(result).toMatchObject({ ok: false, requestsUsed: 1, error: { code: 'quota-exceeded' } });
+			if (!result.ok) {
+				expect(result.error.message).toContain('Sky Scrapper returned HTTP 429');
+				expect(result.error.message).toContain('MONTHLY quota');
+				expect(result.error.message).toContain('so nothing was retried');
+			}
+		});
+
 		it('skips a malformed date and still returns the offers other dates produced', async () => {
 			const cacheStore = new MemoryCacheStore();
 			await setCachedAirportEntity('BCN', { skyId: 'BCN', entityId: '95565085' }, cacheStore);
