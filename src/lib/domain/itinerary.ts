@@ -5,6 +5,7 @@ import type { FlightOffer } from './flight-offer';
 import type { Location } from './location';
 import type { Money } from './money';
 import type { Stay } from './stay';
+import { costIsUnknown } from './transfer';
 import type { Transfer } from './transfer';
 
 /**
@@ -108,7 +109,59 @@ export interface Itinerary {
 	destinationLocation?: Location;
 	/** Line 54: "Price of each part and in total." Each part's own price already lives
 	 * on that part (FlightOffer.price, Transfer.price, Stay.pricePerNight); this is only
-	 * the total. */
+	 * the total.
+	 *
+	 * Issue #204: it is the sum of the prices this app was actually given, which is not
+	 * the same claim as "what the trip costs". Whenever `unpricedTransferLegs` below
+	 * returns anything, or `stay` is absent on a stopover that spends a night, this is a
+	 * FLOOR and a caller must render it as one. It never absorbs a guess to close the gap.
+	 * `algorithm/score.ts` is where an unknown cost is allowed to weigh on a ranking,
+	 * with the assumption it makes named and defended there. */
 	totalPrice: Money;
 	times: ItineraryTimes;
+}
+
+/** Which of an itinerary's four ground legs a statement is about, named exactly as the
+ * fields above so nothing can map one onto the wrong leg. */
+export type ItineraryTransferLeg =
+	| 'transferToOriginAirport'
+	| 'transferToHotel'
+	| 'transferToConnectionAirport'
+	| 'transferToDestinationLocation';
+
+/** Trip order, so a caller listing these legs reads them in the order they happen. */
+const TRANSFER_LEGS_IN_TRIP_ORDER: readonly ItineraryTransferLeg[] = [
+	'transferToOriginAirport',
+	'transferToHotel',
+	'transferToConnectionAirport',
+	'transferToDestinationLocation'
+];
+
+/** One leg of a trip that costs a number nobody gave us, paired with the leg itself so a
+ * caller can charge it, name it, or count it without looking the transfer up again. */
+export interface UnpricedTransfer {
+	leg: ItineraryTransferLeg;
+	transfer: Transfer;
+}
+
+/**
+ * The legs of this trip that cost something nobody quoted. Issue #204, and the list that
+ * makes `totalPrice`'s incompleteness a thing the app states rather than hides.
+ *
+ * Derived, never stored. A picker swap (`algorithm/recompute-selection.ts`) and a
+ * waiting-time edit (`algorithm/build.ts`) both rebuild an itinerary's transfer legs, and
+ * a cached field would have to be recomputed identically in each of those places. This
+ * repo has already paid more than once for two code paths disagreeing about one derived
+ * number, so there is only ever one path here.
+ *
+ * Takes the four legs rather than a whole `Itinerary` so a caller can ask about legs it
+ * has resolved but not yet assembled into one.
+ */
+export function unpricedTransferLegs(legs: Pick<Itinerary, ItineraryTransferLeg>): UnpricedTransfer[] {
+	const unpriced: UnpricedTransfer[] = [];
+	for (const leg of TRANSFER_LEGS_IN_TRIP_ORDER) {
+		const transfer = legs[leg];
+		if (transfer !== undefined && costIsUnknown(transfer)) unpriced.push({ leg, transfer });
+	}
+	return unpriced;
 }

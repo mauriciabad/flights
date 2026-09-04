@@ -20,6 +20,7 @@
  */
 
 import type { Itinerary, Money } from '$lib/domain';
+import { unpricedTransferLegs } from '$lib/domain';
 import { scaleFareForParty, sumMoney } from '$lib/algorithm/build';
 import { formatDuration, formatLongDuration, formatMoney } from '$lib/format';
 
@@ -126,15 +127,30 @@ function buildMetric(itinerary: Itinerary, id: ItineraryMetricId): ItineraryMetr
 				label: 'Total price',
 				value: formatMoney(itinerary.totalPrice),
 				tone: 'primary',
-				// Issue #140: only a stopover that actually spends a night is missing
-				// anything. On a same-day connection this total is complete, and warning
-				// that it excludes a stay would invent a cost the trip never had.
-				note:
-					!itinerary.stay && itinerary.nightsInConnection > 0
-						? 'excludes an unpriced stay'
-						: undefined
+				note: totalPriceCaveat(itinerary)
 			};
 	}
+}
+
+/**
+ * What this total leaves out, or nothing when it leaves out nothing.
+ *
+ * Issue #140: only a stopover that actually spends a night is missing a bed. On a same-day
+ * connection the total is complete on that count, and warning that it excludes a stay
+ * would invent a cost the trip never had.
+ *
+ * Issue #204 adds the second omission, which had been silent since the app shipped: no
+ * transfer provider quotes a fare, so every ground leg that is not walked contributes
+ * nothing to this figure. One sentence covers both, because two caveats stacked under one
+ * number read as two separate problems when they are one. The total is a floor.
+ */
+function totalPriceCaveat(itinerary: Itinerary): string | undefined {
+	const missingStay = !itinerary.stay && itinerary.nightsInConnection > 0;
+	const missingGround = unpricedTransferLegs(itinerary).length > 0;
+	if (missingStay && missingGround) return 'excludes a bed and ground transport';
+	if (missingStay) return 'excludes an unpriced stay';
+	if (missingGround) return 'excludes unpriced ground transport';
+	return undefined;
 }
 
 /** One line of the brief's "price of each part": a named share of the total. */
@@ -153,6 +169,18 @@ export interface PriceBreakdown {
 	 * a real number that is nonetheless not the whole trip. Never true for a same-day
 	 * connection, which has no bed to be missing. */
 	missingStay: boolean;
+	/**
+	 * Issue #204: how many of this trip's ground legs charge a fare nobody quoted. Zero
+	 * for a trip whose every leg is walked or priced, which is the only case where `total`
+	 * is the whole answer.
+	 *
+	 * A count, not a boolean, because "the airport run, both ways" and "one leg of four"
+	 * are different sizes of hole and the card says which. It is never a Money: this is
+	 * precisely the number the app does not have, and the one distance-derived range it
+	 * does have (`TaxiFareEstimate`) is in the rate card's own currency, so it belongs
+	 * beside its leg in `TransportPicker`, not added into a figure in another currency.
+	 */
+	unpricedTransferCount: number;
 }
 
 /**
@@ -168,6 +196,12 @@ export interface PriceBreakdown {
  * A part with no money in it is left out rather than printed as zero. No transfer
  * provider populates `Transfer.price` today (domain/transfer.ts), so `ground` is normally
  * absent, and it appears on its own the day one does.
+ *
+ * Issue #204: `ground` being absent used to be the end of the story, which is how a trip
+ * needing two taxis came to show the same receipt as one you walk. `unpricedTransferCount`
+ * below is the other half. An absent `ground` line now means either "every leg is walked,
+ * and this total is complete" or "nobody quoted these rides", and the two are told apart
+ * rather than blurred into one silence.
  */
 export function priceBreakdown(itinerary: Itinerary): PriceBreakdown {
 	const flights = sumMoney(
@@ -202,6 +236,7 @@ export function priceBreakdown(itinerary: Itinerary): PriceBreakdown {
 	return {
 		parts,
 		total: itinerary.totalPrice,
-		missingStay: !itinerary.stay && itinerary.nightsInConnection > 0
+		missingStay: !itinerary.stay && itinerary.nightsInConnection > 0,
+		unpricedTransferCount: unpricedTransferLegs(itinerary).length
 	};
 }

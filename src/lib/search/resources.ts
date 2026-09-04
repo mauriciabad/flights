@@ -72,8 +72,48 @@ import {
 import type { StayLookupBudget } from "../providers/budget";
 import type { RecordProviderCall, SourceTracker } from "./provenance";
 
-/** Brief line 76: "cheapest hotels/hostels for each connection within 100km." */
-export const DEFAULT_STAY_RADIUS_KM = 100;
+/**
+ * How far from the connection airport a bed may be and still belong to this stopover.
+ *
+ * The brief's line 76 says "cheapest hotels/hostels for each connection within 100km", so
+ * changing it is a product decision. Issue #204 is the argument for changing it, and the
+ * measurements are from this repo's own data (`data/airports.generated.json` against the
+ * hand-checked city points in `data/airport-city-names.ts`, great-circle):
+ *
+ * | pair | km |
+ * | --- | --- |
+ * | BGY -> Bergamo | 4.1 |
+ * | LIN -> Milan | 7.1 |
+ * | ZAG -> Zagreb | 10.6 |
+ * | EDI -> Edinburgh | 11.5 |
+ * | CDG -> Paris | 22.5 |
+ * | MXP -> Milan | 40.4 |
+ * | CRL -> Brussels | 43.5 |
+ * | STN -> London | 48.9 |
+ * | BVA -> Paris | 68.7 |
+ * | PSA -> Florence | 70.0 |
+ * | GRO -> Barcelona | 75.7 |
+ * | TRF -> Oslo | 85.5 |
+ * | NYO -> Stockholm | 89.3 |
+ * | FMM -> Munich | 101.2 |
+ *
+ * There is a gap in that list between 48.9 and 68.7, and it is not a coincidence. Above
+ * it sit exactly the airports `data/airport-city-names.ts` already refuses to name after
+ * the city on the ticket, in its own words because "each is a real town far from the city
+ * on the ticket... Displaying the marketed city would be the same lie in the other
+ * direction." A 100km stay radius tells that lie anyway, one layer down: it offers a
+ * Barcelona bed for a Girona layover and a Stockholm bed for a Skavsta one, then totals
+ * the coach nobody priced as zero. 50 keeps every city this app is willing to name an
+ * airport after and drops that whole band.
+ *
+ * What 50 does NOT do is fix issue #204's reported symptom, and pretending otherwise
+ * would be the second mistake. Gatwick to central London is 40.1km and Malpensa to
+ * central Milan is 40.4km: no radius separates the bed the owner called "TOO FAR" from a
+ * stopover that is the product working. The cost of getting there is what separates them,
+ * which is `score.ts`'s `assumedTransferCostPerUnpricedLeg` and this file's own
+ * `estimateTaxiFareForLeg`, not this number.
+ */
+export const DEFAULT_STAY_RADIUS_KM = 50;
 
 /**
  * Every `Stay` this candidate's usable providers returned, cheapest first, so a caller can

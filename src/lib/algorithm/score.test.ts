@@ -428,6 +428,120 @@ describe('scoreItinerary / rankItineraries', () => {
 		expect(scored.breakdown.avoidedAirline).toBe(0);
 	});
 
+	// -----------------------------------------------------------------------
+	// Issue #204: an unpriced ride is not a free ride
+	// -----------------------------------------------------------------------
+
+	/**
+	 * The owner's own complaint, reduced to two candidates for the same stopover.
+	 *
+	 * He searched a trip connecting through Gatwick and got beds far out in London while
+	 * Horley, a 40-minute walk from the terminal, sat there unoffered: "the hotels found
+	 * are TOO FAR away to be an acceptable result... and the price of transport should be
+	 * considered as well and you are not doing it".
+	 *
+	 * `nearBed` is Horley: EUR 60 a night, and you walk (3.3km from the terminal, which
+	 * OSRM's foot profile puts around 40 minutes). `farBed` is central London: EUR 32 a
+	 * night, and it is two 45-minute taxi rides nobody has quoted a fare for (40.1km, both
+	 * measured in `search/resources.ts`'s own radius table).
+	 *
+	 * The nightly rates are approximate real ones for that pair of places, not figures
+	 * chosen to make this pass: an airport-town chain hotel against a central-London
+	 * hostel dorm. Over three nights the far bed is EUR 84 cheaper on paper, which is why
+	 * it used to win, and several hundred more expensive once two 40km taxi rides are
+	 * counted (the GB card in `providers/transfers/taxi-rate-table.ts` puts one of them at
+	 * GBP 115 to 183).
+	 *
+	 * Everything else is held identical, so the ranking turns on the rides alone.
+	 */
+	function bedAtDistance(pricePerNightMinorUnits: number, connectionTransfer: Transfer): Itinerary {
+		const base = threeNightStopover();
+		return {
+			...base,
+			stay: { ...stay, pricePerNight: { minorUnits: pricePerNightMinorUnits, currency: 'EUR' } },
+			transferToHotel: connectionTransfer,
+			transferToConnectionAirport: connectionTransfer,
+			totalPrice: { minorUnits: 16000 + pricePerNightMinorUnits * 3, currency: 'EUR' }
+		};
+	}
+
+	const walkToBed: Transfer = { mode: 'walk', duration: 40 as Duration, legs: [] };
+	const taxiToBed: Transfer = { mode: 'taxi', duration: 45 as Duration, legs: [] };
+
+	it('ranks a walkable bed above a cheaper one that needs two taxis nobody priced', () => {
+		const nearBed = bedAtDistance(6000, walkToBed); // Horley: EUR 60/night, on foot
+		const farBed = bedAtDistance(3200, taxiToBed); // London: EUR 32/night, two taxis
+
+		// The defect, stated as an assertion: on quoted money alone the far bed wins by
+		// EUR 84, and `totalPrice` is still allowed to say exactly that. It is a real
+		// number, it is just not the whole trip.
+		expect(farBed.totalPrice.minorUnits).toBeLessThan(nearBed.totalPrice.minorUnits);
+
+		const ranked = rankItineraries([farBed, nearBed]);
+
+		expect(ranked[0]!.itinerary).toBe(nearBed);
+		expect(ranked[0]!.breakdown.unpricedTransfers).toBe(0);
+		expect(ranked[1]!.breakdown.unpricedTransfers).toBeLessThan(0);
+	});
+
+	it('is a floor on an unknown, so a dramatically cheaper bed still wins', () => {
+		// The honest limit of what this charge does, asserted rather than left to be
+		// discovered. Two 45-minute rides are charged 2 * (3 + 70 * 0.75) = 111, and a bed
+		// EUR 50 a night cheaper over three nights is EUR 150 ahead. The far one wins, and
+		// should: the app does not know what those rides cost, and a charge big enough to
+		// overrule any gap would be a penalty wearing an estimate's clothes.
+		const nearBed = bedAtDistance(7000, walkToBed);
+		const farBed = bedAtDistance(2000, taxiToBed);
+
+		expect(rankItineraries([nearBed, farBed])[0]!.itinerary).toBe(farBed);
+	});
+
+	it('charges nothing for a walk, because walking really is free', () => {
+		// The distinction `domain/transfer.ts`'s `costIsUnknown` exists to keep: an absent
+		// price on a walk is a fact this app knows, not a gap in what a provider told it.
+		// Charging it would punish the one leg the product most wants to offer.
+		expect(scoreItinerary(bedAtDistance(7000, walkToBed)).breakdown.unpricedTransfers).toBe(0);
+	});
+
+	it('charges a long unpriced ride more than a short one', () => {
+		const shortHop = bedAtDistance(4000, { mode: 'taxi', duration: 10 as Duration, legs: [] });
+		const longRun = bedAtDistance(4000, { mode: 'taxi', duration: 45 as Duration, legs: [] });
+
+		expect(longRun.totalPrice).toEqual(shortHop.totalPrice); // same bed, same quoted money
+		expect(scoreItinerary(longRun).breakdown.unpricedTransfers).toBeLessThan(
+			scoreItinerary(shortHop).breakdown.unpricedTransfers
+		);
+		// Both legs, base plus the per-hour road term: 2 * (3 + 70 * 45/60) = 111.
+		expect(scoreItinerary(longRun).breakdown.unpricedTransfers).toBeCloseTo(-111, 6);
+		// 2 * (3 + 70 * 10/60) = 29.33.
+		expect(scoreItinerary(shortHop).breakdown.unpricedTransfers).toBeCloseTo(-29.333, 3);
+	});
+
+	it('charges a train into town a ticket, not a meter', () => {
+		// A 45-minute transit leg and a 45-minute taxi are the same duration and nothing
+		// like the same fare, so only the road term scales with the clock.
+		const byTransit = bedAtDistance(4000, { mode: 'transit', duration: 45 as Duration, legs: [] });
+		const byTaxi = bedAtDistance(4000, taxiToBed);
+
+		expect(scoreItinerary(byTransit).breakdown.unpricedTransfers).toBeCloseTo(-6, 6); // 2 * 3
+		expect(scoreItinerary(byTransit).breakdown.unpricedTransfers).toBeGreaterThan(
+			scoreItinerary(byTaxi).breakdown.unpricedTransfers
+		);
+	});
+
+	it('stops charging a leg the moment a provider does quote it', () => {
+		const quoted: Transfer = { ...taxiToBed, price: { minorUnits: 4500, currency: 'EUR' } };
+		expect(scoreItinerary(bedAtDistance(4000, quoted)).breakdown.unpricedTransfers).toBe(0);
+	});
+
+	it('never lets the charge reach totalPrice', () => {
+		// The same separation `assumedNightCostWithoutPricedBed` keeps: the ranking may act
+		// on an assumption, the price a traveller reads may not. AGENTS.md, "never present
+		// an estimate as a fact".
+		const farBed = bedAtDistance(2500, taxiToBed);
+		expect(scoreItinerary(farBed).itinerary.totalPrice).toEqual(farBed.totalPrice);
+	});
+
 	it('every weight in DEFAULT_SCORING_WEIGHTS is a finite positive number', () => {
 		for (const [key, value] of Object.entries(DEFAULT_SCORING_WEIGHTS)) {
 			expect(Number.isFinite(value), `${key} should be finite`).toBe(true);

@@ -27,7 +27,9 @@ export interface Transfer {
 	mode: TransferMode;
 	duration: Duration;
 	/** Walking has no price; other modes may still lack one if the provider doesn't
-	 * quote it. */
+	 * quote it. Those two cases mean opposite things and `costIsUnknown` below is what
+	 * separates them. An absent price on a walk is the fact that walking is free, and an
+	 * absent price on a taxi is a number nobody measured. */
 	price?: Money;
 	legs: TransferLeg[];
 	/**
@@ -50,4 +52,23 @@ export interface Transfer {
 	 * as a schematic hop rather than a real road.
 	 */
 	path?: Coordinates[];
+}
+
+/**
+ * Whether this leg costs a number nobody has given us. Issue #204.
+ *
+ * An absent `Transfer.price` means two opposite things depending on the mode, and every
+ * total in this app used to read both of them as zero. Walking really is free, so an
+ * absent price there is a fact, and a total that omits it is complete. Every other mode
+ * charges a fare, and no `TransferProvider` in this codebase quotes one (OSRM refuses to
+ * on purpose, see its own header, and Transitous returns a timetable, not a ticket
+ * price), so an absent price there is ignorance, and a total that omits it is a floor
+ * being printed as though it were the answer.
+ *
+ * AGENTS.md, "When the data is missing": "say what you do not know rather than guessing."
+ * This is the predicate that lets the rest of the app do that instead of quietly
+ * substituting zero.
+ */
+export function costIsUnknown(transfer: Transfer): boolean {
+	return transfer.mode !== 'walk' && transfer.price === undefined;
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { Itinerary } from '../domain';
+import type { Duration, Itinerary } from '../domain';
 import { sumMoney } from '../algorithm/build';
 import { makeItinerary } from '../results/test-support';
 import { ALL_METRIC_IDS, CARD_METRIC_IDS, itineraryMetrics, priceBreakdown } from './itinerary-metrics';
@@ -109,5 +109,43 @@ describe('priceBreakdown', () => {
 		// domain/transfer.ts: no adapter populates `Transfer.price` today. A zero row here
 		// would read as "the transfers are free", which is a claim nobody measured.
 		expect(priceBreakdown(makeItinerary({})).parts.some((part) => part.id === 'ground')).toBe(false);
+	});
+
+	// Issue #204 --------------------------------------------------------------
+
+	it('counts nothing unpriced when every leg is walked', () => {
+		// `makeItinerary`'s default legs are walks, so the total really is complete here.
+		// This is the case the count has to leave alone: an absent ground line means "free
+		// on foot" as often as it means "nobody said", and blurring them was the bug.
+		expect(priceBreakdown(makeItinerary({})).unpricedTransferCount).toBe(0);
+	});
+
+	it('counts each ground leg nobody quoted a fare for', () => {
+		const taxi = { mode: 'taxi' as const, duration: 30 as Duration, legs: [] };
+		const byTaxi = { ...makeItinerary({}), transferToHotel: taxi, transferToConnectionAirport: taxi };
+		expect(priceBreakdown(byTaxi).unpricedTransferCount).toBe(2);
+	});
+
+	it('warns about the bed and the rides in one caveat, not two', () => {
+		// Two warning chips stacked under one number read as two separate problems when
+		// they are one: the total is a floor.
+		const taxi = { mode: 'taxi' as const, duration: 30 as Duration, legs: [] };
+		const both = { ...withoutStay(makeItinerary({ nightsInConnection: 3 })), transferToHotel: taxi };
+		expect(itineraryMetrics(both, ['total-price'])[0]!.note).toBe('excludes a bed and ground transport');
+	});
+
+	it('names only the omission that actually applies', () => {
+		const taxi = { mode: 'taxi' as const, duration: 30 as Duration, legs: [] };
+		const groundOnly = { ...makeItinerary({ nightsInConnection: 3 }), transferToHotel: taxi };
+		expect(itineraryMetrics(groundOnly, ['total-price'])[0]!.note).toBe('excludes unpriced ground transport');
+
+		const bedOnly = withoutStay(makeItinerary({ nightsInConnection: 3 }));
+		expect(itineraryMetrics(bedOnly, ['total-price'])[0]!.note).toBe('excludes an unpriced stay');
+	});
+
+	it('leaves a fully-known total with no caveat at all', () => {
+		// A same-day connection walked at both ends really is completely priced, and
+		// warning about it would invent a cost the trip never had (issue #140).
+		expect(itineraryMetrics(makeItinerary({ nightsInConnection: 0 }), ['total-price'])[0]!.note).toBeUndefined();
 	});
 });

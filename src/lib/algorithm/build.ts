@@ -163,7 +163,13 @@ export function scaleFareForParty(offer: FlightOffer, travellers: number): Money
 
 /** Totals Money values that must already share one currency — converting between
  * currencies is out of scope here, left to whichever module normalises provider prices
- * before they reach the builder. Exported for the same reason as `minutesBetween` above. */
+ * before they reach the builder. Exported for the same reason as `minutesBetween` above.
+ *
+ * Skipping `undefined` is a deliberate "this part contributed nothing", NOT "this part is
+ * free". Issue #204: for a transfer those are opposite claims, and every caller passing a
+ * `Transfer.price` here has to say which of the two it left out. See
+ * `domain/itinerary.ts`'s `unpricedTransferLegs`, which is what both call sites below
+ * hand to the ranking and the card. */
 export function sumMoney(first: Money, ...rest: (Money | undefined)[]): Money {
 	let total = first.minorUnits;
 	for (const part of rest) {
@@ -347,6 +353,13 @@ export function buildItineraries(input: BuildItinerariesInput): Itinerary[] {
 			// Ryanair fare needs `travellers` applied, an already-party-total Skyscanner
 			// fare must not be multiplied again. The stay's per-night rate is never scaled
 			// either way — issue #80/#94's own deliberate flat-per-party choice.
+			//
+			// Issue #204: the four transfer prices below are, today, always `undefined`,
+			// because no `TransferProvider` in this codebase quotes a fare. That does not make the
+			// legs free, and this total does not pretend it does: `unpricedTransferLegs`
+			// names every one of them, `score.ts` charges the ranking for them, and the
+			// card prints them as an omission. The number here stays exactly what was
+			// quoted, which is the whole reason it can be trusted.
 			const totalPrice = sumMoney(
 				scaleFareForParty(outbound, travellers),
 				scaleFareForParty(onward, travellers),
