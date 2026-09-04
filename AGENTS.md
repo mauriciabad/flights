@@ -320,6 +320,23 @@ branch that is not yours.
 
 - `pnpm check` passes. No new type errors, no `any` smuggled in to silence one.
 - `pnpm build` passes.
+- `pnpm qa` passes. It drives the built app in a browser and asserts how the whole thing
+  behaves over a whole interaction: what one search costs per provider, that pricing a bed
+  never deletes the trip, that a reload paints from cache before the network answers, that
+  the quota on screen is the provider's number, and that no offer names an airline its
+  provider does not fly. Read `tests/qa/README.md` before adding to it. It never calls a
+  metered provider, in any mode.
+  - Some checks are pinned to open defects in `tests/qa/known-broken.ts` and fail on
+    purpose. If your change makes one PASS, the run goes red on purpose too: delete its
+    entry, say so in the PR, and close the issue. That is the only way a fix gets banked.
+  - If you change which endpoint an adapter calls, answer the new one in
+    `tests/qa/support/responses.ts` in the same PR. A bench that answers an endpoint
+    nobody calls any more produces zero itineraries, and every behavioural check then
+    fails at its "is there anything on screen" line — which reads exactly like several
+    unrelated invariants breaking at once. That happened here: #166 landed 48 seconds
+    before this suite's first CI run, and the three failures it produced were reported
+    onward as a cache bug, a currency bug and a fabricated itinerary. None of them had
+    happened. `bench-answers.qa.ts` now says so first.
 - Tests for anything with logic in it. Pure functions especially, since the algorithm modules
   are where a wrong answer hides quietly.
 - No secrets, no keys, no personal data in the diff.

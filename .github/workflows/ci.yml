@@ -46,3 +46,39 @@ jobs:
           name: playwright-report
           path: playwright-report/
           retention-days: 7
+
+  qa:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec playwright install --with-deps chromium
+      # Asks whether the app behaves properly when a person uses it, rather than whether
+      # its parts work -- see tests/qa/README.md. Never calls a metered provider: Agoda,
+      # Booking, Skyscanner, Kiwi and Flights Sky are answered from a recording in every
+      # mode, and `pnpm qa:live` (keyless providers only) is not run here because a
+      # volunteer-run transit API having a bad afternoon is not a reason to block a PR.
+      #
+      # No `continue-on-error`, deliberately. This job is meant to go red and stop a merge.
+      # An advisory check on a repo where a dozen agents merge on green is a check nobody
+      # reads, which is the state docs/ACCEPTANCE.md is complaining about when it says a
+      # green CI run "has not caught one of the defects that reached the owner". What makes
+      # blocking survivable is `tests/qa/known-broken.ts`: a defect that is known, filed and
+      # open is pinned and the suite is green, so red always means something new -- a fresh
+      # regression, or a pin whose issue has closed. Both are worth stopping for.
+      - run: pnpm qa
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: qa-report
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7
