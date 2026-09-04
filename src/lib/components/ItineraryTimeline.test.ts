@@ -531,6 +531,8 @@ describe('ItineraryTimeline, selection binding for the map (issue #73)', () => {
 
 		expect(harness.currentSelection()).toBe('connection-waiting');
 		expect(row.getAttribute('aria-current')).toBe('true');
+	});
+
 	it('the ol root and flat li row structure are unchanged by the added interactivity', () => {
 		// The mount target itself is a plain test-harness <div>, not part of the component;
 		// its first child is this component's actual root, per the DOM contract issue #25

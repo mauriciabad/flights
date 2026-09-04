@@ -307,67 +307,88 @@
 			});
 		}
 
-		stackCoLocatedMarkers();
+		restackMarkers();
 	}
 
-	/** Close enough to be the same place: the tolerance `providers/geocode/airport-city.ts`
-	 *  already uses against this app's own airport coordinates, ~11 m at the equator. In
-	 *  practice the pairs this catches are bit-identical (the stopover point copies the
-	 *  connection airport's own coordinates), and the tolerance is only there so a future
-	 *  point derived through arithmetic still counts. */
-	const CO_LOCATION_TOLERANCE_DEGREES = 1e-4;
-
-	/** Air between two stacked markers. Small enough that they read as one cluster
-	 *  pinned to one place, wide enough that neither swallows the other's pointer
-	 *  events, which is the whole point (issue #141). */
+	/** Air between two stacked markers. Small enough that they read as one cluster pinned
+	 *  to one place, wide enough that neither swallows the other's pointer events, which is
+	 *  the whole point (issue #141). */
 	const MARKER_STACK_GAP_PX = 4;
-
-	function coLocationKey(coordinates: Coordinates): string {
-		const quantise = (value: number) => Math.round(value / CO_LOCATION_TOLERANCE_DEGREES);
-		return `${quantise(coordinates.latitude)}:${quantise(coordinates.longitude)}`;
-	}
 
 	/**
 	 * Issue #141: the stopover marker could not be clicked.
 	 *
-	 * With no bed priced, the stopover sits on the connection airport's own coordinates
-	 * (`segments.ts` explains why there is nowhere else to put it), and MapLibre draws
-	 * every marker as an absolutely positioned sibling in insertion order. Two markers on
-	 * one point therefore overlap exactly, and the airport pill, added last, took every
-	 * click meant for the stopover pin underneath it. Playwright called it plainly:
-	 * "subtree intercepts pointer events". Keyboard users could still reach it by Tab;
-	 * pointer users could not reach it at all.
+	 * MapLibre draws every marker as an absolutely positioned sibling in insertion order, so
+	 * two markers landing on the same few pixels overlap exactly and the later one takes
+	 * every click meant for the earlier. The airport pill is drawn after the stopover pin, so
+	 * the pin was unreachable by pointer; Playwright called it plainly, "subtree intercepts
+	 * pointer events", while a keyboard user could still Tab to it.
 	 *
-	 * So markers sharing a coordinate are stacked vertically instead, each lifted clear of
-	 * the one below by its measured height (`offsetHeight`, read after they are in the DOM,
-	 * so a different root font size or a longer IATA pill still stacks correctly rather
-	 * than against a hard-coded guess). The airport keeps the anchor point, because its
-	 * coordinates are the exact ones and anything sharing them is only approximately
-	 * there. Both markers still point at the same place, which is true; they just stop
-	 * being drawn on top of each other, which was never useful.
+	 * The first version of this fix stacked markers that shared a *coordinate*, which is the
+	 * case with no bed priced and no city centre known. It was not enough, and the live run on
+	 * the issue's own route is what showed it: Bergamo's centre is a real 5 km from BGY
+	 * (issue #162), so the two are not co-located at all, and at the zoom that frames a whole
+	 * BCN to OTP trip 5 km is a third of a pixel. Distinct coordinates, same pixel, same
+	 * swallowed click. Every stopover overlaps its connection airport at the opening view,
+	 * because that view is chosen to fit three airports across a continent.
+	 *
+	 * So collision is measured where it actually happens, on screen, and re-measured whenever
+	 * the camera settles. Markers are placed in order — airports first, since their
+	 * coordinates are the exact ones and everything else is only approximately where it says
+	 * — and each one is lifted straight up until its box clears every box already placed.
+	 * That is the ordinary map-label declutter, and it degrades correctly: markers that do not
+	 * overlap are never moved, and a marker that has been lifted drops back to its own point
+	 * as soon as a zoom separates it from its neighbour.
+	 *
+	 * Recomputed on `moveend` rather than on every frame: during a pan the markers travel with
+	 * the map, which is right, and re-stacking mid-gesture would make them crawl around under
+	 * the pointer. `offsetWidth`/`offsetHeight` are read from the live elements, so a longer
+	 * IATA pill or a larger root font size stacks correctly instead of against a guess.
 	 */
-	function stackCoLocatedMarkers(): void {
-		const groups = new Map<string, typeof markers>();
-		for (const entry of markers) {
-			const key = coLocationKey(entry.coordinates);
-			const group = groups.get(key);
-			if (group) group.push(entry);
-			else groups.set(key, [entry]);
-		}
+	function restackMarkers(): void {
+		const currentMap = map;
+		if (!currentMap || markers.length === 0) return;
 
-		for (const group of groups.values()) {
-			if (group.length < 2) continue;
-			const ordered = [...group].sort(
-				(a, b) => Number(b.markerKind === 'airport') - Number(a.markerKind === 'airport')
-			);
+		const ordered = [...markers].sort(
+			(a, b) => Number(b.markerKind === 'airport') - Number(a.markerKind === 'airport')
+		);
+		const placed: { left: number; right: number; top: number; bottom: number }[] = [];
+
+		for (const entry of ordered) {
+			// Projected from the coordinate rather than read off the element's current
+			// position, so a previous run's offset never feeds into this one.
+			const point = currentMap.project([entry.coordinates.longitude, entry.coordinates.latitude]);
+			const width = entry.element.offsetWidth;
+			const height = entry.element.offsetHeight;
 			let lift = 0;
-			for (let index = 1; index < ordered.length; index++) {
-				lift += ordered[index - 1].element.offsetHeight + MARKER_STACK_GAP_PX;
-				ordered[index].marker.setOffset([0, -lift]);
-				// Paints above the marker it was lifted off, so a selected ring or shadow
-				// is never clipped by the neighbour it is standing on.
-				ordered[index].element.style.zIndex = String(index);
+
+			// Bounded by the marker count: each pass either settles or clears one more of the
+			// boxes below it, and there are only ever a handful of markers on this map.
+			for (let attempt = 0; attempt <= markers.length; attempt++) {
+				const box = {
+					left: point.x - width / 2,
+					right: point.x + width / 2,
+					top: point.y - lift - height,
+					bottom: point.y - lift
+				};
+				const hit = placed.find(
+					(other) =>
+						box.left < other.right &&
+						box.right > other.left &&
+						box.top < other.bottom &&
+						box.bottom > other.top
+				);
+				if (!hit) {
+					placed.push(box);
+					break;
+				}
+				lift = point.y - hit.top + MARKER_STACK_GAP_PX;
 			}
+
+			entry.marker.setOffset([0, -lift]);
+			// A lifted marker paints above the one it stands on, so a selected ring or shadow
+			// is never clipped by its neighbour.
+			entry.element.style.zIndex = String(Math.round(lift));
 		}
 	}
 
@@ -522,6 +543,12 @@
 			});
 			instance.addControl(new maplibregl.AttributionControl({ compact: true }));
 			instance.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');
+
+			// Marker collision is a screen-space fact, so it has to be re-measured whenever
+			// the camera stops moving — a zoom that separates two markers should drop the
+			// lifted one back onto its own point, and one that brings them together should
+			// stack them. `moveend` covers pan, zoom, `flyTo` and `fitBounds` alike.
+			instance.on('moveend', () => restackMarkers());
 
 			instance.once('load', () => {
 				applyThemeColors(instance, scheme);

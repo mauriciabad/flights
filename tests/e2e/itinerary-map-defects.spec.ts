@@ -61,7 +61,7 @@ function markerTransforms(page: Page): Promise<string[]> {
 	);
 }
 
-async function openDetail(page: Page) {
+async function openDetail(page: Page, options: { originLocation?: boolean } = {}) {
 	await mockAllKeylessProviders(page.context());
 	await routeRyanairFlights(page.context(), [
 		{
@@ -87,7 +87,13 @@ async function openDetail(page: Page) {
 		route.fulfill({ status: 200, contentType: 'application/json', body: EMPTY_MAP_STYLE })
 	);
 
-	await page.goto('/results/?dep=2027-03-08&arr=2027-03-27&from=BCN&to=TLL');
+	// `fromLoc` is opt-in: only the marker-collision check below needs a second point near
+	// an airport, and every other check reads better on the plainest itinerary that shows
+	// the defect.
+	const origin = options.originLocation
+		? '&fromLoc=' + encodeURIComponent('Barcelona centre@41.3870,2.1700')
+		: '';
+	await page.goto(`/results/?dep=2027-03-08&arr=2027-03-27&from=BCN&to=TLL${origin}`);
 	await expect(page.getByText('still searching')).toHaveCount(0, { timeout: 20_000 });
 	await page.getByRole('button', { name: 'Show details' }).first().click();
 
@@ -128,6 +134,54 @@ test.describe('itinerary map defects (issue #141)', () => {
 		await airport.click();
 		await expect(airport).toHaveAttribute('aria-pressed', 'true');
 		await expect(stopover).toHaveAttribute('aria-pressed', 'false');
+	});
+
+	test('the stack is re-measured when the camera moves, and only where markers collide', async ({
+		page
+	}) => {
+		// The first version of this fix stacked markers sharing a *coordinate*, and the live
+		// run on the issue's own route showed that is not the case that matters: Bergamo's
+		// centre is 5 km from BGY, and at the zoom that frames a whole trip 5 km is a third
+		// of a pixel. Collision is a screen fact, so it is re-measured on `moveend`.
+		const detail = await openDetail(page, { originLocation: true });
+		// Two points 12 km apart: the traveller's own starting point and the runway it feeds.
+		// Distinct coordinates, and one pixel apart at the zoom that frames BCN to TLL.
+		const start = detail.locator('.itinerary-marker[aria-label="Barcelona centre"]');
+		const barcelona = detail.locator('.itinerary-marker[aria-label="Barcelona (BCN)"]');
+		const tallinn = detail.locator('.itinerary-marker[aria-label="Tallinn (TLL)"]');
+		await expect(start).toBeVisible();
+
+		// The lift a marker is carrying, in pixels, published as its z-index: a marker with
+		// nothing near it is never moved, so it stays at zero.
+		const liftOf = (marker: typeof start) => marker.evaluate((el) => Number(el.style.zIndex || 0));
+
+		await expect.poll(() => liftOf(start), { timeout: 5_000 }).toBeGreaterThan(0);
+		expect(await liftOf(barcelona), 'the airport keeps the anchor point').toBe(0);
+		expect(await liftOf(tallinn), 'a marker with nothing near it is left alone').toBe(0);
+
+		const startBox = (await start.boundingBox())!;
+		const airportBox = (await barcelona.boundingBox())!;
+		expect(airportBox.y - (startBox.y + startBox.height)).toBeGreaterThan(0);
+
+		// Zooming in separates the two on screen without either coordinate changing, so the
+		// lift drops back to nothing and the marker returns to its own point. Paced, because
+		// each press is a 300ms `easeTo` and a press landing mid-animation is dropped.
+		const zoom = async (direction: 'in' | 'out', steps: number) => {
+			for (let step = 0; step < steps; step++) {
+				await detail.locator(`.maplibregl-ctrl-zoom-${direction}`).click();
+				await page.waitForTimeout(400);
+			}
+		};
+
+		await zoom('in', 6);
+		await expect.poll(() => liftOf(start), { timeout: 10_000 }).toBe(0);
+
+		// And zooming back out brings the collision, and the stack, back.
+		await zoom('out', 6);
+		await expect.poll(() => liftOf(start), { timeout: 10_000 }).toBeGreaterThan(0);
+
+		await start.click();
+		await expect(start).toHaveAttribute('aria-pressed', 'true');
 	});
 
 	test('the stopover frames the city, not the runway', async ({ page }) => {
