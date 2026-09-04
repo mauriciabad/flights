@@ -1,4 +1,5 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { getReportedProviderQuota } from '../budget';
 import { callSkyscanner } from './skyscanner-client';
 
 function jsonResponse(status: number, body: unknown, headers: Record<string, string> = {}): Response {
@@ -148,5 +149,52 @@ describe('callSkyscanner', () => {
 		);
 		expect(result.ok).toBe(false);
 		if (!result.ok) expect(result.error.code).toBe('unknown');
+	});
+});
+
+/**
+ * Issue #146. Sky Scrapper's free tier is 20 requests a month and this app's own counter
+ * lives in one browser's `localStorage`, so a second profile has always believed it had
+ * all 20. RapidAPI states the real figure in headers on every response, and until this
+ * suite existed nothing in `src/` read them.
+ */
+describe('callSkyscanner and the account’s own quota', () => {
+	beforeEach(() => {
+		localStorage.clear();
+	});
+
+	it('records what the response said about the key’s remaining quota', async () => {
+		const fetchImpl = vi.fn().mockResolvedValue(
+			jsonResponse(
+				200,
+				{ status: true, data: [] },
+				{
+					'x-ratelimit-requests-limit': '20',
+					'x-ratelimit-requests-remaining': '4',
+					'x-ratelimit-requests-reset': '1209600'
+				}
+			)
+		);
+		await callSkyscanner('/api/v1/flights/searchAirport', {}, { apiKey: 'k', signal: new AbortController().signal, fetchImpl });
+
+		expect(getReportedProviderQuota('skyscanner')).toMatchObject({ limit: 20, remaining: 4, scope: 'requests' });
+	});
+
+	it('records them off a 429 too, which is when they matter most', async () => {
+		const fetchImpl = vi
+			.fn()
+			.mockResolvedValue(jsonResponse(429, {}, { 'x-ratelimit-requests-limit': '20', 'x-ratelimit-requests-remaining': '0' }));
+		await callSkyscanner('/api/v1/flights/searchAirport', {}, { apiKey: 'k', signal: new AbortController().signal, fetchImpl });
+
+		expect(getReportedProviderQuota('skyscanner')?.remaining).toBe(0);
+	});
+
+	it('leaves the store untouched when a response carries no such headers', async () => {
+		// The expected case until someone measures a real RapidAPI response from a browser:
+		// a cross-origin fetch cannot read a header the server does not expose.
+		const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(200, { status: true }));
+		await callSkyscanner('/api/v1/flights/searchAirport', {}, { apiKey: 'k', signal: new AbortController().signal, fetchImpl });
+
+		expect(getReportedProviderQuota('skyscanner')).toBeUndefined();
 	});
 });

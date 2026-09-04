@@ -51,6 +51,8 @@
  * fix (Milan's satellite airports).
  */
 
+import { recordRateLimitHeaders } from '../budget';
+import type { ProviderId } from '../types';
 import type {
 	AgodaFetchError,
 	AgodaFetchResult,
@@ -59,6 +61,7 @@ import type {
 	NominatimReverseResponse
 } from './agoda-types';
 
+const PROVIDER_ID: ProviderId = 'agoda';
 const AGODA_HOST = 'agoda-com.p.rapidapi.com';
 const SEARCH_URL = `https://${AGODA_HOST}/hotels-homes/overnight-stays/search`;
 const GET_PRICES_URL = `https://${AGODA_HOST}/hotels-homes/get-prices`;
@@ -105,6 +108,14 @@ async function getJson<T>(
 				cause
 			}
 		};
+	}
+
+	// Before any status branching: RapidAPI sends its quota headers on a 429 and a 403 too,
+	// and those are exactly the responses where the real remaining count matters (#146).
+	// Gated on the host because this same function also calls keyless Nominatim, whose
+	// headers say nothing about the metered Agoda plan.
+	if (url.startsWith(`https://${AGODA_HOST}`)) {
+		recordRateLimitHeaders(PROVIDER_ID, response.headers);
 	}
 
 	if (response.status === 403) {

@@ -10,8 +10,11 @@
  * rather than the default.
  */
 
+import { recordRateLimitHeaders } from '../budget';
+import type { ProviderId } from '../types';
 import type { BookingFetchError, BookingFetchResult, BookingRoomListResponse, BookingSearchResponse } from './booking-types';
 
+const PROVIDER_ID: ProviderId = 'booking';
 const BOOKING_HOST = 'booking-com15.p.rapidapi.com';
 const SEARCH_BY_COORDINATES_URL = `https://${BOOKING_HOST}/api/v1/hotels/searchHotelsByCoordinates`;
 const GET_ROOM_LIST_URL = `https://${BOOKING_HOST}/api/v1/hotels/getRoomList`;
@@ -60,6 +63,10 @@ async function getJson<T>(
 			}
 		};
 	}
+
+	// Before any status branching: RapidAPI sends its quota headers on a 429 and a 403 too,
+	// and those are exactly the responses where the real remaining count matters (#146).
+	recordRateLimitHeaders(PROVIDER_ID, response.headers);
 
 	if (response.status === 403) {
 		return {

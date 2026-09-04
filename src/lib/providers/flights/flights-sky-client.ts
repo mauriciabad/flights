@@ -10,9 +10,10 @@
  * return a result" (see `CallProviderWithBudgetOptions.execute`'s doc comment).
  */
 
-import { ProviderHttpError } from '../budget';
+import { ProviderHttpError, recordRateLimitHeaders } from '../budget';
 import type { ProviderErrorCode } from '../budget';
 import { defaultClassifyError } from '../budget';
+import type { ProviderId } from '../types';
 import type {
 	FlightsSkyAutoCompleteResponse,
 	FlightsSkyPriceCalendarResponse,
@@ -21,6 +22,7 @@ import type {
 
 /** The only host this adapter is built and verified against (this issue's brief;
  * docs/PROVIDERS.md). */
+const PROVIDER_ID: ProviderId = 'flights-sky';
 const HOST = 'flights-sky.p.rapidapi.com';
 const BASE_URL = `https://${HOST}`;
 
@@ -72,6 +74,10 @@ async function getJson<T>(
 		},
 		signal: deps.signal
 	});
+
+	// Before the ok/not-ok branch: RapidAPI sends its quota headers on a 429 and a 403 too,
+	// and those are exactly the responses where the real remaining count matters (#146).
+	recordRateLimitHeaders(PROVIDER_ID, response.headers);
 
 	if (!response.ok) {
 		const body = await safeReadJson(response);

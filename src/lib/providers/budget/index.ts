@@ -29,7 +29,17 @@ export { clearInFlightForTests, dedupeInFlight } from './dedupe';
 export { monthKeyFor, secondsUntilNextMonthUtc } from './month-key';
 export { isPermanentlyUnsubscribed, markNotSubscribed, resetPermanentFailuresForTests } from './permanent-failures';
 export { getProviderQuotaSnapshot, reserveProviderRequests } from './quota';
-export type { ProviderQuotaSnapshot, QuotaLookupOptions, ReserveResult } from './quota';
+export type { ProviderQuotaSnapshot, QuotaLookupOptions, ReserveRefusal, ReserveResult } from './quota';
 export { clearProviderQuotaStateForTests, loadProviderQuotaState, saveProviderQuotaState } from './quota-storage';
 export type { ProviderQuotaRecord, ProviderQuotaState } from './quota-storage';
+export { RAPIDAPI_QUOTA_SCOPE, parseRateLimitWindows, pickQuotaWindow } from './rate-limit-headers';
+export type { RateLimitWindow } from './rate-limit-headers';
+export {
+	clearReportedQuotaForTests,
+	getReportedProviderQuota,
+	loadReportedQuotaState,
+	recordRateLimitHeaders,
+	saveReportedQuotaState
+} from './reported-quota';
+export type { RecordRateLimitOptions, ReportedProviderQuota, ReportedQuotaState } from './reported-quota';
 export type { ProviderError, ProviderErrorCode, ProviderId, ProviderResult, ProviderSource } from './types';

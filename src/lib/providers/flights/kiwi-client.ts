@@ -4,8 +4,11 @@
  * contract as ryanair-client.ts, so kiwi.ts never needs a try/catch around a fetch call.
  */
 
+import { recordRateLimitHeaders } from '../budget';
+import type { ProviderId } from '../types';
 import type { KiwiFetchResult, KiwiOneWayResponse, KiwiOneWaySearchParams } from './kiwi-types';
 
+const KIWI_PROVIDER_ID: ProviderId = 'kiwi';
 const BASE_URL = 'https://kiwi-com-cheap-flights.p.rapidapi.com';
 const HOST_HEADER = 'kiwi-com-cheap-flights.p.rapidapi.com';
 
@@ -70,6 +73,10 @@ async function getJson<T>(
 			}
 		};
 	}
+
+	// Before any status branching: RapidAPI sends its quota headers on a 429 and a 403 too,
+	// and those are exactly the responses where the real remaining count matters (#146).
+	recordRateLimitHeaders(KIWI_PROVIDER_ID, response.headers);
 
 	if (!response.ok) {
 		if (response.status === 403) {

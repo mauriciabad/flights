@@ -298,6 +298,57 @@ Provider slugs, since finding these cost real time:
 listing (`/search?term=kiwi`); the bare `/search/<term>` path drops the query string and
 returns an unfiltered list, which cost real time to notice.
 
+### The quota headers, and what is actually known about them (issue #146)
+
+**Nothing in this repo has ever captured a RapidAPI response's headers.** Every fixture
+under an adapter's `fixtures` directory and under `tests/e2e/fixtures` is a response body.
+The quotas in the table above were read off RapidAPI's dashboard, not off a response. So
+this section separates what is documented from what has been measured, because the app now
+depends on the difference.
+
+**Documented by RapidAPI, unverified here.** Its gateway is documented to return the
+subscribed plan's quota on every response:
+
+```
+x-ratelimit-requests-limit      the plan's total allowance
+x-ratelimit-requests-remaining  what is left of it
+x-ratelimit-requests-reset      seconds until it resets
+```
+
+and, separately, a short burst window under the bare names `x-ratelimit-limit` and
+`x-ratelimit-remaining` (documented as 60 seconds). Those two are easy to confuse and the
+consequences are not symmetric. Reading "5 of 1000 left this minute" as the month's
+allowance would record 995 requests spent and refuse every search for the rest of the
+month.
+
+**Not known, and it is the question that matters.** A browser can only read a response
+header the server names in `Access-Control-Expose-Headers`. Whether RapidAPI exposes
+`x-ratelimit-*` cross-origin has not been measured. If it does not, these headers exist on
+the wire and the browser throws them away before app code sees them, exactly as happened
+with Travelpayouts (see "Travelpayouts, and why it cannot be called from the browser").
+
+So `src/lib/providers/budget/rate-limit-headers.ts` is written for their absence. It
+matches header names by shape rather than from a fixed list, records the names it actually
+saw, refuses to classify a window it cannot show to be a plan quota, and treats "no
+headers" as "we learned nothing" — never as "zero remaining". If they never arrive, the app
+behaves exactly as it did before, on a per-browser estimate.
+
+**How to answer this for free, whenever someone next has a reason to call one of these
+APIs.** It costs no extra request, because the answer rides on a call already being made:
+
+```js
+page.on('response', (r) => {
+  const h = r.headers();
+  if (r.url().includes('.p.rapidapi.com')) {
+    console.log(r.url(), Object.keys(h).filter((k) => k.includes('ratelimit')), h);
+  }
+});
+```
+
+Write what comes back here, verbatim, including the case where the list is empty — an
+empty list is the finding, not a failed measurement. Do not spend a request to run this on
+its own.
+
 ### Flights Sky has a price calendar, and it is the reason this app is affordable
 
 **Measured 2026-09-04.** `flights-sky.p.rapidapi.com/flights/price-calendar` returns a price
