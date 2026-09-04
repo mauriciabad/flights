@@ -18,9 +18,20 @@
 		/** Resolved lazily by the page (getAirport is async); undefined until then, in
 		 * which case the card falls back to the bare IATA code rather than blocking. */
 		connectionAirport?: Airport;
+		/** Issue #103: whether this card is one of the ones the traveller picked to line
+		 * up in the comparator. Owned by the results page (keyed on `result.id`, the
+		 * connection airport code — see `+page.svelte`'s own comment on why that's the
+		 * identity to track, not the object itself), not local state here, so selection
+		 * survives this card's own content being replaced in place as the search streams. */
+		selected?: boolean;
+		/** Issue #104: whether the full timeline/map/pickers are open below this card. */
+		expanded?: boolean;
+		onToggleSelect?: () => void;
+		onToggleExpand?: () => void;
 	}
 
-	let { result, connectionAirport }: Props = $props();
+	let { result, connectionAirport, selected = false, expanded = false, onToggleSelect, onToggleExpand }: Props =
+		$props();
 
 	const itinerary = $derived(result.itinerary);
 	const connectionCode = $derived(connectionAirportCode(itinerary));
@@ -92,12 +103,21 @@
 			<div class="stat stat-stopover">
 				<dt>Nights in {connectionLabel}</dt>
 				<dd class="text-stopover">
-					{#if !itinerary.stay}
-						No stay priced
-					{:else if itinerary.nightsInConnection === 0}
-						Same-day connection
-					{:else}
+					<!-- Issue #108: nights (build.ts's own nightsBetween, issue #105) reads off
+					     the free-time window alone since #110, no longer gated on a priced stay,
+					     so a real night count and "no bed priced yet" are two separate facts, both
+					     true at once — never one instead of the other. Checking nights first,
+					     matching view-model.ts's describeWhyGood, is what stops a real 12-night
+					     stopover reading as "No stay priced" the way it did before this fix. -->
+					{#if itinerary.nightsInConnection > 0}
 						{itinerary.nightsInConnection}
+						{#if !itinerary.stay}
+							<span class="stat-caveat">no bed priced for it yet</span>
+						{/if}
+					{:else if !itinerary.stay}
+						No stay priced
+					{:else}
+						Same-day connection
 					{/if}
 				</dd>
 			</div>
@@ -121,6 +141,51 @@
 		{#if variantsLabel}
 			<p class="variants">{variantsLabel}</p>
 		{/if}
+
+		<!-- Issue #103/#104: the two affordances the results list never had before —
+		     "pick this one to compare" and "open the full trip." Both are plain controlled
+		     inputs (the checked/aria-expanded state comes straight from a prop, never a
+		     locally-owned copy), so an external change — the traveller clearing the whole
+		     selection from the compare bar, say — is never stuck out of sync with what this
+		     card renders, the exact bug FilterPanel.svelte's own Chip usage documents as the
+		     failure mode of a `$bindable` prop nobody binds. -->
+		<div class="card-controls">
+			<label class="compare-toggle">
+				<input
+					type="checkbox"
+					checked={selected}
+					onchange={() => onToggleSelect?.()}
+					aria-describedby={`${connectionCode}-compare-hint`}
+				/>
+				<span>Compare</span>
+			</label>
+			<span id={`${connectionCode}-compare-hint`} class="visually-hidden">
+				Select this itinerary to line it up against others in the comparator.
+			</span>
+			<button
+				type="button"
+				class="details-toggle"
+				aria-expanded={expanded}
+				onclick={() => onToggleExpand?.()}
+			>
+				{expanded ? 'Hide details' : 'Show details'}
+				<svg
+					class={['details-chevron', { 'is-open': expanded }]}
+					viewBox="0 0 16 16"
+					aria-hidden="true"
+					focusable="false"
+				>
+					<path
+						d="M4 6l4 4 4-4"
+						fill="none"
+						stroke="currentColor"
+						stroke-width="1.5"
+						stroke-linecap="round"
+						stroke-linejoin="round"
+					/>
+				</svg>
+			</button>
+		</div>
 	</div>
 
 	{#snippet footer()}
@@ -266,6 +331,16 @@
 		font-weight: var(--font-weight-semibold);
 	}
 
+	/* The "no bed priced yet" qualifier next to a real night count (issue #108): its own
+	   line, small and muted, so the number stays the thing a glance actually reads while
+	   the caveat is still there for anyone reading closer. */
+	.stat-caveat {
+		display: block;
+		font-size: var(--font-size-xs);
+		font-weight: var(--font-weight-regular);
+		color: var(--color-text-faint);
+	}
+
 	.free-time {
 		display: flex;
 		flex-direction: column;
@@ -314,6 +389,75 @@
 		font-size: var(--font-size-xs);
 		font-weight: var(--font-weight-medium);
 		color: var(--color-accent);
+	}
+
+	/* The ticket's tear line, reused for the row of controls below the boarding-pass
+	   content rather than inventing a new divider treatment — same motif as
+	   ItineraryTimeline's own totals divider (`.itinerary-timeline-totals`). */
+	.card-controls {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: var(--space-3);
+		margin-top: var(--space-1);
+		padding-top: var(--space-4);
+		border-top: 2px dashed var(--color-border-strong);
+	}
+
+	.compare-toggle {
+		display: flex;
+		align-items: center;
+		gap: var(--space-2);
+		min-height: 2.75rem;
+		font-size: var(--font-size-sm);
+		font-weight: var(--font-weight-medium);
+		color: var(--color-text);
+		cursor: pointer;
+	}
+
+	.compare-toggle input {
+		/* Large enough to be a real 44px-ish touch target together with its label, not a
+		   native 13px checkbox floating in a sea of padding. */
+		width: 1.25rem;
+		height: 1.25rem;
+		accent-color: var(--color-accent);
+	}
+
+	.compare-toggle input:focus-visible {
+		outline: 2px solid var(--color-focus-ring);
+		outline-offset: 2px;
+	}
+
+	.details-toggle {
+		display: flex;
+		align-items: center;
+		gap: var(--space-1);
+		min-height: 2.75rem;
+		padding: 0 var(--space-2);
+		border-radius: var(--radius-md);
+		font-size: var(--font-size-sm);
+		font-weight: var(--font-weight-medium);
+		color: var(--color-accent);
+		transition: color var(--transition-fast);
+	}
+
+	.details-toggle:hover {
+		color: var(--color-accent-hover);
+	}
+
+	.details-toggle:focus-visible {
+		outline: 2px solid var(--color-focus-ring);
+		outline-offset: 2px;
+	}
+
+	.details-chevron {
+		width: 0.9rem;
+		height: 0.9rem;
+		transition: transform var(--transition-fast);
+	}
+
+	.details-chevron.is-open {
+		transform: rotate(180deg);
 	}
 
 	.provenance {
