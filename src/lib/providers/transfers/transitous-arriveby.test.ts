@@ -47,6 +47,11 @@ const ARRIVE_BY_RESPONSE: TransitousPlanResponse = {
 	]
 };
 
+/** Plaça de Catalunya to Barcelona airport in a straight line, the pair this fixture was
+ * captured for. Issue #220's plausibility rule is measured against it; at this distance it
+ * allows 2h 46m, and every bus here is 50 minutes. */
+const BCN_AIRPORT_KM = 12.6;
+
 const ARRIVE_BY_0615: TransitPlanMoment = {
 	time: { local: '2026-10-04T06:15:00', timeZone: BCN, utcOffsetMinutes: 120 },
 	arriveBy: true
@@ -58,7 +63,7 @@ const DEPART_AFTER_0400: TransitPlanMoment = {
 
 describe('mapPlanResponseToTransfer, planned for a check-in deadline', () => {
 	it('names the LAST departure that still arrives in time, not the first one listed', () => {
-		const transfer = mapPlanResponseToTransfer(ARRIVE_BY_RESPONSE, ARRIVE_BY_0615);
+		const transfer = mapPlanResponseToTransfer(ARRIVE_BY_RESPONSE, ARRIVE_BY_0615, BCN_AIRPORT_KM);
 
 		// 03:15Z is 05:15 in Barcelona: the latest bus that still lands the traveller at the
 		// terminal before the 06:15 deadline, and therefore the one worth catching.
@@ -67,7 +72,7 @@ describe('mapPlanResponseToTransfer, planned for a check-in deadline', () => {
 	});
 
 	it('answers "what if you miss it" by leaving `following` empty and listing the earlier ones', () => {
-		const schedule = mapPlanResponseToTransfer(ARRIVE_BY_RESPONSE, ARRIVE_BY_0615)?.transitSchedule;
+		const schedule = mapPlanResponseToTransfer(ARRIVE_BY_RESPONSE, ARRIVE_BY_0615, BCN_AIRPORT_KM)?.transitSchedule;
 
 		// Nothing later than the last workable departure arrives in time, by construction —
 		// which is the answer, not a hole in the data.
@@ -81,14 +86,14 @@ describe('mapPlanResponseToTransfer, planned for a check-in deadline', () => {
 	});
 
 	it('carries the moment it was planned for, so nothing downstream has to assume one', () => {
-		const schedule = mapPlanResponseToTransfer(ARRIVE_BY_RESPONSE, ARRIVE_BY_0615)?.transitSchedule;
+		const schedule = mapPlanResponseToTransfer(ARRIVE_BY_RESPONSE, ARRIVE_BY_0615, BCN_AIRPORT_KM)?.transitSchedule;
 		expect(schedule?.plannedFor).toEqual(ARRIVE_BY_0615);
 	});
 });
 
 describe('mapPlanResponseToTransfer, planned for a moment the traveller is free from', () => {
 	it('names the FIRST departure and sorts the rest ascending', () => {
-		const schedule = mapPlanResponseToTransfer(ARRIVE_BY_RESPONSE, DEPART_AFTER_0400)?.transitSchedule;
+		const schedule = mapPlanResponseToTransfer(ARRIVE_BY_RESPONSE, DEPART_AFTER_0400, BCN_AIRPORT_KM)?.transitSchedule;
 
 		expect(schedule?.intended.local).toBe('2026-10-04T04:20:00');
 		// The bug the issue reported verbatim: "The 'next' list is also unsorted (13:28
@@ -110,7 +115,7 @@ describe('mapPlanResponseToTransfer, planned for a moment the traveller is free 
 			]
 		};
 
-		const schedule = mapPlanResponseToTransfer(withDuplicate, DEPART_AFTER_0400)?.transitSchedule;
+		const schedule = mapPlanResponseToTransfer(withDuplicate, DEPART_AFTER_0400, BCN_AIRPORT_KM)?.transitSchedule;
 
 		// Two ways to describe the same 06:20 departure is not "the next one after it".
 		expect(schedule?.following.map((departure) => departure.local)).toEqual(['2026-10-04T06:50:00']);

@@ -1,0 +1,906 @@
+{
+	"itineraries": [
+		{
+			"duration": 81060,
+			"startTime": "2026-10-11T03:04:00Z",
+			"endTime": "2026-10-12T01:35:00Z",
+			"transfers": 9,
+			"legs": [
+				{
+					"mode": "WALK",
+					"duration": 60,
+					"startTime": "2026-10-11T03:04:00Z",
+					"endTime": "2026-10-11T03:05:00Z",
+					"from": {
+						"name": "START",
+						"lat": 52.453899,
+						"lon": -1.74803,
+						"tz": "Europe/London"
+					},
+					"to": {
+						"name": "Aeroporto di Birmingham International Airport",
+						"lat": 52.4539,
+						"lon": -1.7480300000000002,
+						"tz": "Europe/London"
+					},
+					"distance": 0
+				},
+				{
+					"mode": "AIRPLANE",
+					"duration": 16500,
+					"startTime": "2026-10-11T03:05:00Z",
+					"endTime": "2026-10-11T07:40:00Z",
+					"from": {
+						"name": "Aeroporto di Birmingham International Airport",
+						"lat": 52.4539,
+						"lon": -1.7480300000000002,
+						"tz": "Europe/London"
+					},
+					"to": {
+						"name": "Aeroporto di Olbia (OLB)",
+						"lat": 40.903362,
+						"lon": 9.514892,
+						"tz": "Europe/Rome"
+					},
+					"routeShortName": "OLB-BHX",
+					"routeLongName": "Olbia (OLB) - Birmingham International Airport",
+					"headsign": "Aeroporto di Olbia (OLB)",
+					"agencyName": "JET TWO COM"
+				},
+				{
+					"mode": "WALK",
+					"duration": 120,
+					"startTime": "2026-10-11T08:58:00Z",
+					"endTime": "2026-10-11T09:00:00Z",
+					"from": {
+						"name": "Aeroporto di Olbia (OLB)",
+						"lat": 40.903362,
+						"lon": 9.514892,
+						"tz": "Europe/Rome"
+					},
+					"to": {
+						"name": "Aeroporto di Olbia (OLB)",
+						"lat": 40.903362,
+						"lon": 9.514892,
+						"tz": "Europe/Rome"
+					},
+					"distance": 0
+				},
+				{
+					"mode": "AIRPLANE",
+					"duration": 3900,
+					"startTime": "2026-10-11T09:00:00Z",
+					"endTime": "2026-10-11T10:05:00Z",
+					"from": {
+						"name": "Aeroporto di Olbia (OLB)",
+						"lat": 40.903362,
+						"lon": 9.514892,
+						"tz": "Europe/Rome"
+					},
+					"to": {
+						"name": "Aeroporto di Roma Fiumicino (FCO)",
+						"lat": 41.800278,
+						"lon": 12.238888999999999,
+						"tz": "Europe/Rome"
+					},
+					"routeShortName": "OLB-FCO",
+					"routeLongName": "Olbia (OLB) - Roma Fiumicino (FCO)",
+					"headsign": "Aeroporto di Roma Fiumicino (FCO)",
+					"agencyName": "Aeroitalia srl"
+				},
+				{
+					"mode": "WALK",
+					"duration": 120,
+					"startTime": "2026-10-11T11:43:00Z",
+					"endTime": "2026-10-11T11:45:00Z",
+					"from": {
+						"name": "Aeroporto di Roma Fiumicino (FCO)",
+						"lat": 41.800278,
+						"lon": 12.238888999999999,
+						"tz": "Europe/Rome"
+					},
+					"to": {
+						"name": "Aeroporto di Roma Fiumicino (FCO)",
+						"lat": 41.800278,
+						"lon": 12.238888999999999,
+						"tz": "Europe/Rome"
+					},
+					"distance": 0
+				},
+				{
+					"mode": "AIRPLANE",
+					"duration": 3300,
+					"startTime": "2026-10-11T11:45:00Z",
+					"endTime": "2026-10-11T12:40:00Z",
+					"from": {
+						"name": "Aeroporto di Roma Fiumicino (FCO)",
+						"lat": 41.800278,
+						"lon": 12.238888999999999,
+						"tz": "Europe/Rome"
+					},
+					"to": {
+						"name": "Aeroporto di Cagliari (CAG) (ELMAS)",
+						"lat": 39.25421,
+						"lon": 9.060435000000002,
+						"tz": "Europe/Rome"
+					},
+					"routeShortName": "CAG-FCO",
+					"routeLongName": "Cagliari (CAG) - Roma Fiumicino (FCO)",
+					"headsign": "Aeroporto di Cagliari (CAG) (ELMAS)",
+					"agencyName": "Aeroitalia srl"
+				},
+				{
+					"mode": "WALK",
+					"duration": 120,
+					"startTime": "2026-10-11T13:33:00Z",
+					"endTime": "2026-10-11T13:35:00Z",
+					"from": {
+						"name": "Aeroporto di Cagliari (CAG) (ELMAS)",
+						"lat": 39.25421,
+						"lon": 9.060435000000002,
+						"tz": "Europe/Rome"
+					},
+					"to": {
+						"name": "Aeroporto di Cagliari (CAG) (ELMAS)",
+						"lat": 39.25421,
+						"lon": 9.060435000000002,
+						"tz": "Europe/Rome"
+					},
+					"distance": 0
+				},
+				{
+					"mode": "AIRPLANE",
+					"duration": 4500,
+					"startTime": "2026-10-11T13:35:00Z",
+					"endTime": "2026-10-11T14:50:00Z",
+					"from": {
+						"name": "Aeroporto di Cagliari (CAG) (ELMAS)",
+						"lat": 39.25421,
+						"lon": 9.060435000000002,
+						"tz": "Europe/Rome"
+					},
+					"to": {
+						"name": "Aeroporto di Karlsruhe Baden-Baden (FKB)",
+						"lat": 48.77810000000001,
+						"lon": 8.087522,
+						"tz": "Europe/Berlin"
+					},
+					"routeShortName": "CAG-FKB",
+					"routeLongName": "Cagliari (CAG) - Karlsruhe Baden-Baden (FKB)",
+					"headsign": "Aeroporto di Karlsruhe Baden-Baden (FKB)",
+					"agencyName": "RYANAIR"
+				},
+				{
+					"mode": "WALK",
+					"duration": 120,
+					"startTime": "2026-10-11T14:58:00Z",
+					"endTime": "2026-10-11T15:00:00Z",
+					"from": {
+						"name": "Aeroporto di Karlsruhe Baden-Baden (FKB)",
+						"lat": 48.77810000000001,
+						"lon": 8.087522,
+						"tz": "Europe/Berlin"
+					},
+					"to": {
+						"name": "Airpark Terminal (FKB)",
+						"lat": 48.77837800000001,
+						"lon": 8.088313999999999,
+						"tz": "Europe/Berlin"
+					},
+					"distance": 89
+				},
+				{
+					"mode": "BUS",
+					"duration": 1500,
+					"startTime": "2026-10-11T15:00:00Z",
+					"endTime": "2026-10-11T15:25:00Z",
+					"from": {
+						"name": "Airpark Terminal (FKB)",
+						"lat": 48.77837800000001,
+						"lon": 8.088313999999999,
+						"tz": "Europe/Berlin"
+					},
+					"to": {
+						"name": "Rastatt Bahnhof",
+						"lat": 48.860656999999996,
+						"lon": 8.214689,
+						"tz": "Europe/Berlin"
+					},
+					"routeShortName": "X34",
+					"headsign": "Rastatt Bahnhof",
+					"agencyName": "SWEG Südwestdeutsche Landesverkehrs-AG"
+				},
+				{
+					"mode": "WALK",
+					"duration": 120,
+					"startTime": "2026-10-11T15:29:00Z",
+					"endTime": "2026-10-11T15:31:00Z",
+					"from": {
+						"name": "Rastatt Bahnhof",
+						"lat": 48.860656999999996,
+						"lon": 8.214689,
+						"tz": "Europe/Berlin"
+					},
+					"to": {
+						"name": "Rastatt",
+						"lat": 48.860783,
+						"lon": 8.216062999999998,
+						"tz": "Europe/Berlin"
+					},
+					"distance": 160
+				},
+				{
+					"mode": "REGIONAL_RAIL",
+					"duration": 960,
+					"startTime": "2026-10-11T15:31:00Z",
+					"endTime": "2026-10-11T15:47:00Z",
+					"from": {
+						"name": "Rastatt",
+						"lat": 48.860783,
+						"lon": 8.216062999999998,
+						"tz": "Europe/Berlin"
+					},
+					"to": {
+						"name": "Karlsruhe Hauptbahnhof",
+						"lat": 48.992960000000004,
+						"lon": 8.401601,
+						"tz": "Europe/Berlin"
+					},
+					"routeShortName": "RE40 (15819)",
+					"headsign": "Karlsruhe Hauptbahnhof",
+					"agencyName": "DB Regio AG Mitte Region Hessen"
+				},
+				{
+					"mode": "WALK",
+					"duration": 120,
+					"startTime": "2026-10-11T16:03:00Z",
+					"endTime": "2026-10-11T16:05:00Z",
+					"from": {
+						"name": "Karlsruhe Hauptbahnhof",
+						"lat": 48.992960000000004,
+						"lon": 8.401601,
+						"tz": "Europe/Berlin"
+					},
+					"to": {
+						"name": "Karlsruhe Hbf",
+						"lat": 48.993500000000004,
+						"lon": 8.4019,
+						"tz": "Europe/Berlin"
+					},
+					"distance": 175
+				},
+				{
+					"mode": "HIGHSPEED_RAIL",
+					"duration": 9420,
+					"startTime": "2026-10-11T16:05:00Z",
+					"endTime": "2026-10-11T18:42:00Z",
+					"from": {
+						"name": "Karlsruhe Hbf",
+						"lat": 48.993500000000004,
+						"lon": 8.4019,
+						"tz": "Europe/Berlin"
+					},
+					"to": {
+						"name": "Paris Est",
+						"lat": 48.876742,
+						"lon": 2.358424,
+						"tz": "Europe/Paris"
+					},
+					"routeShortName": "ICE 9560",
+					"agencyName": "SNCF VOYAGEURS"
+				},
+				{
+					"mode": "WALK",
+					"duration": 300,
+					"startTime": "2026-10-11T18:57:00Z",
+					"endTime": "2026-10-11T19:02:00Z",
+					"from": {
+						"name": "Paris Est",
+						"lat": 48.876742,
+						"lon": 2.358424,
+						"tz": "Europe/Paris"
+					},
+					"to": {
+						"name": "Paris-Nord",
+						"lat": 48.88094699999999,
+						"lon": 2.355314,
+						"tz": "Europe/Paris"
+					},
+					"distance": 841
+				},
+				{
+					"mode": "HIGHSPEED_RAIL",
+					"duration": 8880,
+					"startTime": "2026-10-11T19:02:00Z",
+					"endTime": "2026-10-11T21:30:00Z",
+					"from": {
+						"name": "Paris-Nord",
+						"lat": 48.88094699999999,
+						"lon": 2.355314,
+						"tz": "Europe/Paris"
+					},
+					"to": {
+						"name": "St-Pancras-International",
+						"lat": 51.531425,
+						"lon": -0.126133,
+						"tz": "Europe/London"
+					},
+					"routeShortName": "EST 9063",
+					"routeLongName": "Paris-Nord -> St-Pancras-International",
+					"headsign": "St-Pancras-International",
+					"agencyName": "Eurostar"
+				},
+				{
+					"mode": "WALK",
+					"duration": 120,
+					"startTime": "2026-10-11T21:35:00Z",
+					"endTime": "2026-10-11T21:37:00Z",
+					"from": {
+						"name": "St-Pancras-International",
+						"lat": 51.531425,
+						"lon": -0.126133,
+						"tz": "Europe/London"
+					},
+					"to": {
+						"name": "King's Cross St. Pancras",
+						"lat": 51.530586,
+						"lon": -0.12402290000000002,
+						"tz": "Europe/London"
+					},
+					"distance": 664
+				},
+				{
+					"mode": "SUBWAY",
+					"duration": 960,
+					"startTime": "2026-10-11T21:37:00Z",
+					"endTime": "2026-10-11T21:53:00Z",
+					"from": {
+						"name": "King's Cross St. Pancras",
+						"lat": 51.530586,
+						"lon": -0.12402290000000002,
+						"tz": "Europe/London"
+					},
+					"to": {
+						"name": "Golders Green",
+						"lat": 51.572437,
+						"lon": -0.19407536000000003,
+						"tz": "Europe/London"
+					},
+					"routeShortName": "Northern",
+					"headsign": "Edgware",
+					"agencyName": "London Underground (TfL)"
+				},
+				{
+					"mode": "WALK",
+					"duration": 120,
+					"startTime": "2026-10-11T21:53:00Z",
+					"endTime": "2026-10-11T21:55:00Z",
+					"from": {
+						"name": "Golders Green",
+						"lat": 51.572437,
+						"lon": -0.19407536000000003,
+						"tz": "Europe/London"
+					},
+					"to": {
+						"name": "Golders Green Station",
+						"lat": 51.57180399999999,
+						"lon": -0.19476680000000005,
+						"tz": "Europe/London"
+					},
+					"distance": 109
+				},
+				{
+					"mode": "COACH",
+					"duration": 10500,
+					"startTime": "2026-10-11T22:35:00Z",
+					"endTime": "2026-10-12T01:30:00Z",
+					"from": {
+						"name": "Golders Green Station",
+						"lat": 51.57180399999999,
+						"lon": -0.19476680000000005,
+						"tz": "Europe/London"
+					},
+					"to": {
+						"name": "Birmingham Coach Station",
+						"lat": 52.475170000000006,
+						"lon": -1.8885500000000002,
+						"tz": "Europe/London"
+					},
+					"routeShortName": "422",
+					"headsign": "Belgravia, Victoria - Manchester City Centre, Manchester",
+					"agencyName": "National Express"
+				},
+				{
+					"mode": "WALK",
+					"duration": 300,
+					"startTime": "2026-10-12T01:30:00Z",
+					"endTime": "2026-10-12T01:35:00Z",
+					"from": {
+						"name": "Birmingham Coach Station",
+						"lat": 52.475170000000006,
+						"lon": -1.8885500000000002,
+						"tz": "Europe/London"
+					},
+					"to": {
+						"name": "END",
+						"lat": 52.4763977,
+						"lon": -1.8859854,
+						"tz": "Europe/London"
+					},
+					"distance": 332
+				}
+			]
+		},
+		{
+			"duration": 77220,
+			"startTime": "2026-10-11T03:04:00Z",
+			"endTime": "2026-10-12T00:31:00Z",
+			"transfers": 10,
+			"legs": [
+				{
+					"mode": "WALK",
+					"duration": 60,
+					"startTime": "2026-10-11T03:04:00Z",
+					"endTime": "2026-10-11T03:05:00Z",
+					"from": {
+						"name": "START",
+						"lat": 52.453899,
+						"lon": -1.74803,
+						"tz": "Europe/London"
+					},
+					"to": {
+						"name": "Aeroporto di Birmingham International Airport",
+						"lat": 52.4539,
+						"lon": -1.7480300000000002,
+						"tz": "Europe/London"
+					},
+					"distance": 0
+				},
+				{
+					"mode": "AIRPLANE",
+					"duration": 16500,
+					"startTime": "2026-10-11T03:05:00Z",
+					"endTime": "2026-10-11T07:40:00Z",
+					"from": {
+						"name": "Aeroporto di Birmingham International Airport",
+						"lat": 52.4539,
+						"lon": -1.7480300000000002,
+						"tz": "Europe/London"
+					},
+					"to": {
+						"name": "Aeroporto di Olbia (OLB)",
+						"lat": 40.903362,
+						"lon": 9.514892,
+						"tz": "Europe/Rome"
+					},
+					"routeShortName": "OLB-BHX",
+					"routeLongName": "Olbia (OLB) - Birmingham International Airport",
+					"headsign": "Aeroporto di Olbia (OLB)",
+					"agencyName": "JET TWO COM"
+				},
+				{
+					"mode": "WALK",
+					"duration": 120,
+					"startTime": "2026-10-11T08:58:00Z",
+					"endTime": "2026-10-11T09:00:00Z",
+					"from": {
+						"name": "Aeroporto di Olbia (OLB)",
+						"lat": 40.903362,
+						"lon": 9.514892,
+						"tz": "Europe/Rome"
+					},
+					"to": {
+						"name": "Aeroporto di Olbia (OLB)",
+						"lat": 40.903362,
+						"lon": 9.514892,
+						"tz": "Europe/Rome"
+					},
+					"distance": 0
+				},
+				{
+					"mode": "AIRPLANE",
+					"duration": 3900,
+					"startTime": "2026-10-11T09:00:00Z",
+					"endTime": "2026-10-11T10:05:00Z",
+					"from": {
+						"name": "Aeroporto di Olbia (OLB)",
+						"lat": 40.903362,
+						"lon": 9.514892,
+						"tz": "Europe/Rome"
+					},
+					"to": {
+						"name": "Aeroporto di Roma Fiumicino (FCO)",
+						"lat": 41.800278,
+						"lon": 12.238888999999999,
+						"tz": "Europe/Rome"
+					},
+					"routeShortName": "OLB-FCO",
+					"routeLongName": "Olbia (OLB) - Roma Fiumicino (FCO)",
+					"headsign": "Aeroporto di Roma Fiumicino (FCO)",
+					"agencyName": "Aeroitalia srl"
+				},
+				{
+					"mode": "WALK",
+					"duration": 120,
+					"startTime": "2026-10-11T11:43:00Z",
+					"endTime": "2026-10-11T11:45:00Z",
+					"from": {
+						"name": "Aeroporto di Roma Fiumicino (FCO)",
+						"lat": 41.800278,
+						"lon": 12.238888999999999,
+						"tz": "Europe/Rome"
+					},
+					"to": {
+						"name": "Aeroporto di Roma Fiumicino (FCO)",
+						"lat": 41.800278,
+						"lon": 12.238888999999999,
+						"tz": "Europe/Rome"
+					},
+					"distance": 0
+				},
+				{
+					"mode": "AIRPLANE",
+					"duration": 3300,
+					"startTime": "2026-10-11T11:45:00Z",
+					"endTime": "2026-10-11T12:40:00Z",
+					"from": {
+						"name": "Aeroporto di Roma Fiumicino (FCO)",
+						"lat": 41.800278,
+						"lon": 12.238888999999999,
+						"tz": "Europe/Rome"
+					},
+					"to": {
+						"name": "Aeroporto di Cagliari (CAG) (ELMAS)",
+						"lat": 39.25421,
+						"lon": 9.060435000000002,
+						"tz": "Europe/Rome"
+					},
+					"routeShortName": "CAG-FCO",
+					"routeLongName": "Cagliari (CAG) - Roma Fiumicino (FCO)",
+					"headsign": "Aeroporto di Cagliari (CAG) (ELMAS)",
+					"agencyName": "Aeroitalia srl"
+				},
+				{
+					"mode": "WALK",
+					"duration": 120,
+					"startTime": "2026-10-11T13:33:00Z",
+					"endTime": "2026-10-11T13:35:00Z",
+					"from": {
+						"name": "Aeroporto di Cagliari (CAG) (ELMAS)",
+						"lat": 39.25421,
+						"lon": 9.060435000000002,
+						"tz": "Europe/Rome"
+					},
+					"to": {
+						"name": "Aeroporto di Cagliari (CAG) (ELMAS)",
+						"lat": 39.25421,
+						"lon": 9.060435000000002,
+						"tz": "Europe/Rome"
+					},
+					"distance": 0
+				},
+				{
+					"mode": "AIRPLANE",
+					"duration": 4500,
+					"startTime": "2026-10-11T13:35:00Z",
+					"endTime": "2026-10-11T14:50:00Z",
+					"from": {
+						"name": "Aeroporto di Cagliari (CAG) (ELMAS)",
+						"lat": 39.25421,
+						"lon": 9.060435000000002,
+						"tz": "Europe/Rome"
+					},
+					"to": {
+						"name": "Aeroporto di Karlsruhe Baden-Baden (FKB)",
+						"lat": 48.77810000000001,
+						"lon": 8.087522,
+						"tz": "Europe/Berlin"
+					},
+					"routeShortName": "CAG-FKB",
+					"routeLongName": "Cagliari (CAG) - Karlsruhe Baden-Baden (FKB)",
+					"headsign": "Aeroporto di Karlsruhe Baden-Baden (FKB)",
+					"agencyName": "RYANAIR"
+				},
+				{
+					"mode": "WALK",
+					"duration": 120,
+					"startTime": "2026-10-11T14:58:00Z",
+					"endTime": "2026-10-11T15:00:00Z",
+					"from": {
+						"name": "Aeroporto di Karlsruhe Baden-Baden (FKB)",
+						"lat": 48.77810000000001,
+						"lon": 8.087522,
+						"tz": "Europe/Berlin"
+					},
+					"to": {
+						"name": "Airpark Terminal (FKB)",
+						"lat": 48.77837800000001,
+						"lon": 8.088313999999999,
+						"tz": "Europe/Berlin"
+					},
+					"distance": 89
+				},
+				{
+					"mode": "BUS",
+					"duration": 1500,
+					"startTime": "2026-10-11T15:00:00Z",
+					"endTime": "2026-10-11T15:25:00Z",
+					"from": {
+						"name": "Airpark Terminal (FKB)",
+						"lat": 48.77837800000001,
+						"lon": 8.088313999999999,
+						"tz": "Europe/Berlin"
+					},
+					"to": {
+						"name": "Rastatt Bahnhof",
+						"lat": 48.860656999999996,
+						"lon": 8.214689,
+						"tz": "Europe/Berlin"
+					},
+					"routeShortName": "X34",
+					"headsign": "Rastatt Bahnhof",
+					"agencyName": "SWEG Südwestdeutsche Landesverkehrs-AG"
+				},
+				{
+					"mode": "WALK",
+					"duration": 120,
+					"startTime": "2026-10-11T15:29:00Z",
+					"endTime": "2026-10-11T15:31:00Z",
+					"from": {
+						"name": "Rastatt Bahnhof",
+						"lat": 48.860656999999996,
+						"lon": 8.214689,
+						"tz": "Europe/Berlin"
+					},
+					"to": {
+						"name": "Rastatt",
+						"lat": 48.860783,
+						"lon": 8.216062999999998,
+						"tz": "Europe/Berlin"
+					},
+					"distance": 160
+				},
+				{
+					"mode": "REGIONAL_RAIL",
+					"duration": 960,
+					"startTime": "2026-10-11T15:31:00Z",
+					"endTime": "2026-10-11T15:47:00Z",
+					"from": {
+						"name": "Rastatt",
+						"lat": 48.860783,
+						"lon": 8.216062999999998,
+						"tz": "Europe/Berlin"
+					},
+					"to": {
+						"name": "Karlsruhe Hauptbahnhof",
+						"lat": 48.992960000000004,
+						"lon": 8.401601,
+						"tz": "Europe/Berlin"
+					},
+					"routeShortName": "RE40 (15819)",
+					"headsign": "Karlsruhe Hauptbahnhof",
+					"agencyName": "DB Regio AG Mitte Region Hessen"
+				},
+				{
+					"mode": "WALK",
+					"duration": 120,
+					"startTime": "2026-10-11T16:03:00Z",
+					"endTime": "2026-10-11T16:05:00Z",
+					"from": {
+						"name": "Karlsruhe Hauptbahnhof",
+						"lat": 48.992960000000004,
+						"lon": 8.401601,
+						"tz": "Europe/Berlin"
+					},
+					"to": {
+						"name": "Karlsruhe Hbf",
+						"lat": 48.993500000000004,
+						"lon": 8.4019,
+						"tz": "Europe/Berlin"
+					},
+					"distance": 175
+				},
+				{
+					"mode": "HIGHSPEED_RAIL",
+					"duration": 9420,
+					"startTime": "2026-10-11T16:05:00Z",
+					"endTime": "2026-10-11T18:42:00Z",
+					"from": {
+						"name": "Karlsruhe Hbf",
+						"lat": 48.993500000000004,
+						"lon": 8.4019,
+						"tz": "Europe/Berlin"
+					},
+					"to": {
+						"name": "Paris Est",
+						"lat": 48.876742,
+						"lon": 2.358424,
+						"tz": "Europe/Paris"
+					},
+					"routeShortName": "ICE 9560",
+					"agencyName": "SNCF VOYAGEURS"
+				},
+				{
+					"mode": "WALK",
+					"duration": 300,
+					"startTime": "2026-10-11T18:57:00Z",
+					"endTime": "2026-10-11T19:02:00Z",
+					"from": {
+						"name": "Paris Est",
+						"lat": 48.876742,
+						"lon": 2.358424,
+						"tz": "Europe/Paris"
+					},
+					"to": {
+						"name": "Paris-Nord",
+						"lat": 48.88094699999999,
+						"lon": 2.355314,
+						"tz": "Europe/Paris"
+					},
+					"distance": 841
+				},
+				{
+					"mode": "HIGHSPEED_RAIL",
+					"duration": 8880,
+					"startTime": "2026-10-11T19:02:00Z",
+					"endTime": "2026-10-11T21:30:00Z",
+					"from": {
+						"name": "Paris-Nord",
+						"lat": 48.88094699999999,
+						"lon": 2.355314,
+						"tz": "Europe/Paris"
+					},
+					"to": {
+						"name": "St-Pancras-International",
+						"lat": 51.531425,
+						"lon": -0.126133,
+						"tz": "Europe/London"
+					},
+					"routeShortName": "EST 9063",
+					"routeLongName": "Paris-Nord -> St-Pancras-International",
+					"headsign": "St-Pancras-International",
+					"agencyName": "Eurostar"
+				},
+				{
+					"mode": "WALK",
+					"duration": 180,
+					"startTime": "2026-10-11T21:30:00Z",
+					"endTime": "2026-10-11T21:33:00Z",
+					"from": {
+						"name": "St-Pancras-International",
+						"lat": 51.531425,
+						"lon": -0.126133,
+						"tz": "Europe/London"
+					},
+					"to": {
+						"name": "King's Cross St. Pancras",
+						"lat": 51.52966,
+						"lon": -0.12447825000000001,
+						"tz": "Europe/London"
+					},
+					"distance": 449
+				},
+				{
+					"mode": "SUBWAY",
+					"duration": 660,
+					"startTime": "2026-10-11T21:33:00Z",
+					"endTime": "2026-10-11T21:44:00Z",
+					"from": {
+						"name": "King's Cross St. Pancras",
+						"lat": 51.52966,
+						"lon": -0.12447825000000001,
+						"tz": "Europe/London"
+					},
+					"to": {
+						"name": "Finchley Road",
+						"lat": 51.547245,
+						"lon": -0.18112166,
+						"tz": "Europe/London"
+					},
+					"routeShortName": "Metropolitan",
+					"headsign": "Uxbridge (all stations)",
+					"agencyName": "London Underground (TfL)"
+				},
+				{
+					"mode": "WALK",
+					"duration": 120,
+					"startTime": "2026-10-11T21:53:00Z",
+					"endTime": "2026-10-11T21:55:00Z",
+					"from": {
+						"name": "Finchley Road",
+						"lat": 51.547245,
+						"lon": -0.18112166,
+						"tz": "Europe/London"
+					},
+					"to": {
+						"name": "London Finchley Road (Stop CL)",
+						"lat": 51.547913,
+						"lon": -0.18074200000000004,
+						"tz": "Europe/London"
+					},
+					"distance": 612
+				},
+				{
+					"mode": "COACH",
+					"duration": 8400,
+					"startTime": "2026-10-11T21:55:00Z",
+					"endTime": "2026-10-12T00:15:00Z",
+					"from": {
+						"name": "London Finchley Road (Stop CL)",
+						"lat": 51.547913,
+						"lon": -0.18074200000000004,
+						"tz": "Europe/London"
+					},
+					"to": {
+						"name": "Birmingham Centre - Jennens Road",
+						"lat": 52.483475,
+						"lon": -1.8881150000000002,
+						"tz": "Europe/London"
+					},
+					"routeShortName": "FlixBus UK020",
+					"routeLongName": "London - Birmingham",
+					"headsign": "Birmingham Centre - Jennens Road",
+					"agencyName": "FlixBus-gb"
+				},
+				{
+					"mode": "WALK",
+					"duration": 420,
+					"startTime": "2026-10-12T00:15:00Z",
+					"endTime": "2026-10-12T00:22:00Z",
+					"from": {
+						"name": "Birmingham Centre - Jennens Road",
+						"lat": 52.483475,
+						"lon": -1.8881150000000002,
+						"tz": "Europe/London"
+					},
+					"to": {
+						"name": "Dale House",
+						"lat": 52.480464999999995,
+						"lon": -1.8932457,
+						"tz": "Europe/London"
+					}
+				},
+				{
+					"mode": "BUS",
+					"duration": 120,
+					"startTime": "2026-10-12T00:25:00Z",
+					"endTime": "2026-10-12T00:27:00Z",
+					"from": {
+						"name": "Dale House",
+						"lat": 52.480464999999995,
+						"lon": -1.8932457,
+						"tz": "Europe/London"
+					},
+					"to": {
+						"name": "Birmingham Coach Station",
+						"lat": 52.475616,
+						"lon": -1.8878385999999998,
+						"tz": "Europe/London"
+					},
+					"routeShortName": "X1",
+					"headsign": "Birmingham International Station",
+					"agencyName": "National Express Coventry"
+				},
+				{
+					"mode": "WALK",
+					"duration": 240,
+					"startTime": "2026-10-12T00:27:00Z",
+					"endTime": "2026-10-12T00:31:00Z",
+					"from": {
+						"name": "Birmingham Coach Station",
+						"lat": 52.475616,
+						"lon": -1.8878385999999998,
+						"tz": "Europe/London"
+					},
+					"to": {
+						"name": "END",
+						"lat": 52.4763977,
+						"lon": -1.8859854,
+						"tz": "Europe/London"
+					},
+					"distance": 250
+				}
+			]
+		}
+	]
+}

@@ -215,6 +215,14 @@ const NO_ROUTE_RESPONSE: TransitousPlanResponse = { itineraries: [], direct: [] 
 /** Issue #135: every lookup now states the journey moment it was planned for, so these
  * fixtures do too. `DEPART_AFTER` is the leg-starts-at-a-runway question ("I am free from
  * this moment"), `ARRIVE_BY` the leg-ends-at-a-gate one ("be there by this moment"). */
+/** How far apart the endpoints of each captured fixture actually are, in a straight line.
+ * Issue #220's plausibility rule is measured against this: 12.6 km allows 2h 46m and the
+ * Barcelona itineraries are 52 minutes, 17.2 km allows 3h 13m and the Garrotxa buses are
+ * 45. Nothing in this file is near the bound, which is the point — the rule is meant to be
+ * invisible to a real answer. */
+const BARCELONA_KM = 12.6;
+const RURAL_KM = 17.2;
+
 const DEPART_AFTER: TransitPlanMoment = {
 	time: { local: '2026-09-10T11:00:00', timeZone: 'Europe/Madrid', utcOffsetMinutes: 120 },
 	arriveBy: false
@@ -226,7 +234,7 @@ const ARRIVE_BY: TransitPlanMoment = {
 
 describe('mapPlanResponseToTransfer', () => {
 	it('builds a transit Transfer from the earliest itinerary, with every leg described', () => {
-		const transfer = mapPlanResponseToTransfer(DAYTIME_BARCELONA_RESPONSE, DEPART_AFTER);
+		const transfer = mapPlanResponseToTransfer(DAYTIME_BARCELONA_RESPONSE, DEPART_AFTER, BARCELONA_KM);
 
 		expect(transfer).toBeDefined();
 		expect(transfer?.mode).toBe('transit');
@@ -248,14 +256,14 @@ describe('mapPlanResponseToTransfer', () => {
 	});
 
 	it('sets transitSchedule.intended to the first itinerary\'s first transit leg, not the overall walk start', () => {
-		const transfer = mapPlanResponseToTransfer(DAYTIME_BARCELONA_RESPONSE, DEPART_AFTER);
+		const transfer = mapPlanResponseToTransfer(DAYTIME_BARCELONA_RESPONSE, DEPART_AFTER, BARCELONA_KM);
 		// The chosen itinerary starts with a 09:01 walk; the actual bus/metro service
 		// question is about the 09:02 metro it connects to.
 		expect(transfer?.transitSchedule?.intended.local).toBe('2026-09-10T11:02:00');
 	});
 
 	it('lists the following itineraries\' first transit departures, strictly after the intended one', () => {
-		const transfer = mapPlanResponseToTransfer(DAYTIME_BARCELONA_RESPONSE, DEPART_AFTER);
+		const transfer = mapPlanResponseToTransfer(DAYTIME_BARCELONA_RESPONSE, DEPART_AFTER, BARCELONA_KM);
 		const following = transfer?.transitSchedule?.following ?? [];
 		expect(following.map((d) => d.local)).toEqual([
 			'2026-09-10T11:06:00', // second itinerary's metro
@@ -266,7 +274,7 @@ describe('mapPlanResponseToTransfer', () => {
 	it('the last-bus problem: reports the real gap instead of hiding it or erroring', () => {
 		// This is the acceptance criterion: a 01:00Z ask met with a 05:03Z bus is a
 		// first-class result, not an error and not an empty array.
-		const transfer = mapPlanResponseToTransfer(RURAL_NIGHT_GAP_RESPONSE, DEPART_AFTER);
+		const transfer = mapPlanResponseToTransfer(RURAL_NIGHT_GAP_RESPONSE, DEPART_AFTER, RURAL_KM);
 
 		expect(transfer).toBeDefined();
 		expect(transfer?.mode).toBe('transit');
@@ -285,11 +293,11 @@ describe('mapPlanResponseToTransfer', () => {
 	});
 
 	it('returns undefined (not a thrown error) when there is no transit route at all', () => {
-		expect(mapPlanResponseToTransfer(NO_ROUTE_RESPONSE, DEPART_AFTER)).toBeUndefined();
+		expect(mapPlanResponseToTransfer(NO_ROUTE_RESPONSE, DEPART_AFTER, BARCELONA_KM)).toBeUndefined();
 	});
 
 	it('returns undefined when the response has no itineraries field at all', () => {
-		expect(mapPlanResponseToTransfer({}, DEPART_AFTER)).toBeUndefined();
+		expect(mapPlanResponseToTransfer({}, DEPART_AFTER, BARCELONA_KM)).toBeUndefined();
 	});
 
 	it('falls back to a generic "Transit" label for an unrecognised leg mode', () => {
@@ -313,7 +321,7 @@ describe('mapPlanResponseToTransfer', () => {
 				}
 			]
 		};
-		const transfer = mapPlanResponseToTransfer(response, DEPART_AFTER);
+		const transfer = mapPlanResponseToTransfer(response, DEPART_AFTER, BARCELONA_KM);
 		expect(transfer?.legs[0].description).toBe('Transit');
 	});
 
@@ -338,7 +346,7 @@ describe('mapPlanResponseToTransfer', () => {
 				}
 			]
 		};
-		const transfer = mapPlanResponseToTransfer(response, DEPART_AFTER);
+		const transfer = mapPlanResponseToTransfer(response, DEPART_AFTER, BARCELONA_KM);
 		expect(transfer?.transitSchedule?.intended.timeZone).toBe('UTC');
 	});
 });
@@ -389,8 +397,8 @@ describe('runtime validation of an unverified field type (corrupted fixture)', (
 				}
 			]
 		};
-		expect(() => mapPlanResponseToTransfer(response, DEPART_AFTER)).not.toThrow();
-		const transfer = mapPlanResponseToTransfer(response, DEPART_AFTER);
+		expect(() => mapPlanResponseToTransfer(response, DEPART_AFTER, BARCELONA_KM)).not.toThrow();
+		const transfer = mapPlanResponseToTransfer(response, DEPART_AFTER, BARCELONA_KM);
 		expect(transfer?.transitSchedule?.intended.local).toBe('2026-09-10T12:00:00');
 	});
 
@@ -415,11 +423,11 @@ describe('runtime validation of an unverified field type (corrupted fixture)', (
 				}
 			]
 		};
-		expect(() => mapPlanResponseToTransfer(response, DEPART_AFTER)).toThrow(TransitousMapMalformedResponseError);
+		expect(() => mapPlanResponseToTransfer(response, DEPART_AFTER, BARCELONA_KM)).toThrow(TransitousMapMalformedResponseError);
 	});
 
 	it('returns undefined (not malformed) for a genuinely empty itineraries array — the ordinary no-service case', () => {
-		expect(mapPlanResponseToTransfer({ itineraries: [] }, DEPART_AFTER)).toBeUndefined();
+		expect(mapPlanResponseToTransfer({ itineraries: [] }, DEPART_AFTER, BARCELONA_KM)).toBeUndefined();
 	});
 
 	it('drops a leg whose duration is a non-numeric string, failing that itinerary rather than producing NaN', () => {
@@ -443,7 +451,7 @@ describe('runtime validation of an unverified field type (corrupted fixture)', (
 				}
 			]
 		};
-		expect(() => mapPlanResponseToTransfer(response, DEPART_AFTER)).toThrow(TransitousMapMalformedResponseError);
+		expect(() => mapPlanResponseToTransfer(response, DEPART_AFTER, BARCELONA_KM)).toThrow(TransitousMapMalformedResponseError);
 	});
 
 	it('drops a leg whose place has a non-numeric latitude rather than corrupting timezone maths', () => {
@@ -467,6 +475,6 @@ describe('runtime validation of an unverified field type (corrupted fixture)', (
 				}
 			]
 		};
-		expect(() => mapPlanResponseToTransfer(response, DEPART_AFTER)).toThrow(TransitousMapMalformedResponseError);
+		expect(() => mapPlanResponseToTransfer(response, DEPART_AFTER, BARCELONA_KM)).toThrow(TransitousMapMalformedResponseError);
 	});
 });

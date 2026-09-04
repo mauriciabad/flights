@@ -37,6 +37,7 @@ import type { ConnectionCandidate as AlgorithmConnectionCandidate } from '../alg
 import type { ItineraryScore } from '../algorithm/score';
 import type {
 	Airport,
+	Duration,
 	IataAirportCode,
 	IsoCalendarDate,
 	IsoCurrencyCode,
@@ -184,6 +185,28 @@ export interface TransitLegAnswer {
 	 * transit adapter at all. `'budget-spent'`: this search had already used its ration
 	 * (`transit-schedule.ts`'s `MAX_TRANSIT_LOOKUPS_PER_SEARCH`). */
 	reason?: 'no-provider' | 'budget-spent';
+	/**
+	 * Issue #220: a route came back for this leg and `search/resources.ts` refused it as
+	 * implausible for the distance. Only ever set alongside `answer: 'answered'`, and only
+	 * when nothing survived the filter — a leg with one absurd option and one real bus has
+	 * a real bus to show and nothing to explain.
+	 *
+	 * It exists so a card can print the observation rather than a conclusion. Without it
+	 * the picker reads a leg with no transit row and says there is no service between these
+	 * two points, which was not what happened: Transitous answered, with a 21h 27m journey
+	 * across Europe to cover 9.7 km, and this app is what decided the traveller should not
+	 * see it.
+	 */
+	withheld?: WithheldTransitRoute;
+}
+
+/** The shape of what issue #220's plausibility rule refused, in the numbers a traveller
+ * can check: how many routes, the quickest of them, and the straight-line distance they
+ * were measured against. */
+export interface WithheldTransitRoute {
+	count: number;
+	quickest: Duration;
+	straightLineKm: number;
 }
 
 export type TransitLegAnswers = Partial<Record<TransitLegField, TransitLegAnswer>>;

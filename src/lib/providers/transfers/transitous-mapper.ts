@@ -14,6 +14,7 @@
  */
 
 import type { Duration, LocalDateTime, Transfer, TransferLeg, TransferMode, TransitPlanMoment } from '../../domain';
+import { maxPlausibleTransitMinutes } from '../../domain';
 import { utcInstantToLocalDateTime } from './transitous-datetime';
 import type { TransitousItinerary, TransitousLeg, TransitousPlace, TransitousPlanResponse } from './transitous-types';
 
@@ -85,6 +86,26 @@ function isValidItinerary(value: unknown): value is TransitousItinerary {
 	);
 }
 
+/**
+ * Issue #220: the modes that make an itinerary a flight rather than a ground transfer.
+ *
+ * `transitous-client.ts` already leaves `AIRPLANE` out of the modes it asks MOTIS to route
+ * with, so on a healthy day nothing here has anything to drop. It runs anyway because a
+ * query parameter is a request, not a guarantee — an older MOTIS behind the same URL, or a
+ * feed whose route type lands on `AIRPLANE` some other way, and the app is back to quoting
+ * the traveller a flight it already sold them under "Public transport" and adding its hours
+ * to the door-to-door total.
+ *
+ * MOTIS's `Mode` enum has exactly one air value (openapi.yaml, read 2026-09-05), so this
+ * set has one member. Guessing at names it does not define would only make the set look
+ * more thorough than it is.
+ */
+const AIR_LEG_MODES: ReadonlySet<string> = new Set(['AIRPLANE']);
+
+function containsAirLeg(itinerary: TransitousItinerary): boolean {
+	return itinerary.legs.some((leg) => AIR_LEG_MODES.has(leg.mode));
+}
+
 const TRANSIT_MODE_LABELS: Record<string, string> = {
 	BUS: 'Bus',
 	COACH: 'Coach',
@@ -118,16 +139,31 @@ const TRANSIT_MODE_LABELS: Record<string, string> = {
  * it belongs to. The gap arithmetic itself still lives outside this file
  * (`algorithm/transit-schedule.ts`), so a fixture only has to state what Transitous actually
  * said, not also encode a judgement call about what counts as "a gap."
+ *
+ * `straightLineKm` is issue #220's, and the two things it does here are deliberately not
+ * the same thing:
+ *
+ * - An itinerary containing a flight is **dropped**. It is not a slow ground transfer, it
+ *   is a different journey, and there is no honest way to render one as a leg of the trip
+ *   the traveller has already been quoted.
+ * - An itinerary merely too long for the distance (`maxPlausibleTransitMinutes`) is
+ *   **deprioritised**, not dropped. MOTIS returns up to six and one absurd answer must not
+ *   shadow five real ones, which it would if this file kept picking by departure time
+ *   alone. If every answer is that long, the last one still comes back, so
+ *   `search/resources.ts` is the single place that refuses it and the app can say what it
+ *   refused and how long it was. A provider quietly returning nothing would leave the card
+ *   claiming there is no service here, which is a different fact and not the one observed.
  */
 export function mapPlanResponseToTransfer(
 	response: TransitousPlanResponse,
-	plannedFor: TransitPlanMoment
+	plannedFor: TransitPlanMoment,
+	straightLineKm: number
 ): Transfer | undefined {
 	const rawItineraries = response.itineraries ?? [];
 	if (rawItineraries.length === 0) return undefined;
 
-	const itineraries = rawItineraries.filter(isValidItinerary);
-	if (itineraries.length === 0) {
+	const valid = rawItineraries.filter(isValidItinerary);
+	if (valid.length === 0) {
 		// Distinct from the `rawItineraries.length === 0` case above: Transitous DID answer
 		// with itineraries, but not one of them had fields this file recognises — evidence
 		// the schema drifted, not evidence there is simply no service. transitous.ts catches
@@ -137,6 +173,15 @@ export function mapPlanResponseToTransfer(
 			'Transitous /plan returned itineraries, but none had the fields this adapter reads'
 		);
 	}
+
+	// Runs before the duration rule below, and the order matters: a flight is never the
+	// answer, however quick it looks, so an air itinerary must not be able to win on time.
+	const ground = valid.filter((itinerary) => !containsAirLeg(itinerary));
+	if (ground.length === 0) return undefined;
+
+	const bound = maxPlausibleTransitMinutes(straightLineKm);
+	const plausible = ground.filter((itinerary) => secondsToDuration(itinerary.duration) <= bound);
+	const itineraries = plausible.length > 0 ? plausible : ground;
 
 	const departures = orderedDepartures(itineraries);
 	// Every itinerary Transitous puts in `itineraries` (as opposed to `direct`) should

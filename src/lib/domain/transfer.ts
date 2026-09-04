@@ -41,6 +41,66 @@ export type TransferMode = 'walk' | 'transit' | 'taxi' | 'drive';
  */
 export const MAX_PLAUSIBLE_WALK_MINUTES = 45 as Duration;
 
+/**
+ * What a transit transfer is allowed to cost that has nothing to do with how far it goes:
+ * the walk to the stop, the walk off at the other end, and the changes in between.
+ *
+ * 90 minutes. Generous on purpose — this is one half of a rule that only has to catch the
+ * absurd, and every minute of slack here is a real journey it cannot delete by mistake.
+ */
+export const TRANSIT_FIXED_ALLOWANCE_MINUTES = 90;
+
+/**
+ * The slowest a real transit journey can average, measured as straight-line kilometres per
+ * hour rather than along the road, and the distance-dependent half of the same rule.
+ *
+ * Measured, not guessed. Barcelona airport to Plaça Catalunya is 12.6 km apart in a
+ * straight line, and on 2026-09-05 Transitous answered it with six itineraries between 50
+ * and 62 minutes, every one of them two or three buses with changes — about the slowest
+ * shape a city transfer takes. That is 12.2 km/h at its worst. Rounding down to 10 keeps
+ * the gate below anything observed, the same direction `providers/transfers/osrm.ts` errs
+ * in with `FASTEST_PLAUSIBLE_WALK_KM_PER_HOUR`: the bound must never reject a journey a
+ * traveller would actually take.
+ */
+export const SLOWEST_USEFUL_TRANSIT_KM_PER_HOUR = 10;
+
+/**
+ * The longest public-transport transfer worth putting in front of a traveller, for two
+ * points this far apart in a straight line.
+ *
+ * Issue #220. Asked how to get from Birmingham airport to a Birmingham hostel 9.7 km away,
+ * Transitous answered with a 21h 27m itinerary that flies to Sardinia, Rome, Cagliari and
+ * Amsterdam and comes back by train and coach through Den Haag and London Victoria. The
+ * app printed it as "Public transport" and folded its duration into the door-to-door
+ * figure `docs/ACCEPTANCE.md` calls the number this product is judged on. Nothing compared
+ * the answer against the distance, so nothing could tell that journey from a bus.
+ *
+ * Expressed against straight-line distance rather than as a flat cap, because a legitimate
+ * transfer is 90 minutes across a big city and 10 minutes across a small one, and one
+ * number cannot be right for both. #196's `MAX_PLAUSIBLE_WALK_MINUTES` could be flat: a
+ * walk is a walk at any distance. A bus is not.
+ *
+ * What it allows, at the distances this app actually asks about:
+ *
+ * | straight line | bound | measured reality |
+ * | --- | --- | --- |
+ * | 9.7 km (BHX to the hostel in #220) | 2h 28m | the rejected answer was 21h 27m |
+ * | 12.6 km (BCN to Plaça Catalunya) | 2h 46m | 50 to 62 minutes, six real itineraries |
+ * | 48.9 km (Stansted to central London) | 6h 23m | the Stansted Express is about an hour |
+ *
+ * So it is loose, and loose is the point: it is a lower bound on absurdity, not an opinion
+ * about which bus to take. `pickBestTransfer` still picks the quickest option among
+ * whatever survives, so a slow-but-real route loses on its merits rather than being
+ * deleted here.
+ *
+ * Driving and taxi stay uncapped, same as they are for the walk rule and for the same
+ * reason: a road cap needs its own argument about ferry links and routing artefacts.
+ */
+export function maxPlausibleTransitMinutes(straightLineKm: number): Duration {
+	const travel = (Math.max(0, straightLineKm) / SLOWEST_USEFUL_TRANSIT_KM_PER_HOUR) * 60;
+	return (TRANSIT_FIXED_ALLOWANCE_MINUTES + travel) as Duration;
+}
+
 export interface TransferLeg {
 	mode: TransferMode;
 	/** e.g. "Bus 100 to City Airport Station" — not always available from a provider. */

@@ -16,6 +16,7 @@
 import type { CacheKey, CacheStore } from '../../cache';
 import { defineCacheKey, getDefaultStore } from '../../cache';
 import type { Transfer, TransitPlanMoment } from '../../domain';
+import { greatCircleDistanceKm } from '../../domain';
 import type {
 	ProviderContext,
 	ProviderError,
@@ -145,7 +146,15 @@ export function createTransitousTransferProvider(
 					{ from: query.from, to: query.to, departureUtc, arriveBy: plannedFor.arriveBy },
 					{ signal: ctx.signal, fetchImpl }
 				);
-				const transfer = mapPlanResponseToTransfer(plan, plannedFor);
+				// Issue #220: the mapper measures Transitous's answer against how far apart
+				// the two points actually are. Great-circle is a lower bound on any real
+				// path (`domain/coordinates.ts`), so a journey already implausible against
+				// this is implausible against the road too.
+				const transfer = mapPlanResponseToTransfer(
+					plan,
+					plannedFor,
+					greatCircleDistanceKm(query.from, query.to)
+				);
 				const data = transfer ? [transfer] : [];
 				await writeCacheEntry(store, cacheKey, data);
 				return {
