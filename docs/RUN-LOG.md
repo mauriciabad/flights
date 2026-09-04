@@ -148,3 +148,31 @@ stay-picker agent within an hour of the pipeline merging.
 is one stay for the whole party, so a female-only dorm covering one of four travellers cannot
 be priced without inventing a formula. The picker excludes it and says why on screen instead
 of guessing.
+
+**The validation sweep paid for itself immediately.** It was filed as defensive hardening
+against scraper APIs that change without notice. It found two bugs that were already live.
+
+`null * 100` is `0` in JavaScript, so a null price from Agoda or Booking became a genuine
+**zero-cost hotel** rather than an error. Not a crash, not a missing result: a wrong number
+presented confidently as real, in the one place this app cannot afford to be wrong.
+
+`info?.displayName?.trim()` threw a `TypeError` on a non-string, because optional chaining
+guards `null` and `undefined` but not a wrong type. That one is a crash.
+
+It also found Agoda's client carrying a header comment claiming a structural error check
+existed when the code never had one, which is the specific reason `AGENTS.md` says a comment
+is not a guard.
+
+**Metropolitan codes came from our own data.** The 13 failing Ryanair requests per search
+traced back to the Travelpayouts cheap-routes dataset, which returns `ROM`, `MIL` and `PAR` as
+destinations from Barcelona. Those are IATA *city* codes covering several airports, so an
+airport-level provider can never answer for them. The fix keys off the fact that OurAirports
+has no entry for a metro code while it does have `DUS`, `ZRH` and `ALG`, so the data itself
+separates "not an airport" from "an airport this airline does not serve", with no hardcoded
+list to rot.
+
+**Live verification caught what 849 tests could not.** Every unit test passed, every route
+returned 200, every asset loaded, the PWA installed, and a real search returned nothing at
+all, frozen by a Svelte reactive loop. The tests were not wrong; they tested the right things
+at the wrong level. `stream-order.test.ts` proves result cards never reorder while streaming.
+Nothing proved the stream was consumed.
