@@ -119,12 +119,14 @@ test.describe('select and compare (issues #103/#104)', () => {
 		const outboundPicker = detail.getByRole('radiogroup', { name: /Outbound/ });
 		const alternativeRow = outboundPicker.locator('.picker-row', { hasText: '€9,222.22' });
 		await expect(alternativeRow).toBeVisible();
-		// The radio itself is visually-hidden (FlightPicker.svelte styles the whole
-		// `<label>` as the clickable row instead), so its own bounding box sits under
-		// visible sibling content — `force` skips Playwright's pointer-interception check,
-		// which is exactly the check a real click never has to pass here (a genuine click
-		// anywhere in the label already toggles the input by native `<label>` semantics).
-		await alternativeRow.locator('input[type="radio"]').check({ force: true });
+		// Click the row, which is what a traveller clicks: FlightPicker.svelte styles the
+		// whole `<label>` as the control and the `<input>` inside it is `visually-hidden`,
+		// so native label semantics do the toggling. Force-clicking the hidden input
+		// instead used to work only because the document itself scrolled, which let
+		// Playwright bring that zero-area box into the viewport; now that the app shell
+		// owns scrolling (issue #119), a forced click on it lands nowhere. Clicking the
+		// label is both the fix and the more faithful test.
+		await alternativeRow.click();
 
 		await expect(alternativeRow).toContainText('Current pick');
 		await expect(totalPriceRow).toContainText('€18,555.55'); // 9,222.22 + 9,333.33
