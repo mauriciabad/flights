@@ -5,10 +5,11 @@
  *   node tools/probe-reload.mjs '<url>'
  */
 import { chromium } from '@playwright/test';
+import { newProbeContext } from './probe-browser.mjs';
 
 const url = process.argv[2];
 const browser = await chromium.launch();
-const ctx = await browser.newContext();
+const ctx = await newProbeContext(browser);
 const page = await ctx.newPage();
 let count = 0;
 page.on('response', (r) => { if (!r.url().includes('flights.mauri.app') && !r.url().startsWith('data:')) count += 1; });

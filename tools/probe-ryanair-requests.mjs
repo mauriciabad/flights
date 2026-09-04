@@ -13,6 +13,7 @@
  *   node tools/probe-ryanair-requests.mjs http://localhost:4173 # a local `vite preview`
  */
 import { chromium } from '@playwright/test';
+import { newProbeContext } from './probe-browser.mjs';
 
 const base = (process.argv[2] ?? 'https://flights.mauri.app').replace(/\/$/, '');
 const target = `${base}/results/?${process.argv[3] ?? 'from=BCN&to=OTP&dep=2026-10-01&arr=2026-10-25'}`;
@@ -26,7 +27,7 @@ function endpointOf(url) {
 }
 
 const browser = await chromium.launch();
-const page = await (await browser.newContext()).newPage();
+const page = await (await newProbeContext(browser)).newPage();
 
 const ryanair = [];
 page.on('response', (r) => {

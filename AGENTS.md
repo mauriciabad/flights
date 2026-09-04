@@ -239,7 +239,7 @@ worktrees on one machine port 4173 is often already held by somebody else's buil
 `pnpm test:e2e` run silently attached to one and failed 22 tests against a branch nobody
 here had ever seen: the network guard blocked `pics.avs.io` airline logos, a feature that
 exists in neither that branch nor `origin/main`. So when the suite has to have measured
-*your* build, run `CI=1 pnpm test:e2e`. It starts its own server and fails loudly if the
+*your* build, run `CI=1 E2E_PORT=<pick one> pnpm test:e2e`. It starts its own server and fails loudly if the
 port is taken, instead of quietly testing someone else's work.
 
 ## If you merge other agents' PRs

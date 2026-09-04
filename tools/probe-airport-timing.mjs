@@ -1,10 +1,11 @@
 import { chromium } from '@playwright/test';
+import { newProbeContext } from './probe-browser.mjs';
 
 const origin = process.env.LAYOVER_ORIGIN ?? 'https://flights.mauri.app';
 const query = process.argv[2] ?? 'Paris';
 
 const browser = await chromium.launch();
-const page = await (await browser.newContext()).newPage();
+const page = await (await newProbeContext(browser)).newPage();
 await page.goto(`${origin}/`, { waitUntil: 'domcontentloaded' });
 
 const field = page.getByRole('combobox').first();

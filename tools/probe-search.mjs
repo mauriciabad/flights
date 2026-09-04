@@ -5,12 +5,13 @@
  *   node tools/probe-search.mjs Paris Barcelona Oslo
  */
 import { chromium } from '@playwright/test';
+import { newProbeContext } from './probe-browser.mjs';
 
 const queries = process.argv.slice(2);
 const origin = process.env.LAYOVER_ORIGIN ?? 'https://flights.mauri.app';
 
 const browser = await chromium.launch();
-const page = await (await browser.newContext()).newPage();
+const page = await (await newProbeContext(browser)).newPage();
 await page.goto(`${origin}/`, { waitUntil: 'domcontentloaded' });
 
 const field = page.getByRole('combobox').first();
