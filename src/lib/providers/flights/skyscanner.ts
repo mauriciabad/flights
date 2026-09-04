@@ -22,6 +22,7 @@ import { DEFAULT_TRAVELLERS } from '../../domain';
 import type { CacheStore } from '../../cache';
 import { callProviderWithBudget } from '../budget';
 import { classifyClientResultError, unwrapOrThrow } from '../client-result-budget';
+import type { GeocodeProviderOptions } from '../geocode/transitous';
 import type {
 	FlightProvider,
 	FlightSearchQuery,
@@ -36,6 +37,7 @@ import { getCachedAirportEntity, setCachedAirportEntity } from './skyscanner-air
 import type { SkyscannerAirportEntity } from './skyscanner-airport-cache';
 import { callSkyscanner } from './skyscanner-client';
 import { mapSearchFlightsToOffers, SkyscannerMalformedResponseError } from './skyscanner-map-offers';
+import { resolveAirportTimeZone } from './skyscanner-timezone';
 
 /** Also the id `../budget/caps.ts`'s `DEFAULT_PROVIDER_CAPS` is keyed by — enforced at
  * compile time by `ProviderId` (../types.ts, issue #69), not by convention. */
@@ -101,6 +103,20 @@ export function createSkyscannerFlightProvider(
 			sleep,
 			now
 		});
+	}
+
+	/** Threads this adapter's own `fetchImpl`/`cacheStore` test overrides into the geocode
+	 * module's timezone lookup, so a test that injects an isolated `cacheStore` here (every
+	 * test in skyscanner.test.ts does) gets that same isolation for timezone lookups rather
+	 * than silently falling through to the real default IndexedDB-or-memory store. In
+	 * production both `cacheStore` and `fetchImpl` are undefined here, and geocode/transitous.ts
+	 * already defaults to the same `getDefaultStore()`/global `fetch` this adapter's own
+	 * airport-entity cache uses when left unset. */
+	function geocodeOptions(): GeocodeProviderOptions {
+		return {
+			fetchImpl,
+			resolveStore: cacheStore ? async () => cacheStore : undefined
+		};
 	}
 
 	async function resolveAirportEntity(
@@ -173,6 +189,27 @@ export function createSkyscannerFlightProvider(
 		const travellers = query.travellers ?? DEFAULT_TRAVELLERS;
 		const dates = enumerateDates(query.earliestDeparture, query.latestDeparture);
 
+		// A one-way searchFlights response only ever contains itineraries for the queried
+		// origin and destination (confirmed against the real fixture: every leg's
+		// origin.id/destination.id equals the queried route), so both zones are resolved
+		// once here rather than per itinerary or per date. Neither lookup spends any of
+		// this adapter's own `requestsUsed` budget above: Transitous is a separate, keyless
+		// provider with its own long-lived cache (geocode/transitous.ts), not part of
+		// Skyscanner's metered RapidAPI quota. A code that resolves to `undefined` here
+		// (seed miss and a failed or empty live lookup — skyscanner-timezone.ts's own
+		// comment on `resolveAirportTimeZone` has a real example, DXB) makes every
+		// itinerary touching that airport get dropped below rather than mistimed.
+		const geocode = geocodeOptions();
+		const [originTimeZone, destinationTimeZone] = await Promise.all([
+			resolveAirportTimeZone(query.origin, ctx, geocode),
+			resolveAirportTimeZone(query.destination, ctx, geocode)
+		]);
+		const timeZones = new Map<string, string>();
+		if (originTimeZone !== undefined) timeZones.set(query.origin.toUpperCase(), originTimeZone);
+		if (destinationTimeZone !== undefined) {
+			timeZones.set(query.destination.toUpperCase(), destinationTimeZone);
+		}
+
 		const offers: FlightOffer[] = [];
 		let sawMalformedDate = false;
 
@@ -228,7 +265,7 @@ export function createSkyscannerFlightProvider(
 			}
 
 			try {
-				offers.push(...mapSearchFlightsToOffers(result.data, { currency, travellers }));
+				offers.push(...mapSearchFlightsToOffers(result.data, { currency, travellers, timeZones }));
 			} catch (cause) {
 				if (cause instanceof SkyscannerMalformedResponseError) {
 					sawMalformedDate = true;

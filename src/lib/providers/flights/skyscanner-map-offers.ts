@@ -13,6 +13,14 @@ export class SkyscannerMalformedResponseError extends Error {}
 export interface MapSearchFlightsOptions {
 	currency: IsoCurrencyCode;
 	travellers: number;
+	/** IATA code -> resolved IANA zone, for every airport this response's itineraries can
+	 * reference. Resolved once per `searchOffers` call (skyscanner.ts), not per itinerary or
+	 * per date: a one-way `searchFlights` response only ever contains itineraries for the
+	 * queried origin and destination, so their zones never change across the date range a
+	 * search loops over. A code missing from this map means neither the seed table nor a
+	 * live Transitous lookup could resolve it (skyscanner-timezone.ts `resolveAirportTimeZone`)
+	 * — every itinerary touching that airport gets dropped below, never mistimed. */
+	timeZones: ReadonlyMap<string, string>;
 }
 
 /**
@@ -28,9 +36,9 @@ export interface MapSearchFlightsOptions {
  *   Origin to Every Connection... Get all flights from Every Connection to Destination"),
  *   so a Skyscanner-chosen stopover the itinerary builder never gets to evaluate would be a
  *   second, competing connection logic living inside this one adapter.
- * - An itinerary whose airport is missing from skyscanner-timezone.ts's curated table, or
- *   whose price parses to nothing usable. AGENTS.md: say what you do not know rather than
- *   guessing.
+ * - An itinerary whose airport's time zone could not be resolved (`options.timeZones` has no
+ *   entry for it — see MapSearchFlightsOptions), or whose price parses to nothing usable.
+ *   AGENTS.md: say what you do not know rather than guessing.
  */
 export function mapSearchFlightsToOffers(raw: unknown, options: MapSearchFlightsOptions): FlightOffer[] {
 	const itineraries = extractItineraries(raw);
@@ -74,8 +82,8 @@ function mapDirectItinerary(itinerary: unknown, options: MapSearchFlightsOptions
 	const arrivalLocal = asString(segment.arrival) ?? asString(leg.arrival);
 	if (departureLocal === undefined || arrivalLocal === undefined) return undefined;
 
-	const departure = toLocalDateTime(departureLocal, originCode);
-	const arrival = toLocalDateTime(arrivalLocal, destinationCode);
+	const departure = toLocalDateTime(departureLocal, originCode, options.timeZones);
+	const arrival = toLocalDateTime(arrivalLocal, destinationCode, options.timeZones);
 	if (departure === undefined || arrival === undefined) return undefined;
 
 	const marketingCarrier = segment.marketingCarrier;

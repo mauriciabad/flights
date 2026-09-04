@@ -337,9 +337,27 @@ entirely: checked against 16 airports spanning every populated continent (BCN, V
 LAX, SYD, DXB, NRT, GRU, JNB, SIN, LHR, ANC, CPT, HND, GIG, AKL) on 2026-09-04, it returned
 the correct IANA zone for all 16, DST-observing and half-hour-offset cases included. That
 makes it a live replacement candidate for `skyscanner-timezone.ts`'s hand-curated,
-silently-rotting IATA table — not swapped in yet (issue #64 built the capability and
-proved it works; wiring it into an existing, shipped adapter is its own follow-up issue,
-deliberately not bundled with this one).
+silently-rotting IATA table (issue #64 built the capability and proved it works; wiring it
+into an existing, shipped adapter was its own follow-up issue, deliberately not bundled
+with this one).
+
+**Update, issue #75:** that wiring is done. `skyscanner-timezone.ts` now tries a small seed
+table first (no network, kept only for the busiest hubs) and falls through to the live
+lookup above for anything else, rather than dropping an offer just because a hand-typed
+list never mentioned that airport. Re-running the same 16-airport check while building this
+turned up a real gap the original check did not: on 2026-09-04, the same day as the check
+above, a fresh `/reverse-geocode` call for **DXB** — Dubai International, one of the
+airports this table itself lists as verified — returned an empty array, not a wrong zone
+but no result at all. Whether that is a transient service hiccup or a real, narrow coverage
+hole in Transitous's own data was not worth spending more of its volunteer-run capacity to
+pin down; either way it is the concrete reason the seed table still exists as a fallback
+for a short list of busy hubs (DXB included) instead of being deleted outright. The other
+15 airports resolved correctly on the same run. A handful of small, remote airports checked
+for the same PR (Ushuaia, Wallis Island, Funafuti, Chuuk, Saipan, Nuuk, Easter Island)
+mostly resolved correctly too — with the same caveat: Ushuaia's reverse-geocode also came
+back empty, and three Pacific airports resolved to a zone that is a real IANA alias of the
+"expected" one (identical UTC offset and rules, different canonical name — Pacific/Tarawa
+for Funafuti and Wallis, Pacific/Guam for Saipan), not a wrong answer.
 
 **OSRM** gives walking and driving durations, keyless, on a shared demo server. Cache
 hard and do not hammer it.
