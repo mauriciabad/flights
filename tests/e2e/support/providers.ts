@@ -2,6 +2,12 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { BrowserContext, Page } from '@playwright/test';
+import { OSRM_BASE_URL } from '../../../src/lib/providers/transfers/osrm';
+
+// Re-exported so a spec that wants to check "did this request really land on the host
+// mockOsrm intercepts" (issue #132) can import it from here instead of reaching into
+// src/lib itself.
+export { OSRM_BASE_URL };
 
 const fixturesDir = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'fixtures');
 
@@ -78,9 +84,14 @@ export async function mockTransitous(target: Routable, fixture = 'transitous/pla
 	await mockJson(target, 'https://api.transitous.org/**', fixture);
 }
 
-/** OSRM walking/driving times and routes. Needs no key. */
+/** OSRM walking/driving times and routes. Needs no key. Intercepts `OSRM_BASE_URL`,
+ * imported straight from the adapter (issue #132) rather than a copy of the host kept
+ * here, so this can't silently drift from whatever host `osrm.ts` actually calls again
+ * the way it already did once — the adapter moved off `router.project-osrm.org` to
+ * `routing.openstreetmap.de`, and this mock kept intercepting the old host for months
+ * because nothing exercised it. */
 export async function mockOsrm(target: Routable, fixture = 'osrm/route.json') {
-	await mockJson(target, 'https://router.project-osrm.org/**', fixture);
+	await mockJson(target, `${OSRM_BASE_URL}/**`, fixture);
 }
 
 /** Registers every keyless provider (Ryanair — fare-finder, route-widget and

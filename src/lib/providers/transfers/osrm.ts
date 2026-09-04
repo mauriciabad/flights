@@ -64,7 +64,11 @@ export type { TaxiFareEstimate } from './taxi-rate-table';
  * like every other adapter's id. */
 export const OSRM_PROVIDER_ID: ProviderId = 'osrm';
 
-const DEFAULT_BASE_URL = 'https://routing.openstreetmap.de';
+// Exported so tests/e2e/support/providers.ts's mockOsrm can intercept the same host
+// this adapter actually calls, rather than keeping its own copy of the string that can
+// drift the way it already did once (issue #132: the mock still pointed at
+// router.project-osrm.org months after this adapter moved off it).
+export const OSRM_BASE_URL = 'https://routing.openstreetmap.de';
 
 // Geography does not change week to week the way a fare does. AGENTS.md's "stale
 // first, then fresh" rule (always refetch, show the old value meanwhile) is written
@@ -250,7 +254,7 @@ async function requestOsrm<T extends OsrmResponseBase>(
 	signal: AbortSignal
 ): Promise<T> {
 	const { servicePrefix, urlProfile } = PROFILE_PATHS[profile];
-	const baseUrl = options.baseUrl ?? DEFAULT_BASE_URL;
+	const baseUrl = options.baseUrl ?? OSRM_BASE_URL;
 	const url = new URL(`${baseUrl}/${servicePrefix}/${service}/v1/${urlProfile}/${pathSuffix}`);
 	for (const [key, value] of Object.entries(params)) url.searchParams.set(key, value);
 
