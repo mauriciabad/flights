@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
 	DEFAULT_MAX_CANDIDATES,
 	findConnectionCandidates,
+	hasKnownDirectRoute,
 	type ConnectionAirportInfo,
 	type ConnectionQuery
 } from './connections';
@@ -424,5 +425,80 @@ describe('findConnectionCandidates', () => {
 		expect(
 			candidates.some((c) => c.confirmedBy.outbound === 'ryanair' || c.confirmedBy.inbound === 'ryanair')
 		).toBe(true);
+	});
+});
+
+describe('hasKnownDirectRoute', () => {
+	it('is true when a free source lists a direct A -> B edge', async () => {
+		const provider = createFakeFlightProvider('direct-route', { routes: { [ZBC]: [ZSF] } });
+		await expect(
+			hasKnownDirectRoute(
+				{ originAirport: ZBC, destinationAirport: ZSF, soonestDeparture: SOONEST_DEPARTURE },
+				{ flightProviders: [provider] }
+			)
+		).resolves.toBe(true);
+	});
+
+	it('is false when no free source lists a direct edge, never a guess from stopover reachability', async () => {
+		// Same ROUTES fixture `findConnectionCandidates`'s own tests use: ZBC has no direct
+		// edge to ZSF here, only edges to candidates that themselves connect onward to ZSF.
+		const provider = fixtureProvider();
+		await expect(
+			hasKnownDirectRoute(
+				{ originAirport: ZBC, destinationAirport: ZSF, soonestDeparture: SOONEST_DEPARTURE },
+				{ flightProviders: [provider] }
+			)
+		).resolves.toBe(false);
+	});
+
+	it('is false, not a throw, for a caller who passes no flightProviders at all (the bundled fallback table still runs)', async () => {
+		await expect(
+			hasKnownDirectRoute({ originAirport: ZBC, destinationAirport: ZSF, soonestDeparture: SOONEST_DEPARTURE })
+		).resolves.toBe(false);
+	});
+
+	it('is false for querying an airport against itself, the same "not a real question" guard findConnectionCandidates uses', async () => {
+		const provider = createFakeFlightProvider('self-loop', { routes: { [ZBC]: [ZBC] } });
+		await expect(
+			hasKnownDirectRoute(
+				{ originAirport: ZBC, destinationAirport: ZBC, soonestDeparture: SOONEST_DEPARTURE },
+				{ flightProviders: [provider] }
+			)
+		).resolves.toBe(false);
+	});
+
+	it('never spends a metered request: a metered provider is excluded from the free-source union entirely', async () => {
+		const metered = createFakeFlightProvider('metered-direct', { routes: { [ZBC]: [ZSF] }, metered: true });
+		await expect(
+			hasKnownDirectRoute(
+				{ originAirport: ZBC, destinationAirport: ZSF, soonestDeparture: SOONEST_DEPARTURE },
+				{ flightProviders: [metered] }
+			)
+		).resolves.toBe(false);
+		expect(metered.listDirectDestinations).not.toHaveBeenCalled();
+	});
+
+	it("widens a free source's city-level code to any of its member airports (issue #107's own BCN -> CDG example)", async () => {
+		// Mirrors how Travelpayouts' own cheap-routes dataset actually reports a Paris
+		// fare live: as "PAR", never the specific airport (CDG/ORY/BVA) it flew into.
+		// Verified live against a real search before this test existed: without the
+		// metro-code widening, this exact query came back `false`.
+		const provider = createFakeFlightProvider('cheap-routes-fixture', { routes: { BCN: ['PAR'] } });
+		await expect(
+			hasKnownDirectRoute(
+				{ originAirport: 'BCN', destinationAirport: 'CDG', soonestDeparture: SOONEST_DEPARTURE },
+				{ flightProviders: [provider] }
+			)
+		).resolves.toBe(true);
+	});
+
+	it('does not widen for a destination outside every known metro-code grouping', async () => {
+		const provider = createFakeFlightProvider('cheap-routes-fixture', { routes: { BCN: ['PAR'] } });
+		await expect(
+			hasKnownDirectRoute(
+				{ originAirport: 'BCN', destinationAirport: 'AGP', soonestDeparture: SOONEST_DEPARTURE },
+				{ flightProviders: [provider] }
+			)
+		).resolves.toBe(false);
 	});
 });

@@ -22,7 +22,7 @@
  * calls abort quickly, and nothing new gets queued behind them.
  */
 
-import { findConnectionCandidates } from '../algorithm/connections';
+import { findConnectionCandidates, hasKnownDirectRoute } from '../algorithm/connections';
 import type { ConnectionAirportInfo } from '../algorithm/connections';
 import { buildItineraries } from '../algorithm/build';
 import { DEFAULT_SCORING_WEIGHTS, rankItineraries } from '../algorithm/score';
@@ -387,7 +387,13 @@ function makeSnapshotFn(
 	stayCandidatesByConnection: Map<IataAirportCode, Stay[]>
 ) {
 	let sequence = 0;
-	return function snapshot(stage: SearchStage, candidates: ConnectionCandidate[], done: boolean, widenOptions: WidenOption[] = []): SearchSnapshot {
+	return function snapshot(
+		stage: SearchStage,
+		candidates: ConnectionCandidate[],
+		done: boolean,
+		widenOptions: WidenOption[] = [],
+		hasDirectRoute = false
+	): SearchSnapshot {
 		return {
 			sequence: sequence++,
 			stage,
@@ -396,7 +402,8 @@ function makeSnapshotFn(
 			itineraryGroups: groupItineraryResults(results),
 			providers: Object.fromEntries(providerStatus),
 			widenOptions,
-			stayCandidatesByConnection: Object.fromEntries(stayCandidatesByConnection)
+			stayCandidatesByConnection: Object.fromEntries(stayCandidatesByConnection),
+			hasDirectRoute
 		};
 	};
 }
@@ -542,6 +549,23 @@ export async function* runSearch(
 	const allTransferProviders = deps.registry.usable('transfer', deps.keys);
 	const landingToTransportRules = query.landingToTransportRules ?? DEFAULT_LANDING_TO_TRANSPORT_RULES;
 
+	// Issue #107: asked only when this search's own results end up empty, from the same free
+	// sources `findConnectionCandidates` already queries. Never a second, unrelated lookup,
+	// and never a metered one. Cheap enough to call on the rare "nothing came back" path,
+	// wasteful to call on every ordinary search that finds something, which is why this is a
+	// closure rather than an eager value.
+	const checkDirectRoute = () =>
+		signal.aborted
+			? Promise.resolve(false)
+			: hasKnownDirectRoute(
+					{
+						originAirport: query.originAirport,
+						destinationAirport: query.destinationAirport,
+						soonestDeparture: query.soonestDeparture
+					},
+					{ flightProviders: allFlightProviders, providerKeys: deps.keys, signal }
+				);
+
 	const candidates = await findConnectionCandidates(
 		{
 			originAirport: query.originAirport,
@@ -567,7 +591,11 @@ export async function* runSearch(
 	yield snapshot('candidates', candidates, false, widenOptions);
 
 	if (signal.aborted || candidates.length === 0) {
-		yield snapshot('done', candidates, true, widenOptions);
+		// No stopover candidate survived ranking at all, the common shape for a well-served
+		// direct route (any detour through a third city fails `maxDetourRatio` outright), so
+		// this is exactly the case the empty-results UI needs `hasDirectRoute` for.
+		const hasDirectRoute = candidates.length === 0 ? await checkDirectRoute() : false;
+		yield snapshot('done', candidates, true, widenOptions, hasDirectRoute);
 		return;
 	}
 
@@ -632,7 +660,13 @@ export async function* runSearch(
 		yield snapshot('stage1', candidates, false, widenOptions);
 	}
 
-	yield snapshot('done', candidates, true, widenOptions);
+	// Candidates existed (the branch above only skips this point when there were none at
+	// all), but none of them produced a single itinerary. A real find-nothing result, not
+	// the well-served-direct-route shape the early exit above targets, but still worth the
+	// same free check: nothing rules out the destination also having a direct option that
+	// happens to have priced out every candidate this search tried.
+	const hasDirectRoute = !signal.aborted && results.length === 0 ? await checkDirectRoute() : false;
+	yield snapshot('done', candidates, true, widenOptions, hasDirectRoute);
 	return;
 }
 
