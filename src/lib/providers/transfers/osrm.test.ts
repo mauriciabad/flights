@@ -1,11 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
-import { MemoryCacheStore } from '../../cache';
+import { defineCacheKey, MemoryCacheStore } from '../../cache';
 import type { Coordinates } from '../../domain';
 import type { ProviderContext } from '../types';
 import {
 	createOsrmTransferProvider,
 	findTransfersToMany,
 	getTaxiFareEstimate,
+	OSRM_PROVIDER_ID,
 	osrmTransferProvider
 } from './osrm';
 
@@ -138,6 +139,58 @@ describe('createOsrmTransferProvider / searchTransfers', () => {
 		expect(first.ok && first.requestsUsed).toBe(1);
 		expect(second.ok && second.requestsUsed).toBe(0);
 		expect(second.ok && second.data[0].duration).toBe(first.ok && first.data[0].duration);
+	});
+
+	it('does not serve a still-fresh entry written under the pre-geometry cache key shape (30-day stale-geometry window)', async () => {
+		const store = new MemoryCacheStore();
+		// The exact key `routeCacheKey` produced before it hashed a `geometry` shape
+		// discriminator alongside `service`/`profile`/`origin`/`destination` — this is
+		// deliberately NOT built by calling this adapter's own current code, since the
+		// whole point is to reproduce what a real browser already has on disk from
+		// before this fix shipped.
+		const oldShapeKey = defineCacheKey(
+			OSRM_PROVIDER_ID,
+			{
+				service: 'route',
+				profile: 'walking',
+				origin: { lat: AIRPORT.latitude, lon: AIRPORT.longitude },
+				destination: { lat: HOTEL.latitude, lon: HOTEL.longitude }
+			},
+			30 * 24 * 60 * 60 * 1000 // ROUTE_CACHE_TTL_MS in osrm.ts
+		);
+		const now = Date.now();
+		await store.set({
+			key: oldShapeKey.raw,
+			providerId: OSRM_PROVIDER_ID,
+			// The old cached value: a real, still-correct duration/distance, but no
+			// `path` — exactly what every entry written by the `overview=false` request
+			// looked like.
+			value: { durationSeconds: 600, distanceMeters: 800 },
+			storedAt: now, // written "just now" — nowhere near the 30-day TTL boundary
+			ttlMs: 30 * 24 * 60 * 60 * 1000,
+			lastAccessedAt: now,
+			sizeBytes: 64
+		});
+
+		const fetchImpl = vi
+			.fn()
+			.mockResolvedValue(jsonResponse(routeBody(600, 800, { type: 'LineString', coordinates: [[2.0785, 41.2971], [2.1686, 41.3874]] })));
+		const provider = createOsrmTransferProvider({ store, fetchImpl });
+
+		const result = await provider.searchTransfers({ from: AIRPORT, to: HOTEL, modes: ['walk'] }, ctxFor());
+
+		expect(result.ok).toBe(true);
+		if (!result.ok) return;
+		// The old-shape entry must count as a miss: a real request went out (never
+		// served straight back as a "fresh" hit missing the whole point of this fix)...
+		expect(fetchImpl).toHaveBeenCalledTimes(1);
+		expect(result.requestsUsed).toBe(1);
+		// ...and the walking Transfer this adapter now returns actually carries the
+		// geometry the old entry never could.
+		expect(result.data[0].path).toEqual([
+			{ latitude: 41.2971, longitude: 2.0785 },
+			{ latitude: 41.3874, longitude: 2.1686 }
+		]);
 	});
 
 	it('stops within a caller-imposed request budget and returns a partial, still-ok result', async () => {
