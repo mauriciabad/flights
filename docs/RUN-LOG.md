@@ -25,6 +25,11 @@ real app, and a live search returns itineraries. A plateau is not a stop.
 | 14 | Travelpayouts cheap-route data now fetched nightly in CI | yes | 29 real BCN routes, 6.9 KB committed |
 | 15 | Provider budget, key-model reconciliation and Skyscanner adapter queued | partly | PRs open |
 
+| 16 | Search form live in production, every input from the brief | yes | screenshot, tiered rules working |
+| 17 | Itinerary timeline merged, designed as a subgrid contract for the comparator | yes | 484 tests |
+| 18 | Agoda and Booking stay adapters merged | yes | 12 real requests spent, fixtures captured |
+| 19 | PWA installable: manifest linked, service worker registered | yes | manifest and sw.js both 200 in production |
+
 ## Decisions worth auditing
 
 **Amadeus was abandoned before any code was written.** It was the intended source for both
@@ -98,3 +103,25 @@ coordinates. That second field matters more than the first: Skyscanner sends no 
 all, so its adapter hand-curates an IATA-to-IANA table and drops any airport missing from it.
 A hand-maintained timezone table rots silently, and when it is wrong an overnight itinerary
 gains or loses a night, which is a wrong hotel booking and a wrong total.
+
+**Agoda's own dormitory flag is wrong.** `isDormitory` reads `false` on rooms literally named
+"N-Bed Dormitory", so classification runs on the room name instead, with a guard against
+"Private N Bed Dorm", which is a whole private room at four to five times the price. Trusting
+the flag would have priced dorm beds as private rooms throughout, and trusting the name without
+that guard would have done the reverse.
+
+**The price calendar returns a year, not a month.** One request gives 366 contiguous days of
+daily prices for a route. Six candidates across two legs is 12 requests for a full year of
+prices, against a 50-request month; Sky Scrapper would need 4,392 requests for the same and has
+20. This is the difference between an app that prices the dates you name and one that can tell
+you when to go, which is #71.
+
+**An unverified adapter was held out of main.** Kiwi's backend is switched off, so its types
+were reconstructed rather than captured. The review found that its `healthCheck` does not fail
+closed and its mapper has no runtime shape guard, so a shape drift would silently produce wrong
+flight offers rather than an error. Held until both are fixed structurally, because wrong
+flight data is worse than none.
+
+That review generalised into #68: NO adapter validates response shape at runtime. These are
+scraper APIs that change without notice, and two already have. A renamed field yields
+`undefined`, which becomes `NaN` in a price. The sweep runs only when no adapter branch is open.
