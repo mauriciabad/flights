@@ -167,7 +167,9 @@ function totalPriceCaveat(itinerary: Itinerary): string | undefined {
  */
 function groundCostUnknownFor(itinerary: Itinerary): number {
 	const unpriced = unpricedTransferLegs(itinerary).length;
-	if (!itinerary.stay) return unpriced;
+	// Issue #140's gate, for the same reason it gates the missing bed: a same-day
+	// connection has no bed to reach, so a leg it does not have is not a leg that failed.
+	if (!itinerary.stay || itinerary.nightsInConnection === 0) return unpriced;
 	// Only the two connection-side legs. The outer two are absent whenever the query
 	// carried no origin or destination location, which is a trip that genuinely has no such
 	// ride rather than one nobody could route.

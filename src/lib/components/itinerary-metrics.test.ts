@@ -169,6 +169,16 @@ describe('priceBreakdown', () => {
 		expect(priceBreakdown(bedless as Itinerary).unpricedTransferCount).toBe(0);
 	});
 
+	it('does not invent rides for a same-day connection either', () => {
+		// Issue #140's gate. Nobody leaves the airport on a same-day connection, so a hotel
+		// leg it does not have is not a leg that failed to route.
+		const { transferToHotel: _to, transferToConnectionAirport: _back, ...sameDay } = makeItinerary({
+			nightsInConnection: 0
+		});
+		expect(priceBreakdown(sameDay as Itinerary).unpricedTransferCount).toBe(0);
+		expect(itineraryMetrics(sameDay as Itinerary, ['total-price'])[0]!.note).toBeUndefined();
+	});
+
 	it('leaves a fully-known total with no caveat at all', () => {
 		// A same-day connection walked at both ends really is completely priced, and
 		// warning about it would invent a cost the trip never had (issue #140).
