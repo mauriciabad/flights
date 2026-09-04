@@ -1,9 +1,14 @@
 <script lang="ts">
 	/**
-	 * The itinerary map (issue #26): the whole chain drawn on a keyless MapLibre map,
-	 * flights as great-circle arcs, everything else as straight hops between known
-	 * points (see `$lib/itinerary-map/segments.ts` for why transfers have no real route
-	 * shape to draw instead).
+	 * The itinerary map (issue #26): the whole chain drawn on a keyless MapLibre map.
+	 * Flights are great-circle arcs, because that is the path a plane actually flies and
+	 * a straight line between two airports is a different, wrong route once Mercator has
+	 * had its way with it. Ground transfers are OSRM's own road geometry when it came
+	 * through (issue #131), and a dashed straight hop, labelled as an estimate, when it
+	 * did not. Every coordinate this component receives is already in one continuous
+	 * longitude frame, including past ±180 for a trip that crosses the antimeridian, so
+	 * the camera and the markers agree with the lines; `$lib/itinerary-map/segments.ts`
+	 * (`singleFrame`) is where all of that is decided.
 	 *
 	 * ## The selection contract, for `ItineraryTimeline` (issue #24)
 	 *
