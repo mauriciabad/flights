@@ -135,13 +135,15 @@
 </script>
 
 <Card class="provider-card">
-	<div class="provider-card-heading">
-		<div>
-			<span class="provider-card-category">{provider.category}</span>
-			<h3>{provider.label}</h3>
+	{#snippet header()}
+		<div class="provider-card-heading">
+			<div>
+				<span class="provider-card-category">{provider.category}</span>
+				<h3>{provider.label}</h3>
+			</div>
+			<span class="provider-card-quota font-mono tabular-nums">{quota.remaining} left</span>
 		</div>
-		<span class="provider-card-quota font-mono tabular-nums">{quota.remaining} left</span>
-	</div>
+	{/snippet}
 
 	<p class="provider-card-blurb">{provider.blurb}</p>
 
@@ -242,11 +244,14 @@
 </Card>
 
 <style>
-	/* Card.svelte wraps this component's whole default-slot content in one `.card-body`
-	   div — there's no `.card-header` here since the heading below is plain body content,
-	   not Card's `header` snippet prop (that combination hit a real SSR/hydration bug:
-	   the first card in the list on the page lost its whole header after hydration while
-	   later cards kept theirs, see the PR description). */
+	/* Card.svelte's `.card-body` now wraps only what's below the heading. The
+	   heading itself renders through Card's `header` snippet prop. Issue #77:
+	   an earlier version of this file avoided that prop over a suspected
+	   SSR/hydration bug. Four separate real-browser checks (a production build
+	   and `vite dev`, static content and a deliberate server/client text
+	   mismatch) never reproduced it against this project's exact toolchain.
+	   The one run that did look broken traced back to a stale `.svelte-kit`
+	   build cache, not to Card. */
 	:global(.provider-card > .card-body) {
 		display: flex;
 		flex-direction: column;
@@ -270,6 +275,7 @@
 		margin-bottom: var(--space-1);
 		font-family: var(--font-mono);
 		font-size: var(--font-size-xs);
+		font-weight: var(--font-weight-regular);
 		letter-spacing: var(--tracking-wide);
 		text-transform: uppercase;
 		color: var(--color-text-faint);
@@ -282,6 +288,10 @@
 		background: var(--color-bg-inset);
 		color: var(--color-text-muted);
 		font-size: var(--font-size-xs);
+		/* Card's `.card-header` sets a semibold weight for the heading; this badge
+		   sits in that header too now but reads better at its original regular
+		   weight, so it opts back out. */
+		font-weight: var(--font-weight-regular);
 	}
 
 	.provider-card-blurb {

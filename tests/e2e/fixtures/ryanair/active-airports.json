@@ -1,0 +1,15 @@
+[
+	{ "iataCode": "BCN", "timeZone": "Europe/Madrid" },
+	{ "iataCode": "TLL", "timeZone": "Europe/Tallinn" },
+	{ "iataCode": "STN", "timeZone": "Europe/London" },
+	{ "iataCode": "CRL", "timeZone": "Europe/Brussels" },
+	{ "iataCode": "WAW", "timeZone": "Europe/Warsaw" },
+	{ "iataCode": "BUD", "timeZone": "Europe/Budapest" },
+	{ "iataCode": "MXP", "timeZone": "Europe/Rome" },
+	{ "iataCode": "VIE", "timeZone": "Europe/Vienna" },
+	{ "iataCode": "LTN", "timeZone": "Europe/London" },
+	{ "iataCode": "DUB", "timeZone": "Europe/Dublin" },
+	{ "iataCode": "FCO", "timeZone": "Europe/Rome" },
+	{ "iataCode": "BGY", "timeZone": "Europe/Rome" },
+	{ "iataCode": "KRK", "timeZone": "Europe/Warsaw" }
+]

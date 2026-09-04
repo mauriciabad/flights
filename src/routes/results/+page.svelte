@@ -128,8 +128,21 @@
 		nextSequence = 1;
 		if (!activeQuery) return;
 
+		// Issue #87: `consumeSearch` is only "async" in name here — it's called without
+		// `await`, so its body runs synchronously (up to its first real suspend point,
+		// deep inside `runSearch`'s first `for await`) on THIS effect's own call stack.
+		// Svelte tracks dependencies by call stack, not lexical scope, so `searchesInFlight
+		// += 1` (a read then a write of the same $state, consumeSearch's very first line)
+		// was counted as this effect reading AND writing `searchesInFlight` — the effect
+		// wrote a value it also read, so every write re-triggered it, forever, tripping
+		// Svelte's effect_update_depth_exceeded guard before a single snapshot ever
+		// rendered. `untrack` scopes out just that synchronous window; consumeSearch's
+		// later writes (from inside the `for await` loop, resumed after a real await) are
+		// naturally outside any effect's tracking already and need no wrapping.
 		const controller = new AbortController();
-		consumeSearch(runSearch(activeQuery, deps(), { signal: controller.signal }), { trackWidenOptions: true });
+		untrack(() =>
+			consumeSearch(runSearch(activeQuery, deps(), { signal: controller.signal }), { trackWidenOptions: true })
+		);
 		return () => controller.abort();
 	});
 
