@@ -37,6 +37,12 @@ interface AirportDatasetRow {
 	 * actually keys off, and the raw OurAirports vocabulary is an implementation detail
 	 * of computing it. */
 	type: string;
+	/** Alternate names from OurAirports' `keywords` column — "Boa Vista" for BVC, "Pafos"
+	 * for PFO — the names travellers actually type, which `name` and `city` often are
+	 * not (issue #116). Absent, not `[]`, when OurAirports has none for this airport.
+	 * Search-only: it never reaches the domain `Airport` type `toAirport` builds below,
+	 * since nothing outside search needs it. */
+	keywords?: string[];
 }
 
 /**
@@ -153,6 +159,23 @@ function countryName(countryCode: string): string | null {
 	}
 }
 
+/**
+ * `Intl.DisplayNames` gives the CLDR English short name, which for a handful of
+ * countries is not the name most people search by. Cabo Verde is issue #116 itself:
+ * `Intl.DisplayNames(['en']).of('CV')` returns "Cape Verde", but "Cabo Verde" (the
+ * country's own 2013 renaming, and the name on Boa Vista's own tourism board) is how
+ * someone disambiguates the island from Boa Vista, Roraima, Brazil — the only other
+ * scheduled-service airport this dataset has for that name.
+ *
+ * Deliberately kept to this one entry rather than every ISO short-name change (Czechia,
+ * Eswatini, Timor-Leste, ...): those either already round-trip through `Intl.DisplayNames`
+ * as-is or are not the specific ambiguity this issue reported. Add another only against a
+ * real reported miss, the same way this one was found.
+ */
+const COUNTRY_NAME_ALIASES: Readonly<Record<string, readonly string[]>> = {
+	CV: ['Cabo Verde']
+};
+
 function toAirport(row: AirportDatasetRow): Airport {
 	const coordinates: Coordinates = { latitude: row.latitude, longitude: row.longitude };
 	const country: Country = {
@@ -185,8 +208,22 @@ function toAirport(row: AirportDatasetRow): Airport {
 	};
 }
 
+let rowsPromise: Promise<AirportDatasetRow[]> | null = null;
 let airportsPromise: Promise<Airport[]> | null = null;
 let indexPromise: Promise<Map<string, Airport>> | null = null;
+
+/**
+ * Loads the raw dataset rows once. A dynamic `import()` of the same specifier resolves
+ * to the same cached module record every time (this is the JS module loader's own
+ * cache, not something this file manages), so `loadAirports` and the search index below
+ * sharing this does not fetch or parse the JSON twice.
+ */
+function loadRows(): Promise<AirportDatasetRow[]> {
+	rowsPromise ??= import('./airports.generated.json').then(
+		(mod) => mod.default as AirportDatasetRow[]
+	);
+	return rowsPromise;
+}
 
 /**
  * Loads the compact dataset on first call and memoizes it for the lifetime of the page.
@@ -196,9 +233,7 @@ let indexPromise: Promise<Map<string, Airport>> | null = null;
  * it is still a module import rather than a network request.
  */
 export function loadAirports(): Promise<Airport[]> {
-	airportsPromise ??= import('./airports.generated.json').then((mod) =>
-		(mod.default as AirportDatasetRow[]).map(toAirport)
-	);
+	airportsPromise ??= loadRows().then((rows) => rows.map(toAirport));
 	return airportsPromise;
 }
 
@@ -231,39 +266,137 @@ export async function sizeClassOf(iataCode: string): Promise<AirportSizeClass | 
 const MAX_SEARCH_RESULTS = 8;
 
 /**
+ * Strips a string down to a diacritic- and case-insensitive comparison key. `NFD`
+ * decomposes an accented character into its base letter plus separate combining marks
+ * (e.g. "á" → "a" + U+0301), and the regex then drops those marks, so "Málaga" and
+ * "Malaga" — or "Πάφου" and a search that happened to carry its own accents — compare
+ * equal (issue #116: "Malaga" must find Málaga without the accent).
+ */
+function normalizeForSearch(value: string): string {
+	return value
+		.normalize('NFD')
+		.replace(/[\u0300-\u036f]/g, '')
+		.toLowerCase();
+}
+
+/** One airport's search-relevant text, normalized once at load time rather than on
+ * every keystroke of every search. */
+interface SearchEntry {
+	airport: Airport;
+	iata: string;
+	city: string;
+	name: string;
+	country: string;
+	countryAliases: string[];
+	keywords: string[];
+	/** Every field above joined with spaces, for the multi-word fallback below — lets
+	 * "Boa Vista Cabo Verde" find BVC even though no single field contains that whole
+	 * phrase (issue #116: matching the country name is how an ambiguous place name like
+	 * an island gets disambiguated). */
+	haystack: string;
+}
+
+let searchIndexPromise: Promise<SearchEntry[]> | null = null;
+
+function loadSearchIndex(): Promise<SearchEntry[]> {
+	searchIndexPromise ??= Promise.all([loadRows(), loadAirports()]).then(([rows, airports]) =>
+		rows.map((row, i) => {
+			const airport = airports[i];
+			const countryAliases = (COUNTRY_NAME_ALIASES[row.countryCode] ?? []).map(
+				normalizeForSearch
+			);
+			const keywords = (row.keywords ?? []).map(normalizeForSearch);
+			const iata = normalizeForSearch(airport.iataCode);
+			const city = normalizeForSearch(airport.city.name);
+			const name = normalizeForSearch(airport.name);
+			const country = normalizeForSearch(airport.country.name);
+
+			return {
+				airport,
+				iata,
+				city,
+				name,
+				country,
+				countryAliases,
+				keywords,
+				haystack: [iata, city, name, country, ...countryAliases, ...keywords].join(' ')
+			};
+		})
+	);
+	return searchIndexPromise;
+}
+
+const SIZE_CLASS_RANK: Record<AirportSizeClass, number> = { large: 0, medium: 1, small: 2 };
+
+/**
  * Typeahead search for the search form (issue #11: "a search matching IATA, city name and
- * airport name"). Ranks an exact IATA match first, then IATA/city/name prefix matches,
- * then substring matches, so typing "vie" surfaces Vienna before any airport that merely
- * mentions Vienna in its full name.
+ * airport name"; issue #116: also `keywords` and the country name, diacritic-insensitively).
+ *
+ * Ranks an exact IATA match first, then prefix matches — IATA, city, airport name,
+ * keyword, country — then the same fields again as substring matches, so typing "vie"
+ * surfaces Vienna before any airport that merely mentions Vienna in its full name, and a
+ * `keywords` hit (a nickname or old name) never outranks a real city/name match: typing
+ * "London" must not bury Gatwick (`city` "London") under Eday, a remote Orkney airfield
+ * whose OurAirports `keywords` happens to include "London Airport" as an old alias.
+ *
+ * A multi-word query that no single field satisfies falls back to requiring every word
+ * somewhere in the airport's combined text, which is what lets "Boa Vista Cabo Verde"
+ * disambiguate the Cabo Verde island from Boa Vista, Roraima, Brazil — the only other
+ * scheduled-service "Boa Vista" in this dataset — even though neither field alone
+ * contains the whole phrase.
+ *
+ * Ties within a rank favour the larger airport, then IATA code alphabetically, so a
+ * two-letter query like "sf" surfaces San Francisco ahead of the dozen smaller "SF*"
+ * codes that also match as an IATA prefix.
  */
 export async function searchAirports(
 	query: string,
 	limit = MAX_SEARCH_RESULTS
 ): Promise<Airport[]> {
-	const q = query?.trim().toLowerCase();
+	const q = normalizeForSearch(query?.trim() ?? '');
 	if (!q) return [];
 
-	const list = await loadAirports();
+	const index = await loadSearchIndex();
 	const ranked: { airport: Airport; rank: number }[] = [];
 
-	for (const airport of list) {
-		const iata = airport.iataCode.toLowerCase();
-		const city = airport.city.name.toLowerCase();
-		const name = airport.name.toLowerCase();
+	for (const entry of index) {
+		const { iata, city, name, keywords, country, countryAliases } = entry;
+		const countryMatches = (test: (field: string) => boolean) =>
+			test(country) || countryAliases.some(test);
+		const keywordMatches = (test: (field: string) => boolean) => keywords.some(test);
 
 		let rank: number;
 		if (iata === q) rank = 0;
 		else if (iata.startsWith(q)) rank = 1;
 		else if (city.startsWith(q)) rank = 2;
 		else if (name.startsWith(q)) rank = 3;
-		else if (city.includes(q)) rank = 4;
-		else if (name.includes(q)) rank = 5;
-		else continue;
+		else if (keywordMatches((k) => k.startsWith(q))) rank = 4;
+		else if (countryMatches((c) => c.startsWith(q))) rank = 5;
+		else if (city.includes(q)) rank = 6;
+		else if (name.includes(q)) rank = 7;
+		else if (keywordMatches((k) => k.includes(q))) rank = 8;
+		else if (countryMatches((c) => c.includes(q))) rank = 9;
+		else {
+			// Nothing in the query, as a whole, is a prefix or substring of any single
+			// field. A multi-word query might still identify this airport by combining
+			// words that live in different fields (a city and a country, say).
+			const words = q.split(/\s+/).filter(Boolean);
+			if (words.length > 1 && words.every((word) => entry.haystack.includes(word))) {
+				rank = 10;
+			} else {
+				continue;
+			}
+		}
 
-		ranked.push({ airport, rank });
+		ranked.push({ airport: entry.airport, rank });
 	}
 
-	ranked.sort((a, b) => a.rank - b.rank || a.airport.iataCode.localeCompare(b.airport.iataCode));
+	ranked.sort(
+		(a, b) =>
+			a.rank - b.rank ||
+			SIZE_CLASS_RANK[a.airport.sizeClass] - SIZE_CLASS_RANK[b.airport.sizeClass] ||
+			a.airport.iataCode.localeCompare(b.airport.iataCode)
+	);
 	return ranked.slice(0, limit).map((r) => r.airport);
 }
 

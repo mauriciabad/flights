@@ -81,6 +81,73 @@ describe('searchAirports', () => {
 	it('returns nothing for a blank query rather than the whole dataset', async () => {
 		expect(await searchAirports('   ')).toEqual([]);
 	});
+
+	// Issue #116: the owner typed "Boa Vista" looking for Boa Vista, Cabo Verde, and got
+	// nothing — OurAirports' `municipality` for that airport is "Rabil", the
+	// administrative district, and `name` is "Aristides Pereira International Airport".
+	// Only `keywords` ("Boa Vista Island") has the name he actually typed.
+	it('finds Boa Vista, Cabo Verde by keyword, not by its municipality or full name', async () => {
+		const results = await searchAirports('Boa Vista');
+		expect(results.some((a) => a.iataCode === 'BVC')).toBe(true);
+	});
+
+	// Same root cause, same issue: Paphos' `name` field only has the formal "Paphos", so
+	// the common spelling "Pafos" is findable only through `keywords`.
+	it('finds Paphos, Cyprus by the common spelling "Pafos", which lives only in keywords', async () => {
+		const results = await searchAirports('Pafos');
+		expect(results.some((a) => a.iataCode === 'PFO')).toBe(true);
+	});
+
+	it('matches diacritic-insensitively, so an unaccented query finds an accented name', async () => {
+		// Málaga (AGP) also carries "Malaga" as one of its own keywords, so this alone
+		// wouldn't prove the normalization works — Düsseldorf (DUS) has no keywords at
+		// all, so this can only pass if `city` itself is compared without its umlaut.
+		const results = await searchAirports('Dusseldorf');
+		expect(results.some((a) => a.iataCode === 'DUS')).toBe(true);
+	});
+
+	it('matches the country name, including a common alias CLDR does not use', async () => {
+		// Intl.DisplayNames reports iso code CV as "Cape Verde"; "Cabo Verde" is the
+		// country's own 2013 renaming and how the owner would disambiguate the island
+		// from Boa Vista, Roraima, Brazil (BVB) — this dataset's only other airport
+		// whose city is named "Boa Vista".
+		const results = await searchAirports('Cabo Verde');
+		expect(results.some((a) => a.iataCode === 'BVC')).toBe(true);
+	});
+
+	it('disambiguates an island name from an unrelated same-named city using the country', async () => {
+		const bareQuery = await searchAirports('Boa Vista');
+		expect(bareQuery.map((a) => a.iataCode)).toEqual(expect.arrayContaining(['BVB', 'BVC']));
+
+		// Adding the country narrows a query no single field satisfies on its own —
+		// neither BVC's keywords nor its name contains "Cabo Verde", and its city
+		// ("Rabil") has nothing to do with "Boa Vista" — to just the intended airport.
+		const disambiguated = await searchAirports('Boa Vista Cabo Verde');
+		expect(disambiguated.map((a) => a.iataCode)).toEqual(['BVC']);
+	});
+
+	it('never lets a keyword hit outrank a real city or name match', async () => {
+		// Eday (EOI), a small Orkney airfield, carries "London Airport" as an old
+		// OurAirports keyword unrelated to London the city. It must not bury Gatwick,
+		// Heathrow or Stansted, whose `city` is genuinely "London".
+		const results = await searchAirports('london');
+		const eday = results.findIndex((a) => a.iataCode === 'EOI');
+		const gatwick = results.findIndex((a) => a.iataCode === 'LGW');
+		expect(gatwick).toBeGreaterThanOrEqual(0);
+		if (eday >= 0) expect(eday).toBeGreaterThan(gatwick);
+	});
+
+	it('breaks ties within a rank by airport size, so a hub is not buried alphabetically', async () => {
+		// Every "SF*" IATA code is an equally-good prefix match for "sf". Without a
+		// size-based tie-break, alphabetical order alone would seat several minor
+		// airports ahead of San Francisco.
+		const results = await searchAirports('sf');
+		const sfo = results.findIndex((a) => a.iataCode === 'SFO');
+		expect(sfo).toBeGreaterThanOrEqual(0);
+		for (const airport of results.slice(0, sfo)) {
+			expect(airport.sizeClass).toBe('large');
+		}
+	});
 });
 
 describe('iconForCity / iconForAirport', () => {
