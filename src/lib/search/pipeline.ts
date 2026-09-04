@@ -10,6 +10,19 @@
  * comment for the three-tier cost model (free / cheap-calendar / expensive-per-date) this
  * pipeline stages against.
  *
+ * ## Issue #124: the calendar tier auto-runs when free discovery finds nothing
+ *
+ * `runSearch` used to give up the moment `findConnectionCandidates` returned zero
+ * candidates. That is exactly what happens for a route no free source has an edge for at
+ * all (Ryanair doesn't fly it, the cheap-routes dataset has never cached it) — measured live
+ * for BVC -> PFO. This pipeline now tries `calendar-discovery.ts`'s
+ * `discoverCandidateViaCalendar` in that one case, before falling back to the empty-results
+ * path: it prices a small bundled hub pool through Flights Sky's price calendar plus a
+ * single-date confirm, both auto-run (no widen prompt) because both clear `isQuotaGenerous`
+ * against that provider's own cap, the same "a key is the consent" rule #94 already applies
+ * to stays. Sky Scrapper's per-date search stays behind the explicit widen flow untouched —
+ * its own cap fails that same check.
+ *
  * ## Cancellation
  *
  * `options.signal` is threaded into every `ProviderContext` this pipeline builds, so a
@@ -25,6 +38,7 @@
 import { DEFAULT_MAX_CANDIDATES, findConnectionCandidates, hasKnownDirectRoute } from '../algorithm/connections';
 import type { ConnectionAirportInfo } from '../algorithm/connections';
 import { buildItineraries } from '../algorithm/build';
+import { discoverCandidateViaCalendar } from './calendar-discovery';
 import { DEFAULT_SCORING_WEIGHTS, rankItineraries } from '../algorithm/score';
 import type { ScoringWeights } from '../algorithm/score';
 import { getAirport } from '../data/airports';
@@ -747,15 +761,61 @@ export async function* runSearch(
 		}
 	);
 
-	const widenOptions = widenOptionsForCandidates(candidates, query, allFlightProviders, deps.keys, currency);
+	let widenOptions = widenOptionsForCandidates(candidates, query, allFlightProviders, deps.keys, currency);
 	yield snapshot('candidates', candidates, false, widenOptions);
 
-	if (signal.aborted || candidates.length === 0) {
+	// Issue #124: every free source came back with nothing to build on — measured live for
+	// BVC -> PFO, where Ryanair doesn't serve Cabo Verde and the cheap-routes dataset has no
+	// edge into either side of the pair. Before giving up, try Flights Sky's price calendar
+	// against a small bundled hub pool (`calendar-discovery.ts`) — the one remaining source
+	// that can price a route those two can't see at all, auto-run (no widen prompt) the same
+	// way #94 auto-runs a cheap-enough stay provider once a key is present, gated by the same
+	// `isQuotaGenerous` check. Never attempted when free candidates already exist: a
+	// well-served route never pays for this, and `findConnectionCandidates`'s own detour/size
+	// ranking is strictly better data when it has anything to rank at all.
+	let discoveredCandidate: ConnectionCandidate | undefined;
+	let discoveredOffers: { outboundOffers: FlightOffer[]; onwardOffers: FlightOffer[] } | undefined;
+	let candidatesToRun = candidates;
+
+	if (!signal.aborted && candidates.length === 0) {
+		const discovery = await discoverCandidateViaCalendar({
+			originAirport: query.originAirport,
+			destinationAirport: query.destinationAirport,
+			outboundWindow: {
+				earliestDeparture: query.soonestDeparture,
+				latestDeparture: query.latestDeparture ?? query.latestArrival
+			},
+			onwardWindow: {
+				earliestDeparture: query.soonestArrival ?? query.soonestDeparture,
+				latestDeparture: query.latestArrival
+			},
+			forbiddenConnectionAirports: query.forbiddenConnectionAirports,
+			forbiddenConnectionCountries: query.forbiddenConnectionCountries,
+			allowedConnectionAirports: query.allowedConnectionAirports,
+			resolveAirportInfo: airportLookupFrom(resolveAirport),
+			flightProviders: allFlightProviders,
+			keys: deps.keys,
+			signal,
+			currency,
+			travellers: query.travellers,
+			sources,
+			record
+		});
+		if (discovery) {
+			discoveredCandidate = discovery.candidate;
+			discoveredOffers = { outboundOffers: discovery.outboundOffers, onwardOffers: discovery.onwardOffers };
+			candidatesToRun = [discovery.candidate];
+			widenOptions = widenOptionsForCandidates(candidatesToRun, query, allFlightProviders, deps.keys, currency);
+			yield snapshot('candidates', candidatesToRun, false, widenOptions);
+		}
+	}
+
+	if (signal.aborted || candidatesToRun.length === 0) {
 		// No stopover candidate survived ranking at all, the common shape for a well-served
 		// direct route (any detour through a third city fails `maxDetourRatio` outright), so
 		// this is exactly the case the empty-results UI needs `hasDirectRoute` for.
-		const hasDirectRoute = candidates.length === 0 ? await checkDirectRoute() : false;
-		yield snapshot('done', candidates, true, widenOptions, hasDirectRoute);
+		const hasDirectRoute = candidatesToRun.length === 0 ? await checkDirectRoute() : false;
+		yield snapshot('done', candidatesToRun, true, widenOptions, hasDirectRoute);
 		return;
 	}
 
@@ -781,7 +841,7 @@ export async function* runSearch(
 	};
 
 	if (signal.aborted) {
-		yield snapshot('done', candidates, true, widenOptions);
+		yield snapshot('done', candidatesToRun, true, widenOptions);
 		return;
 	}
 
@@ -825,12 +885,26 @@ export async function* runSearch(
 		record
 	};
 
-	for await (const outcome of raceToCompletion(buildCandidateTasks(candidates, candidateInputBase))) {
+	// The calendar-discovered candidate (issue #124), if any, already has real, confirmed
+	// offers in hand — fetching it again through the free-tier-only `fetchLegs` above would
+	// find nothing (that path is exactly what already failed to see this candidate) and
+	// would also be unsafe: `algorithm/connections.ts` never ranked it, so it has no free
+	// source vouching for either leg. Every other candidate in this batch uses the shared
+	// `fetchLegs` exactly as before.
+	const primaryCandidateTasks = candidatesToRun.map((candidate) =>
+		processCandidate(
+			discoveredCandidate && discoveredOffers && candidate.airportCode === discoveredCandidate.airportCode
+				? { ...candidateInputBase, candidate, fetchLegs: async () => discoveredOffers! }
+				: { ...candidateInputBase, candidate }
+		)
+	);
+
+	for await (const outcome of raceToCompletion(primaryCandidateTasks)) {
 		if (signal.aborted) break;
 		results.push(...outcome.itineraries);
 		stayCandidatesByConnection.set(outcome.candidate.airportCode, outcome.stayCandidates);
 		transferOptionsByConnection.set(outcome.candidate.airportCode, outcome.transferOptions);
-		yield snapshot('stage1', candidates, false, widenOptions);
+		yield snapshot('stage1', candidatesToRun, false, widenOptions);
 	}
 
 	// Issue #115: the geography-ranked primary batch produced nothing buildable. Before
@@ -846,7 +920,7 @@ export async function* runSearch(
 	// looks identical to one that's genuinely small. Re-querying is cheap regardless —
 	// route-graph lookups are 24h-cached, so a repeat call mostly replays cache — so it
 	// costs little to find out rather than trust a count that might just be bad luck.
-	let finalCandidates = candidates;
+	let finalCandidates = candidatesToRun;
 	let finalWidenOptions = widenOptions;
 	const primaryCap = options.maxCandidates ?? DEFAULT_MAX_CANDIDATES;
 	const worthExpanding = FALLBACK_MAX_CANDIDATES > primaryCap;
@@ -873,11 +947,11 @@ export async function* runSearch(
 				// nothing metered no matter how many candidates it returns.
 			}
 		);
-		const alreadyTried = new Set(candidates.map((candidate) => candidate.airportCode));
+		const alreadyTried = new Set(candidatesToRun.map((candidate) => candidate.airportCode));
 		const fallbackCandidates = expandedCandidates.filter((candidate) => !alreadyTried.has(candidate.airportCode));
 
 		if (!signal.aborted && fallbackCandidates.length > 0) {
-			finalCandidates = [...candidates, ...fallbackCandidates];
+			finalCandidates = [...candidatesToRun, ...fallbackCandidates];
 			finalWidenOptions = widenOptionsForCandidates(finalCandidates, query, allFlightProviders, deps.keys, currency);
 			yield snapshot('stage1', finalCandidates, false, finalWidenOptions);
 

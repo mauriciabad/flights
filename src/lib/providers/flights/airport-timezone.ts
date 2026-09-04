@@ -4,22 +4,31 @@ import { lookupAirportTimeZone } from '../geocode/transitous';
 import type { ProviderContext } from '../types';
 
 /**
- * Sky Scrapper's flight search never sends a time zone or a UTC offset. `departure` and
- * `arrival` are bare local wall-clock strings like "2026-10-15T08:05:00" (confirmed against
- * a real response captured for issue #5, see fixtures/search-flights-bcn-vie.json). AGENTS.md
- * is explicit that collapsing a local time to UTC without the offset is how an overnight
- * connection silently loses a night, so this file exists to attach the offset the API will
- * not give us, using the one fact we do have: which airport the time belongs to.
+ * Neither Sky Scrapper's nor Flights Sky's flight search ever sends a time zone or a UTC
+ * offset. `departure` and `arrival` are bare local wall-clock strings like
+ * "2026-10-15T08:05:00" (confirmed against real responses captured for issues #5 and #61 —
+ * fixtures/search-flights-bcn-vie.json and fixtures/flights-sky-search-one-way-bcn-vie.json).
+ * AGENTS.md is explicit that collapsing a local time to UTC without the offset is how an
+ * overnight connection silently loses a night, so this file exists to attach the offset
+ * neither API will give us, using the one fact we do have: which airport the time belongs to.
  *
- * Issue #75, replacing what issue #5 originally shipped here: this file no longer answers
- * "what is this airport's time zone" from a hand-curated table alone. That table silently
- * dropped every offer for an airport it did not list, and nobody was ever told why a route
- * came back empty. `resolveAirportTimeZone` below is the live replacement — issue #64's
- * `lookupAirportTimeZone`, which reverse-geocodes the airport's own OurAirports coordinates
- * through Transitous rather than trusting a list someone typed by hand.
+ * Issue #124: this used to be two near-identical files, `skyscanner-timezone.ts` and
+ * `flights-sky-timezone.ts`, built for separate issues that landed in whichever order they
+ * landed in. That was exactly why one of them (this one, issue #75) got the live Transitous
+ * fallback below and the other quietly kept a static ~100-airport table as its entire answer —
+ * confirmed live on BVC (Boa Vista, Cape Verde): Flights Sky's own `search-one-way` returned a
+ * real, nonstop, bookable TUI flight to London Gatwick, and the old flights-sky-timezone.ts
+ * dropped it, and every other itinerary on the route, because BVC was never in its table.
+ * Unifying into one module is the actual fix, not a second copy of the fallback — a future
+ * third adapter gets this for free instead of a third chance to silently regress.
+ *
+ * `resolveAirportTimeZone` below is the live path — issue #64's `lookupAirportTimeZone`,
+ * which reverse-geocodes the airport's own OurAirports coordinates through Transitous rather
+ * than trusting a list someone typed by hand.
  *
  * SEED_TIME_ZONES survives, but demoted from "the whole answer" to "the fast, offline-safe
- * first guess for the busiest routes." Two reasons, both found while building this:
+ * first guess for the busiest routes." Two reasons, both found while building the original
+ * split version of this file:
  *
  * 1. Transitous is free, volunteer-run, and will be down or slow sometimes (docs/PROVIDERS.md,
  *    AGENTS.md "When the data is missing"). A network round trip on every airport this app has
@@ -37,8 +46,12 @@ import type { ProviderContext } from '../types';
  * time zone assignment changes when a country changes its clocks, which is rare and
  * newsworthy), live Transitous lookup second for everything the seed does not cover. Either
  * path, or an outright lookup failure with nothing cached, resolves to `undefined` rather than
- * a guess, and `skyscanner-map-offers.ts` drops that offer — AGENTS.md: "say what you do not
- * know rather than guessing."
+ * a guess — never a guess, per AGENTS.md, but callers should not let it stay a silent one
+ * either. `skyscanner-map-offers.ts` drops an offer it cannot time; `flights-sky.ts` goes
+ * further and records how many real, otherwise-mappable itineraries got dropped this way, so a
+ * provider that answered with real inventory nobody could time is distinguishable, on the
+ * results screen, from one that genuinely had nothing (issue #130/#144's provider-answer
+ * machinery).
  */
 
 // prettier-ignore
@@ -110,7 +123,15 @@ const SEED_TIME_ZONES: Readonly<Record<string, string>> = {
 
 	// South America
 	GRU: 'America/Sao_Paulo', GIG: 'America/Sao_Paulo', EZE: 'America/Argentina/Buenos_Aires',
-	SCL: 'America/Santiago', BOG: 'America/Bogota', LIM: 'America/Lima'
+	SCL: 'America/Santiago', BOG: 'America/Bogota', LIM: 'America/Lima',
+
+	// Issue #124's own route, added by hand rather than left to the live fallback: Transitous's
+	// reverse-geocode, confirmed live on 2026-09-04, currently answers BVC's real coordinates
+	// with `"tz":"IANA"` — a live data defect on their side, not a missing-coverage gap the
+	// fallback is meant to handle. Both zones below are single, unambiguous facts (Cabo Verde
+	// observes no DST at all; Cyprus's IANA entry is filed under "Asia" despite being in Europe
+	// culturally), not a guess, so seeding them is safe even though neither is a busy hub.
+	BVC: 'Atlantic/Cape_Verde', PFO: 'Asia/Nicosia'
 };
 
 /**
@@ -149,7 +170,44 @@ export async function resolveAirportTimeZone(
 	if (seeded !== undefined) return seeded;
 
 	const result = await lookupAirportTimeZone(iataCode, ctx, options);
-	return result.ok ? result.data : undefined;
+	if (!result.ok || result.data === undefined) return undefined;
+
+	// Issue #124: confirmed live against BVC (Boa Vista) on 2026-09-04 — Transitous's
+	// `/reverse-geocode` answered 200 with real place data but a literal `"tz":"IANA"` on
+	// every candidate, not an actual zone name. `geocode/transitous-mapper.ts` passes
+	// whatever string the response carries straight through with no validation of its own,
+	// and the alternative to checking it here was a `RangeError: Invalid time zone
+	// specified` thrown out of `Intl.DateTimeFormat` deep inside `utcOffsetMinutesAt` below
+	// — uncaught, because nothing between here and there expects a timezone lookup to hand
+	// back garbage instead of failing outright. `types.ts`'s whole contract is that one
+	// provider's bad answer degrades a single offer, never crashes the search that asked
+	// for it, so a value this function cannot actually pass to `Intl` gets the same
+	// "unresolved" treatment as no value at all, rather than becoming an uncaught throw
+	// three call frames later.
+	return isSupportedTimeZone(result.data) ? result.data : undefined;
+}
+
+/**
+ * Whether `Intl.DateTimeFormat` will actually accept `timeZone` as a zone identifier,
+ * rather than throwing when `offsetAtInstant` below first tries to use it. Delegates to the
+ * runtime's own validation (construction throws `RangeError` for anything it does not
+ * recognise) instead of pattern-matching IANA name syntax by hand, which would have its own
+ * gaps (aliases, legacy names) this project has no reason to maintain a list of.
+ *
+ * Exported because the bug this guards against is not specific to Flights Sky or Skyscanner:
+ * any provider-supplied string that reaches `Intl.DateTimeFormat` unchecked can crash the
+ * same way `"tz":"IANA"` did here, and `ryanair-mapper.ts`'s own network-snapshot timezone
+ * table (built from Ryanair's `/airports/en/active` feed, not from this file's seed table or
+ * Transitous) needed the identical check for the identical reason. A shared one-line
+ * validator beats two adapters independently trusting `Intl` not to throw.
+ */
+export function isSupportedTimeZone(timeZone: string): boolean {
+	try {
+		new Intl.DateTimeFormat('en-US', { timeZone });
+		return true;
+	} catch {
+		return false;
+	}
 }
 
 /**

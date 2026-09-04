@@ -5,6 +5,7 @@ import type {
 	Country,
 	Duration,
 	FlightOffer,
+	IataAirportCode,
 	LocalDateTime,
 	SearchQuery,
 	Stay,
@@ -24,8 +25,9 @@ import type {
 	TransferProvider,
 	TransferSearchQuery
 } from '../providers/types';
+import { CALENDAR_DISCOVERY_HUB_POOL } from './calendar-discovery';
 import { runSearch, widenSearch, widenWithPriceCalendar } from './pipeline';
-import type { FlightsSkyProvider, PriceCalendarQuery } from './price-calendar';
+import type { FlightsSkyProvider, PriceCalendarDay, PriceCalendarQuery } from './price-calendar';
 import type { SearchDependencies, SearchSnapshot } from './types';
 
 /**
@@ -877,6 +879,118 @@ describe('runSearch: hasDirectRoute on the final snapshot (issue #107)', () => {
 
 		expect(final.hasDirectRoute).toBe(false); // no key configured, so this provider was never free
 		expect(metered.listDirectDestinations).not.toHaveBeenCalled();
+	});
+});
+
+describe('runSearch: calendar-backed candidate discovery when free sources find nothing (issue #124)', () => {
+	/** Which bundled hub this fixture pretends Flights Sky can actually route through —
+	 * `CALENDAR_DISCOVERY_HUB_POOL`'s first entry, so discovery finds it on the very first
+	 * hub it tries and the test doesn't depend on trying-and-failing the rest of the pool. */
+	const CALENDAR_HUB = CALENDAR_DISCOVERY_HUB_POOL[0];
+	const HUB_AIRPORT = airport(CALENDAR_HUB, 51.1481, -0.19, 'GB', 'Hub City');
+
+	/** The shared top-level `resolveAirport` only knows this file's fictional ORIGIN/DEST/
+	 * FAST/SLOW codes — a real discovered hub code needs its own entry, added here rather
+	 * than in the shared fixture so it can't leak into every other describe block. */
+	function resolveAirportWithHub(code: string): Airport | undefined {
+		return AIRPORTS[code] ?? (code === CALENDAR_HUB ? HUB_AIRPORT : undefined);
+	}
+
+	function calendarDay(date: string): PriceCalendarDay {
+		return { date, group: 'low', price: { minorUnits: 9700, currency: 'EUR' } };
+	}
+
+	/** Knows a price for exactly three pairs: the ORIGIN -> DEST "baseline" (the issue's own
+	 * measured BVC -> PFO calendar call, which the real adapter can price even though no
+	 * single bookable leg covers it), and both real legs through `CALENDAR_HUB` — nothing
+	 * else in `CALENDAR_DISCOVERY_HUB_POOL`, so a test asserting discovery stops at the first
+	 * hub is actually exercising that behaviour rather than succeeding by accident. */
+	function calendarKnows(origin: string, destination: string): boolean {
+		return (
+			(origin === ORIGIN && destination === DEST) ||
+			(origin === ORIGIN && destination === CALENDAR_HUB) ||
+			(origin === CALENDAR_HUB && destination === DEST)
+		);
+	}
+
+	/** A `FlightsSkyProvider`-shaped fixture: real `search-one-way`-style one-request-per-
+	 * date cost (`estimateSearchOffersCost: () => 1`), and a calendar that only ever answers
+	 * for the three pairs above. `searchOffers` deliberately does NOT answer for the
+	 * ORIGIN -> DEST baseline pair — the real adapter's own `mapDirectItinerary` drops any
+	 * itinerary with a layover (flights-sky-map-offers.ts), and a real BVC -> PFO trip
+	 * certainly has one, so the calendar knowing a price there is not the same as a bookable
+	 * single-leg offer existing for it. Only the two hub legs are real, single-carrier, and
+	 * mappable, matching what `standardOfferBuilder` already fabricates for ORIGIN/DEST. */
+	function createFakeCalendarFlightProvider(needsKey: boolean): FlightsSkyProvider {
+		const id: ProviderId = 'flights-sky'; // real id, so `isQuotaGenerous` reads the real 40-request cap
+		return {
+			kind: 'flight',
+			id,
+			label: 'Fixture Flights Sky',
+			needsKey,
+			keyFields: needsKey ? [{ id: 'apiKey', label: 'API key' }] : [],
+			async healthCheck() {
+				return { ok: true, data: {}, source: source(id), requestsUsed: 0 };
+			},
+			estimateSearchOffersCost: () => 1,
+			async searchOffers(query: FlightSearchQuery, ctx: ProviderContext): Promise<ProviderResult<FlightOffer[]>> {
+				if (ctx.signal.aborted) {
+					return { ok: false, error: { code: 'cancelled', message: 'aborted' }, source: source(id), requestsUsed: 0 };
+				}
+				const bookable = query.origin === CALENDAR_HUB || query.destination === CALENDAR_HUB;
+				return { ok: true, data: bookable ? standardOfferBuilder(query) : [], source: source(id), requestsUsed: 1 };
+			},
+			async listDirectDestinations(): Promise<ProviderResult<IataAirportCode[]>> {
+				// Honestly unimplemented, same as the real adapter — this module's discovery
+				// never calls it, but a fixture claiming a capability the real adapter doesn't
+				// have would misrepresent what this test is actually proving.
+				return {
+					ok: false,
+					error: { code: 'unknown', message: 'no route-graph endpoint' },
+					source: source(id),
+					requestsUsed: 0
+				};
+			},
+			estimatePriceCalendarCost: () => 1,
+			async getPriceCalendar(query: PriceCalendarQuery, ctx: ProviderContext): Promise<ProviderResult<PriceCalendarDay[]>> {
+				if (ctx.signal.aborted) {
+					return { ok: false, error: { code: 'cancelled', message: 'aborted' }, source: source(id), requestsUsed: 0 };
+				}
+				const data = calendarKnows(query.origin, query.destination) ? [calendarDay(query.departDate)] : [];
+				return { ok: true, data, source: source(id), requestsUsed: 1 };
+			}
+		};
+	}
+
+	it('produces an itinerary through a bundled hub when no free source has any edge for either leg, and a key is configured', async () => {
+		const free = createFakeFlightProvider({ id: 'free-flights', routes: {} }); // no known edges at all
+		const calendar = createFakeCalendarFlightProvider(true);
+		const registry = new ProviderRegistry([free.provider, calendar, createFakeStayProvider({ id: 'stays' }), createFakeTransferProvider()]);
+		const deps: SearchDependencies = { registry, keys: { 'flights-sky': { apiKey: 'a-real-key' } }, resolveAirport: resolveAirportWithHub, currency: 'EUR' };
+
+		const snapshots = await drain(runSearch(BASE_QUERY, deps));
+		const final = snapshots.at(-1)!;
+
+		expect(final.itineraryGroups.length).toBeGreaterThan(0);
+		expect(final.itineraryGroups[0]?.connectionAirportCode).toBe(CALENDAR_HUB);
+		expect(final.itineraryGroups[0]?.best.sources.outboundFlight.providerId).toBe('flights-sky');
+		expect(final.itineraryGroups[0]?.best.sources.onwardFlight.providerId).toBe('flights-sky');
+		expect(final.candidates.map((c) => c.airportCode)).toEqual([CALENDAR_HUB]);
+	});
+
+	it('does not run the calendar, and finds nothing, when no key is configured', async () => {
+		const free = createFakeFlightProvider({ id: 'free-flights', routes: {} });
+		const calendar = createFakeCalendarFlightProvider(true);
+		const getPriceCalendarSpy = vi.spyOn(calendar, 'getPriceCalendar');
+		const registry = new ProviderRegistry([free.provider, calendar, createFakeStayProvider({ id: 'stays' }), createFakeTransferProvider()]);
+		const deps: SearchDependencies = { registry, keys: {}, resolveAirport: resolveAirportWithHub, currency: 'EUR' };
+
+		const snapshots = await drain(runSearch(BASE_QUERY, deps));
+		const final = snapshots.at(-1)!;
+
+		expect(getPriceCalendarSpy).not.toHaveBeenCalled();
+		expect(final.itineraryGroups).toEqual([]);
+		expect(final.candidates).toEqual([]);
 	});
 });
 

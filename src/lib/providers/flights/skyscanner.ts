@@ -37,7 +37,7 @@ import { getCachedAirportEntity, setCachedAirportEntity } from './skyscanner-air
 import type { SkyscannerAirportEntity } from './skyscanner-airport-cache';
 import { callSkyscanner } from './skyscanner-client';
 import { mapSearchFlightsToOffers, SkyscannerMalformedResponseError } from './skyscanner-map-offers';
-import { resolveAirportTimeZone } from './skyscanner-timezone';
+import { resolveAirportTimeZone } from './airport-timezone';
 
 /** Also the id `../budget/caps.ts`'s `DEFAULT_PROVIDER_CAPS` is keyed by — enforced at
  * compile time by `ProviderId` (../types.ts, issue #69), not by convention. */
@@ -196,7 +196,7 @@ export function createSkyscannerFlightProvider(
 		// this adapter's own `requestsUsed` budget above: Transitous is a separate, keyless
 		// provider with its own long-lived cache (geocode/transitous.ts), not part of
 		// Skyscanner's metered RapidAPI quota. A code that resolves to `undefined` here
-		// (seed miss and a failed or empty live lookup — skyscanner-timezone.ts's own
+		// (seed miss and a failed or empty live lookup — airport-timezone.ts's own
 		// comment on `resolveAirportTimeZone` has a real example, DXB) makes every
 		// itinerary touching that airport get dropped below rather than mistimed.
 		const geocode = geocodeOptions();

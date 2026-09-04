@@ -31,6 +31,24 @@ describe('buildNetworkSnapshot', () => {
 		expect(snapshot.destinationsByOrigin.BHX).toEqual(['BCN']);
 	});
 
+	/**
+	 * Issue #124: confirmed live that a different provider (Transitous, feeding
+	 * flights-sky.ts/skyscanner.ts through airport-timezone.ts) can answer with a string
+	 * that looks like a time zone but is not one — `"tz":"IANA"` for a real airport, not an
+	 * actual zone name — and that reached `Intl.DateTimeFormat` unvalidated and threw an
+	 * uncaught `RangeError`. Ryanair's own `/airports/en/active` feed is the same shape of
+	 * risk (a provider-supplied string, not a value this app controls), so this proves the
+	 * same guard applies here: an unusable value is dropped, not trusted through to a
+	 * caller that will hand it to `Intl` three frames later.
+	 */
+	it('drops a time zone Intl cannot use, rather than trusting an unvalidated provider string', () => {
+		const withBadZone = buildNetworkSnapshot(
+			[{ iataCode: 'ZZZ', timeZone: 'IANA', routes: [] }] as unknown as RyanairActiveAirportsResponse,
+			FETCHED_AT
+		);
+		expect(withBadZone.timeZonesByIataCode).toEqual({});
+	});
+
 	it('records an airport that flies nowhere as an empty list, not a missing key', () => {
 		const grounded = buildNetworkSnapshot(
 			[{ iataCode: 'XXX', timeZone: 'Europe/Madrid', routes: ['city:NOWHERE'] }] as RyanairActiveAirportsResponse,

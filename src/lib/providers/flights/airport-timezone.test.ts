@@ -7,7 +7,7 @@ import {
 	seedTimeZoneForAirport,
 	toLocalDateTime,
 	utcOffsetMinutesAt
-} from './skyscanner-timezone';
+} from './airport-timezone';
 
 function jsonResponse(body: unknown): Response {
 	return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
@@ -62,9 +62,35 @@ describe('resolveAirportTimeZone', () => {
 	it('resolves undefined, not a guess, when a non-seeded airport has nothing cached and the live lookup finds nothing', async () => {
 		// This is the acceptance-criteria case: a lookup failure with no cache must not
 		// produce a mistimed offer. An empty Transitous response (a real, observed case —
-		// see this file's own header on skyscanner-timezone.ts and DXB) resolves the same
+		// see this file's own header on airport-timezone.ts and DXB) resolves the same
 		// way a network error does: undefined, never a fabricated zone.
 		const fetchImpl = vi.fn().mockResolvedValue(jsonResponse([]));
+
+		const result = await resolveAirportTimeZone('AHO', ctx(), {
+			fetchImpl,
+			resolveStore: async () => new MemoryCacheStore()
+		});
+
+		expect(result).toBeUndefined();
+	});
+
+	/**
+	 * Confirmed live for issue #124: Transitous's real `/reverse-geocode`, queried for BVC
+	 * (Boa Vista) on 2026-09-04, answered 200 with real place data but `"tz":"IANA"` on
+	 * every candidate — not an actual zone name. `geocode/transitous-mapper.ts` passes that
+	 * string straight through with no validation, and without this guard it reached
+	 * `Intl.DateTimeFormat` deep inside `utcOffsetMinutesAt`, which throws `RangeError:
+	 * Invalid time zone specified` for anything it does not recognise — uncaught, since
+	 * nothing between here and there expects a resolved zone to be unusable. One provider
+	 * answering with garbage must degrade to "unresolved", the same as answering with
+	 * nothing at all, never crash the caller.
+	 */
+	it('resolves undefined, not a crash, when the live lookup returns a string Intl cannot use as a zone', async () => {
+		const fetchImpl = vi
+			.fn()
+			.mockResolvedValue(
+				jsonResponse([{ type: 'STOP', name: 'Aeroporto Internacional Aristides Pereira', lat: 16.1365, lon: -22.8889, tz: 'IANA' }])
+			);
 
 		const result = await resolveAirportTimeZone('AHO', ctx(), {
 			fetchImpl,

@@ -37,6 +37,12 @@ interface FakeRoutes {
 	autoComplete?: (query: string) => Response;
 	priceCalendar?: () => Response;
 	searchOneWay?: (departDate: string) => Response;
+	/** Issue #124: a non-seeded airport now makes `searchOffers` call out to Transitous's
+	 * `/reverse-geocode` (through this same injected `fetchImpl`, a different host but the
+	 * same mock, exactly mirroring skyscanner.test.ts's own equivalent) before it can map
+	 * any offer touching that airport. Every route above stays seeded (BCN, VIE), so leaving
+	 * this unset is exactly right for every pre-existing test. */
+	reverseGeocode?: (place: string) => Response;
 }
 
 function fakeFetch(routes: FakeRoutes) {
@@ -54,8 +60,45 @@ function fakeFetch(routes: FakeRoutes) {
 			const departDate = url.searchParams.get('departDate') ?? '';
 			if (routes.searchOneWay) return routes.searchOneWay(departDate);
 		}
+		if (url.pathname.endsWith('/reverse-geocode')) {
+			const place = url.searchParams.get('place') ?? '';
+			if (routes.reverseGeocode) return routes.reverseGeocode(place);
+		}
 		throw new Error(`unmocked request in test: ${url.toString()}`);
 	});
+}
+
+/** A minimal, structurally valid one-itinerary `search-one-way` response for an arbitrary
+ * origin/destination pair, real enough to map (right shape, `stopCount: 0`) — issue #124's
+ * tests need a route through an airport `airport-timezone.ts`'s seed table does not carry,
+ * which none of the captured fixtures are. */
+function customSearchOneWayResponse(originCode: string, destinationCode: string) {
+	return {
+		data: {
+			context: { status: 'complete', totalResults: 1 },
+			itineraries: [
+				{
+					price: { raw: 50 },
+					legs: [
+						{
+							origin: { id: originCode },
+							destination: { id: destinationCode },
+							stopCount: 0,
+							durationInMinutes: 120,
+							segments: [
+								{
+									departure: '2026-10-15T08:00:00',
+									arrival: '2026-10-15T10:00:00',
+									flightNumber: '1',
+									marketingCarrier: { displayCode: 'FR', name: 'Ryanair' }
+								}
+							]
+						}
+					]
+				}
+			]
+		}
+	};
 }
 
 /** Cold-cache happy-path routing: BCN and VIE resolve via the real captured auto-complete
@@ -247,6 +290,75 @@ describe('createFlightsSkyFlightProvider', () => {
 			);
 			expect(result.ok).toBe(true);
 			if (result.ok) expect(result.data).toHaveLength(6); // only the second date's 6 direct offers
+		});
+
+		// Issue #124: airport-timezone.ts's curated table no longer decides, on its own,
+		// whether an airport's offers survive — a code missing from the seed falls through
+		// to a live Transitous lookup before an offer through it can be dropped. Mirrors
+		// skyscanner.test.ts's own equivalent block for the same shared module.
+		describe('live time zone lookup for a non-seeded airport (issue #124)', () => {
+			it("resolves the destination's zone via Transitous and attaches it to the offer, spending nothing from Flights Sky's own budget", async () => {
+				const cacheStore = new MemoryCacheStore();
+				await warmEntityCache(cacheStore);
+				// AHO (Alghero-Fertilia): a real airport, not in airport-timezone.ts's seed
+				// table, present in data/airports.generated.json with real coordinates —
+				// same airport skyscanner.test.ts already verified this exact lookup against.
+				await setCachedEntity('AHO', { skyId: 'AHO', entityId: '999999' }, cacheStore);
+				const fetchImpl = fakeFetch({
+					searchOneWay: () => jsonResponse(200, customSearchOneWayResponse('BCN', 'AHO')),
+					reverseGeocode: () =>
+						jsonResponse(200, [
+							{ type: 'STOP', name: 'Alghero-Fertilia Airport', lat: 40.6321, lon: 8.2908, tz: 'Europe/Rome' }
+						])
+				});
+				const provider = createFlightsSkyFlightProvider({ fetchImpl, cacheStore, sleep: instantSleep });
+
+				const result = await provider.searchOffers({ ...baseQuery, destination: 'AHO' }, contextWithKey());
+
+				expect(result.ok).toBe(true);
+				if (result.ok) {
+					expect(result.data).toHaveLength(1);
+					expect(result.data[0].arrival).toMatchObject({ timeZone: 'Europe/Rome' });
+					// Both airport entities were pre-cached, so the only real request is the
+					// search-one-way call itself — Transitous is a separate, keyless provider
+					// and must never count against this adapter's own metered budget.
+					expect(result.requestsUsed).toBe(1);
+				}
+			});
+
+			/**
+			 * The exact bug found live for issue #124: BVC -> LGW had a real, nonstop,
+			 * bookable TUI fare (flight 259, EUR 162) that the old, un-unified
+			 * flights-sky-timezone.ts silently dropped, because BVC was never in its static
+			 * table — and this adapter reported `ok: true, data: []`, indistinguishable from
+			 * a route with no fares at all. This is the regression test for that: a
+			 * genuinely empty live lookup (no cache, no seed) must now surface as a
+			 * recordable, honest failure, per AGENTS.md "show the actual errors received,
+			 * not invent our own" and issue #130/#144's provider-answer states.
+			 */
+			it('reports a recordable failure, not a silent empty ok, when a real nonstop fare could not be timed', async () => {
+				const cacheStore = new MemoryCacheStore();
+				await warmEntityCache(cacheStore);
+				await setCachedEntity('AHO', { skyId: 'AHO', entityId: '999999' }, cacheStore);
+				const fetchImpl = fakeFetch({
+					searchOneWay: () => jsonResponse(200, customSearchOneWayResponse('BCN', 'AHO')),
+					// A real, observed Transitous response shape: an empty array, not an
+					// error — see airport-timezone.ts's own header on why the seed table
+					// still exists.
+					reverseGeocode: () => jsonResponse(200, [])
+				});
+				const provider = createFlightsSkyFlightProvider({ fetchImpl, cacheStore, sleep: instantSleep });
+
+				const result = await provider.searchOffers({ ...baseQuery, destination: 'AHO' }, contextWithKey());
+
+				expect(result.ok).toBe(false);
+				if (!result.ok) {
+					expect(result.error.code).toBe('malformed-response');
+					// Names the actual airport that blocked it — never a generic "something
+					// went wrong", and never silent.
+					expect(result.error.message).toContain('AHO');
+				}
+			});
 		});
 
 		it('surfaces quota-exceeded as an error when no offers were collected at all', async () => {

@@ -1,7 +1,7 @@
 import type { Duration, FlightOffer, IsoCurrencyCode } from '../../domain';
 import { buildSearchResultsDeepLink } from './skyscanner-deep-link';
 import { parseOfferPrice } from './skyscanner-money';
-import { toLocalDateTime } from './skyscanner-timezone';
+import { toLocalDateTime } from './airport-timezone';
 
 /** Thrown when `searchFlights`'s response is not merely missing a mappable itinerary (that
  * is normal, see `mapDirectItinerary`) but does not have the shape this adapter was built
@@ -18,7 +18,7 @@ export interface MapSearchFlightsOptions {
 	 * per date: a one-way `searchFlights` response only ever contains itineraries for the
 	 * queried origin and destination, so their zones never change across the date range a
 	 * search loops over. A code missing from this map means neither the seed table nor a
-	 * live Transitous lookup could resolve it (skyscanner-timezone.ts `resolveAirportTimeZone`)
+	 * live Transitous lookup could resolve it (airport-timezone.ts `resolveAirportTimeZone`)
 	 * — every itinerary touching that airport gets dropped below, never mistimed. */
 	timeZones: ReadonlyMap<string, string>;
 }
