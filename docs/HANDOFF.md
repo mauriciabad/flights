@@ -67,3 +67,31 @@ node tools/probe-search.mjs Paris              # what the airport field offers
 
 Verify against production, in your own browser context, as a person would. Green CI has not
 caught one of the defects that reached the owner.
+
+## Open PRs left mid-flight, and where each one stands
+
+Several agents were told to push whatever they had rather than lose it when the session ran
+short, so some of these are drafts and some are red. Read the PR body before assuming
+anything; each says what is done and what is left.
+
+**#150, the design and header work, is a draft with one real unsolved failure.** All three of
+its fixes are finished: the 60-minute walk and 240-minute drive caps, the header clipping
+(`min-height` to `height` on `.app-shell`, so the grid's `1fr` can resolve), and the visual
+pass with airline logos, mode icons and place marks. `pnpm check`, `pnpm test` and `pnpm build`
+all pass on it.
+
+What blocks it: `select-and-compare.spec.ts`'s "picker change updates the total" fails 3 out of
+3 locally and in CI with "Clicking the checkbox did not change its state". That file is
+untouched by the branch, and main's own CI is green, so it is an interaction rather than a
+broken main. It started after main advanced past the branch's earlier rebase point, and the
+prime suspect is the `flightKey`-based equality check that arrived with #136/#140's
+`FlightPicker.svelte` refactor meeting this branch's new `SegmentIcon` and `AirlineLogo`
+rendering inside the picker rows.
+
+The next step, which the agent ran out of time to do: bisect `TransportPicker.svelte`,
+`ItineraryTimeline.svelte` and `ResultCard.svelte` against main, then check whether rendering
+those two new components inside a picker row defeats the `flightKey` equality.
+
+Do not merge a red PR to clear the queue. The whole reason the owner's route works today is
+that several agents stopped and reported instead of pushing through something they had not
+understood.
