@@ -53,8 +53,10 @@ export const REQUESTS_PER_SEARCH: Readonly<Record<ProviderId, number>> = {
 
 	// Keyless (issue #157), and the only flight source on a route Ryanair does not fly, so
 	// its fan-out is the one to watch: one call per leg per candidate plus a route-graph
-	// lookup is the shape a bounded implementation has. Measured at 46 today against
-	// Ryanair's 11 for the same question, which is issue #165.
+	// lookup is the shape a bounded implementation has. This scenario measured 46 against
+	// Ryanair's 11 for the same question when the budget was written, which was issue #165.
+	// PR #174 halved the route-graph half and it fits now, so the ceiling stayed where it
+	// was rather than being raised to meet the old number.
 	'kiwi-public': 30,
 
 	// Keyless, so no money at stake, but not free either: Ryanair rate-limits, and one

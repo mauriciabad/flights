@@ -14,7 +14,6 @@
  */
 
 import { test, expect } from './support/bench';
-import { knownBroken } from './known-broken';
 import { REQUESTS_PER_SEARCH, budgetsThatOutrunTheirFreeTier, describeVerdict, judge } from './budget';
 import { resultsUrl } from './support/scenario';
 import { waitForSearchToFinish } from './support/page';
@@ -29,8 +28,6 @@ test.describe('cost per search', () => {
 	});
 
 	test('one search stays inside every provider budget', async ({ page, bench, withKeys }) => {
-		knownBroken('kiwi-fan-out');
-
 		await withKeys();
 		await page.goto(resultsUrl());
 		await waitForSearchToFinish(page);

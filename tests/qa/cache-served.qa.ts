@@ -17,9 +17,15 @@
  * before that has elapsed cannot have come from the network, so a stopwatch is enough to
  * tell a cache hit from a cold search, with no reach into the app's internals.
  *
- * The within-TTL case runs first and is NOT pinned to a defect. It is the control: it proves
- * the delay works and that a reload can paint from cache at all, so when the past-TTL case
- * fails the failure is about the TTL and not about the method.
+ * The within-TTL case runs first, and it is the control: it proves the delay works and that
+ * a reload can paint from cache at all, so when the past-TTL case fails the failure is about
+ * the TTL and not about the method.
+ *
+ * The control is what caught #194. It passed against `origin/main` at 49bd622, painting in
+ * 2.0s, and stopped passing the moment PR #174 merged — three sequential `OnePerCity`
+ * lookups now go out on a reload where nothing has expired, and nothing paints until they
+ * are done. Both checks in this file are pinned to that, because they measure the same paint
+ * one TTL apart and the same thing is holding it.
  */
 
 import { test, expect } from './support/bench';
@@ -46,6 +52,8 @@ async function firstCardArrivesWithin(page: import('@playwright/test').Page, ms:
 
 test.describe('cached answers are served, not discarded', () => {
 	test('a reload inside the TTL paints from cache before the network answers', async ({ page, bench }) => {
+		knownBroken('reload-waits-for-kiwi');
+
 		await page.clock.install({ time: new Date('2026-09-20T09:00:00Z') });
 		await page.goto(resultsUrl());
 		await waitForSearchToFinish(page);
@@ -55,14 +63,24 @@ test.describe('cached answers are served, not discarded', () => {
 		bench.delayResponsesBy(SLOW_MS);
 		await page.goto(resultsUrl());
 
+		const painted = await firstCardArrivesWithin(page, CACHE_HIT_MS);
 		expect(
-			await firstCardArrivesWithin(page, CACHE_HIT_MS),
-			`A reload one minute after a search showed nothing for ${CACHE_HIT_MS}ms while every provider response was held back by ${SLOW_MS}ms. Inside the TTL the cached answer should paint at once. If this fails, the measurement below cannot be trusted either.`
+			painted,
+			[
+				`A reload one minute after a search showed nothing for ${CACHE_HIT_MS}ms while every provider response was held back by ${SLOW_MS}ms.`,
+				'Nothing has expired at this point, so every answer the page needs is already in',
+				'IndexedDB. What went back to the network for it anyway:',
+				bench.describeTraffic(),
+				'',
+				'One adapter awaiting one request is enough to hold the whole page blank, because',
+				'the candidate graph waits on all of them. If this fails, the past-TTL measurement',
+				'below cannot be trusted either: it is the same paint, one TTL later.'
+			].join('\n')
 		).toBe(true);
 	});
 
 	test('a reload past the fare TTL still shows the previous answer, with its age', async ({ page, bench }) => {
-		knownBroken('kiwi-discards-expired');
+		knownBroken('reload-waits-for-kiwi');
 
 		await page.clock.install({ time: new Date('2026-09-20T09:00:00Z') });
 		await page.goto(resultsUrl());

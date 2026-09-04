@@ -94,11 +94,11 @@ re-exports #156's `tests/e2e/fixtures/markers.json`, so a token added there is a
 suite recognises and nothing in this directory changes.
 
 **`known-broken.ts`** pins the checks that fail today to the open issue that owns each fix.
-All four entries it started with are gone: #154, #155 and #156 landed while this was in
-review, and #146 and #158 landed in #172 and #176 while it was being rebased. Three
-replaced them, and none needed a check rewritten to catch it — #157 added a flight provider
-carrying the same unbounded fan-out and the same discard-on-expiry that had just been fixed
-elsewhere (#165), and #188 is a crash the flight-number check walked straight into.
+Every entry it started with is gone: #154, #155 and #156 landed while this was in review,
+and #146, #158 and #165 landed in #172, #176 and #174 during the rebase that made the suite
+measure anything at all. What is pinned now is two defects this suite found — #188, a crash
+the flight-number check walked straight into, and #194, a reload that stopped painting from
+cache the day #174 merged.
 
 Playwright fails the run when an expected-to-fail check passes, so a defect cannot be fixed
 and quietly un-covered — the suite goes red until somebody deletes the entry. A new
