@@ -37,7 +37,8 @@ vi.mock('../providers/transfers/osrm', async (importOriginal) => {
 // pattern as providers-adapter.test.ts). Every named export this file needs from
 // resources.ts has to come through here, not a static `import` above: a static import
 // would load resources.ts (and transitively osrm.ts, which `vi.mock` above intercepts)
-// before the `getTaxiFareEstimate` mock it closes over is even assigned, a TDZ error.
+// before the `getTaxiFareEstimate` mock it closes over is even assigned, which is exactly
+// the "Cannot access before initialization" TDZ error issue #119's own PR hit first.
 const { fetchConnectionResources, MAX_PLAUSIBLE_DRIVE_MINUTES, MAX_PLAUSIBLE_WALK_MINUTES, pickBestTransfer } =
 	await import('./resources');
 
