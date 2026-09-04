@@ -726,21 +726,40 @@ Hostelworld has never heard of that name. Checked against all three of the accep
 search's own stopovers: LGW picks London (3), MAN picks Manchester (171), BHX picks
 Birmingham (718), PFO picks Paphos (21908).
 
-**That preference is wrong for an airport stopover, and issue #204 is the owner saying so.**
-He found hostels in Horley, thirty minutes on foot from Gatwick, where the app showed him
-beds 40 km up the line in London. The endpoint is not what stops us reaching them:
-Hostelworld's own city 3671, named "Gatwick", has region `Horley` and holds The Gatwick
-White House Hotel on Church Road and The Lawn Guest House on Massetts Road, both 2.8 km from
-the terminal, with Crawley (2582) adding Little Foxes Hotel at 2.9 km. Our ranking puts
-London first and `searchStays` returns on the first candidate that yields anything, so
-Gatwick is never asked.
+**Preferring it was not the bug; stopping at it was.** Issue #204 is the owner reporting
+hostels in Horley, thirty minutes on foot from Gatwick, where the app showed him beds 40 km
+up the line in London. The endpoint was never what stopped us reaching them: Hostelworld's
+own city 3671, named "Gatwick", has region `Horley` and holds The Gatwick White House Hotel
+on Church Road and The Lawn Guest House on Massetts Road, both 2.8 km from the terminal,
+with Crawley (2582) adding Little Foxes Hotel at 2.9 km. Gatwick was already SECOND on the
+candidate list. `searchStays` returned as soon as London answered, so it was never asked.
 
-There is no purely geographic search to switch to. `/2.2/properties/?latitude=&longitude=`
-answers `400` `invalid property-group-id`, and `/2.2/search/` and `/2.2/cities/{id}/nearby/`
-both `404`. What does work is `latitude`/`longitude` plus `sort=distance` **on the
-city-scoped route**: city 3 sorted from Gatwick returned 34.5, 36.3, 37.8, 37.9, 38.0 km
-ascending against 38.9, 39.4, 48.3, 44.2, 38.3 unsorted. So the fix is ours to make in
-ranking, not a missing endpoint.
+The adapter now asks every candidate city and merges the results. Which of them the
+traveller ends up with is `search/resources.ts`'s call, not this file's.
+
+**No radius fixes this**, which is worth stating because it is the obvious thing to reach
+for. LGW to London is 39.3 km and MXP to Milan is 39.7 km, so any radius tight enough to
+drop the London bed also throws Milan away. PR #212 measured exactly that before deferring
+it here.
+
+**There is no purely geographic search to switch to either.**
+`/2.2/properties/?latitude=&longitude=` answers `400` `invalid property-group-id`, and
+`/2.2/search/` and `/2.2/cities/{id}/nearby/` both `404`. `latitude`/`longitude` plus
+`sort=distance` does work, but only **within one city**: city 3 sorted from Gatwick returned
+34.5, 36.3, 37.8, 37.9, 38.0 km ascending against 38.9, 39.4, 48.3, 44.2, 38.3 unsorted —
+every one of them still a London property, because Horley's belong to city 3671. Sorting by
+distance cannot reach a city you did not ask for. So the city id stays mandatory and asking
+the near city is the only route to a near bed.
+
+For an airport with no city inside the radius at all, nothing changes: the adapter returns
+an honest empty and the stopover reads "No bed priced".
+
+**What it costs.** Six index requests, cached a month, then three price calls per stopover
+instead of one. Measured 9 to 14 on the acceptance search's three stopovers, and 10 to 18 on
+`pnpm qa`'s four-candidate scenario. `tests/qa/budget.ts` carries the ceiling and the
+arithmetic. Three candidates is the smallest window that holds both the walkable town and
+the real city: two would reach Horley but lose Milan, whose name this app writes as
+"Ferno (VA)" so nothing matches it and it only arrives third by distance.
 
 ### The autocomplete route, tried and rejected — do not reach for it again
 

@@ -22,8 +22,11 @@ const PROPERTIES = 'https://api.m.hostelworld.com/2.2/cities/';
  * other five answer with an empty country list, which is what a continent with nothing
  * relevant looks like to this adapter. */
 const CONTINENT_COUNT = 6;
-/** Six continent fetches, then one priced city. */
-const COLD_REQUESTS = CONTINENT_COUNT + 1;
+/** `MAX_CITY_CANDIDATES` in hostelworld.ts. Every one is asked now, not just the first that
+ * answers — issue #204. */
+const CITY_CANDIDATES = 3;
+/** Six continent fetches, then every candidate city priced. */
+const COLD_REQUESTS = CONTINENT_COUNT + CITY_CANDIDATES;
 
 /** London Gatwick, the acceptance trip's connection airport. `resolveAirportCityLabel`
  * turns exactly this coordinate into "London, ..." from the bundled OurAirports dataset,
@@ -37,6 +40,11 @@ const query: StaySearchQuery = {
 	currency: 'EUR'
 };
 const LONDON_CITY_ID = 3;
+/** Hostelworld's own city for the airport, 2.0 km away, whose region is Horley — the two
+ * properties the owner found on foot are in it (issue #204). */
+const GATWICK_CITY_ID = 3671;
+/** Third on the candidate list, 3.6 km out. */
+const CRAWLEY_CITY_ID = 2582;
 
 let urlsSeen: string[] = [];
 
@@ -127,11 +135,58 @@ describe('searchStays', () => {
 		expect(result.source.providerId).toBe('hostelworld');
 	});
 
-	it('prices the city the airport serves, not the one nearest to it', async () => {
-		// Gatwick has a Hostelworld city of its own 2km away, and London is 39km out. Getting
-		// this backwards prices a bed in Crawley for a stopover in London.
+	it('asks the city the airport serves first, and the walkable one as well', async () => {
+		// Issue #204. Both halves matter and the second is the one that was missing.
+		//
+		// London first, because a three-night stopover "in London" is what the traveller
+		// picked and the app should be able to price a bed there. But Hostelworld also has a
+		// city called Gatwick, 2 km from the terminal, whose region is Horley — the owner
+		// found rooms there himself, thirty minutes on foot, while the app showed him one
+		// 39 km up the line. It was already SECOND on this list and was never asked, because
+		// the loop returned as soon as London answered.
 		await provider(fixtureFetch()).searchStays(query, ctx());
-		expect(propertyUrls()[0]).toContain(`/cities/${LONDON_CITY_ID}/properties/`);
+		const asked = propertyUrls();
+		expect(asked[0]).toContain(`/cities/${LONDON_CITY_ID}/properties/`);
+		expect(asked.some((url) => url.includes(`/cities/${GATWICK_CITY_ID}/properties/`))).toBe(true);
+		expect(asked.some((url) => url.includes(`/cities/${CRAWLEY_CITY_ID}/properties/`))).toBe(true);
+	});
+
+	it('merges every candidate city rather than returning the first that answers', async () => {
+		// The regression guard for #204 proper: a bed that exists only in the near city has
+		// to reach the caller, and the near city is asked second. Under the old early return
+		// this returned London's beds alone and the walkable one was unreachable.
+		const nearGatwick = {
+			properties: [
+				{
+					id: 99,
+					name: 'Horley Guest House',
+					latitude: 51.1668,
+					longitude: -0.1668,
+					lowestAveragePrivatePricePerNight: { value: '40.00', currency: 'EUR' }
+				}
+			]
+		};
+		const fetchImpl = fixtureFetch({
+			[`${PROPERTIES}${GATWICK_CITY_ID}/`]: () =>
+				new Response(JSON.stringify(nearGatwick), { status: 200 })
+		});
+
+		const result = await provider(fetchImpl).searchStays(query, ctx());
+		expect(result.ok).toBe(true);
+		if (!result.ok) return;
+		const names = result.data.map((stay) => stay.property.name);
+		expect(names).toContain('Horley Guest House');
+		// And London's are still there: this widens the answer, it does not swap one city
+		// for another. Which of them wins is `search/resources.ts`'s call, not this file's.
+		expect(names.some((name) => name.includes('London'))).toBe(true);
+	});
+
+	it('returns the merged beds cheapest first', async () => {
+		const result = await provider(fixtureFetch()).searchStays(query, ctx());
+		expect(result.ok).toBe(true);
+		if (!result.ok) return;
+		const prices = result.data.map((stay) => stay.pricePerNight.minorUnits);
+		expect(prices).toEqual([...prices].sort((a, b) => a - b));
 	});
 
 	it('asks for the nights the traveller chose, not a night count of its own', async () => {
@@ -187,9 +242,11 @@ describe('searchStays', () => {
 		expect(reported).toBe(urlsSeen.length);
 	});
 
-	it('walks to the next city when the first has nothing within the radius', async () => {
-		// A city Hostelworld knows but has sold out of for these dates is not a dead end: the
-		// next-nearest real beds are a better answer than none.
+	it('keeps going when a candidate city has nothing within the radius', async () => {
+		// A city Hostelworld knows but has sold out of for these dates is not a dead end, and
+		// neither is one whose properties all sit outside the radius. Every candidate is
+		// asked either way now (#204), so this asserts what survives the merge rather than
+		// how many calls it took to stop.
 		let propertiesCalls = 0;
 		const fetchImpl = fixtureFetch({
 			[PROPERTIES]: () => {
@@ -203,8 +260,10 @@ describe('searchStays', () => {
 		expect(result.ok).toBe(true);
 		if (!result.ok) return;
 		expect(result.data.length).toBeGreaterThan(0);
+		// Vancouver is 7,500 km from Gatwick, so the radius filter drops it — the merge is
+		// not a licence to return a bed on another continent.
 		expect(result.data.every((stay) => stay.property.name !== 'Wrong Continent Hostel')).toBe(true);
-		expect(propertiesCalls).toBe(2);
+		expect(propertiesCalls).toBe(CITY_CANDIDATES);
 	});
 
 	it('stops after the candidate ceiling rather than pricing every city in range', async () => {

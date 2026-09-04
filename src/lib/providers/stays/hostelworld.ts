@@ -107,13 +107,24 @@ const CITY_INDEX_TTL_MS = 30 * 24 * 60 * 60_000;
 const PROPERTIES_PER_PAGE = 30;
 
 /**
- * How many cities near the airport to price before giving up.
+ * How many cities near the airport to price. Every one of them, not the first that answers
+ * — see `searchStays` for why that early return was issue #204.
  *
- * The first is nearly always right — `rankCitiesNear` puts the city this app already
- * decided the airport serves ahead of everything else. The other two exist for the case
- * where Hostelworld has that city but sold out of it for these dates, where the next
- * nearest real beds are a better answer than none. Bounded because each one costs a
- * request against an endpoint that belongs to someone else.
+ * Three, and the number is load-bearing rather than cautious. `rankCitiesNear` lists the
+ * city this app named for the airport first and then everything else by distance, so three
+ * is the smallest window that holds both the walkable town and the real city for every
+ * airport this app has been measured against (2026-09-04, against the live index):
+ *
+ * | Airport | Cities inside 50 km, nearest first | The three asked |
+ * | --- | --- | --- |
+ * | LGW | Gatwick 2.0, Crawley 3.6, Guildford 28.6, Lewes 33.5, Brighton 35.2, London 39.3 | London (named), Gatwick, Crawley |
+ * | STN | Harlow 15.1, Cambridge 35.9, London 49.2 | London (named), Harlow, Cambridge |
+ * | MXP | Novara 22.3, Lake Como 34.1, Milan 39.7 | Novara, Lake Como, Milan |
+ * | BGY | Bergamo 4.0, Lake Iseo 28.7, Lecco 32.0 | Bergamo, Lake Iseo, Lecco |
+ *
+ * Two would be enough for Gatwick and would lose Milan, whose name this app writes as
+ * "Ferno (VA)" so nothing matches it and it only arrives third by distance. Four costs a
+ * request per stopover to reach cities nobody would stop in. So: three.
  */
 const MAX_CITY_CANDIDATES = 3;
 
@@ -381,6 +392,38 @@ function createHostelworldStayProvider(options: HostelworldProviderOptions = {})
 		 * own words then rather than a bare empty list that hides why. */
 		let lastError: ProviderError | undefined;
 
+		/**
+		 * Every candidate city's beds, merged — issue #204, and the whole point of this loop.
+		 *
+		 * This used to return on the first city that produced a stay. `rankCitiesNear` lists
+		 * the city this app named for the airport FIRST, so for Gatwick that was London: it
+		 * answered, the loop returned, and Hostelworld's own "Gatwick" city (id 3671, region
+		 * Horley) was never asked at all — even though it was already second on the list.
+		 * The owner found beds there himself, a thirty-minute walk from the terminal, while
+		 * the app offered him one 39 km up the line and called it the cheapest. It was the
+		 * cheapest of the one city it looked in.
+		 *
+		 * No radius fixes that: LGW to London is 39.3 km and MXP to Milan is 39.7, so any
+		 * radius tight enough to drop the London bed also throws away Milan (PR #212 measured
+		 * exactly this and deferred it here). The near city has to be ASKED, which means not
+		 * stopping at the first answer.
+		 *
+		 * Merging rather than choosing is also the honest division of labour. This adapter
+		 * knows which beds exist and what they cost, and nothing about how far the traveller
+		 * will walk. `search/resources.ts` ranks, and since PR #212 it ranks with the transfer
+		 * to each bed priced in, so a walkable Horley room can now beat a cheaper London dorm
+		 * 39 km away on the number that decides it.
+		 */
+		const merged: Stay[] = [];
+		/** The OLDEST contributing fetch, because part of a merged answer really is that old
+		 * and `ProviderSource.fetchedAt` is rendered as "fetched 2 minutes ago". Understating
+		 * freshness is the safe direction; calling the whole merge as new as its newest half
+		 * is issue #151's lie in miniature. */
+		let oldestFetchedAt: number | undefined;
+		const noteFetchedAt = (at: number): void => {
+			oldestFetchedAt = oldestFetchedAt === undefined ? at : Math.min(oldestFetchedAt, at);
+		};
+
 		for (const cityId of cityIds) {
 			if (ctx.signal.aborted) {
 				return fail({ code: 'cancelled', message: 'Hostelworld search was cancelled' }, requestsUsed);
@@ -393,13 +436,15 @@ function createHostelworldStayProvider(options: HostelworldProviderOptions = {})
 			);
 			const cached = await readCache<{ properties?: unknown[] }>(store, key);
 			if (cached) {
-				const stays = mapPropertiesToStays(
-					cached.value.properties as Parameters<typeof mapPropertiesToStays>[0],
-					query.near,
-					query.radiusKm,
-					guests
+				merged.push(
+					...mapPropertiesToStays(
+						cached.value.properties as Parameters<typeof mapPropertiesToStays>[0],
+						query.near,
+						query.radiusKm,
+						guests
+					)
 				);
-				if (stays.length > 0) return ok(stays, requestsUsed, cached.storedAt);
+				noteFetchedAt(cached.storedAt);
 				continue;
 			}
 
@@ -428,13 +473,19 @@ function createHostelworldStayProvider(options: HostelworldProviderOptions = {})
 			// millisecond about when Hostelworld answered — see `writeCache`.
 			const fetchedAt = Date.now();
 			await writeCache(store, key, response.data, fetchedAt);
-			const stays = mapPropertiesToStays(
-				response.data.properties,
-				query.near,
-				query.radiusKm,
-				guests
+			merged.push(
+				...mapPropertiesToStays(response.data.properties, query.near, query.radiusKm, guests)
 			);
-			if (stays.length > 0) return ok(stays, requestsUsed, fetchedAt);
+			noteFetchedAt(fetchedAt);
+		}
+
+		if (merged.length > 0) {
+			// Cheapest first, so a caller reading only the head still gets the cheapest bed.
+			// `search/resources.ts` sorts again for itself; sorting here too makes the merge
+			// order deterministic rather than dependent on which city came back first, which
+			// is the difference between an assertion and a coin toss.
+			merged.sort((a, b) => a.pricePerNight.minorUnits - b.pricePerNight.minorUnits);
+			return ok(merged, requestsUsed, oldestFetchedAt);
 		}
 
 		if (lastError) return fail(lastError, requestsUsed);

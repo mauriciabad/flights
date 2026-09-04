@@ -390,12 +390,33 @@ const HOSTELWORLD_EUROPE_ID = 3;
 const HOSTELWORLD_BENCH_CITY_ID_BASE = 990_000;
 const benchCityAirports: readonly string[] = Object.keys(AIRPORT_TIME_ZONES);
 
-function benchCityIdFor(index: number): number {
-	return HOSTELWORLD_BENCH_CITY_ID_BASE + index;
+/**
+ * How many cities the bench puts near each airport, and where.
+ *
+ * Not one, which is what this answered before and what made the cost check meaningless.
+ * Since issue #204 the adapter asks EVERY candidate city rather than returning on the first
+ * that answers, so a bench offering one city per airport measured a fan-out no real search
+ * has. Real geography around the airports this app is judged on looks like the Gatwick
+ * shape — a town on the doorstep, another a few km out, and the city the airport is named
+ * for the better part of an hour away:
+ *
+ *     LGW: Gatwick 2.0 km, Crawley 3.6 km, ... London 39.3 km
+ *     MXP: Novara 22.3 km, Lake Como 34.1 km, Milan 39.7 km
+ *
+ * So each airport gets three, at roughly those distances, and `cost-per-search.qa.ts` then
+ * counts what the app really spends. Offsets are in degrees of latitude, which is about
+ * 111 km per degree.
+ */
+const BENCH_CITY_OFFSETS_DEG: readonly number[] = [0.02, 0.033, 0.35];
+
+function benchCityIdFor(airportIndex: number, cityIndex: number): number {
+	return HOSTELWORLD_BENCH_CITY_ID_BASE + airportIndex * 10 + cityIndex;
 }
 
 function airportForBenchCityId(cityId: number): string | undefined {
-	return benchCityAirports[cityId - HOSTELWORLD_BENCH_CITY_ID_BASE];
+	const offset = cityId - HOSTELWORLD_BENCH_CITY_ID_BASE;
+	if (offset < 0) return undefined;
+	return benchCityAirports[Math.floor(offset / 10)];
 }
 
 /**
@@ -419,12 +440,15 @@ export function hostelworldContinent(url: URL): unknown {
 			{
 				id: 237,
 				name: 'Benchland',
-				cities: benchCityAirports.map((code, index) => ({
-					id: benchCityIdFor(index),
-					name: code,
-					latitude: airportCoordinates.get(code)?.latitude ?? 0,
-					longitude: airportCoordinates.get(code)?.longitude ?? 0
-				}))
+				cities: benchCityAirports.flatMap((code, airportIndex) => {
+					const at = airportCoordinates.get(code);
+					return BENCH_CITY_OFFSETS_DEG.map((offset, cityIndex) => ({
+						id: benchCityIdFor(airportIndex, cityIndex),
+						name: `${code}${cityIndex}`,
+						latitude: (at?.latitude ?? 0) + offset,
+						longitude: at?.longitude ?? 0
+					}));
+				})
 			}
 		]
 	});
