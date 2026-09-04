@@ -5,10 +5,11 @@ import {
 	DEFAULT_WAITING_TIME_RULES
 } from '$lib/domain/waiting-time';
 
-// Guards the two numbers the brief calls out by name (line 39: "2h" default airport
-// waiting time, "3h" for a long flight or a large airport) against a future edit that
-// changes them without meaning to. Also doubles as the Vitest + `$lib` alias smoke
-// test for this harness — see tests/e2e/README.md for where E2E tests live instead.
+// Guards the shipped default against a future edit that changes it without meaning to.
+// The brief named two numbers on line 39, 2h flat and 3h for a long flight at a large
+// airport, and the owner has since overruled the second: "i want 2h always by default".
+// Also doubles as the Vitest + `$lib` alias smoke test for this harness — see
+// tests/e2e/README.md for where E2E tests live instead.
 describe('waiting-time defaults', () => {
 	it('defaults the flat airport waiting time to 2 hours', () => {
 		expect(DEFAULT_AIRPORT_WAITING_TIME_MINUTES).toBe(120);
@@ -18,10 +19,10 @@ describe('waiting-time defaults', () => {
 		expect(DEFAULT_LANDING_TO_TRANSPORT_TIME_MINUTES).toBe(15);
 	});
 
-	it('bumps a long flight at a large airport to 3 hours', () => {
-		const largeLongRule = DEFAULT_WAITING_TIME_RULES.find(
-			(rule) => rule.airportSize === 'large' && rule.flightLength === 'long'
-		);
-		expect(largeLongRule?.waitingTime).toBe(180);
+	it('ships one flat rule, with no tier for a long flight at a large airport', () => {
+		expect(DEFAULT_WAITING_TIME_RULES).toEqual([{ waitingTime: 120 }]);
+		expect(
+			DEFAULT_WAITING_TIME_RULES.some((rule) => rule.airportSize || rule.flightLength)
+		).toBe(false);
 	});
 });

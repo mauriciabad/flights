@@ -26,12 +26,16 @@ export interface WaitingTimeRule {
 	waitingTime: Duration;
 }
 
-/** Brief line 39 default: 2h flat, with the 3h long-flight/large-airport tier it
- * explicitly calls out as an example. */
-export const DEFAULT_WAITING_TIME_RULES: WaitingTimeRule[] = [
-	{ waitingTime: 120 as Duration },
-	{ airportSize: 'large', flightLength: 'long', waitingTime: 180 as Duration }
-];
+/**
+ * 2h everywhere. The owner, after seeing 3h on his own search: "the default waiting
+ * airport time is too much 3h. i want 2h always by default."
+ *
+ * Brief line 39 offered a 3h tier for a long flight at a large airport as an example,
+ * and it shipped as a rule. He has now overruled it, so the tier is gone rather than
+ * merely retuned: the tiering machinery stays (a traveller can still add rules of their
+ * own in the search form), but the app ships one flat number.
+ */
+export const DEFAULT_WAITING_TIME_RULES: WaitingTimeRule[] = [{ waitingTime: 120 as Duration }];
 
 /** Flat fallback for callers that want one number rather than the tiered rules above
  * (search form issue #16: "a single number is the fallback, not the whole feature"). */
