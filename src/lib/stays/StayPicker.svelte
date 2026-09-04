@@ -108,6 +108,14 @@
 	/>
 {:else if openGroup && openProperty}
 	<div class="stay-picker">
+		<!-- Issue #77: Card's `header` snippet can silently lose its content after
+		     hydration for the first card in a LIST of cards using it, root cause not yet
+		     found. Not that shape here - this is the only Card this component ever
+		     mounts with a header snippet, never one of several in an `{#each}` - and a
+		     live Playwright pass (both first paint and after a client-side selection
+		     change) showed the header surviving hydration correctly, so this is kept
+		     rather than worked around. Re-check if #77 lands a real fix and turns out to
+		     explain this differently. -->
 		<Card variant="ticket" elevated>
 			{#snippet header()}
 				{openProperty.name}
