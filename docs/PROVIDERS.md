@@ -121,19 +121,6 @@ Endpoints confirmed live and returning 200 with a real key:
 `/flights/price-calendar`. Note `departDate` is required even for the calendar, which
 otherwise returns `{"errors":{"departDate":"departDate is required"}}`.
 
-### Kiwi.com is subscribed but its backend is down
-
-BASIC is $0/month for **300 requests/month**, the most generous quota of any provider here,
-and it subscribed without demanding a card. But both live endpoints return
-`402 {"error":{"code":"402","message":"Payment required"}}` with header
-`x-vercel-error: DEPLOYMENT_DISABLED`, which is Vercel's marker for a deployment its owner
-switched off. A valid `x-rapidapi-request-id` comes back, so RapidAPI's gateway is forwarding
-correctly and this is an upstream outage rather than a key or subscription problem.
-
-The adapter exists and is tested against fixtures reconstructed from Kiwi's historical public
-schema, NOT from a captured live payload. Re-verify the response shape before trusting it if
-the listing ever comes back.
-
 ### Sky Scrapper costs one request PER DATE, which changes the search design
 
 Measured against the live API on 2026-09-04: `searchFlights` takes exactly one `date`
@@ -243,7 +230,8 @@ more cities before either is trusted for a booking a traveller actually relies o
 ### Kiwi.com Cheap Flights is subscribed but its own backend is down
 
 Subscribing worked exactly as documented above: BASIC is $0/month, 300 requests/month hard
-limit, 1000 requests/hour, no payment method demanded. That is not the problem.
+limit (the most generous flight quota of any provider in this table), 1000 requests/hour,
+no payment method demanded. That is not the problem.
 
 Every call this project made to either of the listing's two endpoints (`/one-way` and
 `/round-trip`), after subscribing with a real key, returned:
