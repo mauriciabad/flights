@@ -59,12 +59,18 @@
  *   this search or this user.
  */
 
+// Exported so tests/e2e/support/providers.ts's mock can derive its intercept pattern from
+// this same constant instead of a hardcoded copy — issue #132 (`osrm.ts`'s `OSRM_BASE_URL`)
+// already fixed exactly this class of bug once, a test host silently drifting from the real
+// one because nothing kept them in sync.
+export const AIRLINE_LOGO_BASE_URL = 'https://pics.avs.io';
+
 // Square, small enough for a chip-sized mark, large enough to stay crisp at 2x on a phone.
 const LOGO_SIZE_PX = 64;
 
 export function airlineLogoUrl(iataCode: string): string {
 	const code = encodeURIComponent(iataCode.trim().toUpperCase());
-	return `https://pics.avs.io/${LOGO_SIZE_PX}/${LOGO_SIZE_PX}/${code}.png`;
+	return `${AIRLINE_LOGO_BASE_URL}/${LOGO_SIZE_PX}/${LOGO_SIZE_PX}/${code}.png`;
 }
 
 /**

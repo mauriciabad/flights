@@ -3,16 +3,21 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { BrowserContext, Page } from '@playwright/test';
 import { OSRM_BASE_URL } from '../../../src/lib/providers/transfers/osrm';
+import { AIRLINE_LOGO_BASE_URL } from '../../../src/lib/data/airline-logos';
 
 // Re-exported so a spec that wants to check "did this request really land on the host
-// mockOsrm intercepts" (issue #132) can import it from here instead of reaching into
-// src/lib itself.
-export { OSRM_BASE_URL };
+// mockOsrm/mockAirlineLogos intercepts" (issues #132, #119) can import it from here
+// instead of reaching into src/lib itself.
+export { OSRM_BASE_URL, AIRLINE_LOGO_BASE_URL };
 
 const fixturesDir = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'fixtures');
 
 function loadFixture(relativePath: string): string {
 	return readFileSync(path.join(fixturesDir, relativePath), 'utf-8');
+}
+
+function loadBinaryFixture(relativePath: string): Buffer {
+	return readFileSync(path.join(fixturesDir, relativePath));
 }
 
 /**
@@ -131,10 +136,29 @@ export async function mockOsrm(target: Routable, fixture = 'osrm/route.json') {
 	await mockJson(target, `${OSRM_BASE_URL}/**`, fixture);
 }
 
+/** Airline logos (issue #119). Needs no key, and intercepts `AIRLINE_LOGO_BASE_URL`
+ * imported straight from `airline-logos.ts` for the same reason `mockOsrm` above imports
+ * `OSRM_BASE_URL` — a hardcoded copy of the host here could drift from the real one
+ * exactly the way issue #132 already found `mockOsrm` doing.
+ *
+ * Not part of `mockAllKeylessProviders` below: `AirlineLogo.svelte` renders inside
+ * `ResultCard`/`ItineraryTimeline` regardless of which providers a spec is exercising, so
+ * this is registered globally for every spec in `fixtures.ts` instead — a static asset
+ * dependency of the UI itself, not a provider a test opts into. Kept exported here, next
+ * to every other mock, so a spec that wants different logo behaviour (a failure, to check
+ * the monogram fallback, say) can still call this directly with its own fixture. */
+export async function mockAirlineLogos(target: Routable, fixture = 'airline-logos/logo.png') {
+	const body = loadBinaryFixture(fixture);
+	await target.route(`${AIRLINE_LOGO_BASE_URL}/**`, async (route) => {
+		await route.fulfill({ status: 200, contentType: 'image/png', body });
+	});
+}
+
 /** Registers every keyless provider (Ryanair — the fare-finder and active-airports, both
  * real endpoints the adapter calls — Transitous, OSRM). This is the state a first-time
  * visitor with an empty key store is in — see issue #18's "first run with no keys"
- * scenario and issue #3 (the key store). */
+ * scenario and issue #3 (the key store). Airline logos are mocked separately and
+ * globally — see `mockAirlineLogos`'s own doc comment for why. */
 export async function mockAllKeylessProviders(target: Routable) {
 	await mockRyanair(target);
 	await mockRyanairActiveAirports(target);
