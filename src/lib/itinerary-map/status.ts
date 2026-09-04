@@ -60,5 +60,5 @@ export function itineraryMapStatus(
 
 	// A selection from an itinerary that changed underneath it: the id is real but this
 	// model never had it and never explained it either. Rare, and still not silence.
-	return { text: 'Nothing to draw: this step is not part of the itinerary on screen.', tone: 'none', isAbsence: true };
+	return { text: 'Nothing to draw. This step is not part of the itinerary on screen.', tone: 'none', isAbsence: true };
 }

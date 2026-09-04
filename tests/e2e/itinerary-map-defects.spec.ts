@@ -153,13 +153,16 @@ test.describe('itinerary map defects (issue #141)', () => {
 
 		await detail.locator('[data-segment="transfer-to-hotel"]').click();
 		await expect(detail.locator('[data-segment="transfer-to-hotel"]')).toHaveAttribute('aria-current', 'true');
+		// `unroutedLegNote`'s own sentence, prefixed. Vienna is not one of the eleven
+		// airports issue #162 keeps a hand-checked city centre for, so nothing routed into
+		// town either and there is genuinely no line to draw.
 		await expect(status).toHaveText(
-			'Nothing to draw: no bed priced for this stopover, so there is nowhere to travel to.'
+			'Nothing to draw. No bed priced for this stopover, and nothing routed into the city either.'
 		);
 
 		await detail.locator('[data-segment="transfer-to-connection-airport"]').click();
 		await expect(status).toHaveText(
-			'Nothing to draw: no bed priced for this stopover, so there is nowhere to travel back from.'
+			'Nothing to draw. No bed priced for this stopover, and nothing routed back from the city either.'
 		);
 
 		// And the way back out of a selection, which did not exist before either.

@@ -44,7 +44,7 @@ function model(overrides: Partial<ItineraryMapModel> = {}): ItineraryMapModel {
 		],
 		extraWaypoints: [],
 		absentSegmentNotes: {
-			'transfer-to-hotel': 'Nothing to draw: no bed priced for this stopover, so there is nowhere to travel to.'
+			'transfer-to-hotel': 'Nothing to draw. No bed priced for this stopover, and nothing routed into the city either.'
 		},
 		...overrides
 	};
@@ -80,7 +80,7 @@ describe('itineraryMapStatus', () => {
 
 	it('reads back the model own explanation for a step with no geometry', () => {
 		expect(itineraryMapStatus(model(), 'transfer-to-hotel')).toEqual({
-			text: 'Nothing to draw: no bed priced for this stopover, so there is nowhere to travel to.',
+			text: 'Nothing to draw. No bed priced for this stopover, and nothing routed into the city either.',
 			tone: 'none',
 			isAbsence: true
 		});
@@ -88,7 +88,7 @@ describe('itineraryMapStatus', () => {
 
 	it('still answers for an id from an itinerary that changed underneath the selection', () => {
 		expect(itineraryMapStatus(model(), 'onward-flight')).toEqual({
-			text: 'Nothing to draw: this step is not part of the itinerary on screen.',
+			text: 'Nothing to draw. This step is not part of the itinerary on screen.',
 			tone: 'none',
 			isAbsence: true
 		});

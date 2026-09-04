@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { Airport, Duration, FlightOffer, Itinerary, LocalDateTime, Stay, Transfer } from '$lib/domain';
 import { allCoordinates, buildItineraryMapModel, findSegment } from './segments';
 import type { ItinerarySegmentId } from './segment-id';
+import { unroutedLegNote } from '$lib/components/itinerary-timeline-format';
 import { boundsOfCoordinates } from './geo';
 
 // ---------------------------------------------------------------------------
@@ -235,7 +236,15 @@ describe('buildItineraryMapModel: no stay priced (issue #94)', () => {
 		return { ...baseItinerary(), stay: undefined, transferToHotel: undefined, transferToConnectionAirport: undefined };
 	}
 
-	it('drops the two in-city transfer segments, keeping free-time as a point at the connection airport', () => {
+	/** The eleven airports issue #162 keeps a hand-checked centre for are the exception,
+	 *  not the rule: everywhere else `City.coordinates` is `undefined` and the connection
+	 *  city has no point of its own at all. */
+	const connectionAirportWithoutCityPoint: Airport = {
+		...connectionAirport,
+		city: { ...connectionAirport.city, coordinates: undefined }
+	};
+
+	it('drops the two in-city transfer segments when nothing routed, and stands the stopover on the city centre', () => {
 		const model = buildItineraryMapModel(itineraryWithoutStay(), connectionAirport);
 
 		expect(model.segments.map((s) => s.id)).toEqual([
@@ -255,11 +264,54 @@ describe('buildItineraryMapModel: no stay priced (issue #94)', () => {
 			tone: 'stopover',
 			markerKind: 'stay',
 			label: 'Stopover in Vienna',
-			coordinates: connectionAirport.coordinates,
-			// Issue #141: the airport's coordinates are the only ones this app has for the
-			// connection city, so the point keeps them and stops calling itself an address.
+			// Issue #162's hand-checked city point, when the airport has one.
+			coordinates: connectionAirport.city.coordinates,
+			// Issue #141: a city centre is a real point and still not an address, so the
+			// camera frames the city rather than zooming to a street corner nobody named.
 			precision: 'city'
 		});
+	});
+
+	it('falls back to the runway when the connection city has no checked point, and says it is still a city', () => {
+		const model = buildItineraryMapModel(itineraryWithoutStay(), connectionAirportWithoutCityPoint);
+
+		const freeTime = findSegment(model, 'free-time');
+		expect(freeTime?.kind === 'point' && freeTime.coordinates).toEqual(connectionAirport.coordinates);
+		expect(freeTime?.kind === 'point' && freeTime.precision).toBe('city');
+	});
+
+	// Issue #161, merged while this was in flight: with no bed priced the two in-city legs
+	// route to the connection city's centre instead, so a transfer can exist with no stay.
+	// Calling those legs absent because no bed was priced would assert a cause the
+	// itinerary itself contradicts.
+	it('draws a leg that goes into town even though no bed was priced', () => {
+		const itinerary: Itinerary = {
+			...itineraryWithoutStay(),
+			transferToHotel: transfer(),
+			transferToConnectionAirport: transfer()
+		};
+		const model = buildItineraryMapModel(itinerary, connectionAirport);
+
+		const intoTown = findSegment(model, 'transfer-to-hotel');
+		expect(intoTown?.kind === 'line' && intoTown.label).toBe('Transfer to Vienna (straight-line estimate)');
+		expect(intoTown?.kind === 'line' && intoTown.coordinates).toEqual([
+			connectionAirport.coordinates,
+			connectionAirport.city.coordinates
+		]);
+		expect(findSegment(model, 'transfer-to-connection-airport')).toBeDefined();
+		expect(model.absentSegmentNotes).toEqual({});
+	});
+
+	it('will not draw a leg into a city it has no point for, and explains that instead', () => {
+		const itinerary: Itinerary = {
+			...itineraryWithoutStay(),
+			transferToHotel: transfer(),
+			transferToConnectionAirport: transfer()
+		};
+		const model = buildItineraryMapModel(itinerary, connectionAirportWithoutCityPoint);
+
+		expect(findSegment(model, 'transfer-to-hotel')).toBeUndefined();
+		expect(model.absentSegmentNotes['transfer-to-hotel']).toContain('Nothing to draw.');
 	});
 
 	it('still marks the free-time point itself as the stopover tone', () => {
@@ -473,11 +525,14 @@ describe('absentSegmentNotes (issue #141: a selected step the map cannot draw)',
 			}),
 			connectionAirport
 		);
+		// The reason half is `unroutedLegNote`'s own sentence, the one the timeline row the
+		// traveller just clicked is already showing. Asserted through that function rather
+		// than as a literal, so a reword there moves both together instead of failing here.
 		expect(nights.absentSegmentNotes['transfer-to-hotel']).toBe(
-			'Nothing to draw: no bed priced for this stopover, so there is nowhere to travel to.'
+			`Nothing to draw. ${unroutedLegNote('to-hotel', { hasStay: false, nightsInConnection: 2 })}`
 		);
 		expect(nights.absentSegmentNotes['transfer-to-connection-airport']).toBe(
-			'Nothing to draw: no bed priced for this stopover, so there is nowhere to travel back from.'
+			`Nothing to draw. ${unroutedLegNote('from-hotel', { hasStay: false, nightsInConnection: 2 })}`
 		);
 
 		const sameDay = buildItineraryMapModel(
@@ -490,7 +545,7 @@ describe('absentSegmentNotes (issue #141: a selected step the map cannot draw)',
 			connectionAirport
 		);
 		expect(sameDay.absentSegmentNotes['transfer-to-hotel']).toBe(
-			'Nothing to draw: a same-day connection has no hotel leg.'
+			'Nothing to draw. Same-day connection, so there is no hotel leg here.'
 		);
 	});
 
@@ -501,10 +556,10 @@ describe('absentSegmentNotes (issue #141: a selected step the map cannot draw)',
 		);
 
 		expect(model.absentSegmentNotes['transfer-to-hotel']).toBe(
-			'Nothing to draw: no route came back from the transport providers for this leg.'
+			'Nothing to draw. No route came back from the transport providers for this leg.'
 		);
 		expect(model.absentSegmentNotes['transfer-to-destination-location']).toBe(
-			'Nothing to draw: no route came back from the transport providers for this leg.'
+			'Nothing to draw. No route came back from the transport providers for this leg.'
 		);
 	});
 

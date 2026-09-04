@@ -1,4 +1,7 @@
 import type { Airport, Coordinates, Itinerary, Transfer } from '$lib/domain';
+// Reaching into the components layer for one pure string function, deliberately: see
+// `absenceNote` below for why the map must not keep its own copy of this wording.
+import { unroutedLegNote, type UnroutedLeg } from '$lib/components/itinerary-timeline-format';
 import { greatCircleArc, longitudeNear } from './geo';
 import type { ItinerarySegmentId } from './segment-id';
 
@@ -197,23 +200,22 @@ function singleFrame(model: ItineraryMapModel): ItineraryMapModel {
 }
 
 /**
- * What the map says about a transfer step it has no line for (issue #141). Each sentence
- * is a fact readable straight off this itinerary, in the same three cases
- * `unroutedLegNote` (`components/itinerary-timeline-format.ts`) distinguishes for the
- * timeline row itself, so the row and the map agree about what happened. They are worded
- * for their own place rather than shared as one string: the row explains a gap in a list
- * of steps, this explains why the camera did not move.
+ * What the map says about a transfer step it has no line for (issue #141): that nothing
+ * moved, and then the timeline row's own sentence for why.
+ *
+ * The reason comes from `unroutedLegNote` rather than being written a second time here.
+ * A parallel copy drifted within a day of being written: issue #161 gave these two legs
+ * the connection city as a second possible destination, so "no bed priced, so there is
+ * nowhere to travel to" stopped being true, and one of the two copies would have gone on
+ * saying it. One sentence, one place, and the row a traveller clicked and the caption
+ * they then read cannot disagree.
  */
-function transferAbsenceNote(itinerary: Itinerary, leg: 'to-hotel' | 'from-hotel' | 'outer'): string {
-	if (leg !== 'outer' && !itinerary.stay) {
-		if (itinerary.nightsInConnection === 0) {
-			return 'Nothing to draw: a same-day connection has no hotel leg.';
-		}
-		return leg === 'to-hotel'
-			? 'Nothing to draw: no bed priced for this stopover, so there is nowhere to travel to.'
-			: 'Nothing to draw: no bed priced for this stopover, so there is nowhere to travel back from.';
-	}
-	return 'Nothing to draw: no route came back from the transport providers for this leg.';
+function absenceNote(itinerary: Itinerary, leg: UnroutedLeg): string {
+	const reason = unroutedLegNote(leg, {
+		hasStay: itinerary.stay !== undefined,
+		nightsInConnection: itinerary.nightsInConnection
+	});
+	return `Nothing to draw. ${reason}`;
 }
 
 export function buildItineraryMapModel(
@@ -256,7 +258,7 @@ export function buildItineraryMapModel(
 	} else if (itinerary.originLocation) {
 		// The timeline renders this row whenever there is an origin location, routed or
 		// not, so the map owes it an answer whenever there is one too.
-		absentSegmentNotes['transfer-to-origin-airport'] = transferAbsenceNote(itinerary, 'outer');
+		absentSegmentNotes['transfer-to-origin-airport'] = absenceNote(itinerary, 'to-origin-airport');
 	}
 
 	segments.push({
@@ -279,17 +281,30 @@ export function buildItineraryMapModel(
 		coordinates: greatCircleArc(itinerary.originAirport.coordinates, connectionAirport.coordinates)
 	});
 
-	// Issue #94: `itinerary.stay` (and, alongside it, `transferToHotel`/
-	// `transferToConnectionAirport`) is `undefined` when no bed was priced for this
-	// connection. There is then nowhere for an in-city transfer to go, so those two
-	// segments simply don't exist — same treatment `transfer-to-origin-airport` already
-	// gets when there is no `originLocation` — and `free-time` falls back to a point at
-	// the connection airport itself: the layover still happened somewhere real, even
-	// without a hotel to anchor it to.
-	if (itinerary.stay && itinerary.transferToHotel) {
+	// Where the free time is actually spent, and how precisely this app knows it.
+	//
+	// A priced bed is an address. Failing that, issue #161 gives the two in-city legs a
+	// real destination anyway — `Airport.city.coordinates`, the hand-checked centre issue
+	// #162 keeps for the eleven airports whose runway sits outside the city it is sold as
+	// — and both transfers can then exist with no `stay` at all (`algorithm/build.ts`:
+	// "Both transfers can now be present with `stay` absent"). Failing THAT, the stopover
+	// still happened somewhere real, and the airport's own coordinates are the only ones
+	// left; issue #141 marks that case `'city'` so the camera frames the city rather than
+	// the runway, and `ItineraryMap` stacks the marker clear of the airport pill it would
+	// otherwise be hidden underneath.
+	const cityCentre = connectionAirport.city.coordinates;
+	const stopoverIsSomewhereOfItsOwn = itinerary.stay !== undefined || cityCentre !== undefined;
+	const stopoverCoordinates =
+		itinerary.stay?.property.coordinates ?? cityCentre ?? connectionAirport.coordinates;
+	const stopoverName = itinerary.stay?.property.name ?? connectionAirport.city.name;
+
+	// Gated on the destination existing rather than on `stay`: a leg into town stands on
+	// its own, and calling it absent because no bed was priced would be asserting a cause
+	// the itinerary contradicts.
+	if (itinerary.transferToHotel && stopoverIsSomewhereOfItsOwn) {
 		const line = transferLine(
 			connectionAirport.coordinates,
-			itinerary.stay.property.coordinates,
+			stopoverCoordinates,
 			itinerary.transferToHotel
 		);
 		segments.push({
@@ -298,32 +313,28 @@ export function buildItineraryMapModel(
 			role: 'transfer',
 			tone: 'stopover',
 			geometryKind: line.geometryKind,
-			label: transferLabel(`Transfer to ${itinerary.stay.property.name}`, line.geometryKind),
+			label: transferLabel(`Transfer to ${stopoverName}`, line.geometryKind),
 			coordinates: line.coordinates
 		});
 	} else {
-		absentSegmentNotes['transfer-to-hotel'] = transferAbsenceNote(itinerary, 'to-hotel');
+		absentSegmentNotes['transfer-to-hotel'] = absenceNote(itinerary, 'to-hotel');
 	}
 
-	// Issue #141: without a stay this point keeps the airport's own coordinates, because
-	// they are the only ones this app holds for the connection city at all — but it stops
-	// claiming to be an address. `precision: 'city'` is what makes the camera frame the
-	// city instead of the runway, and what puts the marker in the stacked treatment
-	// `ItineraryMap` gives two markers sharing one coordinate, instead of hiding it under
-	// the airport's own pill where it could not be clicked.
 	segments.push({
 		kind: 'point',
 		id: 'free-time',
 		tone: 'stopover',
 		markerKind: 'stay',
 		label: itinerary.stay ? itinerary.stay.property.name : `Stopover in ${connectionAirport.city.name}`,
-		coordinates: itinerary.stay ? itinerary.stay.property.coordinates : connectionAirport.coordinates,
+		coordinates: stopoverCoordinates,
+		// A city centre is a real point and still not an address: nobody spends their free
+		// time standing on it. Only a booked bed is exact.
 		precision: itinerary.stay ? 'exact' : 'city'
 	});
 
-	if (itinerary.stay && itinerary.transferToConnectionAirport) {
+	if (itinerary.transferToConnectionAirport && stopoverIsSomewhereOfItsOwn) {
 		const line = transferLine(
-			itinerary.stay.property.coordinates,
+			stopoverCoordinates,
 			connectionAirport.coordinates,
 			itinerary.transferToConnectionAirport
 		);
@@ -337,7 +348,7 @@ export function buildItineraryMapModel(
 			coordinates: line.coordinates
 		});
 	} else {
-		absentSegmentNotes['transfer-to-connection-airport'] = transferAbsenceNote(itinerary, 'from-hotel');
+		absentSegmentNotes['transfer-to-connection-airport'] = absenceNote(itinerary, 'from-hotel');
 	}
 
 	segments.push({
@@ -376,7 +387,7 @@ export function buildItineraryMapModel(
 			coordinates: line.coordinates
 		});
 	} else if (itinerary.destinationLocation) {
-		absentSegmentNotes['transfer-to-destination-location'] = transferAbsenceNote(itinerary, 'outer');
+		absentSegmentNotes['transfer-to-destination-location'] = absenceNote(itinerary, 'to-destination-location');
 	}
 
 	if (itinerary.destinationLocation) {
