@@ -5,7 +5,10 @@ import { defineConfig } from 'vite';
 
 // When the custom domain is live this is empty. Building for
 // mauriciabad.github.io/flights needs BASE_PATH=/flights instead.
-const base = process.env.BASE_PATH ?? '';
+// SvelteKit types base as '' or a string starting with a slash, so the env
+// value is narrowed here rather than cast at the point of use.
+const raw = process.env.BASE_PATH ?? '';
+const base: '' | `/${string}` = raw === '' ? '' : raw.startsWith('/') ? (raw as `/${string}`) : `/${raw}`;
 
 export default defineConfig({
 	plugins: [

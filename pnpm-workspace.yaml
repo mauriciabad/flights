@@ -1,0 +1,10 @@
+# Declares this repo as its own pnpm workspace root.
+#
+# Without it, pnpm walks up and finds ~/pnpm-workspace.yaml, treats the home
+# directory as the root, and writes the lockfile there. CI then fails on
+# `pnpm install --frozen-lockfile` with "Dependencies lock file is not found".
+packages: []
+
+onlyBuiltDependencies:
+  - esbuild
+  - sharp
