@@ -156,6 +156,19 @@ const MIN_BOUNDS_SPAN_DEGREES = 0.01; // roughly 1km at temperate latitudes
  *  legible, not so close the surrounding city disappears. */
 export const POINT_VIEW_ZOOM = 13;
 
+/**
+ * Issue #141: the zoom for a point whose coordinates locate a *city* rather than an
+ * address. The stopover with no bed priced is the only one of those: the free time
+ * happens somewhere in the connection city, and the only coordinate this app holds for
+ * that city is the airport's own (`data/airports.ts`: "OurAirports has no separate city
+ * geometry"). Framing that point at `POINT_VIEW_ZOOM` put the runway on screen at street
+ * level and called it the stopover, which is the opposite of what the traveller is being
+ * sold. Three zoom levels out covers roughly 20 km on a 375px screen and 75 km on a
+ * 1280px one, which reaches the city centre for every satellite airport in the dataset
+ * without claiming to know where in it the traveller will actually be.
+ */
+export const CITY_VIEW_ZOOM = 10;
+
 export type MapView =
 	| { kind: 'bounds'; bounds: LngLatBounds }
 	| { kind: 'point'; center: readonly [number, number]; zoom: number };
@@ -165,14 +178,22 @@ export type MapView =
  * distance, or a fixed close-in zoom for a single waypoint. A zero-area bounding box
  * does not mean "zoom in as far as possible" — it means "there is only one point here".
  */
-export function viewForCoordinates(points: readonly Coordinates[]): MapView {
+export function viewForCoordinates(
+	points: readonly Coordinates[],
+	options?: {
+		/** Overrides `POINT_VIEW_ZOOM` for a single-point view, for a coordinate that
+		 *  locates something bigger than an address (see `CITY_VIEW_ZOOM`). Ignored when
+		 *  the points span real distance, since a bounding box already sizes itself. */
+		pointZoom?: number;
+	}
+): MapView {
 	const bounds = boundsOfCoordinates(points);
 	const [west, south, east, north] = bounds;
 	if (east - west < MIN_BOUNDS_SPAN_DEGREES && north - south < MIN_BOUNDS_SPAN_DEGREES) {
 		return {
 			kind: 'point',
 			center: [(west + east) / 2, (south + north) / 2],
-			zoom: POINT_VIEW_ZOOM
+			zoom: options?.pointZoom ?? POINT_VIEW_ZOOM
 		};
 	}
 	return { kind: 'bounds', bounds };

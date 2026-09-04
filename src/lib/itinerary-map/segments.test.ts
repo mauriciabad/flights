@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { Airport, Duration, FlightOffer, Itinerary, LocalDateTime, Stay, Transfer } from '$lib/domain';
 import { allCoordinates, buildItineraryMapModel, findSegment } from './segments';
+import type { ItinerarySegmentId } from './segment-id';
+import { unroutedLegNote } from '$lib/components/itinerary-timeline-format';
 import { boundsOfCoordinates } from './geo';
 
 // ---------------------------------------------------------------------------
@@ -234,7 +236,15 @@ describe('buildItineraryMapModel: no stay priced (issue #94)', () => {
 		return { ...baseItinerary(), stay: undefined, transferToHotel: undefined, transferToConnectionAirport: undefined };
 	}
 
-	it('drops the two in-city transfer segments, keeping free-time as a point at the connection airport', () => {
+	/** The eleven airports issue #162 keeps a hand-checked centre for are the exception,
+	 *  not the rule: everywhere else `City.coordinates` is `undefined` and the connection
+	 *  city has no point of its own at all. */
+	const connectionAirportWithoutCityPoint: Airport = {
+		...connectionAirport,
+		city: { ...connectionAirport.city, coordinates: undefined }
+	};
+
+	it('drops the two in-city transfer segments when nothing routed, and stands the stopover on the city centre', () => {
 		const model = buildItineraryMapModel(itineraryWithoutStay(), connectionAirport);
 
 		expect(model.segments.map((s) => s.id)).toEqual([
@@ -253,9 +263,55 @@ describe('buildItineraryMapModel: no stay priced (issue #94)', () => {
 			id: 'free-time',
 			tone: 'stopover',
 			markerKind: 'stay',
-			label: 'Stopover at Vienna',
-			coordinates: connectionAirport.coordinates
+			label: 'Stopover in Vienna',
+			// Issue #162's hand-checked city point, when the airport has one.
+			coordinates: connectionAirport.city.coordinates,
+			// Issue #141: a city centre is a real point and still not an address, so the
+			// camera frames the city rather than zooming to a street corner nobody named.
+			precision: 'city'
 		});
+	});
+
+	it('falls back to the runway when the connection city has no checked point, and says it is still a city', () => {
+		const model = buildItineraryMapModel(itineraryWithoutStay(), connectionAirportWithoutCityPoint);
+
+		const freeTime = findSegment(model, 'free-time');
+		expect(freeTime?.kind === 'point' && freeTime.coordinates).toEqual(connectionAirport.coordinates);
+		expect(freeTime?.kind === 'point' && freeTime.precision).toBe('city');
+	});
+
+	// Issue #161, merged while this was in flight: with no bed priced the two in-city legs
+	// route to the connection city's centre instead, so a transfer can exist with no stay.
+	// Calling those legs absent because no bed was priced would assert a cause the
+	// itinerary itself contradicts.
+	it('draws a leg that goes into town even though no bed was priced', () => {
+		const itinerary: Itinerary = {
+			...itineraryWithoutStay(),
+			transferToHotel: transfer(),
+			transferToConnectionAirport: transfer()
+		};
+		const model = buildItineraryMapModel(itinerary, connectionAirport);
+
+		const intoTown = findSegment(model, 'transfer-to-hotel');
+		expect(intoTown?.kind === 'line' && intoTown.label).toBe('Transfer to Vienna (straight-line estimate)');
+		expect(intoTown?.kind === 'line' && intoTown.coordinates).toEqual([
+			connectionAirport.coordinates,
+			connectionAirport.city.coordinates
+		]);
+		expect(findSegment(model, 'transfer-to-connection-airport')).toBeDefined();
+		expect(model.absentSegmentNotes).toEqual({});
+	});
+
+	it('will not draw a leg into a city it has no point for, and explains that instead', () => {
+		const itinerary: Itinerary = {
+			...itineraryWithoutStay(),
+			transferToHotel: transfer(),
+			transferToConnectionAirport: transfer()
+		};
+		const model = buildItineraryMapModel(itinerary, connectionAirportWithoutCityPoint);
+
+		expect(findSegment(model, 'transfer-to-hotel')).toBeUndefined();
+		expect(model.absentSegmentNotes['transfer-to-hotel']).toContain('Nothing to draw.');
 	});
 
 	it('still marks the free-time point itself as the stopover tone', () => {
@@ -399,5 +455,150 @@ describe('buildItineraryMapModel: a route that crosses the antimeridian', () => 
 			// -157.92, and Los Angeles follows at 241.6.
 			expect(waiting.coordinates.longitude).toBeCloseTo(-157.9224 + 360, 4);
 		}
+	});
+});
+
+describe('absentSegmentNotes (issue #141: a selected step the map cannot draw)', () => {
+	/** Every id `ItineraryTimeline` renders a selectable row for, given an itinerary with
+	 *  an origin and a destination location. `ITINERARY_SEGMENT_ORDER` is the same list;
+	 *  it is spelled out here so a future id added to that constant fails this test rather
+	 *  than silently joining the set of steps the map can go quiet on. */
+	const SELECTABLE_IDS: ItinerarySegmentId[] = [
+		'origin-location',
+		'transfer-to-origin-airport',
+		'origin-waiting',
+		'outbound-flight',
+		'transfer-to-hotel',
+		'free-time',
+		'transfer-to-connection-airport',
+		'connection-waiting',
+		'onward-flight',
+		'transfer-to-destination-location',
+		'destination-location'
+	];
+
+	function fullItinerary(overrides: Partial<Itinerary> = {}): Itinerary {
+		return {
+			...baseItinerary(),
+			originLocation: { label: 'Home', coordinates: { latitude: 40.42, longitude: -3.7 } },
+			transferToOriginAirport: transfer(),
+			destinationLocation: { label: 'Office', coordinates: { latitude: 59.44, longitude: 24.75 } },
+			transferToDestinationLocation: transfer(),
+			...overrides
+		};
+	}
+
+	it('leaves every drawable step unexplained, because it is drawn', () => {
+		const model = buildItineraryMapModel(fullItinerary(), connectionAirport);
+
+		expect(model.absentSegmentNotes).toEqual({});
+		expect(model.segments.map((s) => s.id).sort()).toEqual([...SELECTABLE_IDS].sort());
+	});
+
+	it('explains every step it cannot draw, so no selection is ever answered with silence', () => {
+		const model = buildItineraryMapModel(
+			fullItinerary({
+				stay: undefined,
+				transferToHotel: undefined,
+				transferToConnectionAirport: undefined,
+				transferToOriginAirport: undefined,
+				transferToDestinationLocation: undefined,
+				nightsInConnection: 2
+			}),
+			connectionAirport
+		);
+
+		const drawn = new Set(model.segments.map((s) => s.id));
+		for (const id of SELECTABLE_IDS) {
+			const explained = model.absentSegmentNotes[id];
+			expect(drawn.has(id) || typeof explained === 'string', `${id} is neither drawn nor explained`).toBe(true);
+		}
+	});
+
+	it('names the missing bed from both ends of the stopover, and the same-day case apart', () => {
+		const nights = buildItineraryMapModel(
+			fullItinerary({
+				stay: undefined,
+				transferToHotel: undefined,
+				transferToConnectionAirport: undefined,
+				nightsInConnection: 2
+			}),
+			connectionAirport
+		);
+		// The reason half is `unroutedLegNote`'s own sentence, the one the timeline row the
+		// traveller just clicked is already showing. Asserted through that function rather
+		// than as a literal, so a reword there moves both together instead of failing here.
+		expect(nights.absentSegmentNotes['transfer-to-hotel']).toBe(
+			`Nothing to draw. ${unroutedLegNote('to-hotel', { hasStay: false, nightsInConnection: 2 })}`
+		);
+		expect(nights.absentSegmentNotes['transfer-to-connection-airport']).toBe(
+			`Nothing to draw. ${unroutedLegNote('from-hotel', { hasStay: false, nightsInConnection: 2 })}`
+		);
+
+		const sameDay = buildItineraryMapModel(
+			fullItinerary({
+				stay: undefined,
+				transferToHotel: undefined,
+				transferToConnectionAirport: undefined,
+				nightsInConnection: 0
+			}),
+			connectionAirport
+		);
+		expect(sameDay.absentSegmentNotes['transfer-to-hotel']).toBe(
+			'Nothing to draw. Same-day connection, so there is no hotel leg here.'
+		);
+	});
+
+	it('blames the providers, not the missing bed, when a stay was priced but a leg was not routed', () => {
+		const model = buildItineraryMapModel(
+			fullItinerary({ transferToHotel: undefined, transferToDestinationLocation: undefined }),
+			connectionAirport
+		);
+
+		expect(model.absentSegmentNotes['transfer-to-hotel']).toBe(
+			'Nothing to draw. No route came back from the transport providers for this leg.'
+		);
+		expect(model.absentSegmentNotes['transfer-to-destination-location']).toBe(
+			'Nothing to draw. No route came back from the transport providers for this leg.'
+		);
+	});
+
+	it('says nothing about a step the timeline never renders either', () => {
+		// No origin location means no "travel to the origin airport" row anywhere, so an
+		// explanation for it would be an answer to a question nobody can ask.
+		const model = buildItineraryMapModel(baseItinerary(), connectionAirport);
+		expect(model.absentSegmentNotes['transfer-to-origin-airport']).toBeUndefined();
+		expect(model.absentSegmentNotes['transfer-to-destination-location']).toBeUndefined();
+	});
+});
+
+describe('point precision (issue #141)', () => {
+	it('calls the hotel an address and the bedless stopover a city', () => {
+		const withStay = buildItineraryMapModel(baseItinerary(), connectionAirport);
+		const freeTime = findSegment(withStay, 'free-time');
+		expect(freeTime?.kind === 'point' && freeTime.precision).toBe('exact');
+
+		const withoutStay = buildItineraryMapModel(
+			{ ...baseItinerary(), stay: undefined, transferToHotel: undefined, transferToConnectionAirport: undefined },
+			connectionAirport
+		);
+		const bedless = findSegment(withoutStay, 'free-time');
+		expect(bedless?.kind === 'point' && bedless.precision).toBe('city');
+	});
+
+	it('treats every airport and typed-in location as an address', () => {
+		const model = buildItineraryMapModel(
+			{
+				...baseItinerary(),
+				originLocation: { label: 'Home', coordinates: { latitude: 40.42, longitude: -3.7 } },
+				transferToOriginAirport: transfer(),
+				destinationLocation: { label: 'Office', coordinates: { latitude: 59.44, longitude: 24.75 } },
+				transferToDestinationLocation: transfer()
+			},
+			connectionAirport
+		);
+
+		const points = model.segments.filter((s) => s.kind === 'point');
+		expect(points.filter((p) => p.precision !== 'exact').map((p) => p.id)).toEqual([]);
 	});
 });

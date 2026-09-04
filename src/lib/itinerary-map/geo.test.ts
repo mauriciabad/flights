@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { Coordinates } from '$lib/domain';
 import {
 	boundsOfCoordinates,
+	CITY_VIEW_ZOOM,
 	greatCircleArc,
 	longitudeNear,
 	POINT_VIEW_ZOOM,
@@ -113,6 +114,19 @@ describe('viewForCoordinates', () => {
 		const hotel: Coordinates = { latitude: vienna.latitude + 0.0005, longitude: vienna.longitude + 0.0005 };
 		const view = viewForCoordinates([vienna, hotel]);
 		expect(view.kind).toBe('point');
+	});
+
+	// Issue #141: a stopover with no bed priced is a city, not an address, and framing it
+	// at street level put the runway on screen and called it the free city.
+	it('honours a caller-chosen zoom for a point that locates a city rather than an address', () => {
+		const view = viewForCoordinates([vienna], { pointZoom: CITY_VIEW_ZOOM });
+		expect(view).toEqual({ kind: 'point', center: [vienna.longitude, vienna.latitude], zoom: CITY_VIEW_ZOOM });
+		expect(CITY_VIEW_ZOOM).toBeLessThan(POINT_VIEW_ZOOM);
+	});
+
+	it('ignores the override when the points span real distance, since a box sizes itself', () => {
+		const view = viewForCoordinates([madrid, vienna], { pointZoom: CITY_VIEW_ZOOM });
+		expect(view.kind).toBe('bounds');
 	});
 });
 

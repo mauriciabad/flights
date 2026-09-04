@@ -321,9 +321,10 @@ test.describe('itinerary map: every transfer leg, distinct markers, honest geome
 		// Honest geometry, proven both ways in one real pipeline run: the connection
 		// transfer (real OSRM shape) never gets the "straight-line estimate" caveat,
 		// while the one leg OSRM answered with no geometry at all does — read off the
-		// live region ItineraryMap announces a selection through.
+		// live region ItineraryMap announces a selection through — which issue #141 made
+		// visible as the caption under the map, so it is no longer `.visually-hidden`.
 		// -----------------------------------------------------------------
-		const announcement = detail.locator('[role="status"].visually-hidden');
+		const announcement = detail.locator('.map-status[role="status"]');
 
 		await timeline.locator('[data-segment="transfer-to-hotel"]').click();
 		await expect(announcement).toContainText(`Transfer to ${FIXTURE_NAMES.property}`);
