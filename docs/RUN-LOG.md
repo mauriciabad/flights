@@ -30,6 +30,10 @@ real app, and a live search returns itineraries. A plateau is not a stop.
 | 18 | Agoda and Booking stay adapters merged | yes | 12 real requests spent, fixtures captured |
 | 19 | PWA installable: manifest linked, service worker registered | yes | manifest and sw.js both 200 in production |
 
+| 20 | Search pipeline merged (#56), the keystone connecting providers to results | yes | 755 tests on integrated main |
+| 21 | Settings live at /settings, BYOK with per-provider quota counters | yes | 200 in production |
+| 22 | Map, geocoding, stay picker, timeline selection merged | yes | integrated build clean |
+
 ## Decisions worth auditing
 
 **Amadeus was abandoned before any code was written.** It was the intended source for both
@@ -125,3 +129,22 @@ flight data is worse than none.
 That review generalised into #68: NO adapter validates response shape at runtime. These are
 scraper APIs that change without notice, and two already have. A renamed field yields
 `undefined`, which becomes `NaN` in a price. The sweep runs only when no adapter branch is open.
+
+**Quota enforcement was wired to nothing, and the settings page proved it on screen.** The
+budget module reserved, deduplicated, backed off and handled permanent 403s, and no adapter
+called any of it. The cause was three modules independently inventing a provider identifier,
+which `Record<string, number>` accepted silently: `getProviderCap('skyscanner')` missed the
+table and returned a fallback of 10. The rendered settings page shows exactly that, with
+Flights Sky reading a correct 40 because its id matches by coincidence and every other
+provider reading 10 against its own stated 20, 50 and 500. Fixed by a provider-id union type,
+so a drifted id is now a compile error rather than a quietly wrong number.
+
+**The pipeline could hand a female-only dorm to a group with no female travellers.**
+`fetchCheapestStay` picked by raw price with no fitness filter, so the search could produce a
+total nobody in the party could book, before any UI had a chance to intervene. Found by the
+stay-picker agent within an hour of the pipeline merging.
+
+**A mixed-gender group was left honestly unresolved rather than averaged.** `Itinerary.stay`
+is one stay for the whole party, so a female-only dorm covering one of four travellers cannot
+be priced without inventing a formula. The picker excludes it and says why on screen instead
+of guessing.
