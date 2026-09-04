@@ -1,0 +1,458 @@
+{
+	"properties": [
+		{
+			"id": 330521,
+			"isPromoted": false,
+			"hbid": 0,
+			"name": "Rest Up London",
+			"starRating": 0,
+			"overallRating": {
+				"overall": 63,
+				"numberOfRatings": "298"
+			},
+			"latitude": 51.4938507,
+			"longitude": -0.0905147,
+			"isFeatured": true,
+			"type": "HOSTEL",
+			"address1": "172 New Kent Road",
+			"freeCancellationAvailable": true,
+			"lowestPricePerNight": {
+				"value": "12.32",
+				"currency": "EUR"
+			},
+			"lowestPrivatePricePerNight": {
+				"value": "35.39",
+				"currency": "EUR"
+			},
+			"lowestDormPricePerNight": {
+				"value": "12.32",
+				"currency": "EUR"
+			},
+			"lowestAveragePricePerNight": {
+				"value": "19.07",
+				"currency": "EUR",
+				"promotions": {
+					"promotionsIds": [
+						256421,
+						256420,
+						215770
+					],
+					"totalDiscount": "29.43"
+				},
+				"original": "27.03"
+			},
+			"lowestAverageDormPricePerNight": {
+				"value": "19.07",
+				"currency": "EUR",
+				"promotions": {
+					"promotionsIds": [
+						256421,
+						256420,
+						215770
+					],
+					"totalDiscount": "29.43"
+				},
+				"original": "27.03"
+			},
+			"lowestAveragePrivatePricePerNight": {
+				"value": "83.51",
+				"currency": "EUR",
+				"promotions": {
+					"promotionsIds": [
+						256421,
+						256420,
+						215770
+					],
+					"totalDiscount": "29.43"
+				},
+				"original": "118.36"
+			},
+			"distance": {
+				"value": 1.96,
+				"units": "km"
+			},
+			"city": {
+				"id": "3",
+				"name": "London",
+				"hrpRating": "80"
+			},
+			"country": {
+				"id": "237",
+				"name": "England"
+			},
+			"rooms": {
+				"dorms": [
+					{
+						"id": 988263,
+						"name": "Standard 12 Bed Mixed Dorm Ensuite",
+						"capacity": "12",
+						"basicType": "Mixed Dorm",
+						"ensuite": true,
+						"averagePrice": {
+							"value": "33.77",
+							"currency": "EUR"
+						}
+					},
+					{
+						"id": 988269,
+						"name": "Standard 8 Bed Mixed Dorm",
+						"capacity": "8",
+						"basicType": "Mixed Dorm",
+						"ensuite": false,
+						"averagePrice": {
+							"value": "34.58",
+							"currency": "EUR"
+						}
+					},
+					{
+						"id": 988267,
+						"name": "Standard 10 Bed Mixed Dorm Ensuite",
+						"capacity": "10",
+						"basicType": "Mixed Dorm",
+						"ensuite": true,
+						"averagePrice": {
+							"value": "34.87",
+							"currency": "EUR"
+						}
+					},
+					{
+						"id": 988271,
+						"name": "Standard 8 Bed Mixed Dorm Ensuite",
+						"capacity": "8",
+						"basicType": "Mixed Dorm",
+						"ensuite": true,
+						"averagePrice": {
+							"value": "37.74",
+							"currency": "EUR"
+						}
+					}
+				],
+				"privates": [
+					{
+						"id": 988282,
+						"name": "Standard Twin Private Shared Bathroom",
+						"capacity": "2",
+						"basicType": "Private",
+						"ensuite": false,
+						"averagePrice": {
+							"value": "147.93",
+							"currency": "EUR"
+						}
+					},
+					{
+						"id": 988276,
+						"name": "Standard 4 Bed Private Shared Bathroom",
+						"capacity": "4",
+						"basicType": "Private",
+						"ensuite": false,
+						"averagePrice": {
+							"value": "170.62",
+							"currency": "EUR"
+						}
+					}
+				]
+			},
+			"images": [
+				{
+					"prefix": "a.hwstatic.com/propertyimages/3/330521/wb28ggqjivwcpqxl19oo",
+					"suffix": ".jpg"
+				},
+				{
+					"prefix": "a.hwstatic.com/propertyimages/3/330521/lpvtr3djmi9x3bkmeryx",
+					"suffix": ".jpg"
+				}
+			]
+		},
+		{
+			"id": 93920,
+			"isPromoted": true,
+			"hbid": 0,
+			"name": "Safestay London Kensington Holland Park",
+			"starRating": 0,
+			"overallRating": {
+				"overall": 68,
+				"numberOfRatings": "2442"
+			},
+			"latitude": 51.5027186,
+			"longitude": -0.2012298,
+			"isFeatured": false,
+			"type": "HOSTEL",
+			"address1": "Holland Park Ave",
+			"freeCancellationAvailable": true,
+			"lowestPricePerNight": {
+				"value": "18.32",
+				"currency": "EUR"
+			},
+			"lowestPrivatePricePerNight": {
+				"value": "73.30",
+				"currency": "EUR"
+			},
+			"lowestDormPricePerNight": {
+				"value": "18.32",
+				"currency": "EUR"
+			},
+			"lowestAveragePricePerNight": {
+				"value": "19.12",
+				"currency": "EUR"
+			},
+			"lowestAverageDormPricePerNight": {
+				"value": "19.12",
+				"currency": "EUR"
+			},
+			"lowestAveragePrivatePricePerNight": {
+				"value": "78.99",
+				"currency": "EUR"
+			},
+			"distance": {
+				"value": 5.83,
+				"units": "km"
+			},
+			"city": {
+				"id": "3",
+				"name": "London",
+				"hrpRating": "80"
+			},
+			"country": {
+				"id": "237",
+				"name": "England"
+			},
+			"rooms": {
+				"dorms": [
+					{
+						"id": 696723,
+						"name": "18 Bed Mixed Dorm",
+						"capacity": "18",
+						"basicType": "Mixed Dorm",
+						"ensuite": false,
+						"averagePrice": {
+							"value": "19.12",
+							"currency": "EUR"
+						}
+					},
+					{
+						"id": 464815,
+						"name": "13 Bed Mixed Dorm Ensuite",
+						"capacity": "13",
+						"basicType": "Mixed Dorm",
+						"ensuite": true,
+						"averagePrice": {
+							"value": "19.14",
+							"currency": "EUR"
+						}
+					},
+					{
+						"id": 464816,
+						"name": "15 Bed Mixed Dorm",
+						"capacity": "15",
+						"basicType": "Mixed Dorm",
+						"ensuite": false,
+						"averagePrice": {
+							"value": "19.14",
+							"currency": "EUR"
+						}
+					},
+					{
+						"id": 464818,
+						"name": "21 Bed Mixed Dorm",
+						"capacity": "21",
+						"basicType": "Mixed Dorm",
+						"ensuite": false,
+						"averagePrice": {
+							"value": "19.14",
+							"currency": "EUR"
+						}
+					}
+				],
+				"privates": [
+					{
+						"id": 566139,
+						"name": "Twin Private Shared Bathroom",
+						"capacity": "2",
+						"basicType": "Private",
+						"ensuite": false,
+						"averagePrice": {
+							"value": "78.99",
+							"currency": "EUR"
+						}
+					},
+					{
+						"id": 991487,
+						"name": "9 Bed Private Ensuite",
+						"capacity": "9",
+						"basicType": "Private",
+						"ensuite": true,
+						"averagePrice": {
+							"value": "203.55",
+							"currency": "EUR"
+						}
+					}
+				]
+			},
+			"images": [
+				{
+					"prefix": "a.hwstatic.com/propertyimages/9/93920/12",
+					"suffix": ".jpg"
+				},
+				{
+					"prefix": "a.hwstatic.com/propertyimages/9/93920/nqgojjk3quvfjemsuez1",
+					"suffix": ".jpg"
+				}
+			]
+		},
+		{
+			"id": 527,
+			"isPromoted": false,
+			"hbid": 0,
+			"name": "London Backpackers",
+			"starRating": 0,
+			"overallRating": {
+				"overall": 88,
+				"numberOfRatings": "4910"
+			},
+			"latitude": 51.5826601,
+			"longitude": -0.2262547,
+			"isFeatured": false,
+			"type": "HOSTEL",
+			"address1": "8/10 Queens Parade",
+			"freeCancellationAvailable": true,
+			"lowestPricePerNight": {
+				"value": "19.78",
+				"currency": "EUR"
+			},
+			"lowestPrivatePricePerNight": {
+				"value": "69.81",
+				"currency": "EUR"
+			},
+			"lowestDormPricePerNight": {
+				"value": "19.78",
+				"currency": "EUR"
+			},
+			"lowestAveragePricePerNight": {
+				"value": "21.33",
+				"currency": "EUR"
+			},
+			"lowestAverageDormPricePerNight": {
+				"value": "21.33",
+				"currency": "EUR"
+			},
+			"lowestAveragePrivatePricePerNight": {
+				"value": "73.68",
+				"currency": "EUR"
+			},
+			"distance": {
+				"value": 11.89,
+				"units": "km"
+			},
+			"city": {
+				"id": "3",
+				"name": "London",
+				"hrpRating": "80"
+			},
+			"country": {
+				"id": "237",
+				"name": "England"
+			},
+			"rooms": {
+				"dorms": [
+					{
+						"id": 831339,
+						"name": "Standard 15 Bed Female Dorm",
+						"capacity": "15",
+						"basicType": "Female Dorm",
+						"ensuite": false,
+						"averagePrice": {
+							"value": "21.33",
+							"currency": "EUR"
+						}
+					},
+					{
+						"id": 907891,
+						"name": "Standard 21 Bed Mixed Dorm",
+						"capacity": "21",
+						"basicType": "Mixed Dorm",
+						"ensuite": false,
+						"averagePrice": {
+							"value": "22.49",
+							"currency": "EUR"
+						}
+					},
+					{
+						"id": 831340,
+						"name": "Standard 18 Bed Mixed Dorm",
+						"capacity": "18",
+						"basicType": "Mixed Dorm",
+						"ensuite": false,
+						"averagePrice": {
+							"value": "24.43",
+							"currency": "EUR"
+						}
+					},
+					{
+						"id": 820902,
+						"name": "Standard 12 Bed Female Dorm",
+						"capacity": "12",
+						"basicType": "Female Dorm",
+						"ensuite": false,
+						"averagePrice": {
+							"value": "25.60",
+							"currency": "EUR"
+						}
+					}
+				],
+				"privates": [
+					{
+						"id": 607725,
+						"name": "Basic Double Bed Private Shared Bathroom",
+						"capacity": "2",
+						"basicType": "Dbl Private",
+						"ensuite": false,
+						"averagePrice": {
+							"value": "73.68",
+							"currency": "EUR"
+						}
+					}
+				]
+			},
+			"images": [
+				{
+					"prefix": "a.hwstatic.com/propertyimages/5/527/hcfi2krbq0sja1spk7pi",
+					"suffix": ".jpg"
+				},
+				{
+					"prefix": "a.hwstatic.com/propertyimages/5/527/y15dqhecscdajd25wr3n",
+					"suffix": ".jpg"
+				}
+			]
+		}
+	],
+	"location": {
+		"city": {
+			"id": 3,
+			"name": "London",
+			"idCountry": 237,
+			"country": "England"
+		},
+		"region": {
+			"id": "328",
+			"name": "Orpington"
+		}
+	},
+	"locationEn": {
+		"city": {
+			"id": 3,
+			"name": "London",
+			"idCountry": 237,
+			"country": "England"
+		},
+		"region": {
+			"id": "328",
+			"name": "Orpington"
+		}
+	},
+	"pagination": {
+		"next": "/cities/3/properties/?date-start=2026-10-09&num-nights=3&guests=1&sort=price&currency=EUR&page=2&per-page=3&per-page-validation=1&longitude=-0.1170000&latitude=51.5000000&show-rooms=1&show-rate-restrictions=0&ignoreCtaCtd=0&userAgent=Mozilla%2F5.0+%28Macintosh%3B+Intel+Mac+OS+X+10_15_7%29+AppleWebKit%2F537.36+%28KHTML%2C+like+Gecko%29+Chrome%2F141.0.0.0+Safari%2F537.36&limitFeatured=3",
+		"prev": "",
+		"numberOfPages": 25,
+		"totalNumberOfItems": 74
+	}
+}

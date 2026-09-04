@@ -215,8 +215,10 @@ third-party origin. They also carry positions, not fares.
 travel businesses. The hackathon access you may have seen is granted through the event
 organiser, not self-serve. Reaching Skyscanner data means going through RapidAPI.
 
-**Hostelworld** has no RapidAPI listing at all (404 on the host). Hostel coverage has to
-come from Agoda and Booking instead.
+**Hostelworld** has no RapidAPI listing at all (404 on the host). It does have its own web
+backend, which is keyless and CORS-open and is now this app's baseline for beds — see
+"Hostelworld's own backend" below. Going looking for a reseller was the wrong instinct
+twice: for flights it ended at Kiwi's own endpoint, and for beds at Hostelworld's own.
 
 ### Keyless and CORS-open, but not flight prices
 
@@ -615,10 +617,150 @@ So request budget is a first-class product concern, not an optimisation. Rank co
 candidates before spending a single paid call on them, spend keyless providers freely,
 and let the user decide when to spend the expensive ones.
 
+## Hostelworld's own backend: keyless, CORS-open, and the bed price
+
+Same shape of answer as Kiwi's public endpoint, one leg later. `docs/ACCEPTANCE.md`
+condition 3 is "A bed is priced into the total", and until this it could only pass for
+someone who had paid: Agoda and Booking both come through RapidAPI, both are
+`needsKey: true`, so a visitor with no key got "No bed priced for this stopover" on every
+result. Adapter in `providers/stays/hostelworld.ts`.
+
+Everything below was measured on 2026-09-04 with `tools/probe-cors.mjs`, from a real
+`http://` page origin, not from curl.
+
+### The two hosts do not have the same access rules, and the obvious one is worse
+
+Hostelworld serves the same `/2.2` API from two places.
+
+| Host | Anonymous request | CORS | Preflight |
+|---|---|---|---|
+| `prod.apigee.hostelworld.com/legacy-hwapi-service/2.2` — what the website calls | `401`, no CORS headers | echoes the origin, `allow-credentials: true` | `allow-headers: *`, `max-age: 86400` |
+| `api.m.hostelworld.com/2.2` — the mobile host | **`200`** | `Access-Control-Allow-Origin: *` | none needed |
+
+So the price call goes to `api.m`, anonymously, with no custom headers at all: a simple
+CORS request with no preflight, on the one path this app walks on every search. The probe
+resolved `type: "cors"`, `status: 200`, 24580 bytes of real price-sorted London rates.
+
+```
+GET https://api.m.hostelworld.com/2.2/cities/{cityId}/properties/
+      ?currency=EUR&date-start=2026-10-09&num-nights=3&guests=1
+      &per-page=30&show-rooms=1&sort=price
+```
+
+Three parameters are load-bearing, each settled by measurement rather than by reading:
+
+- **`show-rooms=1` is mandatory.** `show-rooms=0` answers `200` with an 84-byte body and no
+  `properties` array at all. It is also the only place a female-dorm price exists.
+- **`sort=price` is honoured; `order-by=price` is silently ignored.** Both were sent and
+  only one changed the order. It matters because `per-page` truncates: default ranking put
+  a 39.68 dorm first while the city's cheapest was 19.07.
+- **`per-page=30` is about 53 KB gzipped** (533 KB uncompressed). Omitting it returns the
+  whole city, 74 properties for London.
+
+Currency: EUR, USD and GBP confirmed honoured. An unsupported code returns `400` with
+Hostelworld's own `{"description":[{"code":"90593","message":"please pass valid currency
+three letter code"}]}`, which the adapter surfaces verbatim.
+
+### The price field that is a trap
+
+`lowestDormPricePerNight` is the cheapest SINGLE night of the stay, a "from" teaser.
+`lowestAverageDormPricePerNight` is the stay's real per-night cost. At Rest Up London for
+9-12 October they read 12.32 and 19.07. Since a `Stay` is consumed as
+`nights × pricePerNight`, reading the teaser under-reports a three-night bed by 35% and
+presents it as a total. Both were confirmed per-night rather than per-stay by asking for a
+single night, where the two collapse to the same value.
+
+### City resolution is geographic, not textual
+
+`/cities/{id}/properties/` is keyed by city; `StaySearchQuery.near` is a coordinate. The
+bridge is Hostelworld's own geography, and it is keyless too:
+
+```
+GET https://api.m.hostelworld.com/2.2/continents/{1..6}/countries/
+```
+
+Every country with its full city list and **real coordinates**. Six requests cover the
+world: 167 countries, 3541 cities, 83 KB gzipped (North America 11.5, South America 12.4,
+Europe 29.0, Asia 21.1, Oceania 3.8, Africa 5.0). The adapter caches the flattened result
+for a month, so a warm search spends exactly one request and a cold three-stopover search
+spends nine. Continent ids are fixed at `1=North America, 2=South America, 3=Europe,
+4=Asia, 5=Oceania, 6=Africa`; `7` answers `400`. `/2.2/cities/` and `/2.2/countries/` are
+not indexes — both answer as though the id were 1, which is Cork.
+
+Matching is by distance first and by name only as a tie-break, and both halves are needed:
+
+- **Distance alone fails.** The nearest Hostelworld city to London Gatwick is "Gatwick",
+  2 km away, then Crawley 3.6, Guildford 28.6, Lewes 33.5, Brighton 35.2 — London is
+  SIXTH, at 39.3 km. Manchester Airport's nearest is Macclesfield, not Manchester.
+- **Name alone fails.** Hostelworld has a London in Ontario and puts Brazil's Boa Vista
+  ahead of Cape Verde's.
+
+So the adapter prefers, among cities inside the search radius, the one this app already
+decided the airport serves (`geocode/airport-city.ts`), and falls back to the nearest when
+Hostelworld has never heard of that name. Checked against all three of the acceptance
+search's own stopovers: LGW picks London (3), MAN picks Manchester (171), BHX picks
+Birmingham (718), PFO picks Paphos (21908).
+
+### The autocomplete route, tried and rejected — do not reach for it again
+
+The first version of this adapter resolved cities through
+`prod.apigee.hostelworld.com/autocomplete-service/v1/autocomplete/web/?text=London`. It
+passed every unit test and failed on the real page:
+
+```
+Access to fetch at 'https://prod.apigee.hostelworld.com/autocomplete-service/...'
+from origin 'http://localhost:4188' has been blocked by CORS policy:
+No 'Access-Control-Allow-Origin' header is present on the requested resource.
+```
+
+That host reflects `*` **only to hostelworld.com itself**. `curl` reported `200` with an
+`api-key` header throughout, which is precisely the trap `tools/probe-cors.mjs` exists to
+catch and precisely why the rule at the top of this file says to measure CORS from a
+browser. Its data was worse anyway: every suggestion carries
+`{"latitude": 0, "longitude": 0}`, so it could not have disambiguated a city by geography
+even if it had been reachable, and `text=London, United Kingdom` returns "Sorry, we cannot
+find anything that matches your search term" because Hostelworld files it under England.
+
+### What was rejected before this, and why
+
+Re-measured 2026-09-04, from a browser page origin. A `curl` success proves nothing here.
+
+| Source | Observed | Verdict |
+|---|---|---|
+| `engine.hotellook.com/api/v2/cache.json` | `404` from curl, and "No 'Access-Control-Allow-Origin' header is present" from a page | Dead twice over. Travelpayouts closed Hostellook in October 2025 |
+| `engine.hotellook.com/api/v2/lookup.json`, `yasen.hotellook.com` | `TypeError: Failed to fetch`, no ACAO | Same shutdown |
+| `www.booking.com/dml/graphql` | preflight blocked, "No 'Access-Control-Allow-Origin' header" | Origin allowlist, not a reflector. A browser cannot spoof Origin |
+| `www.agoda.com` GraphQL | POST reflects the origin but the preflight returns `204` with zero CORS headers | Dead end |
+| `data.xotelo.com/api/rates` | keyless, real OTA rates, **no ACAO header at all** | The painful near-miss. Perfect but for CORS |
+| Trip.com `soa2/…/fetchHotelList` | preflight passes, then `430` from their anti-bot | Dead end |
+| ZenHotels / Ostrovok `hotel/search/v2/site/serp` | no ACAO, preflight `400` | Server-side only |
+| Expedia, Hotels.com, Trivago, MakeMyTrip | no CORS, plus Akamai `403`/`429` | Dead end |
+| Amadeus self-service | host is NXDOMAIN | Decommissioned 17 July 2026 |
+| Numbeo | `ACAO: *` but a paid key | Key-gated, and cost-of-living rather than bookable prices |
+| `overpass-api.de` | `ACAO: *`, keyless | Hostel *locations* only; `charge`/`fee` tags are free text. Rate-limits after two concurrent queries |
+| Eurostat `prc_ppp_ind` | `ACAO: *`, keyless | A country-level price index. An honest labelled estimate at best, never a bookable price |
+
+### Limits, stated plainly
+
+1. **This is an undocumented app backend, not a published API.** No ToS grant, no stability
+   promise. The `2.2` versioning suggests it survives because the mobile apps still need it.
+   Every field is re-validated in `hostelworld-mapper.ts`, and a failure degrades to "no bed
+   priced" rather than failing a search.
+2. **Hostels and budget hotels, not the whole market.** In a city Hostelworld does not
+   cover, this returns nothing. Agoda and Booking stay registered for anyone with a key.
+3. **Female-dorm prices come from a different field** than dorm and private, and are a real
+   bookable rate that is not guaranteed to be the cheapest female bed at the property. That
+   asymmetry is safe in one direction only, and it is the safe one — see
+   `hostelworld-mapper.ts`'s `mapPropertyToStays`.
+
 ## Keyless sources
 
 These work with no key, no signup and no quota, which means the app does something useful
 the first time it loads.
+
+**Hostelworld's own backend** is where the bed price comes from, and the reason a stopover
+has a total at all without a key. Full evidence in its own section above; adapter in
+`providers/stays/hostelworld.ts`.
 
 **Kiwi.com's public GraphQL endpoint** is the aggregator of the set, and the one that makes
 an arbitrary route work at all. Full evidence in its own section near the top of this file;
@@ -1023,6 +1165,13 @@ measurably wrong. Issue #17 tracks turning this into a number instead of a belie
 
 
 ### Hostel data is weak in both stay providers, measured 2026-09-04
+
+**Superseded as the state of the product, kept as the state of Agoda and Booking.** The
+opening claim below — "Hostelworld has no API" — was wrong, and it is what sent two
+adapters chasing hostel prices through hotel-first resellers. Hostelworld's own backend is
+now this app's baseline for beds ("Hostelworld's own backend", above). Everything after
+the first paragraph is still an accurate account of Agoda and Booking, which stay
+registered for anyone holding a key.
 
 Hostelworld has no API, so Agoda and Booking carry all hostel coverage between them. Both are
 hotel-first and it shows.
