@@ -30,6 +30,37 @@ test.describe('settings: API keys', () => {
 		await expect(page.getByText(/never to any server this app runs/i)).toBeVisible();
 	});
 
+	test('every card in the provider list renders its heading through Card\'s header slot, including the first, after hydration (issue #77)', async ({
+		page
+	}) => {
+		// This page is the real, permanent regression coverage for issue #77: `Card`'s
+		// `header` snippet prop was suspected of dropping the first card's heading after
+		// hydration, so `ProviderKeyCard.svelte` rendered its heading as plain body
+		// content instead. Checking against the accessible heading name alone (the test
+		// above) would pass either way, since an `<h3>` reads the same to a screen reader
+		// whether it sits in `Card`'s `.card-header` or in its `.card-body`. This test
+		// checks the DOM structure itself, against a real production build served the
+		// way GitHub Pages serves it (see playwright.config.ts) and hydrated by a real
+		// browser, not SSR output alone — so a regression here would fail this test even
+		// though it renders exactly the same to assistive tech.
+		await page.goto('/settings/');
+
+		const cards = page.locator('.provider-card');
+		await expect(cards).toHaveCount(4);
+
+		const count = await cards.count();
+		for (let i = 0; i < count; i++) {
+			const card = cards.nth(i);
+			await expect(card.locator('.card-header')).toBeVisible();
+			await expect(card.locator('.card-header h3')).not.toBeEmpty();
+		}
+
+		// The first card by itself, named explicitly: this is the exact position issue
+		// #77 named as the one that silently lost its header.
+		const firstCard = cards.first();
+		await expect(firstCard.locator('.card-header')).toContainText('Skyscanner (Sky Scrapper)');
+	});
+
 	test('saving a key redacts it to the last 4 characters, and the raw value never appears again', async ({
 		page
 	}) => {
