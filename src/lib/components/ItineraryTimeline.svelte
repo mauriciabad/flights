@@ -505,7 +505,7 @@
 					{shown.stay.property.name} &middot; {shown.stay.roomKind}
 					{#if shown.stay.property.rating}&middot; rated {shown.stay.property.rating}/5{/if}
 				{:else}
-					No bed priced — add an Agoda or Booking.com key, or widen the search, to price one here.
+					No bed priced yet. Add an Agoda or Booking.com key, or widen the search, to price one here.
 				{/if}
 			</p>
 			<div class="tl-free-window">

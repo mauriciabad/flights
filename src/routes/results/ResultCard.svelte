@@ -92,7 +92,10 @@
 			<span class={['freshness-badge', `freshness-${freshness.tone}`]}>{freshness.label}</span>
 		</div>
 		{#if !itinerary.stay}
-			<p class="no-stay-note">No bed priced for this stopover — total excludes a stay.</p>
+			<!-- Issue #117: a plain per-itinerary fact, deliberately without "add a key"
+			     advice repeated card after card — `StayKeyNotice` (`+page.svelte`, above
+			     the whole list) is the one place that names the cause and the fix, once. -->
+			<p class="no-stay-note">No bed priced for this stopover. Total excludes a stay.</p>
 		{/if}
 
 		<dl class="stats">

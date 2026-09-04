@@ -10,6 +10,10 @@
 		elevated?: boolean;
 		padded?: boolean;
 		class?: string;
+		/** Issue #117: an anchor id a caller can link straight to, e.g. a settings
+		    row a results-page notice deep-links into (`/settings/#agoda`) instead
+		    of a bare `/settings/` that leaves the traveller to scroll and guess. */
+		id?: string;
 		header?: Snippet;
 		footer?: Snippet;
 		children: Snippet;
@@ -20,6 +24,7 @@
 		elevated = false,
 		padded = true,
 		class: className,
+		id,
 		header,
 		footer,
 		children
@@ -27,6 +32,7 @@
 </script>
 
 <div
+	{id}
 	class={[
 		'card',
 		`card-${variant}`,

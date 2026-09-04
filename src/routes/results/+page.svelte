@@ -48,6 +48,7 @@
 	import ProviderStatusStrip from './ProviderStatusStrip.svelte';
 	import ResultCard from './ResultCard.svelte';
 	import ResultDetail from './ResultDetail.svelte';
+	import StayKeyNotice from './StayKeyNotice.svelte';
 	import WidenOptionsPanel from './WidenOptionsPanel.svelte';
 
 	/**
@@ -346,6 +347,8 @@
 				{#if stillSearching}<span class="still-searching">· still searching</span>{/if}
 			</p>
 		</header>
+
+		<StayKeyNotice />
 
 		<ProviderStatusStrip statuses={providerStatusList} />
 
