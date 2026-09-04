@@ -39,38 +39,23 @@
 	// `base` is already in scope for the same reason iconSrc needs it above.
 	const manifestHref = `${base}/manifest.webmanifest`;
 
-	interface NavItem {
-		id: 'search' | 'settings';
-		label: string;
-		href: string;
-		/** Other routes this tab is the home of. `/results/` belongs to Search because a
-		 * search and its answers are one thing, not two. */
-		alsoOwns?: string[];
-	}
-
-	/**
-	 * Results used to be a tab of its own, sitting next to Search, so a person filled in
-	 * a form on one screen and had to work out that the answer lived on another. The
-	 * owner on that: "the ux of goig from search to result makes no fucking sense [...]
-	 * they are not 2 separate tabs." Submitting the form now navigates, and this tab
-	 * stays lit the whole way through, because the search and its results are one place.
-	 * Getting back to an earlier search is what the history on `/` is for.
+	/** Settings is the only place that is not the search itself, so it is one control in
+	 * the header rather than a tab bar. The brand is the way back to the search, which is
+	 * what a logo already means everywhere else.
+	 *
+	 * The tab model this replaced carried an `alsoOwns` list, so that `/results/` and
+	 * `/results/when/` (#71) kept the Search tab lit rather than reading as separate
+	 * places. With no tab to light there is nothing left to own: every route except
+	 * settings is the search, and the brand goes back to it from all of them. Both of
+	 * those routes reach their own entry points from the results page.
 	 */
-	const navItems: NavItem[] = [
-		// `/results/when/` too (issue #71): "which week should I go" is the same search asked
-		// a different way, not a third place to be.
-		{ id: 'search', label: 'Search', href: '/', alsoOwns: ['/results/', '/results/when/'] },
-		{ id: 'settings', label: 'Settings', href: '/settings/' }
-	];
+	const settingsHref = '/settings/';
 
 	function fullHref(href: string): string {
 		return `${base}${href}`;
 	}
 
-	function isActive(item: NavItem): boolean {
-		const here = page.url.pathname;
-		return [item.href, ...(item.alsoOwns ?? [])].some((href) => here === fullHref(href));
-	}
+	const onSettings = $derived(page.url.pathname === `${base}${settingsHref}`);
 </script>
 
 <svelte:head>
@@ -101,51 +86,29 @@
 
 <div class="app-shell">
 	<header class="app-header">
-		<a class="app-brand" href={fullHref('/')} aria-label="Layover, home">
+		<a class="app-brand" href={fullHref('/')} aria-label="Layover, search">
 			<img src={iconSrc} alt="" width="24" height="24" />
 			<span>Layover</span>
 		</a>
-	</header>
 
-	<nav class="app-nav" aria-label="Primary">
-		<ul>
-			{#each navItems as item (item.id)}
-				<li>
-					<a href={fullHref(item.href)} aria-current={isActive(item) ? 'page' : undefined}>
-						<span class="app-nav-icon" aria-hidden="true">
-							{#if item.id === 'search'}
-								<svg viewBox="0 0 24 24" fill="none">
-									<circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2" />
-									<line
-										x1="21"
-										y1="21"
-										x2="16.65"
-										y2="16.65"
-										stroke="currentColor"
-										stroke-width="2"
-										stroke-linecap="round"
-									/>
-								</svg>
-							{:else}
-								<svg viewBox="0 0 24 24" fill="none">
-									<line x1="4" y1="21" x2="4" y2="14" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
-									<line x1="4" y1="10" x2="4" y2="3" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
-									<line x1="12" y1="21" x2="12" y2="12" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
-									<line x1="12" y1="8" x2="12" y2="3" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
-									<line x1="20" y1="21" x2="20" y2="16" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
-									<line x1="20" y1="12" x2="20" y2="3" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
-									<line x1="1" y1="14" x2="7" y2="14" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
-									<line x1="9" y1="8" x2="15" y2="8" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
-									<line x1="17" y1="16" x2="23" y2="16" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
-								</svg>
-							{/if}
-						</span>
-						<span class="app-nav-label">{item.label}</span>
-					</a>
-				</li>
-			{/each}
-		</ul>
-	</nav>
+		<a
+			class="app-settings"
+			href={fullHref(settingsHref)}
+			aria-current={onSettings ? 'page' : undefined}
+		>
+			<svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+				<circle cx="12" cy="12" r="3.25" stroke="currentColor" stroke-width="2" />
+				<path
+					d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"
+					stroke="currentColor"
+					stroke-width="2"
+					stroke-linecap="round"
+					stroke-linejoin="round"
+				/>
+			</svg>
+			<span class="app-settings-label">Settings</span>
+		</a>
+	</header>
 
 	<main bind:this={contentEl} id="main-content" class="app-content" tabindex="-1">
 		{@render children()}
@@ -190,11 +153,10 @@
 	.app-shell {
 		display: grid;
 		grid-template-columns: 1fr;
-		grid-template-rows: auto 1fr auto;
+		grid-template-rows: auto 1fr;
 		grid-template-areas:
 			'header'
-			'main'
-			'nav';
+			'main';
 		height: 100dvh;
 		background: var(--color-bg);
 	}
@@ -203,7 +165,14 @@
 		grid-area: header;
 		display: flex;
 		align-items: center;
-		padding: var(--space-3) var(--space-4);
+		justify-content: space-between;
+		gap: var(--space-3);
+		/* Tight vertically on purpose: the gear carries its own >=44px tap target, so
+		   padding here would only add height to the one bar that is always on screen.
+		   Measured at 375px: `var(--space-3)` made this 69px tall against 49px before the
+		   gear existed, which gave back less than half of what dropping the tab bar
+		   returned. */
+		padding: var(--space-1) var(--space-4);
 		background: var(--color-bg-elevated);
 		border-bottom: 1px solid var(--color-border);
 	}
@@ -233,127 +202,64 @@
 		   `window.scrollTo(0, 3000)` put the header at -3000. */
 		min-height: 0;
 		padding: var(--space-4);
+		/* The tab bar used to hold this gap open. Nothing does now, so the last result
+		   would sit under the home bar on a notched phone. */
+		padding-bottom: calc(var(--space-4) + env(safe-area-inset-bottom));
 	}
 
 	.app-content:focus-visible {
 		outline: none;
 	}
 
-	.app-nav {
-		grid-area: nav;
-		background: var(--color-bg-elevated);
-		border-top: 1px solid var(--color-border);
-		/* Clears the home-bar area on notched phones without adding
-		   visible space on devices that don't have one. */
-		padding-bottom: env(safe-area-inset-bottom);
-	}
-
-	.app-nav ul {
+	.app-settings {
 		display: flex;
-	}
-
-	.app-nav li {
-		flex: 1;
-		min-width: 0;
-	}
-
-	.app-nav a {
-		display: flex;
-		flex-direction: column;
 		align-items: center;
+		gap: var(--space-2);
+		/* >=44px tap target, per WCAG 2.5.5, for someone using this one-handed. This is now
+		   the only control in the chrome, so it cannot be the fiddly one. */
+		min-height: 2.75rem;
+		min-width: 2.75rem;
 		justify-content: center;
-		gap: var(--space-1);
-		/* >=44px tap target, per WCAG 2.5.5, for someone using this
-		   one-handed. */
-		min-height: 3.5rem;
-		padding: var(--space-2) var(--space-1);
+		padding: 0 var(--space-2);
+		border-radius: var(--radius-md);
 		color: var(--color-text-muted);
 		text-decoration: none;
-		font-size: var(--font-size-xs);
+		font-size: var(--font-size-sm);
 		font-weight: var(--font-weight-medium);
-		transition: color var(--transition-fast);
+		transition:
+			color var(--transition-fast),
+			background-color var(--transition-fast);
 	}
 
-	.app-nav a:active {
-		transform: scale(0.96);
-	}
-
-	/* The current tab reads as a lit gate on a departure board: a filled
-	   pill behind the icon, not just a colour swap, so it is legible at a
-	   glance and not only by hue (contrast this deliberately survives
-	   both themes since it is background + colour together, never colour
-	   alone). */
-	.app-nav-icon {
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		width: 2rem;
-		height: 2rem;
-		border-radius: var(--radius-full);
-		transition: background-color var(--transition-fast);
-	}
-
-	.app-nav-icon svg {
+	.app-settings svg {
 		width: 1.25rem;
 		height: 1.25rem;
 	}
 
-	.app-nav a:hover {
-		color: var(--color-text);
-	}
-
-	.app-nav a[aria-current='page'] {
-		color: var(--color-accent);
-	}
-
-	.app-nav a[aria-current='page'] .app-nav-icon {
-		background: var(--color-accent-muted);
-	}
-
-	.app-nav a[aria-current='page']:hover {
-		color: var(--color-accent-hover);
+	/* The label is for the pointer, where there is room to say what the gear does. On a
+	   phone the gear stands alone, which is the whole reason the tab bar could go. */
+	.app-settings-label {
+		display: none;
 	}
 
 	@media (min-width: 48rem) {
-		.app-shell {
-			grid-template-columns: auto 1fr;
-			grid-template-rows: auto 1fr;
-			grid-template-areas:
-				'header nav'
-				'main main';
-		}
-
-		.app-nav {
-			justify-self: end;
-			align-self: stretch;
-			background: var(--color-bg-elevated);
-			border-top: none;
-			border-bottom: 1px solid var(--color-border);
-			padding-bottom: 0;
-		}
-
-		.app-nav ul {
-			height: 100%;
-		}
-
-		.app-nav li {
-			flex: none;
-		}
-
-		.app-nav a {
-			flex-direction: row;
-			min-height: auto;
-			height: 100%;
-			padding-inline: var(--space-4);
-			font-size: var(--font-size-sm);
-		}
-
-		.app-content {
-			padding: var(--space-6);
+		.app-settings-label {
+			display: inline;
 		}
 	}
 
-	/* Search, results and settings all wrap their own content at
-	   --layout-max-width; the shell itself stays full-bleed so a
-	   full-width control still has the whole viewport to work with. */
+	.app-settings:hover {
+		color: var(--color-text);
+		background: var(--color-bg-subtle, var(--color-accent-muted));
+	}
+
+	.app-settings[aria-current='page'] {
+		color: var(--color-accent);
+		background: var(--color-accent-muted);
+	}
+
+	.app-settings:active {
+		transform: scale(0.96);
+	}
+
 </style>
