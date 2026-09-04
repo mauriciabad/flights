@@ -410,65 +410,14 @@ export async function searchAirports(
 	return ranked.slice(0, limit).map((r) => r.airport);
 }
 
-/**
- * What `iconForCity`/`iconForAirport` return. `glyph` is always plain text (an emoji,
- * never an `<img src>`), which is what makes the lookup structurally total: there is no
- * URL to 404, so "renders a broken image" is not a failure mode this type can even
- * represent (issue #11 acceptance: "Every airport in a result renders an icon or a
- * deliberate placeholder, never a broken one").
- */
-export interface LocationIcon {
-	kind: 'flag' | 'placeholder';
-	glyph: string;
-	label: string;
-}
-
-const PLACEHOLDER_ICON: LocationIcon = {
-	kind: 'placeholder',
-	glyph: '📍',
-	label: 'Unknown location'
-};
-
-// Regional-indicator flag emoji exist for every A-Z pair, not just real ISO codes, so this
-// never throws — it just sometimes renders as two letter tiles on fonts without a flag for
-// an unusual code. Both are still plain text, never a broken image.
-function flagEmoji(isoCode: string | null | undefined): string | null {
-	const cc = isoCode?.trim().toUpperCase();
-	if (!cc || !/^[A-Z]{2}$/.test(cc)) return null;
-	const codePoints = [...cc].map((char) => 0x1f1e6 - 65 + char.charCodeAt(0));
-	return String.fromCodePoint(...codePoints);
-}
-
-/**
- * City and country icon lookup (issue #11: "the airports include icons for the city or
- * country").
+/*
+ * No icon lookup lives here any more. It used to build a regional-indicator emoji from
+ * `country.isoCode`, and the owner asked for real flags instead: "dont use scrapy emojis
+ * for the flags, use flags svgs". `$lib/components/Flag.svelte` takes an
+ * `Airport['country']` off the records this module already returns and draws a vendored
+ * SVG. A function here that only reformatted an ISO code would be a second place to ask
+ * the same question, which is the duplication the owner called out.
  *
- * The brief's suggestion, https://github.com/anto1/city-icons, was checked before writing
- * this and rejected on both grounds the issue asks about:
- *   - Coverage: 273 cities total (per its own README), a small fraction of the ~3,500
- *     distinct cities this dataset's scheduled-service airports serve.
- *   - Licence: no LICENSE file, and GitHub's own API reports `license: null` for the
- *     repo. Its README states the icons are "free for personal and educational use" with
- *     commercial use "requires permission" — there is no grant to redistribute the SVGs
- *     inside another site's static assets, which is what bundling them here would do.
- *
- * So every lookup falls back to the country flag, exactly as the issue describes for a
- * missing city icon — there is just no case where a city-specific icon is available to
- * fall back from. Flags are rendered as Unicode emoji rather than vendored SVGs: it needs
- * no asset files, no licence, and, as above, no image URL to ever come back broken.
+ * Issue #11's "never a broken one" still holds structurally, one layer out: `Flag`
+ * renders an `<img>` only for a code that has a file, so there is no URL that can 404.
  */
-export function iconForCity(city: Pick<City, 'country'> | null | undefined): LocationIcon {
-	const emoji = flagEmoji(city?.country.isoCode);
-	if (!emoji) return PLACEHOLDER_ICON;
-	return {
-		kind: 'flag',
-		glyph: emoji,
-		label: `Flag of ${city?.country.name ?? city?.country.isoCode}`
-	};
-}
-
-/** Same lookup, taking an `Airport` (or nothing) directly. */
-export function iconForAirport(airport: Pick<Airport, 'city'> | null | undefined): LocationIcon {
-	if (!airport) return PLACEHOLDER_ICON;
-	return iconForCity(airport.city);
-}

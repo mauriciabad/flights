@@ -105,6 +105,27 @@ const AIRPORT_CITY_NAMING: Readonly<Record<IataAirportCode, AirportCityNaming>> 
 	// itself. The airport's own name is the honest middle: findable under Frankfurt,
 	// never claiming to be in it.
 	HHN: { city: 'Frankfurt Hahn' },
+	// "Zagreb Franjo Tuđman International Airport"; municipality "Velika Gorica", the
+	// town 10 km down the road that the runway happens to sit in. Reported by the owner
+	// against a real stopover card that read "Velika Gorica ZAG". It is the same defect
+	// BGY and MXP above are here for, on the only airport Zagreb has.
+	ZAG: { city: 'Zagreb' },
+	// The three below are the identical defect, found by scanning the dataset for
+	// airports whose own OurAirports `name` opens with a city its municipality never
+	// mentions, the corroboration rule this table already uses. Each is a plausible
+	// connection city for this app, which is the only reason they are here and the
+	// other ~160 candidates of varying quality are not.
+	// "Athens Eleftherios Venizelos International Airport"; municipality
+	// "Spata-Artemida", the coastal municipality 25 km east that hosts the runway.
+	ATH: { city: 'Athens' },
+	// "Brussels Airport"; municipality "Zaventem", the Flemish town it is built in and
+	// is often called after. Brussels is what every carrier sells it as, and Zaventem
+	// stays searchable through `citySearchAliases`.
+	BRU: { city: 'Brussels' },
+	// "Edinburgh Airport"; municipality "Ingliston, Edinburgh". Here the cleanup itself
+	// is what goes wrong: it keeps the segment before the comma, which for this row is
+	// the suburb rather than the city, so the card read "Ingliston".
+	EDI: { city: 'Edinburgh' },
 
 	// Search-only, moved here verbatim from `MARKETED_CITY_KEYWORDS` in
 	// scripts/prepare-airports.mjs (issue #133) so one table answers both questions.

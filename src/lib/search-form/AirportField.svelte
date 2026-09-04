@@ -8,7 +8,8 @@
 	 * component tracks both: `value` is the committed code, `query` is the text in the
 	 * box.
 	 */
-	import { getAirport, iconForAirport, searchAirports } from '$lib/data/airports';
+	import { getAirport, searchAirports } from '$lib/data/airports';
+	import { Flag } from '$lib/components';
 	import type { Airport } from '$lib/domain';
 
 	interface Props {
@@ -211,7 +212,6 @@
 		{#if open && results.length}
 			<ul id={listboxId} role="listbox" class="combobox-list">
 				{#each results as airport, i (airport.iataCode)}
-					{@const icon = iconForAirport(airport)}
 					<!-- The click target is this `<li>` itself, not a nested `<button>`: this
 					     combobox already drives keyboard selection through `aria-activedescendant`
 					     on the input above (the option is never really focused), so a real
@@ -231,7 +231,9 @@
 						onmousedown={(event) => event.preventDefault()}
 						onclick={() => select(airport)}
 					>
-						<span class="combobox-option-icon" aria-hidden="true">{icon.glyph}</span>
+						<!-- Decorative: the option's second line already ends with the country
+						     name, so the flag repeats it rather than adding to it. -->
+						<Flag country={airport.country} size="md" decorative />
 						<span class="combobox-option-text">
 							<span class="combobox-option-code font-mono">{airport.iataCode}</span>
 							<span class="combobox-option-place">{airport.city.name}, {airport.country.name}</span>
@@ -335,12 +337,6 @@
 	.combobox-option.is-active,
 	.combobox-option:hover {
 		background: var(--color-surface-hover);
-	}
-
-	.combobox-option-icon {
-		flex-shrink: 0;
-		font-size: var(--font-size-lg);
-		line-height: 1;
 	}
 
 	.combobox-option-text {
