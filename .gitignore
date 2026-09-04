@@ -27,3 +27,17 @@ vite.config.ts.timestamp-*
 
 # Playwright MCP session logs and page snapshots
 .playwright-mcp/
+
+# Claude Code session state
+.claude/
+
+# Screenshots from design and verification runs. Agents produce these at the
+# repo root; they are review artefacts, not source.
+*.png
+*.jpg
+*.jpeg
+*.webp
+!static/**/*.png
+!static/**/*.jpg
+!src/**/*.png
+!src/**/*.jpg
