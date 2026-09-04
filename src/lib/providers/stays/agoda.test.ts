@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryCacheStore } from '../../cache';
 import { clearInFlightForTests, clearProviderQuotaStateForTests, resetPermanentFailuresForTests } from '../budget';
 import { createAgodaStayProvider } from './agoda';
@@ -78,7 +78,7 @@ describe('searchStays', () => {
 		expect(result.requestsUsed).toBe(4);
 		expect(result.source.providerId).toBe('agoda');
 
-		// The reverse-geocoded label, not raw coordinates, is what actually reached Agoda.
+		// The resolved label, not raw coordinates, is what actually reached Agoda.
 		expect(searchUrlsSeen[0]).toContain('location=Vienna%2C+Austria');
 
 		const byKind = Object.fromEntries(result.data.map((s) => [s.roomKind, s]));
@@ -87,6 +87,21 @@ describe('searchStays', () => {
 		expect(byKind.private).toBeDefined();
 		// Cheapest first overall.
 		expect(result.data[0].pricePerNight.minorUnits).toBeLessThanOrEqual(result.data[result.data.length - 1].pricePerNight.minorUnits);
+	});
+
+	it('resolves VIE coordinates through the local airport dataset, never touching Nominatim (issue #65)', async () => {
+		// Before this fix, this exact query's coordinates reverse-geocoded through
+		// Nominatim to "Fischamend" (docs/PROVIDERS.md), a real town of a few thousand
+		// people that isn't Vienna. geocode/airport-city.ts now answers this from this
+		// app's own OurAirports dataset before Nominatim is ever called.
+		const fetchImpl = vi.fn(fixtureFetch());
+		const provider = createAgodaStayProvider({ store: new MemoryCacheStore(), fetchImpl });
+		const result = await provider.searchStays(query, { signal: new AbortController().signal, keys: apiKeys });
+
+		expect(result.ok).toBe(true);
+		expect(searchUrlsSeen[0]).toContain('location=Vienna%2C+Austria');
+		const calledUrls = fetchImpl.mock.calls.map(([url]) => String(url));
+		expect(calledUrls.some((url) => url.startsWith('https://nominatim.openstreetmap.org'))).toBe(false);
 	});
 
 	it('serves a second identical search entirely from cache', async () => {
@@ -110,7 +125,12 @@ describe('searchStays', () => {
 			'https://nominatim.openstreetmap.org/reverse': () => new Response(JSON.stringify({ address: {} }), { status: 200 })
 		});
 		const provider = createAgodaStayProvider({ store: new MemoryCacheStore(), fetchImpl });
-		const result = await provider.searchStays(query, { signal: new AbortController().signal, keys: apiKeys });
+		// A coordinate away from every airport in this app's dataset, so the local
+		// airport-city lookup (issue #65) misses and this actually exercises the Nominatim
+		// fallback the fixture above stubs out — the default `query.near` (VIE) now resolves
+		// locally and would never reach Nominatim at all.
+		const midPacific = { ...query, near: { latitude: 0, longitude: -160 } };
+		const result = await provider.searchStays(midPacific, { signal: new AbortController().signal, keys: apiKeys });
 
 		expect(result).toMatchObject({ ok: true, data: [], requestsUsed: 0 });
 	});

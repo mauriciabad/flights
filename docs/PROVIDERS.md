@@ -227,6 +227,62 @@ own `isDormitory` flag and read room names instead. Booking's dorm handling is s
 promising (a real, non-broken-looking field) but unconfirmed. Both need re-checking against
 more cities before either is trusted for a booking a traveller actually relies on.
 
+### Issue #65 follow-up: satellite-airport geocoding fixed for the common case, Booking's dorm flag still unverified
+
+Two threads from the section above, followed up on 2026-09-04.
+
+**Agoda's satellite-airport problem is fixed where this app's own data already knows the
+answer, not fixed everywhere.** The fix is not a smarter geocoder call. `stays/agoda.ts`
+skips reverse-geocoding entirely when the coordinate is a known airport:
+`data/airports.ts` (issue #11) already carries OurAirports' own municipality field for
+every scheduled-service airport, and the new `geocode/airport-city.ts` reads it directly, at
+zero request cost. Checked live against eight airports on 2026-09-04:
+
+| Airport | OurAirports city field | Resolves to |
+|---|---|---|
+| VIE (Vienna) | "Vienna" | Vienna, Austria — fixed |
+| CIA (Rome Ciampino) | "Rome" | Rome, Italy — fixed |
+| CRL (Brussels South Charleroi) | "Charleroi" | Charleroi, Belgium — fixed (Charleroi is genuinely CRL's host city, not a Brussels rebrand) |
+| GRO (Girona-Costa Brava) | "Girona" | Girona, Spain — fixed |
+| LTN (London Luton) | "Luton, Luton" | Luton, United Kingdom — fixed once the duplicate is collapsed |
+| STN (London Stansted) | "London, Essex" | London, United Kingdom — fixed |
+| BGY (Bergamo, one of Milan's satellites) | "Orio al Serio (BG)" | Orio al Serio, Italy — still wrong |
+| MXP (Malpensa, Milan's other satellite) | "Ferno (VA)" | Ferno, Italy — still wrong |
+
+Six of eight resolve correctly, VIE included, which is the exact case this issue was filed
+over. The two Milan misses are a real, documented gap, not an oversight: OurAirports'
+municipality field names the literal small comune each airport sits in, never "Milan", and
+nothing else in this app says otherwise. Closing that specific gap needs a hand-curated
+airport-to-city table (the alternative this issue itself named as a fallback) and is left
+for a future issue.
+
+**The admin-level heuristic this issue asked about was tried and rejected.** Transitous's
+`areas[]` trail (`adminLevel` plus `unique`/`default` flags, added by issue #64) looked like
+a way to climb past the immediate containing municipality to something more city-sized.
+Tested live against VIE, BGY, CIA, STN, LTN, CRL, GRO, MXP and LIN: it needs a different
+number of levels climbed for each one (0 for LTN, which has no satellite problem to begin
+with, 1 for BGY and CRL, 2 for GRO), actively breaks LTN if applied blindly (jumping straight
+past "Luton" to "England"), and can never produce "Vienna", "London" or "Milan" for VIE, STN
+or MXP. In each of those three, the marketed city is not an administrative ancestor of the
+containing municipality at any level. Vienna, London and Milan are disjoint neighbouring
+jurisdictions, not parents of Fischamend, Uttlesford or Ferno, so no amount of climbing the
+same point's own hierarchy produces a name that was never in it. `geocode/airport-city.ts`'s
+header has the full transcript this conclusion rests on. This heuristic is not implemented
+anywhere in this codebase and should not be reintroduced as a general fix without solving
+that structural problem first.
+
+**Booking's dorm flag remains exactly as unverified as the section above left it.**
+Confirming or correcting `is_dormitory` needed a live RapidAPI request against a real
+hostel's `getRoomList` (Wombat's City Hostel Vienna, the same property already checked on
+the Agoda side), and no RapidAPI credential was available to the environment this follow-up
+ran in. Zero Booking requests were spent, on top of the 5 already spent under issue #10.
+`stays/booking-mapper.ts`'s `classifyBookingRoomKind` still trusts `is_dormitory` as a real
+signal, OR'd with name matching for the female-only case Booking has no dedicated field for.
+Whoever picks this back up needs an owner-provided key with an active Booking subscription
+and can spend up to 8 requests against Wombat's `hotel_id` (417108 on Agoda; Booking's own
+id for the same property was not looked up) or a similar hostel to settle it one way or the
+other.
+
 ### Kiwi.com Cheap Flights is subscribed but its own backend is down
 
 Subscribing worked exactly as documented above: BASIC is $0/month, 300 requests/month hard

@@ -36,8 +36,19 @@
  * raw OSM admin-level numbers that mean different things in different countries, which is
  * less directly usable than Nominatim's semantic `address.city`/`town`/`village` fields.
  * Swapping geocoders would not fix the satellite-airport problem below, only trade one
- * unofficial API for another — worth revisiting if issue #64 lands and this app wants to
- * depend on one fewer external host, not because Transitous solves anything this doesn't.
+ * unofficial API for another.
+ *
+ * Issue #65 revisited this once #64 landed, and confirmed the above rather than reopening
+ * it: Transitous's `areas[]` trail was tested live against nine satellite airports, and its
+ * `adminLevel`/`unique`/`default` flags cannot generally locate the marketed city either,
+ * because that city is often not an administrative ancestor of the point at any level
+ * (Vienna is not an ancestor of Fischamend; Milan is not an ancestor of Bergamo's or
+ * Malpensa's home comune). The actual fix that shipped from that issue does not touch either
+ * geocoder: `stays/agoda.ts` now checks `geocode/airport-city.ts` first, which reads this
+ * app's own OurAirports dataset (`data/airports.ts`) for a coordinate that is a known
+ * airport, at zero request cost, and only falls through to Nominatim below for a coordinate
+ * that isn't one. See that file's header for the full evidence and the cases it still can't
+ * fix (Milan's satellite airports).
  */
 
 import type {
@@ -251,6 +262,11 @@ export function fetchGetPrices(
  * keyless way to ask Nominatim for "the nearest notable city" instead of "the containing
  * administrative area" — its `/search` endpoint needs a text query to rank against, not a
  * bare point. Recorded here rather than silently patched around; see the PR body.
+ *
+ * Issue #65: `agoda.ts` no longer calls this function for VIE's own coordinates, or any
+ * other known airport — `geocode/airport-city.ts` answers those from local data first. This
+ * function, and the limitation above, still apply to any coordinate that isn't a known
+ * airport (a landmark someone searched for, say).
  */
 export function fetchReverseGeocode(
 	coordinates: { latitude: number; longitude: number },
