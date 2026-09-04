@@ -72,7 +72,7 @@ function fakeFetch(routes: FakeRoutes) {
 
 /** A minimal, structurally valid one-itinerary `searchFlights` response for an arbitrary
  * origin/destination pair — issue #75's tests need a route through an airport the seed
- * table (skyscanner-timezone.ts) does not carry, which none of the captured fixtures are. */
+ * table (airport-timezone.ts) does not carry, which none of the captured fixtures are. */
 function customItineraryResponse(originCode: string, destinationCode: string) {
 	return {
 		status: true,
@@ -378,14 +378,14 @@ describe('createSkyscannerFlightProvider', () => {
 			if (result.ok) expect(result.data).toHaveLength(2);
 		});
 
-		// Issue #75: skyscanner-timezone.ts's curated table no longer decides, on its own,
+		// Issue #75: airport-timezone.ts's curated table no longer decides, on its own,
 		// whether an airport's offers survive. A code missing from the seed now falls
 		// through to a live Transitous lookup before an offer through it can be dropped.
 		describe('live time zone lookup for a non-seeded airport', () => {
 			it('resolves the destination\'s zone via Transitous and attaches it to the offer, spending nothing from Skyscanner\'s own budget', async () => {
 				const cacheStore = new MemoryCacheStore();
 				await setCachedAirportEntity('BCN', { skyId: 'BCN', entityId: '95565085' }, cacheStore);
-				// AHO (Alghero-Fertilia): a real airport, not in skyscanner-timezone.ts's seed
+				// AHO (Alghero-Fertilia): a real airport, not in airport-timezone.ts's seed
 				// table, present in data/airports.generated.json with real coordinates.
 				await setCachedAirportEntity('AHO', { skyId: 'AHO', entityId: '999999' }, cacheStore);
 				const fetchImpl = fakeFetch({
@@ -444,7 +444,7 @@ describe('createSkyscannerFlightProvider', () => {
 				const fetchImpl = fakeFetch({
 					searchFlights: () => jsonResponse(200, customItineraryResponse('BCN', 'AHO')),
 					// A real, observed Transitous response shape: an empty array, not an error —
-					// see skyscanner-timezone.ts's own header on why the seed table still exists.
+					// see airport-timezone.ts's own header on why the seed table still exists.
 					reverseGeocode: () => jsonResponse(200, [])
 				});
 				const provider = createSkyscannerFlightProvider({ fetchImpl, cacheStore });

@@ -22,7 +22,7 @@
  * `text=BCN Airport` surfaces airports in Kobe and Naha that happen to also match the word
  * "Airport" more strongly than a bare 3-letter code. `text=Vienna Airport` DID resolve
  * correctly, so this isn't a total failure of text search, but it isn't reliable enough
- * to drop an offer over the way `skyscanner-timezone.ts` already drops offers for airports
+ * to drop an offer over the way `airport-timezone.ts` already drops offers for airports
  * missing from its curated table — trading one silent gap for a different silent wrong
  * answer would not be progress.
  *
@@ -153,7 +153,7 @@ export async function lookupTimeZoneForCoordinates(
 /**
  * IATA code -> IANA timezone, live from Transitous rather than a hand-curated table
  * (issue #64's stated reason this capability is worth more than the search-form wiring:
- * `skyscanner-timezone.ts`'s table silently rots and drops any offer for an airport it
+ * `airport-timezone.ts`'s table silently rots and drops any offer for an airport it
  * does not list). Deliberately NOT wired into that adapter in this PR — see this file's
  * header and the PR description for why that is its own follow-up.
  *

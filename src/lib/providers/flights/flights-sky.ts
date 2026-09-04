@@ -31,6 +31,7 @@ import type { CacheStore } from '../../cache';
 import type { FlightOffer, IataAirportCode, IsoCalendarDate, IsoCurrencyCode } from '../../domain';
 import { DEFAULT_TRAVELLERS } from '../../domain';
 import { callProviderWithBudget } from '../budget';
+import type { GeocodeProviderOptions } from '../geocode/transitous';
 import type {
 	FlightProvider,
 	FlightSearchQuery,
@@ -41,6 +42,7 @@ import type {
 	ProviderResult,
 	ProviderSource
 } from '../types';
+import { resolveAirportTimeZone } from './airport-timezone';
 import { classifyFlightsSkyError, fetchAutoComplete, fetchPriceCalendar, fetchSearchOneWay } from './flights-sky-client';
 import { extractExactEntityMatch, getCachedEntity, setCachedEntity } from './flights-sky-entity-cache';
 import { mapPriceCalendarDays } from './flights-sky-map-calendar';
@@ -166,7 +168,7 @@ function enumerateDates(
 function createFlightsSkyFlightProvider(
 	options: CreateFlightsSkyFlightProviderOptions = {}
 ): FlightsSkyProvider {
-	const { fetchImpl, cap, sleep, now } = options;
+	const { cacheStore: cacheStoreOverride, fetchImpl, cap, sleep, now } = options;
 
 	function budgetCall<T>(dedupeKey: string, execute: () => Promise<T>): Promise<ProviderResult<T>> {
 		return callProviderWithBudget({
@@ -178,6 +180,19 @@ function createFlightsSkyFlightProvider(
 			sleep,
 			now
 		});
+	}
+
+	/** Threads this adapter's own `fetchImpl`/`cacheStore` test overrides into
+	 * `airport-timezone.ts`'s live Transitous fallback, the same reasoning
+	 * skyscanner.ts's own `geocodeOptions` gives: a test injecting an isolated
+	 * `cacheStore` here gets that same isolation for timezone lookups, and production
+	 * (both undefined) falls through to the real default store/global `fetch` this
+	 * adapter's own airport-entity cache already uses. */
+	function geocodeOptions(): GeocodeProviderOptions {
+		return {
+			fetchImpl,
+			resolveStore: cacheStoreOverride ? async () => cacheStoreOverride : undefined
+		};
 	}
 
 	/**
@@ -248,8 +263,29 @@ function createFlightsSkyFlightProvider(
 		const budget = ctx.maxRequests ?? DEFAULT_MAX_REQUESTS_PER_CALL;
 		const dates = enumerateDates(query.earliestDeparture, query.latestDeparture);
 
+		// A one-way search-one-way response only ever contains itineraries for the queried
+		// origin and destination (same confirmed shape as skyscanner.ts's own comment on this
+		// exact pattern), so both zones are resolved once here rather than per itinerary or
+		// per date. Neither lookup spends any of this adapter's own `requestsUsed` budget:
+		// Transitous is a separate, keyless provider with its own long-lived cache
+		// (geocode/transitous.ts), not part of Flights Sky's metered RapidAPI quota.
+		const geocode = geocodeOptions();
+		const [originTimeZone, destinationTimeZone] = await Promise.all([
+			resolveAirportTimeZone(query.origin, ctx, geocode),
+			resolveAirportTimeZone(query.destination, ctx, geocode)
+		]);
+		const timeZones = new Map<string, string>();
+		if (originTimeZone !== undefined) timeZones.set(query.origin.toUpperCase(), originTimeZone);
+		if (destinationTimeZone !== undefined) timeZones.set(query.destination.toUpperCase(), destinationTimeZone);
+
 		const offers: FlightOffer[] = [];
 		let sawMalformedDate = false;
+		// Issue #124: airports that blocked an otherwise-real, otherwise-bookable itinerary
+		// from becoming an offer — BVC's own case, a genuine nonstop TUI fare this adapter
+		// could not time. Tracked across every date in this call so `offers.length === 0`
+		// at the end can be told apart from "this route genuinely has nothing," which is the
+		// distinction issue #130/#144's provider-answer states exist to carry to the screen.
+		const unresolvedTimeZoneAirports = new Set<string>();
 
 		for (const date of dates) {
 			if (requestsUsed >= budget) break; // out of budget: stop, keep whatever we have
@@ -295,9 +331,10 @@ function createFlightsSkyFlightProvider(
 			}
 
 			try {
-				const dayOffers = mapSearchOneWayToOffers(result.data, { currency, travellers });
-				await writeCache(cacheStore, cacheKey, dayOffers);
-				offers.push(...dayOffers);
+				const mapped = mapSearchOneWayToOffers(result.data, { currency, travellers, timeZones });
+				await writeCache(cacheStore, cacheKey, mapped.offers);
+				offers.push(...mapped.offers);
+				for (const code of mapped.unresolvedTimeZoneAirports) unresolvedTimeZoneAirports.add(code);
 			} catch (cause) {
 				if (cause instanceof FlightsSkyMalformedOfferResponseError) {
 					sawMalformedDate = true;
@@ -312,6 +349,21 @@ function createFlightsSkyFlightProvider(
 				{
 					code: 'malformed-response',
 					message: 'Flights Sky responses for every requested date had an unrecognised shape'
+				},
+				requestsUsed
+			);
+		}
+		// Issue #124/#130: a real, priceable itinerary existed and got dropped only because
+		// this app does not know one of its airports' time zones — never silently equivalent
+		// to "this route has nothing." AGENTS.md: "show the actual errors received, not
+		// invent our own" — the airport codes named here are exactly the ones that blocked
+		// mapping, not a guess at the cause.
+		if (offers.length === 0 && unresolvedTimeZoneAirports.size > 0) {
+			const codes = [...unresolvedTimeZoneAirports].sort().join(', ');
+			return fail(
+				{
+					code: 'malformed-response',
+					message: `Flights Sky returned a real, nonstop itinerary this app could not price: no known time zone for ${codes}`
 				},
 				requestsUsed
 			);

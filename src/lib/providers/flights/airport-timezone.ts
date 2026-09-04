@@ -4,22 +4,31 @@ import { lookupAirportTimeZone } from '../geocode/transitous';
 import type { ProviderContext } from '../types';
 
 /**
- * Sky Scrapper's flight search never sends a time zone or a UTC offset. `departure` and
- * `arrival` are bare local wall-clock strings like "2026-10-15T08:05:00" (confirmed against
- * a real response captured for issue #5, see fixtures/search-flights-bcn-vie.json). AGENTS.md
- * is explicit that collapsing a local time to UTC without the offset is how an overnight
- * connection silently loses a night, so this file exists to attach the offset the API will
- * not give us, using the one fact we do have: which airport the time belongs to.
+ * Neither Sky Scrapper's nor Flights Sky's flight search ever sends a time zone or a UTC
+ * offset. `departure` and `arrival` are bare local wall-clock strings like
+ * "2026-10-15T08:05:00" (confirmed against real responses captured for issues #5 and #61 —
+ * fixtures/search-flights-bcn-vie.json and fixtures/flights-sky-search-one-way-bcn-vie.json).
+ * AGENTS.md is explicit that collapsing a local time to UTC without the offset is how an
+ * overnight connection silently loses a night, so this file exists to attach the offset
+ * neither API will give us, using the one fact we do have: which airport the time belongs to.
  *
- * Issue #75, replacing what issue #5 originally shipped here: this file no longer answers
- * "what is this airport's time zone" from a hand-curated table alone. That table silently
- * dropped every offer for an airport it did not list, and nobody was ever told why a route
- * came back empty. `resolveAirportTimeZone` below is the live replacement — issue #64's
- * `lookupAirportTimeZone`, which reverse-geocodes the airport's own OurAirports coordinates
- * through Transitous rather than trusting a list someone typed by hand.
+ * Issue #124: this used to be two near-identical files, `skyscanner-timezone.ts` and
+ * `flights-sky-timezone.ts`, built for separate issues that landed in whichever order they
+ * landed in. That was exactly why one of them (this one, issue #75) got the live Transitous
+ * fallback below and the other quietly kept a static ~100-airport table as its entire answer —
+ * confirmed live on BVC (Boa Vista, Cape Verde): Flights Sky's own `search-one-way` returned a
+ * real, nonstop, bookable TUI flight to London Gatwick, and the old flights-sky-timezone.ts
+ * dropped it, and every other itinerary on the route, because BVC was never in its table.
+ * Unifying into one module is the actual fix, not a second copy of the fallback — a future
+ * third adapter gets this for free instead of a third chance to silently regress.
+ *
+ * `resolveAirportTimeZone` below is the live path — issue #64's `lookupAirportTimeZone`,
+ * which reverse-geocodes the airport's own OurAirports coordinates through Transitous rather
+ * than trusting a list someone typed by hand.
  *
  * SEED_TIME_ZONES survives, but demoted from "the whole answer" to "the fast, offline-safe
- * first guess for the busiest routes." Two reasons, both found while building this:
+ * first guess for the busiest routes." Two reasons, both found while building the original
+ * split version of this file:
  *
  * 1. Transitous is free, volunteer-run, and will be down or slow sometimes (docs/PROVIDERS.md,
  *    AGENTS.md "When the data is missing"). A network round trip on every airport this app has
@@ -37,8 +46,12 @@ import type { ProviderContext } from '../types';
  * time zone assignment changes when a country changes its clocks, which is rare and
  * newsworthy), live Transitous lookup second for everything the seed does not cover. Either
  * path, or an outright lookup failure with nothing cached, resolves to `undefined` rather than
- * a guess, and `skyscanner-map-offers.ts` drops that offer — AGENTS.md: "say what you do not
- * know rather than guessing."
+ * a guess — never a guess, per AGENTS.md, but callers should not let it stay a silent one
+ * either. `skyscanner-map-offers.ts` drops an offer it cannot time; `flights-sky.ts` goes
+ * further and records how many real, otherwise-mappable itineraries got dropped this way, so a
+ * provider that answered with real inventory nobody could time is distinguishable, on the
+ * results screen, from one that genuinely had nothing (issue #130/#144's provider-answer
+ * machinery).
  */
 
 // prettier-ignore

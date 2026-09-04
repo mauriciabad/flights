@@ -7,7 +7,7 @@ import {
 	seedTimeZoneForAirport,
 	toLocalDateTime,
 	utcOffsetMinutesAt
-} from './skyscanner-timezone';
+} from './airport-timezone';
 
 function jsonResponse(body: unknown): Response {
 	return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
@@ -62,7 +62,7 @@ describe('resolveAirportTimeZone', () => {
 	it('resolves undefined, not a guess, when a non-seeded airport has nothing cached and the live lookup finds nothing', async () => {
 		// This is the acceptance-criteria case: a lookup failure with no cache must not
 		// produce a mistimed offer. An empty Transitous response (a real, observed case —
-		// see this file's own header on skyscanner-timezone.ts and DXB) resolves the same
+		// see this file's own header on airport-timezone.ts and DXB) resolves the same
 		// way a network error does: undefined, never a fabricated zone.
 		const fetchImpl = vi.fn().mockResolvedValue(jsonResponse([]));
 
