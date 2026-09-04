@@ -28,8 +28,23 @@ export default defineConfig({
 			appDir: 'app'
 		}),
 		SvelteKitPWA({
-			registerType: 'autoUpdate',
-			injectRegister: 'auto',
+			// 'prompt', not 'autoUpdate': a silently-reloading tab loses whatever the
+			// user was doing with it (mid-search, a filled-in comparator). 'prompt'
+			// leaves the old shell in control until src/lib/pwa/UpdateToast.svelte's
+			// button calls updateServiceWorker(), so the reload is something the user
+			// chose rather than something that happened to them (issue #30).
+			registerType: 'prompt',
+			// @vite-pwa/sveltekit's build plugin only emits sw.js and
+			// manifest.webmanifest; it never injects a <link rel="manifest"> or a
+			// registration script into a prerendered app.html (confirmed against its
+			// source: SvelteKitPlugin's closeBundle step moves files, it never touches
+			// HTML). `injectRegister: false` says so explicitly, rather than leaving a
+			// registerSW.js in the build that nothing ever links to. Registration
+			// itself happens in src/routes/+layout.svelte (the manifest link) and
+			// UpdateToast.svelte, which calls navigator.serviceWorker.register()
+			// directly — see that file's comment for why it doesn't go through
+			// vite-plugin-pwa's own virtual:pwa-register/svelte helper.
+			injectRegister: false,
 			manifest: {
 				name: 'Layover — flights with a free trip in between',
 				short_name: 'Layover',
