@@ -167,6 +167,15 @@
 	// print would be about a search that should never run. An already-picked stay keeps
 	// its picker regardless, so a traveller is never shown a total they cannot inspect.
 	const stayIsRelevant = $derived(itinerary.nightsInConnection > 0 || itinerary.stay !== undefined);
+
+	// Issue #135: what each leg's timetable lookup actually said, planned for THIS
+	// itinerary's own flight times. Read off `group.best` rather than threaded through
+	// `+page.svelte`: `group.best.score.itinerary` is the itinerary this component opened
+	// with, so the answers already belong to it. Undefined until the group arrives, and for
+	// the frozen local copy the traveller edits below — an itinerary rebuilt from a picked
+	// alternative was never the one these lookups were planned for, and pretending otherwise
+	// is the defect this issue is about.
+	const transitAnswers = $derived(itinerary === initialItinerary ? group?.best.transit : undefined);
 </script>
 
 <div class="result-detail">
@@ -197,6 +206,7 @@
 				{itinerary}
 				alternatives={originAirportTransferOptions.candidates}
 				taxiFareEstimate={originAirportTransferOptions.taxiFareEstimate}
+				transitAnswer={transitAnswers?.transferToOriginAirport}
 				{minLayoverTime}
 				onselect={applySelection}
 			/>
@@ -218,6 +228,7 @@
 				{itinerary}
 				alternatives={hotelTransferOptions.candidates}
 				taxiFareEstimate={hotelTransferOptions.taxiFareEstimate}
+				transitAnswer={transitAnswers?.transferToHotel}
 				referenceMoment={itinerary.outboundFlight.arrival}
 				referenceLabel="you land"
 				{minLayoverTime}
@@ -253,6 +264,7 @@
 				{itinerary}
 				alternatives={connectionAirportTransferOptions.candidates}
 				taxiFareEstimate={connectionAirportTransferOptions.taxiFareEstimate}
+				transitAnswer={transitAnswers?.transferToConnectionAirport}
 				{minLayoverTime}
 				onselect={applySelection}
 			/>
@@ -274,6 +286,7 @@
 				{itinerary}
 				alternatives={destinationLocationTransferOptions.candidates}
 				taxiFareEstimate={destinationLocationTransferOptions.taxiFareEstimate}
+				transitAnswer={transitAnswers?.transferToDestinationLocation}
 				referenceMoment={itinerary.onwardFlight.arrival}
 				referenceLabel="you land"
 				{minLayoverTime}

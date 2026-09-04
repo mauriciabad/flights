@@ -3,9 +3,17 @@
  * no fetch, no cache — everything here is a plain function of its input so the "is there
  * service, and if not when's the next one" logic (issue #8's whole point) is exercised by
  * fixtures, not by a live call.
+ *
+ * Issue #135 gave this file the second half of that job: which departure is *the* one
+ * depends on what was asked. For a leg that must reach a check-in deadline the answer is
+ * the LAST departure that still makes it; for a leg that starts when a flight lands it is
+ * the FIRST one after that. MOTIS returns both kinds in the same `itineraries` array and
+ * does not sort it (a real 2026-10-04 arriveBy response came back 02:16, 02:17, 02:40,
+ * 02:43, 02:31, 02:46, 03:08), which is also why the app used to print "13:28, 13:27" as
+ * consecutive next departures.
  */
 
-import type { Duration, Transfer, TransferLeg, TransferMode } from '../../domain';
+import type { Duration, LocalDateTime, Transfer, TransferLeg, TransferMode, TransitPlanMoment } from '../../domain';
 import { utcInstantToLocalDateTime } from './transitous-datetime';
 import type { TransitousItinerary, TransitousLeg, TransitousPlace, TransitousPlanResponse } from './transitous-types';
 
@@ -104,15 +112,17 @@ const TRANSIT_MODE_LABELS: Record<string, string> = {
  * is itself a normal, non-error `ProviderResult` — "no connection exists" is data, same as
  * "the connection exists but not for another four hours" is.
  *
- * The gap itself is never computed here: `transitSchedule.intended` is simply the real
- * departure Transitous found, however far after the request that turns out to be. Whether
- * that counts as "waited five minutes for the bus" or "no service overnight" depends on
- * what the caller asked for (`TransferSearchQuery.departure`), which this function never
- * sees — diffing the two is the caller's job, and keeping that math out of here means a
- * fixture only has to state what Transitous actually said, not also encode a judgement
- * call about what counts as "a gap."
+ * `plannedFor` is required, not optional (issue #135). It decides which of the returned
+ * departures is the one the traveller is being told to catch, and it rides onto the
+ * `Transfer` so nothing downstream can render a departure list without saying which journey
+ * it belongs to. The gap arithmetic itself still lives outside this file
+ * (`algorithm/transit-schedule.ts`), so a fixture only has to state what Transitous actually
+ * said, not also encode a judgement call about what counts as "a gap."
  */
-export function mapPlanResponseToTransfer(response: TransitousPlanResponse): Transfer | undefined {
+export function mapPlanResponseToTransfer(
+	response: TransitousPlanResponse,
+	plannedFor: TransitPlanMoment
+): Transfer | undefined {
 	const rawItineraries = response.itineraries ?? [];
 	if (rawItineraries.length === 0) return undefined;
 
@@ -128,33 +138,83 @@ export function mapPlanResponseToTransfer(response: TransitousPlanResponse): Tra
 		);
 	}
 
-	const [chosen, ...rest] = itineraries;
-	const chosenTransitLeg = firstTransitLeg(chosen);
+	const departures = orderedDepartures(itineraries);
 	// Every itinerary Transitous puts in `itineraries` (as opposed to `direct`) should
-	// contain at least one non-WALK leg by construction. Treating the case it somehow
-	// doesn't as "no usable transfer" rather than fabricating a schedule from a walk leg
-	// keeps a future API quirk from silently mislabelling a walk as a bus.
-	if (!chosenTransitLeg) return undefined;
+	// contain at least one non-WALK leg by construction. Treating the case none does as "no
+	// usable transfer" rather than fabricating a schedule from a walk leg keeps a future API
+	// quirk from silently mislabelling a walk as a bus.
+	if (departures.length === 0) return undefined;
 
-	const intendedUtc = chosenTransitLeg.startTime;
-	const following = rest
-		.map(firstTransitLeg)
-		.filter(isDefined)
-		// Transitous can list two itineraries with the identical departure (alternate
-		// routes for the same trip, seen in a real night-time response). Those aren't
-		// "the next one after it" — only strictly later departures qualify as "following".
-		.filter((leg) => leg.startTime > intendedUtc)
-		.map((leg) => utcInstantToLocalDateTime(leg.startTime, leg.from.tz ?? 'UTC'));
+	// The whole point of issue #135. Asked "get me there by 06:15", the answer is the LAST
+	// departure MOTIS returned, because every one of them arrives in time and the traveller
+	// wants the one that lets them leave latest. Asked "I am free from 23:55", it is the
+	// FIRST. Taking `itineraries[0]` either way turned a 05:08 night bus into a 02:16 one.
+	const chosenIndex = plannedFor.arriveBy ? departures.length - 1 : 0;
+	const chosen = departures[chosenIndex];
+	const lastLeg = chosen.itinerary.legs[chosen.itinerary.legs.length - 1];
+	const boardingTime = (option: DepartureOption) =>
+		toLocal(option.transitLeg.startTime, option.transitLeg.from.tz);
 
 	return {
 		mode: 'transit',
-		duration: secondsToDuration(chosen.duration),
-		legs: chosen.legs.map(mapLeg),
+		duration: secondsToDuration(chosen.itinerary.duration),
+		legs: chosen.itinerary.legs.map(mapLeg),
 		transitSchedule: {
-			intended: utcInstantToLocalDateTime(intendedUtc, chosenTransitLeg.from.tz ?? 'UTC'),
-			following
+			intended: boardingTime(chosen),
+			arrival: toLocal(chosen.itinerary.endTime, lastLeg.to.tz),
+			// Empty on an `arriveBy` plan, and that emptiness is itself the answer rather
+			// than a hole in the data: nothing later than the last departure arrives in
+			// time. See `TransitSchedule.following`.
+			following: departures.slice(chosenIndex + 1).map(boardingTime),
+			earlier: plannedFor.arriveBy ? departures.slice(0, chosenIndex).map(boardingTime) : undefined,
+			plannedFor
 		}
 	};
+}
+
+interface DepartureOption {
+	itinerary: TransitousItinerary;
+	transitLeg: TransitousLeg;
+}
+
+/**
+ * Every itinerary that actually boards something, ordered by that boarding time, one entry
+ * per distinct departure.
+ *
+ * MOTIS returns `itineraries` unordered — a real arriveBy response for Barcelona on
+ * 2026-10-04 came back 02:16, 02:17, 02:40, 02:43, 02:31, 02:46, 03:08 — which is also how
+ * the app came to print "13:28, 13:27" as consecutive next departures (issue #135).
+ * Comparing the raw wire strings is exact here: they are all the same fixed-width UTC ISO
+ * format from one response.
+ *
+ * Alternate routes sharing one departure minute (seen in a real night-time response)
+ * collapse to the first, since "the next one after it" means a different bus, not a
+ * different way of describing the same one.
+ */
+function orderedDepartures(itineraries: readonly TransitousItinerary[]): DepartureOption[] {
+	const options: DepartureOption[] = [];
+	for (const itinerary of itineraries) {
+		const transitLeg = firstTransitLeg(itinerary);
+		if (transitLeg) options.push({ itinerary, transitLeg });
+	}
+	options.sort((a, b) =>
+		a.transitLeg.startTime < b.transitLeg.startTime
+			? -1
+			: a.transitLeg.startTime > b.transitLeg.startTime
+				? 1
+				: 0
+	);
+
+	const deduped: DepartureOption[] = [];
+	for (const option of options) {
+		if (deduped[deduped.length - 1]?.transitLeg.startTime === option.transitLeg.startTime) continue;
+		deduped.push(option);
+	}
+	return deduped;
+}
+
+function toLocal(utcIso: string, timeZone: string | undefined): LocalDateTime {
+	return utcInstantToLocalDateTime(utcIso, timeZone ?? 'UTC');
 }
 
 function firstTransitLeg(itinerary: TransitousItinerary): TransitousLeg | undefined {
@@ -186,8 +246,4 @@ function describeLeg(leg: TransitousLeg): string | undefined {
 
 function secondsToDuration(seconds: number): Duration {
 	return Math.round(seconds / 60) as Duration;
-}
-
-function isDefined<T>(value: T | undefined): value is T {
-	return value !== undefined;
 }

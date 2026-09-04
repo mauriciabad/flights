@@ -684,6 +684,7 @@ export function createOsrmTransferProvider(options: OsrmProviderOptions = {}): T
 		label: 'OSRM (walking & driving)',
 		needsKey: false,
 		keyFields: [],
+		modes: SUPPORTED_MODES,
 		healthCheck: (ctx) => healthCheckImpl(ctx, options),
 		searchTransfers: (query, ctx) => searchTransfersImpl(query, ctx, options)
 	};

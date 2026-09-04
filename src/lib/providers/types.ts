@@ -303,6 +303,17 @@ export interface TransferSearchQuery {
 	 * up a real timetable (Transitous, issue #8: "the last bus problem"); irrelevant for
 	 * a mode like walking where the duration doesn't depend on time of day. */
 	departure?: LocalDateTime;
+	/**
+	 * Issue #135: turns `departure` from "leave no earlier than this" into "be there no
+	 * later than this". A leg that ends at a check-in deadline (origin location to the
+	 * airport) asks the second question; a leg that starts at a runway asks the first.
+	 * Asking the wrong one returns a real timetable for a journey nobody is making.
+	 *
+	 * Ignored when `departure` is absent — a transit adapter with no moment to plan for
+	 * must decline the query rather than substitute the moment the search ran, which is
+	 * the entire defect this field exists to close.
+	 */
+	arriveBy?: boolean;
 	/** Restrict to a subset, e.g. only 'transit', when the caller already has a driving
 	 * estimate from elsewhere and only wants public transport. All modes this adapter
 	 * supports if omitted. */
@@ -311,6 +322,14 @@ export interface TransferSearchQuery {
 
 export interface TransferProvider extends ProviderBase {
 	readonly kind: 'transfer';
+	/**
+	 * Which modes this adapter can actually answer for. Issue #135: a caller that asks for
+	 * roads only must be able to leave a transit adapter out of the call entirely, rather
+	 * than call it and receive an empty result it then has to tell apart from "asked, and
+	 * there is no service here". Those two look identical on the wire and only one of them
+	 * belongs on screen (issue #130).
+	 */
+	readonly modes: readonly TransferMode[];
 	/** One call may return more than one Transfer — e.g. both 'walk' and 'transit' for
 	 * the same A-to-B, since domain/transfer.ts models each mode as its own record and the
 	 * caller (or the traveller) picks between them. */

@@ -82,8 +82,11 @@ import {
 	fetchBestTransfer,
 	fetchConnectionResources,
 	pickBestTransfer,
-	pickLandingToTransportTime
+	pickLandingToTransportTime,
+	ROAD_TRANSFER_MODES
 } from './resources';
+import { createTransitLookupBudget, fetchTransitSchedules } from './transit-schedule';
+import type { TransitLookupBudget } from './transit-schedule';
 import type {
 	ConnectionCandidate,
 	ConnectionTransferOptions,
@@ -134,7 +137,10 @@ async function fetchOuterTransfers(
 	const [originOutcome, destinationOutcome] = await Promise.all([
 		query.originLocation
 			? fetchBestTransfer(
-					{ from: query.originLocation.coordinates, to: originAirport.coordinates },
+					// Roads only. This resolves once per search, before any flight is known,
+					// so there is no journey moment to plan a timetable for — that happens
+					// per itinerary in `transit-schedule.ts` (issue #135).
+					{ from: query.originLocation.coordinates, to: originAirport.coordinates, modes: [...ROAD_TRANSFER_MODES] },
 					transferProviders,
 					keys,
 					signal,
@@ -144,7 +150,7 @@ async function fetchOuterTransfers(
 			: undefined,
 		query.destinationLocation
 			? fetchBestTransfer(
-					{ from: destinationAirport.coordinates, to: query.destinationLocation.coordinates },
+					{ from: destinationAirport.coordinates, to: query.destinationLocation.coordinates, modes: [...ROAD_TRANSFER_MODES] },
 					transferProviders,
 					keys,
 					signal,
@@ -345,6 +351,10 @@ interface ProcessCandidateInput {
 	 * entire point — a per-candidate budget would bound nothing, since the unbounded cost
 	 * came from the candidate count itself. */
 	stayLookupBudget: StayLookupBudget;
+	/** Issue #135: this search's shared ration of Transitous `/plan` lookups, created once
+	 * per search for the same reason `stayLookupBudget` is — a per-candidate bound bounds
+	 * nothing when the candidate count is what grows. */
+	transitLookupBudget: TransitLookupBudget;
 	transferToOriginAirport?: Transfer;
 	transferToDestinationLocation?: Transfer;
 	sources: SourceTracker;
@@ -491,13 +501,58 @@ async function processCandidate(input: ProcessCandidateInput): Promise<Candidate
 			travellers: input.query.travellers
 		});
 
-		const results = rankItineraries(itineraries, input.airlinesToAvoid, input.weights).map(
-			(score): ItineraryResult => ({ score, sources: sourcesForItinerary(score.itinerary, input.sources) })
+		const scored = rankItineraries(itineraries, input.airlinesToAvoid, input.weights);
+
+		// Issue #135. Everything above this line was fetched before either flight was known,
+		// so none of it could ask a timetable the right question. Now both flights are on the
+		// itinerary, so the check-in deadline and the landing moment are real times, and
+		// public transport can finally be asked about the journey the traveller is actually
+		// taking rather than about the minute the search ran.
+		//
+		// Only this candidate's best pairing is refined. It is the one the result card shows
+		// and the one a detail view opens, and refining every variant would multiply requests
+		// to a volunteer-run service by however many fares the flight providers happened to
+		// return. The other variants keep their road-mode transfers, which is also what
+		// happens today when a traveller swaps flights in the picker.
+		const refined = scored.length > 0 ? await fetchTransitSchedules({
+			itinerary: scored[0].itinerary,
+			connectionCoordinates: connectionAirport.coordinates,
+			connectionLandingBuffer: pickLandingToTransportTime(input.landingToTransportRules, connectionAirport.sizeClass),
+			destinationLandingBuffer: pickLandingToTransportTime(input.landingToTransportRules, input.destinationAirport.sizeClass),
+			transferProviders: input.transferProviders,
+			keys: input.keys,
+			signal: input.signal,
+			sources: input.sources,
+			record: input.record,
+			budget: input.transitLookupBudget,
+			minLayoverTime: input.query.minLayoverTime
+		}) : undefined;
+
+		// Re-ranked rather than slotted back in at position 0: swapping a two-hour walk for a
+		// forty-minute night bus changes this itinerary's total time, which is one of the
+		// things `rankItineraries` scores on. Keeping the old order would show a stale one.
+		const finalItineraries = refined
+			? [refined.itinerary, ...scored.slice(1).map((score) => score.itinerary)]
+			: scored.map((score) => score.itinerary);
+		const results = rankItineraries(finalItineraries, input.airlinesToAvoid, input.weights).map(
+			(score): ItineraryResult => ({
+				score,
+				sources: sourcesForItinerary(score.itinerary, input.sources),
+				transit: refined && score.itinerary === refined.itinerary ? refined.answers : undefined
+			})
 		);
 		return {
 			candidate: input.candidate,
 			itineraries: results,
 			stayCandidates: resources.stayCandidates,
+			// Deliberately NOT widened with the transit transfers `fetchTransitSchedules` just
+			// found. These lists are shared by every variant in the group and, for the outer
+			// legs, by every group in the search, while a timetable is only true for the one
+			// itinerary it was planned for. Offering it as an "alternative" elsewhere would
+			// put a schedule for somebody else's flight back on screen, which is the defect.
+			// The refined itinerary carries its own transit transfer, and `TransportPicker`
+			// always renders the itinerary's current transfer whether or not it is in this
+			// list.
 			transferOptions: {
 				transferToHotel: {
 					candidates: resources.transferToHotelCandidates,
@@ -879,6 +934,10 @@ export async function* runSearch(
 		// sweep multiplying stay spend by four over the 6-candidate batch — the fallback
 		// path inherits an already-partly-spent budget rather than a fresh one.
 		stayLookupBudget: createStayLookupBudget(),
+		// Issue #135: one ration for the whole search, same reasoning as the line above.
+		// Transitous is free, so this is not about money — it is about not turning one click
+		// into a dozen requests against a volunteer-run server.
+		transitLookupBudget: createTransitLookupBudget(),
 		transferToOriginAirport,
 		transferToDestinationLocation,
 		sources,
@@ -1011,6 +1070,8 @@ export async function* widenSearch(
 	// Issue #148: one ration for this whole confirm run, shared across every target the
 	// traveller confirmed — see its use below for why the confirm tier is rationed too.
 	const stayLookupBudget = createStayLookupBudget();
+	// Issue #135: same per-search ration for the confirm tier as the free one.
+	const transitLookupBudget = createTransitLookupBudget();
 
 	const providerStatus = new Map<ProviderId, ProviderStatus>();
 	const record: RecordProviderCall = (provider, result) => recordProviderResult(providerStatus, provider, result);
@@ -1166,6 +1227,7 @@ export async function* widenSearch(
 			// gets the same per-search ration as the free tier so one confirmation cannot
 			// empty a month either.
 			stayLookupBudget,
+			transitLookupBudget,
 			transferToOriginAirport,
 			transferToDestinationLocation,
 			sources,

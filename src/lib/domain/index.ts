@@ -16,6 +16,7 @@ export * from './airport';
 export * from './waiting-time';
 export * from './flight-offer';
 export * from './stay';
+export * from './transit-schedule';
 export * from './transfer';
 export * from './itinerary';
 export * from './search-query';

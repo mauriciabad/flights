@@ -74,6 +74,10 @@ function fakeTransferProvider(): TransferProvider {
 		label: 'Fixture transfers',
 		needsKey: false,
 		keyFields: [],
+		// Issue #135: a fixture stands in for a provider that answers about everything, so
+		// it declares every mode. A real adapter declares only what it serves, which is what
+		// keeps a roads-only lookup from calling a timetable adapter at all.
+		modes: ['walk', 'transit', 'drive', 'taxi'],
 		async healthCheck() {
 			return { ok: true, data: {}, source: source('transit-fixture'), requestsUsed: 0 };
 		},
@@ -103,6 +107,10 @@ function configurableTransferProvider(transfers: Transfer[], idString = 'transfe
 		label: `Fixture transfers (${idString})`,
 		needsKey: false,
 		keyFields: [],
+		// Issue #135: a fixture stands in for a provider that answers about everything, so
+		// it declares every mode. A real adapter declares only what it serves, which is what
+		// keeps a roads-only lookup from calling a timetable adapter at all.
+		modes: ['walk', 'transit', 'drive', 'taxi'],
 		async healthCheck() {
 			return { ok: true, data: {}, source: source(idString), requestsUsed: 0 };
 		},
