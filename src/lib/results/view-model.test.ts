@@ -38,6 +38,23 @@ describe('describeWhyGood', () => {
 		expect(numbers).toEqual(['2']);
 	});
 
+	it('leads with a real night count even with no stay priced, per issue #105', () => {
+		const result = makeScoredResult({ nightsInConnection: 12 });
+		// `makeItinerary` always includes a stay — strip it the same way the "no stay"
+		// test below does, to reproduce the exact keyless-search shape from issue #105.
+		const withoutStay = {
+			...result,
+			itinerary: { ...result.itinerary, stay: undefined, transferToHotel: undefined, transferToConnectionAirport: undefined }
+		};
+
+		const text = describeWhyGood(withoutStay);
+		expect(text).toContain('12 nights');
+		expect(text).toMatch(/no bed priced/i);
+		// Never the old all-or-nothing line: a real 12-night stopover is not "no stay
+		// priced for this stopover yet — showing flights and free time only."
+		expect(text).not.toMatch(/showing flights and free time only/i);
+	});
+
 	it('says plainly that no stay was priced, rather than reading a fabricated zero as "no overnight needed" (issue #94)', () => {
 		const result = makeScoredResult({ nightsInConnection: 0 });
 		// `makeItinerary` (test-support.ts) always includes a stay — this is the one case

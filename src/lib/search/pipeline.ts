@@ -355,7 +355,11 @@ async function processCandidate(input: ProcessCandidateInput): Promise<Candidate
 			destinationLocation: input.query.destinationLocation,
 			transferToDestinationLocation: input.transferToDestinationLocation,
 			minLayoverTime: input.query.minLayoverTime,
-			waitingTimeRules: input.query.waitingTimeRules
+			waitingTimeRules: input.query.waitingTimeRules,
+			// Issue #106: without this, `buildItineraries` defaults to 1 traveller and a
+			// group search silently gets a solo total — see `Itinerary.travellers`'s own
+			// doc comment for exactly what this scales.
+			travellers: input.query.travellers
 		});
 
 		const results = rankItineraries(itineraries, input.airlinesToAvoid, input.weights).map(

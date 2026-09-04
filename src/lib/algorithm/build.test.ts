@@ -222,11 +222,11 @@ describe('buildItineraries — missing stay (issue #94)', () => {
 		expect(itinerary.transferToConnectionAirport).toBeUndefined();
 	});
 
-	it('never guesses a stay cost or a night count when no stay was found', () => {
+	it('counts real calendar nights from the schedule even with no stay found, but never guesses a stay cost (issue #105)', () => {
 		const arrival = localDateTime('2026-06-01T10:00:00', 'Europe/Vienna', 120);
-		// A gap wide enough to cross a calendar date, so a bug that still consulted
-		// `nightsBetween` here (rather than hard-zeroing it) would show up as a nonzero
-		// night count instead of silently matching by coincidence.
+		// A gap that crosses one calendar date, so this proves the opposite of the old
+		// behaviour: nights must be genuinely computed here, never hard-zeroed just
+		// because no stay was found.
 		const departure = localDateTime('2026-06-02T14:00:00', 'Europe/Vienna', 120);
 		const outbound = makeFlight('LGW', 'VIE', arrival, arrival, 150, 5000);
 		const onward = makeFlight('VIE', 'IST', departure, departure, 90, 6000);
@@ -240,10 +240,37 @@ describe('buildItineraries — missing stay (issue #94)', () => {
 			})
 		);
 
-		expect(itinerary.nightsInConnection).toBe(0);
+		expect(itinerary.stay).toBeUndefined();
+		expect(itinerary.nightsInConnection).toBe(1);
 		// Total is exactly the two flights, no hotel and no in-city transfer legs — never a
 		// $0 stay standing in for "unknown".
 		expect(itinerary.totalPrice).toEqual({ minorUnits: outbound.price.minorUnits + onward.price.minorUnits, currency: 'EUR' });
+	});
+
+	it('reports a genuine 12-night stopover with no stay provider available at all (issue #105)', () => {
+		// Exactly the shape of the app's default, keyless first-time-visitor state: every
+		// stay provider `needsKey`, so `resources.ts`'s `fetchConnectionResources` degrades
+		// to `{}` for the connection — no bed, no hotel-side transfers, nothing but the two
+		// flights this free tier already fetched.
+		const arrival = localDateTime('2026-10-07T07:35:00', 'Europe/Vienna', 120);
+		const departure = localDateTime('2026-10-19T06:10:00', 'Europe/Vienna', 120);
+		const outbound = makeFlight('BCN', 'DUB', arrival, arrival, 150, 3000);
+		const onward = makeFlight('DUB', 'TLL', departure, departure, 200, 2854);
+
+		const [itinerary] = buildItineraries(
+			baseInput({
+				originAirport: makeAirport('BCN'),
+				destinationAirport: makeAirport('TLL'),
+				connectionAirports: { DUB: makeAirport('DUB') },
+				outboundOffers: [outbound],
+				onwardOffers: [onward],
+				connectionResources: { DUB: {} },
+				waitingTimeRules: flatWaitingTime(120)
+			})
+		);
+
+		expect(itinerary.stay).toBeUndefined();
+		expect(itinerary.nightsInConnection).toBe(12);
 	});
 
 	it('runs free time from runway to runway, with no in-city transfer buffer, when no stay was found', () => {
@@ -280,6 +307,50 @@ describe('buildItineraries — missing stay (issue #94)', () => {
 		);
 
 		expect(result).toHaveLength(0);
+	});
+});
+
+describe('buildItineraries — total price scales with travellers (issue #106)', () => {
+	it('multiplies the per-adult flight fares by the party size, never the flat per-night stay rate', () => {
+		const arrival = localDateTime('2026-06-01T10:00:00', 'Europe/Vienna', 120);
+		const departure = localDateTime('2026-06-02T10:00:00', 'Europe/Vienna', 120); // exactly one night
+		const outbound = makeFlight('LGW', 'VIE', arrival, arrival, 150, 5000); // €50, per adult
+		const onward = makeFlight('VIE', 'IST', departure, departure, 90, 6000); // €60, per adult
+
+		const input = baseInput({
+			outboundOffers: [outbound],
+			onwardOffers: [onward],
+			connectionResources: {
+				VIE: { stay: makeStay(3000), transferToHotel: makeTransfer(0), transferToConnectionAirport: makeTransfer(0) }
+			},
+			waitingTimeRules: flatWaitingTime(0)
+		});
+
+		const [solo] = buildItineraries(input);
+		const [group] = buildItineraries({ ...input, travellers: 3 });
+
+		expect(solo.travellers).toBe(1);
+		expect(solo.totalPrice.minorUnits).toBe(5000 + 6000 + 3000);
+
+		// Flights scale by party size — (5000 + 6000) * 3 — but the one stay-night stays a
+		// flat 3000 for the whole party (issue #80/#94's own documented choice), not *3.
+		expect(group.travellers).toBe(3);
+		expect(group.totalPrice.minorUnits).toBe((5000 + 6000) * 3 + 3000);
+		expect(group.totalPrice.minorUnits).not.toBe(solo.totalPrice.minorUnits);
+	});
+
+	it('defaults to 1 traveller when the query omits it, matching DEFAULT_TRAVELLERS', () => {
+		const arrival = localDateTime('2026-06-01T10:00:00', 'Europe/Vienna', 120);
+		const departure = localDateTime('2026-06-01T14:00:00', 'Europe/Vienna', 120);
+		const outbound = makeFlight('LGW', 'VIE', arrival, arrival, 150, 5000);
+		const onward = makeFlight('VIE', 'IST', departure, departure, 90, 6000);
+
+		const [itinerary] = buildItineraries(
+			baseInput({ outboundOffers: [outbound], onwardOffers: [onward] })
+		);
+
+		expect(itinerary.travellers).toBe(1);
+		expect(itinerary.totalPrice.minorUnits).toBe(5000 + 6000);
 	});
 });
 
