@@ -129,7 +129,47 @@ hard and do not hammer it.
 **OurAirports** publishes a 12 MB public-domain CSV of every airport. Filter it at build
 time. Never ship it to a phone.
 
-## Travelpayouts
+## Travelpayouts, and why it cannot be called from the browser
+
+**Verified 2026-09-04: Travelpayouts sends no CORS headers, so the browser cannot call it.**
+
+This was checked two ways, because the earlier evidence was ambiguous. `curl` with
+`Origin: https://flights.mauri.app` against `/v1/city-directions`,
+`/aviasales/v3/prices_for_dates` and `/v1/prices/calendar` returns real 200 responses with
+plausible cached fares and NO `Access-Control-Allow-Origin`. An OPTIONS preflight returns a
+bare `404 page not found`, so there is no CORS handling at all. Then a live `fetch()` run
+from `https://flights.mauri.app` itself threw `TypeError: Failed to fetch`, with Chrome
+reporting the missing header explicitly.
+
+So the data is real and the browser throws it away before any app code sees it.
+
+### The build-time route out
+
+The no-backend rule bans a server at *runtime*. It does not ban a build step, and this repo
+already has one: the 12 MB OurAirports CSV is fetched and compiled to 165 KB of JSON during
+the build.
+
+Travelpayouts fits the same pattern. A scheduled GitHub Actions job can call it server-side,
+where CORS does not apply, and commit a static JSON of cheap routes from a set of origins.
+The app then reads a static file. No proxy, no server, no secret in the client, and the token
+lives in Actions secrets rather than the user's browser.
+
+That works because of what the free tier actually is. It returns recently cached prices, not
+live search, so the data is already hours old and refreshing it nightly loses nothing. It is
+a poor fit for a final quote and a good one for ranking which stopover cities are worth
+spending a metered request on.
+
+Response shape from `/v1/city-directions`:
+
+```json
+{ "data": { "<IATA>": { "origin", "destination", "airline", "departure_at",
+  "return_at", "expires_at", "price", "flight_number", "transfers" } },
+  "currency": "eur", "success": true }
+```
+
+`expires_at` is the cache-freshness marker and should survive into the domain model.
+
+## Travelpayouts, original notes
 
 Free, self-serve, and needs no credit card, because it is affiliate-funded: you earn per
 booking rather than paying per call. Rate limits are generous, 300 requests per minute on
