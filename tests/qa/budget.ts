@@ -58,13 +58,24 @@ export const REQUESTS_PER_SEARCH: Readonly<Record<ProviderId, number>> = {
 	// was rather than being raised to meet the old number.
 	'kiwi-public': 30,
 
-	// Keyless and unmetered, and the only bed source a visitor with no key has. Its cost is
-	// two things added together: six requests to build the world city index, once, cached a
-	// month, plus one price call per stopover candidate. The ceiling allows a second and
-	// third city for a candidate whose first choice is sold out — `MAX_CITY_CANDIDATES` in
-	// `hostelworld.ts` — which is the bounded worst case rather than the measured typical
-	// one. A warm index makes a whole search cost one request per candidate.
-	hostelworld: 15,
+	// Keyless and unmetered, so this is a politeness limit rather than money — but it is the
+	// one number issue #204 moved, and it moved a long way, so here is the arithmetic.
+	//
+	// Six requests build the world city index, once, cached for a month. Then
+	// `MAX_CITY_CANDIDATES` price calls per stopover candidate: 6 + 3 x candidates.
+	//
+	// It used to be 6 + 1 x candidates, because the adapter returned on the first city that
+	// answered. That early return is exactly what hid the walkable Horley beds behind a
+	// London dorm 39 km away, so the extra calls buy the fix rather than padding. Measured
+	// on this bench's four-candidate scenario the cost went 10 -> 18, and on the acceptance
+	// search's three real stopovers 9 -> 14 (LGW and MAN have three cities inside 50 km, BHX
+	// only two).
+	//
+	// 24 is 6 + 3 x 6, so six stopover candidates fit. Set at the bounded shape rather than
+	// at the 18 measured today, per this file's own rule about ceilings not ratifying
+	// current behaviour. It sits below Ryanair's and Kiwi's 30 for a provider that is asked
+	// once per stopover rather than once per leg per candidate.
+	hostelworld: 24,
 
 	// Keyless, so no money at stake, but not free either: Ryanair rate-limits, and one
 	// search issuing 96 requests to it (issue #121, measured) is how a keyless provider
