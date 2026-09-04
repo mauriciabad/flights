@@ -47,18 +47,43 @@ export type { ItineraryGroup, ProviderStatus, SearchSnapshot, WidenOption } from
  *   `cache/stale-while-revalidate.ts`'s own `ExpiredFallbackResult` for the identical
  *   reason: a component cannot read `.value` here without also having the caveat in scope.
  *
- * `ageMs` is now on every tier, and that is the point. It used to sit only on
+ * `retrievedAgeMs` is now on every tier, and that is the point. It used to sit only on
  * `expired-fallback`, so the other two answered "how old is this price" with a fact about
  * the search rather than a fact about the price, and `'fresh'` was rendered as the words
  * "Current price". Once #151 made adapters report a cached price's real age, a card could
  * show "Current price" beside "via Ryanair · fetched 58 minutes ago" — a hit at 59 minutes
  * is an ordinary outcome under ryanair.ts's one-hour fare TTL. Both lines are now derived
  * from this one number, so they cannot contradict each other.
+ *
+ * It is named for the clock it comes off, issue #170. Two instants exist here and they
+ * are not interchangeable:
+ *
+ * - **when we retrieved it.** `ProviderSource.fetchedAt`, our clock, always known. This
+ *   is what `retrievedAgeMs` measures, and the only one this app has.
+ * - **when the provider last changed the price.** The provider's clock. A fare retrieved
+ *   ten seconds ago may have been set eight hours ago, and that is the number a traveller
+ *   is actually asking about.
+ *
+ * **No adapter in this app can supply the second one**, measured 2026-09-04 rather than
+ * assumed — see the header of `providers/flights/ryanair-types.ts` for what Ryanair does
+ * and does not send. So the honest thing is to say which clock this is and stop there:
+ * the badge `view-model.ts` builds from this used to read "Priced 40 minutes ago", which
+ * asserts a repricing instant nobody here has, off a number that only ever knew when our
+ * own HTTP client last ran.
+ *
+ * The plain `ageMs` this replaced is what let that happen. Anyone can read an unqualified
+ * "age" as the age of the thing rather than the age of our copy of it, which is how a
+ * label claiming one got written over a number carrying the other.
  */
 export type PriceFreshness =
-	| { tier: 'fresh'; ageMs: number }
-	| { tier: 'stale'; ageMs: number }
-	| { tier: 'expired-fallback'; ageMs: number; reason: ProviderIssueReason; message: string };
+	| { tier: 'fresh'; retrievedAgeMs: number }
+	| { tier: 'stale'; retrievedAgeMs: number }
+	| {
+			tier: 'expired-fallback';
+			retrievedAgeMs: number;
+			reason: ProviderIssueReason;
+			message: string;
+	  };
 
 /** One part of an itinerary and which provider supplied it, issue #23: "Show provenance:
  * which provider gave each price, and when it was fetched." An itinerary's total price is
@@ -68,6 +93,9 @@ export interface ProvenancePart {
 	part: keyof ItinerarySources;
 	providerId: ProviderId;
 	providerLabel: string;
+	/** Straight off `ProviderSource.fetchedAt`: when THIS APP retrieved the value. Never
+	 * when the provider set it — see `PriceFreshness` above for why the difference is the
+	 * whole of issue #170. */
 	fetchedAt: string;
 }
 
@@ -146,17 +174,20 @@ function buildProvenance(
 	}
 
 	// The oldest contributing part decides, on every tier: a total assembled from a flight
-	// priced a minute ago and a bed priced an hour ago is an hour-old total.
-	const ageMs = oldestPartAgeMs(parts);
+	// retrieved a minute ago and a bed retrieved an hour ago is an hour-old total.
+	const retrievedAgeMs = oldestPartAgeMs(parts);
 
 	const failingPart = parts.find((part) => providers[part.providerId]?.lastError !== undefined);
 	if (failingPart) {
 		const error = providers[failingPart.providerId]?.lastError as ProviderError;
 		const { reason, message } = describeProviderError(error);
-		return { parts, freshness: { tier: 'expired-fallback', ageMs, reason, message } };
+		return { parts, freshness: { tier: 'expired-fallback', retrievedAgeMs, reason, message } };
 	}
 
-	return { parts, freshness: done ? { tier: 'fresh', ageMs } : { tier: 'stale', ageMs } };
+	return {
+		parts,
+		freshness: done ? { tier: 'fresh', retrievedAgeMs } : { tier: 'stale', retrievedAgeMs }
+	};
 }
 
 /** Zero when there is nothing to age, which is the honest answer for an itinerary whose

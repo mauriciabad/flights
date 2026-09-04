@@ -27,6 +27,41 @@ export interface RyanairPrice {
  * What this row does NOT carry is the reason `ryanair-mapper.ts` joins it against the
  * timetable feed below: no flight number, no carrier code, and no airport objects. The
  * airports are known from the request; the flight's identity is not.
+ *
+ * ## It also does not say when Ryanair last moved the price (issue #170)
+ *
+ * Worth stating outright, because the app used to imply otherwise and the answer took a
+ * live measurement to settle. Every field on a fare row is listed above; measured against
+ * the live endpoint on 2026-09-04, the union of keys across all 31 rows of a
+ * `BCN/STN/cheapestPerDay` response is exactly `day`, `arrivalDate`, `departureDate`,
+ * `price`, `soldOut`, `unavailable`. There is no reprice timestamp, and
+ * ./fixtures/cheapest-per-day-bcn-stn.json is a verbatim capture, not a trimmed one.
+ *
+ * Three places it could have come from, all closed:
+ *
+ * - **The old fare finder.** `farfnd/v4/oneWayFares` does carry `priceUpdated` (epoch
+ *   millis, past-dated; re-checked live 2026-09-04, and it read 3.5 hours behind the
+ *   clock at the time). It is not this endpoint. Issue #137 replaced it precisely because
+ *   pinned to one route it answers `size: 1` — a single fare for the entire month — so
+ *   its one timestamp could describe at most one of the thirty-one dated offers the
+ *   flight picker now shows, at the cost of a third request per route-month. One honest
+ *   date on one card, thirty cards still undated, and a request spent per search to get
+ *   there.
+ * - **Ryanair's CDN.** The wire response does carry CloudFront `age` and `date`, which
+ *   together say how long the answer sat in the cache. A browser cannot read either:
+ *   neither is CORS-safelisted, and Ryanair's `Access-Control-Expose-Headers` names only
+ *   `Content-Type, Accept, X-Requested-With, X-File-Name, x-real-ip, Market-Code,
+ *   Market-BasePath, X-AUTH-TOKEN, X-Session-Token, fr-correlation-id`. Confirmed from a
+ *   real cross-origin fetch in Chromium on 2026-09-04: the only readable headers on this
+ *   response are `cache-control` and `content-type`, and `res.headers.get('age')` is
+ *   `null`. This app has no backend to read them from anywhere else.
+ * - **`Cache-Control: max-age=60, s-maxage=300`.** Readable, but it is the CDN's
+ *   retention policy, not a statement about when the price changed. Reading a repricing
+ *   instant out of it would be the invention this issue exists to prevent.
+ *
+ * So the honest position is that this adapter does not know when a fare was last
+ * repriced, and nothing downstream may imply it does. `results/view-model.ts` says
+ * "Checked 40 minutes ago" rather than "Priced 40 minutes ago" for that reason.
  */
 export interface RyanairDailyFare {
 	/** Calendar date, "2026-10-01". Present on every row, including unsellable ones. */

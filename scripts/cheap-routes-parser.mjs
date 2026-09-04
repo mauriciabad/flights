@@ -82,3 +82,31 @@ function toCheapRoute(origin, destinationKey, raw, currency) {
 		expiresAt: raw.expires_at
 	};
 }
+
+/**
+ * Issue #169: assembles the file the generator writes -- the routes, sorted, plus the
+ * instant they were fetched.
+ *
+ * Lives here rather than inline in fetch-cheap-routes.mjs for the same reason
+ * `parseCityDirectionsResponse` does: this module is the testable half, and "does the
+ * dataset carry a real timestamp" should fail a unit test rather than be discovered
+ * months later on a card claiming a build artefact is seconds old.
+ *
+ * `fetchedAt` is a required argument, deliberately not defaulted to `new Date()` in
+ * here. A default would let a caller build a dataset without deciding what its
+ * timestamp means, and "nobody decided" is how the stamp came to be missing at all.
+ */
+export function buildCheapRoutesDataset(routes, fetchedAt) {
+	if (typeof fetchedAt !== 'string' || Number.isNaN(Date.parse(fetchedAt))) {
+		throw new CheapRoutesResponseError(
+			`buildCheapRoutesDataset needs a parseable ISO instant, got ${JSON.stringify(fetchedAt)}`
+		);
+	}
+	// Sorted here so the caller cannot forget: a stable `routes` order is what lets a
+	// reviewer read one of the nightly commits and see at a glance whether a price
+	// moved or only the stamp did.
+	const sorted = [...routes].sort(
+		(a, b) => a.origin.localeCompare(b.origin) || a.destination.localeCompare(b.destination)
+	);
+	return { fetchedAt, routes: sorted };
+}

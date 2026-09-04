@@ -35,12 +35,27 @@ jobs:
           TRAVELPAYOUTS_TOKEN: ${{ secrets.TRAVELPAYOUTS_TOKEN }}
         run: node scripts/fetch-cheap-routes.mjs
 
-      - name: Commit if the data changed
+      # Issue #169: this lands a commit every night now, even when no price moved,
+      # because the dataset carries a `fetchedAt` and that advances every run. The
+      # same trade the ryanair-network job next door already makes, for the same
+      # reason: the app reports this stamp as the data's age, so a date that stopped
+      # advancing would make freshly-confirmed prices look weeks old.
+      #
+      # The three options were: accept the nightly no-op commit; bump the stamp only
+      # when the data changed, which turns it into "when this data was last
+      # different" and would then have to be named that; or leave it stale between
+      # changes, which is simply false. Only the first keeps the field's name honest.
+      #
+      # Nothing is lost by dropping the changed-data guard: `routes` is still sorted
+      # for a stable diff, so `git show` on one of these commits still says plainly
+      # whether any price moved or only the stamp did. The guard below now catches
+      # just the case where the script wrote nothing at all.
+      - name: Commit the dataset
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           if git diff --quiet -- src/lib/data/cheap-routes.generated.json; then
-            echo "Cheap routes data unchanged, nothing to commit."
+            echo "Cheap routes file unchanged (script wrote nothing), nothing to commit."
             exit 0
           fi
           git add src/lib/data/cheap-routes.generated.json
