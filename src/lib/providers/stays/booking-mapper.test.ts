@@ -24,6 +24,19 @@ describe('toMoney', () => {
 		).toEqual({ minorUnits: 6545, currency: 'EUR' });
 	});
 
+	// Issue #179: this function used to multiply every price by 100 whatever the currency
+	// was, so a 12000 JPY room came back as 1,200,000 minor units — ¥1,200,000 for a night
+	// in a hostel. The exponent comes from domain/money.ts now, the same table the flight
+	// adapters and the formatter read.
+	it.each([
+		['EUR', 65.45455, 6545],
+		['JPY', 12000, 12000],
+		['HUF', 45000, 4500000],
+		['KWD', 1.5, 1500]
+	])('scales a %s price of %d to %i minor units', (currency, value, minorUnits) => {
+		expect(toMoney({ value, currency })).toEqual({ minorUnits, currency });
+	});
+
 	it('returns undefined when value or currency is missing', () => {
 		expect(toMoney({ currency: 'EUR' })).toBeUndefined();
 		expect(toMoney({ value: 10 })).toBeUndefined();

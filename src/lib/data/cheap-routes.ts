@@ -15,15 +15,15 @@
  */
 
 import type { IataAirlineCode, IataAirportCode, IsoCurrencyCode, Money } from '$lib/domain';
+import { moneyFromMajorUnits } from '$lib/domain';
 
 /**
  * One row of the generated dataset, written by scripts/fetch-cheap-routes.mjs.
  * Field names and the major-units price match the Travelpayouts API response
  * (docs/PROVIDERS.md) directly -- the only transform this module does at load
- * time is the Money conversion, kept here rather than baked into the JSON so it
- * stays a small, directly testable pure function (see moneyFromMajorUnits),
- * the same reasoning airports.ts gives for deriving sizeClass at load time
- * rather than pre-computing it.
+ * time is the Money conversion (`moneyFromMajorUnits`, domain/money.ts), done
+ * here rather than baked into the JSON for the same reason airports.ts derives
+ * sizeClass at load time rather than pre-computing it.
  */
 interface CheapRouteDatasetRow {
 	origin: IataAirportCode;
@@ -98,28 +98,26 @@ export interface CheapRoute {
 /**
  * Travelpayouts reports `price` as a float in major currency units (docs/
  * PROVIDERS.md: "price is a NUMBER in major units here"), while the domain
- * `Money` type wants integer minor units (AGENTS.md "Money"). A plain
- * `majorUnits * 100` is not safe: floating-point multiplication of, say, 19.99
- * produces 1998.9999999999998, and truncating that undercharges by a cent.
- * Rounding to the nearest integer is what makes the conversion exact for the
- * two-decimal currencies this dataset uses -- it only ever requests
- * `currency=eur` (see scripts/fetch-cheap-routes.mjs), so a zero-decimal
- * currency like JPY never reaches this function.
+ * `Money` type wants integer minor units (AGENTS.md "Money"), so every row
+ * converts through `moneyFromMajorUnits` (domain/money.ts) -- the same function
+ * every provider adapter uses, scaling by the row's own currency rather than
+ * assuming cents (issue #179). The dataset only ever requests `currency=eur`
+ * (scripts/fetch-cheap-routes.mjs), but a row that arrives in something else
+ * still converts correctly instead of silently by a factor of 100.
+ *
+ * A row whose price does not parse is dropped rather than carried with a `NaN`
+ * or a fabricated 0: this whole dataset exists to show a dated cached fare
+ * honestly, and a route with no readable price has nothing to show.
  */
-export function moneyFromMajorUnits(majorUnits: number, currency: IsoCurrencyCode): Money {
-	return {
-		minorUnits: Math.round(majorUnits * 100),
-		currency: currency.toUpperCase()
-	};
-}
-
-function toCheapRoute(row: CheapRouteDatasetRow): CheapRoute {
+function toCheapRoute(row: CheapRouteDatasetRow): CheapRoute | undefined {
+	const price = moneyFromMajorUnits(row.priceMajorUnits, row.currency);
+	if (price === undefined) return undefined;
 	return {
 		origin: row.origin,
 		destination: row.destination,
 		airline: row.airline,
 		flightNumber: row.flightNumber,
-		price: moneyFromMajorUnits(row.priceMajorUnits, row.currency),
+		price,
 		departureAt: row.departureAt,
 		returnAt: row.returnAt,
 		transfers: row.transfers,
@@ -145,7 +143,10 @@ let cheapRoutesPromise: Promise<CheapRoutesDataset> | null = null;
 export function loadCheapRoutesDataset(): Promise<CheapRoutesDataset> {
 	cheapRoutesPromise ??= import('./cheap-routes.generated.json').then((mod) => {
 		const file = mod.default as unknown as CheapRoutesDatasetFile;
-		return { fetchedAt: file.fetchedAt, routes: file.routes.map(toCheapRoute) };
+		return {
+			fetchedAt: file.fetchedAt,
+			routes: file.routes.map(toCheapRoute).filter((route) => route !== undefined)
+		};
 	});
 	return cheapRoutesPromise;
 }

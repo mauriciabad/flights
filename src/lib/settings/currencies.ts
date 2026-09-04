@@ -9,23 +9,21 @@
  * stay quoted in a currency the flights are not in gets dropped by `resources.ts` rather
  * than converted, so a currency no stay provider honours means a trip with no bed priced.
  *
- * So the list is derived, not taste. It is every currency that satisfies both:
+ * So the list is derived, not taste. It is every currency a stay provider can be asked
+ * for. Agoda takes a numeric `currency_id`, and `AGODA_CURRENCY_IDS`
+ * (`providers/stays/agoda-mapper.ts`, captured live 2026-09-04) is the mapping we have. A
+ * code missing from that table makes Agoda omit the parameter and answer USD, which is
+ * precisely the bug. USD itself is in because it is Agoda's own implicit default. Booking
+ * takes an ISO `currency_code` and is not the binding constraint; the flight adapters all
+ * pass the code straight through.
  *
- * 1. **A stay provider can be asked for it.** Agoda takes a numeric `currency_id`, and
- *    `AGODA_CURRENCY_INFO` (`providers/stays/agoda-mapper.ts`, captured live 2026-09-04)
- *    is the mapping we have. A code missing from that table makes Agoda omit the
- *    parameter and answer USD, which is precisely the bug. USD itself is in because it is
- *    Agoda's own implicit default. Booking takes an ISO `currency_code` and is not the
- *    binding constraint; the flight adapters all pass the code straight through.
- * 2. **Every adapter agrees on its minor-unit exponent.** JPY and HUF are excluded for
- *    this reason alone. `ZERO_DECIMAL_CURRENCIES` (`flights/skyscanner-money.ts` and
- *    `flights/flights-sky-money.ts`) treats HUF as having no minor unit while Agoda's own
- *    table gives it two, and `booking-mapper.ts` multiplies every price by 100 regardless,
- *    which is wrong for JPY. Offering either would put a flight and a bed a factor of 100
- *    apart inside one total. That disagreement is issue #179; until it is settled, this
- *    picker hands nobody a currency we know we scale inconsistently.
+ * There used to be a second condition — that every adapter agree on the currency's
+ * minor-unit exponent — and JPY and HUF were excluded because three of them did not.
+ * Issue #179 settled that: `currencyExponent` (`domain/money.ts`) is now the only answer,
+ * every adapter scales prices with it, and `format.ts` scales them back the same way, so
+ * there is no longer a currency this picker knows we would mis-scale. Both are back.
  *
- * Twelve entries is also what makes the picker a grid of tiles a thumb can hit rather
+ * Fourteen entries is also what makes the picker a grid of tiles a thumb can hit rather
  * than a dropdown nobody scrolls to the bottom of.
  *
  * A code outside this list still works. `keys/storage.ts` keeps any well-formed code it
@@ -37,8 +35,8 @@
  * what the picker offers.
  *
  * `symbol` is display-only and never used to format an amount. `formatMoney`
- * (`$lib/format`) asks `Intl` for that, which also knows each currency's exponent,
- * so a zero-decimal currency would still print correctly without a table here.
+ * (`$lib/format`) does that, reading each currency's exponent from `domain/money.ts`, so a
+ * zero-decimal currency prints correctly without a table here.
  */
 
 import type { IsoCurrencyCode } from '../domain';
@@ -63,7 +61,11 @@ export const SUPPORTED_CURRENCIES: readonly SearchCurrency[] = [
 	{ code: 'CZK', name: 'Czech koruna', symbol: 'Kč' },
 	{ code: 'AUD', name: 'Australian dollar', symbol: '$' },
 	{ code: 'NZD', name: 'New Zealand dollar', symbol: '$' },
-	{ code: 'SGD', name: 'Singapore dollar', symbol: '$' }
+	{ code: 'SGD', name: 'Singapore dollar', symbol: '$' },
+	// The two issue #179 kept out. JPY has no minor unit at all and HUF has two, and until
+	// that PR three adapters disagreed about which was which.
+	{ code: 'JPY', name: 'Japanese yen', symbol: '¥' },
+	{ code: 'HUF', name: 'Hungarian forint', symbol: 'Ft' }
 ];
 
 export function findCurrency(code: IsoCurrencyCode): SearchCurrency | undefined {

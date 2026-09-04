@@ -103,6 +103,21 @@ describe('formatMoney', () => {
 	it('uses the narrow symbol, so a dollar is a dollar and not "US$"', () => {
 		expect(formatMoney({ minorUnits: 4400, currency: 'USD' })).toBe('$44.00');
 	});
+
+	// Issue #179: the divisor and the printed digit count both come from `currencyExponent`
+	// (domain/money.ts), the same table the adapters parse a provider's price with. A
+	// forint fare is stored with two decimal digits, so it has to print with two.
+	it('prints the forint with the two decimal digits it is parsed with', () => {
+		expect(formatMoney({ minorUnits: 4500000, currency: 'HUF' })).toBe('Ft\u00a045,000.00');
+	});
+
+	it('prints a three-decimal dinar with three', () => {
+		expect(formatMoney({ minorUnits: 1500, currency: 'KWD' })).toBe('KWD\u00a01.500');
+	});
+
+	it('assumes cents for a code nothing knows, matching what parsing assumed', () => {
+		expect(formatMoney({ minorUnits: 1000, currency: 'XYZ' })).toBe('XYZ\u00a010.00');
+	});
 });
 
 describe('deltas', () => {

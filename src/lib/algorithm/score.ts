@@ -16,6 +16,7 @@
 import type { IataAirlineCode } from '../domain/codes';
 import type { LocalDateTime } from '../domain/datetime';
 import type { FreeTime, Itinerary } from '../domain/itinerary';
+import { majorUnitsOf } from '../domain/money';
 
 // ---------------------------------------------------------------------------
 // Free-time usability
@@ -323,16 +324,15 @@ export interface ItineraryScore {
 }
 
 /**
- * Price is read directly off Money.minorUnits / 100 rather than through a currency-aware
- * minor-unit table. That is exact for EUR/USD/GBP, the currencies every provider this app
- * targets actually quotes in, and wrong by a factor of 100 for a zero-decimal currency
- * like JPY. Scoring only ever compares itineraries from one search against each other, and
- * a single search shares one currency, so a wrong absolute scale would still rank
- * correctly — but the number would look strange in a debug view. Worth fixing only if a
- * zero-decimal currency provider actually gets added; not guessed at here.
+ * Price in major units, scaled by the currency's own exponent (`majorUnitsOf`,
+ * domain/money.ts). Ranking would survive a wrong scale — one search shares one currency,
+ * so every itinerary would be wrong by the same factor — but the weights below are
+ * calibrated in units of "one euro of price against one minute of time", and a yen total
+ * read as if it had cents would make price weigh a hundredth of what it should against
+ * duration. Issue #179.
  */
 function priceInMajorUnits(itinerary: Itinerary): number {
-	return itinerary.totalPrice.minorUnits / 100;
+	return majorUnitsOf(itinerary.totalPrice);
 }
 
 function countAvoidedAirlineFlights(

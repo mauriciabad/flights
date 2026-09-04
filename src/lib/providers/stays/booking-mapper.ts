@@ -5,32 +5,31 @@
  */
 
 import type { Money, Property, RoomKind, Stay } from '../../domain';
+import { moneyFromMajorUnits } from '../../domain';
 import type { BookingMoneyAmount, BookingRoomBlock, BookingRoomListResponse, BookingSearchResult } from './booking-types';
 
 /** Reads only `value`/`currency` — never `amount_rounded`/`amount_unrounded`, which are
  * pre-formatted currency-symbol strings (e.g. "€ 100.15", non-breaking space included) for
  * Booking's own UI. Issue #10 warned specifically to watch for an API returning formatted
- * strings; this is that exact trap in this API. Assumes 2 minor-unit digits, which is
- * true of every currency this adapter has requested live (EUR) — unlike agoda-mapper.ts,
- * Booking's own wrapper exposes no per-currency decimal-count field to read instead, and
- * the 50-request/month budget did not stretch to confirming one from `getCurrency`
- * (untouched — see the PR body for the full list of endpoints this budget did reach).
- * Zero-decimal ISO 4217 currencies (JPY, KRW, VND, and a handful of others) would be
- * reported 100x too large until this gets a real per-currency table.
+ * strings; this is that exact trap in this API.
  *
- * Issue #68: checks `typeof value === 'number'`, not just `value === undefined`, and
- * requires it to be finite — `booking-types.ts` declares `value` a plain `number`, but that
- * is a compile-time hint about the shape this adapter expects, not a runtime guarantee
- * about what a live scraper response actually sends (this file's header links the same
- * risk in agoda-mapper.ts). Without this, a `null` or non-numeric `value` would silently
- * become `NaN` or, worse, `0` (`null * 100 === 0` in JavaScript) minor units — a real,
- * wrong price — rather than being dropped. */
+ * Issue #179: the minor-unit exponent comes from `domain/money.ts`, so a room in a
+ * zero-decimal currency is no longer reported a hundred times too expensive. This function
+ * used to multiply every price by 100 whatever the currency was, which made a 12000 JPY
+ * room 1,200,000 minor units — the mirror of the flight adapters' forint bug. Booking's own
+ * wrapper exposes no per-currency decimal-count field to read instead (`getCurrency` was
+ * never called: the 50-request/month budget did not stretch to it), so the shared table is
+ * the only answer available, and it is the same one the price is later formatted with.
+ *
+ * Issue #68: `moneyFromMajorUnits` takes `unknown`, not `number` — `booking-types.ts`
+ * declares `value` a plain `number`, but that is a compile-time hint about the shape this
+ * adapter expects, not a runtime guarantee about what a live scraper response actually
+ * sends (this file's header links the same risk in agoda-mapper.ts). Without that check a
+ * `null` or non-numeric `value` would silently become `NaN` or, worse, `0`
+ * (`null * 100 === 0` in JavaScript) minor units — a real, wrong price — rather than being
+ * dropped. */
 export function toMoney(amount: BookingMoneyAmount): Money | undefined {
-	const { value, currency } = amount;
-	if (typeof value !== 'number' || !Number.isFinite(value) || typeof currency !== 'string' || !currency) {
-		return undefined;
-	}
-	return { minorUnits: Math.round(value * 100), currency };
+	return moneyFromMajorUnits(amount.value, amount.currency);
 }
 
 /**

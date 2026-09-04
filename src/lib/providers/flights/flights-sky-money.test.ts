@@ -1,32 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { moneyFromMajorUnits, parseItineraryPrice } from './flights-sky-money';
-
-describe('moneyFromMajorUnits', () => {
-	it('converts a plain EUR float to integer cents', () => {
-		expect(moneyFromMajorUnits(34.0, 'EUR')).toEqual({ minorUnits: 3400, currency: 'EUR' });
-	});
-
-	// This issue's brief names the exact trap: `19.99 * 100` is `1998.9999999999998` in
-	// JavaScript, not `1999`. Math.round fixes it; a naive truncation would not.
-	it('rounds away the binary-float error instead of truncating it', () => {
-		expect(19.99 * 100).toBeCloseTo(1998.9999999999998, 10); // documents the trap itself
-		expect(moneyFromMajorUnits(19.99, 'EUR')).toEqual({ minorUnits: 1999, currency: 'EUR' });
-	});
-
-	it('treats a zero-decimal currency as having no minor unit', () => {
-		expect(moneyFromMajorUnits(124, 'JPY')).toEqual({ minorUnits: 124, currency: 'JPY' });
-	});
-
-	it('returns undefined for a negative price rather than fabricating one', () => {
-		expect(moneyFromMajorUnits(-5, 'EUR')).toBeUndefined();
-	});
-
-	it('returns undefined for a non-finite or non-numeric value', () => {
-		expect(moneyFromMajorUnits(Number.NaN, 'EUR')).toBeUndefined();
-		expect(moneyFromMajorUnits('34.0', 'EUR')).toBeUndefined();
-		expect(moneyFromMajorUnits(undefined, 'EUR')).toBeUndefined();
-	});
-});
+import { parseItineraryPrice } from './flights-sky-money';
 
 describe('parseItineraryPrice', () => {
 	it('prefers the numeric raw field', () => {
@@ -47,5 +20,21 @@ describe('parseItineraryPrice', () => {
 	it('returns undefined, not a fabricated 0, when neither field parses', () => {
 		expect(parseItineraryPrice({}, 'EUR')).toBeUndefined();
 		expect(parseItineraryPrice(undefined, 'EUR')).toBeUndefined();
+	});
+
+	// Issue #179. This adapter used to hold its own copy of a zero-decimal currency list,
+	// byte-identical to skyscanner-money.ts's and wrong about HUF in both. The exponent now
+	// comes from domain/money.ts, so the two adapters cannot answer differently.
+	it('scales by the currency rather than always by 100', () => {
+		expect(parseItineraryPrice({ raw: 12000 }, 'JPY')).toEqual({ minorUnits: 12000, currency: 'JPY' });
+		expect(parseItineraryPrice({ raw: 45000 }, 'HUF')).toEqual({ minorUnits: 4500000, currency: 'HUF' });
+		expect(parseItineraryPrice({ raw: 1.5 }, 'KWD')).toEqual({ minorUnits: 1500, currency: 'KWD' });
+	});
+
+	it('reads a HUF price out of the formatted string at the same scale as out of raw', () => {
+		// English-style separators, which is the only shape this fallback claims to read —
+		// a Hungarian-formatted "45 000,00 Ft" would be misread by a factor of 100, and that
+		// is the fallback's own long-standing limitation rather than the exponent's.
+		expect(parseItineraryPrice({ formatted: '45,000.00 Ft' }, 'HUF')?.minorUnits).toBe(4500000);
 	});
 });

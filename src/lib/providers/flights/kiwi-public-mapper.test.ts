@@ -16,45 +16,9 @@ import {
 	mapItineraryToFlightOffer,
 	mapOnePerCityResultToDestinations,
 	mapOneWayResultToOffers,
-	parseKiwiDurationMinutes,
-	parseKiwiMoney
+	parseKiwiDurationMinutes
 } from './kiwi-public-mapper';
 import type { KiwiPublicItinerary } from './kiwi-public-types';
-
-describe('parseKiwiMoney', () => {
-	it('reads a whole-number amount as minor units', () => {
-		expect(parseKiwiMoney('173', 'EUR')).toEqual({ minorUnits: 17300, currency: 'EUR' });
-	});
-
-	it('reads a two-decimal amount without going through a float', () => {
-		// 14.99 * 100 is 1498.9999999999998 in IEEE 754, which is exactly the bug this
-		// digit-wise parse exists to avoid.
-		expect(parseKiwiMoney('14.99', 'EUR')).toEqual({ minorUnits: 1499, currency: 'EUR' });
-	});
-
-	it('pads a single decimal place rather than reading it as cents', () => {
-		expect(parseKiwiMoney('20.5', 'EUR')).toEqual({ minorUnits: 2050, currency: 'EUR' });
-	});
-
-	it('uppercases the currency code', () => {
-		expect(parseKiwiMoney('10', 'eur')?.currency).toBe('EUR');
-	});
-
-	it.each([
-		['a missing amount', undefined],
-		['a number instead of a string', 173],
-		['a thousands separator', '1,173'],
-		['scientific notation', '1.73e2'],
-		['a negative amount', '-173'],
-		['an empty string', '']
-	])('refuses %s rather than producing NaN', (_label, amount) => {
-		expect(parseKiwiMoney(amount, 'EUR')).toBeUndefined();
-	});
-
-	it('refuses a missing currency', () => {
-		expect(parseKiwiMoney('173', undefined)).toBeUndefined();
-	});
-});
 
 describe('parseKiwiDurationMinutes', () => {
 	it('converts Kiwi seconds to domain minutes', () => {
@@ -146,6 +110,30 @@ describe('mapItineraryToFlightOffer', () => {
 	function realItinerary(): KiwiPublicItinerary {
 		return structuredClone(bvcToLgw.data.onewayItineraries.itineraries[0]) as KiwiPublicItinerary;
 	}
+
+	/**
+	 * Issue #179's proof for this adapter. Kiwi prices as a decimal string, and this file
+	 * used to split it at two digits whatever the currency was; the split now comes from
+	 * `currencyExponent` (domain/money.ts).
+	 */
+	it.each([
+		['EUR', '19.99', 1999],
+		['HUF', '45000.00', 4500000],
+		['JPY', '12000', 12000],
+		['KWD', '1.500', 1500]
+	])('reads a %s price of %s as %i minor units', (currency, amount, minorUnits) => {
+		const itinerary = realItinerary();
+		itinerary.price = { amount, currency: { code: currency } };
+
+		expect(mapItineraryToFlightOffer(itinerary)?.price).toEqual({ minorUnits, currency });
+	});
+
+	it('drops an itinerary priced in something that is not a plain decimal', () => {
+		const itinerary = realItinerary();
+		itinerary.price = { amount: '1,173', currency: { code: 'EUR' } };
+
+		expect(mapItineraryToFlightOffer(itinerary)).toBeUndefined();
+	});
 
 	it('drops an itinerary with more than one segment', () => {
 		const itinerary = realItinerary();

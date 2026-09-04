@@ -27,6 +27,7 @@
  */
 
 import type { Duration, LocalDateTime, Money } from './domain';
+import { currencyExponent, majorUnitsOf } from './domain';
 
 /**
  * Treats a LocalDateTime's wall-clock digits as if they were UTC, purely to hand them to
@@ -137,18 +138,26 @@ export function formatLongDuration(duration: Duration | number): string {
 
 /**
  * Money formatted from its integer minor units. AGENTS.md "Money": convert at the edges.
- * This is that edge, and the only one.
+ * This is that edge, and the only one a screen should use.
  *
- * `narrowSymbol` gives "¥1,500", not the ambiguous "JP¥1,500" some locales produce, and
- * `Intl` derives the minor-unit divisor from the currency code itself, so a zero-decimal
- * currency like JPY is never divided by 100 in error.
+ * `narrowSymbol` gives "¥1,500", not the ambiguous "JP¥1,500" some locales produce.
+ *
+ * Both the divisor and the digit count come from `currencyExponent` (domain/money.ts), the
+ * same table the provider adapters scale prices INTO minor units with, so the two
+ * directions cannot disagree (issue #179). Passing the digits explicitly rather than
+ * letting `Intl` pick matters on a browser whose currency data is older than ours: it would
+ * otherwise print two decimals on an amount we divided by one, which is a price off by a
+ * factor of a hundred rather than a formatting quibble.
  */
 export function formatMoney(money: Money | { minorUnits: number; currency: string }, locale = 'en-GB'): string {
+	const digits = currencyExponent(money.currency);
 	return new Intl.NumberFormat(locale, {
 		style: 'currency',
 		currency: money.currency,
-		currencyDisplay: 'narrowSymbol'
-	}).format(money.minorUnits / currencyMinorUnitDivisor(money.currency));
+		currencyDisplay: 'narrowSymbol',
+		minimumFractionDigits: digits,
+		maximumFractionDigits: digits
+	}).format(majorUnitsOf(money));
 }
 
 /**
@@ -198,15 +207,3 @@ export function formatAge(ageMs: number): string {
 	return rtf.format(-days, 'day');
 }
 
-/** Intl.NumberFormat wants a decimal amount, but Money stores integer minor units. This
- * is the one place that divisor is looked up, from Intl's own resolved options. */
-function currencyMinorUnitDivisor(currency: string): number {
-	const { minimumFractionDigits } = new Intl.NumberFormat('en-US', {
-		style: 'currency',
-		currency
-	}).resolvedOptions();
-	// TS types this as optional (recent lib.es2020.intl variants share the field across
-	// numeric and currency formatting), but `style: 'currency'` always resolves it; 2 is a
-	// reasonable fallback for the type checker's sake, matching most real currencies.
-	return 10 ** (minimumFractionDigits ?? 2);
-}

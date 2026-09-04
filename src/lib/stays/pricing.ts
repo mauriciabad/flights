@@ -16,6 +16,7 @@
  */
 
 import type { Money } from '$lib/domain';
+import { currencyExponent, majorUnitsOf } from '$lib/domain';
 
 /** The stay's contribution to the itinerary total: this room kind's nightly price times
  * the nights actually spent in the connection city. Nights <= 0 (a day stopover with no
@@ -42,13 +43,16 @@ export function stayTotalDelta(previous: Money, next: Money, nights: number): Mo
 	return moneyDifference(stayTotalForNights(previous, nights), stayTotalForNights(next, nights));
 }
 
-/** Display only, never the canonical value (AGENTS.md "Money"). Matches
- * `algorithm/crosscheck.ts`'s own `formatMoney`: `Intl` already knows each currency's
- * minor-unit digit count (0 for JPY, 2 for most, 3 for KWD), which is exactly what's
- * needed to turn integer minor units back into a display amount without this module
- * hardcoding a currency-to-exponent table of its own. */
+/** Display only, never the canonical value (AGENTS.md "Money"). The minor-unit digit count
+ * comes from `currencyExponent` (domain/money.ts) — 0 for JPY, 2 for most, 3 for KWD — the
+ * same table the stay adapters parsed the price with, so a bed can never be displayed at a
+ * different scale from the one it was stored at (issue #179). */
 export function formatMoney(money: Money): string {
-	const formatter = new Intl.NumberFormat('en-GB', { style: 'currency', currency: money.currency });
-	const digits = formatter.resolvedOptions().maximumFractionDigits ?? 2;
-	return formatter.format(money.minorUnits / 10 ** digits);
+	const digits = currencyExponent(money.currency);
+	return new Intl.NumberFormat('en-GB', {
+		style: 'currency',
+		currency: money.currency,
+		minimumFractionDigits: digits,
+		maximumFractionDigits: digits
+	}).format(majorUnitsOf(money));
 }

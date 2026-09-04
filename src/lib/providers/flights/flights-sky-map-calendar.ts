@@ -1,5 +1,5 @@
 import type { IsoCurrencyCode } from '../../domain';
-import { moneyFromMajorUnits } from './flights-sky-money';
+import { moneyFromMajorUnits } from '../../domain';
 import type { PriceCalendarDay, PriceCalendarGroup } from './flights-sky-types';
 
 /** Thrown when `price-calendar`'s response is missing `data.flights.days` entirely — a

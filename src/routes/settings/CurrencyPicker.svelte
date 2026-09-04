@@ -4,7 +4,7 @@
 	 * next to the keys (`keyStore.currency`, `localStorage`, and in the export file so it
 	 * travels with a key set).
 	 *
-	 * A native radio group rather than a `<select>`, for three reasons: twelve options fit
+	 * A native radio group rather than a `<select>`, for three reasons: fourteen options fit
 	 * on one screen so there is nothing to hide behind a dropdown, arrow-key navigation and
 	 * the "one of these" announcement come free from `<fieldset>` plus `input[type=radio]`,
 	 * and a tile is a bigger target than a dropdown row on a phone. The inputs are visually
@@ -113,9 +113,9 @@
 		font-size: var(--font-size-xs);
 	}
 
-	/* Capped rather than stretched to the page's full 72rem: at full width the twelve tiles
-	   land in one row narrow enough to truncate half the currency names, and a name that
-	   reads "Australian..." is worse than a second row. */
+	/* Capped rather than stretched to the page's full 72rem: at full width the tiles land in
+	   one row narrow enough to truncate half the currency names, and a name that reads
+	   "Australian..." is worse than a second row. */
 	.currency-grid {
 		display: grid;
 		grid-template-columns: repeat(auto-fill, minmax(7rem, 1fr));

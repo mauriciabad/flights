@@ -54,6 +54,22 @@ describe('mapResponseToFlightOffers', () => {
 		});
 	});
 
+	// Issue #179: the price is a plain float in whatever currency the response names, and
+	// this adapter used to multiply it by 100 regardless. The same fixture, read as yen or
+	// forints, now scales by the currency's own exponent.
+	it.each([
+		['EUR', 4550],
+		['HUF', 4550],
+		['JPY', 46],
+		['KWD', 45500]
+	])('reads the same 45.50 fare as %i minor units in %s', (currency, minorUnits) => {
+		const inCurrency = { ...fixture, currency };
+		const offers = mapResponseToFlightOffers(inCurrency, requestedBags, countryCodeByIataCode);
+		const bcnVie = offers.find((offer) => offer.departureAirport === 'BCN' && offer.arrivalAirport === 'VIE');
+
+		expect(bcnVie?.price).toEqual({ minorUnits, currency });
+	});
+
 	it('declares its price as per-person, since kiwi.ts always requests exactly one adult (issue #109)', () => {
 		// Kiwi's backend has been returning 402 since before this adapter's response shape
 		// was confirmed live (kiwi.ts's own header comment), so whether its price would

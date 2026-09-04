@@ -41,7 +41,8 @@
  * nothing distinguishes a correctly-mapped offer from a coincidentally-still-parses one.
  */
 
-import type { BaggageAllowance, Carrier, FlightOffer, IataAirportCode, Money } from '../../domain';
+import type { BaggageAllowance, Carrier, FlightOffer, IataAirportCode } from '../../domain';
+import { moneyFromMajorUnits } from '../../domain';
 import { computeFlightDuration, toLocalDateTime } from './kiwi-timezone';
 import type { KiwiItinerary, KiwiOneWayResponse, KiwiRouteSegment } from './kiwi-types';
 
@@ -123,15 +124,6 @@ export interface KiwiRequestedBags {
 	holdbags: number;
 }
 
-/** Converts Kiwi's plain decimal price into `Money`'s integer minor units. Kiwi gives no
- * pre-split main/fractional strings the way Ryanair does (ryanair-mapper.ts `toMoney`), so
- * this is the ordinary `Math.round(price * 100)` — safe for a two-decimal currency, which
- * every currency this adapter's `currency` query param accepts is. */
-function toMoney(price: number | undefined, currencyCode: string): Money | undefined {
-	if (price === undefined) return undefined;
-	return { minorUnits: Math.round(price * 100), currency: currencyCode.toUpperCase() };
-}
-
 /** Kiwi gives only the 2-letter carrier code, never an airline name, and this app has no
  * shared airline-name dataset the way it does for airports (src/lib/data/airports.ts).
  * Using the code as its own name is an honest stand-in, not a guess at a real name. */
@@ -154,7 +146,10 @@ export function mapSegmentToFlightOffer(
 	deepLink: string,
 	countryCodeByIataCode: Readonly<Record<string, string>>
 ): FlightOffer | undefined {
-	const price = toMoney(segment.price, currencyCode);
+	// Kiwi gives no pre-split main/fractional strings the way Ryanair does, only a plain
+	// number in major units, so this is the float path — scaled by the currency's own
+	// exponent rather than a hardcoded 100 (issue #179).
+	const price = moneyFromMajorUnits(segment.price, currencyCode);
 	if (!price) return undefined;
 
 	const departure = toLocalDateTime(segment.dTime, segment.dTimeUTC, countryCodeByIataCode[segment.flyFrom]);

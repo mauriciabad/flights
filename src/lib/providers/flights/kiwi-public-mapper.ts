@@ -15,9 +15,9 @@ import type {
 	Duration,
 	FlightOffer,
 	IataAirportCode,
-	IsoCalendarDate,
-	Money
+	IsoCalendarDate
 } from '../../domain';
+import { moneyFromDecimalString } from '../../domain';
 // buildLocalDateTime is the codebase's existing wall-clock-plus-IANA-zone-to-offset
 // conversion (the two-pass DST-aware technique documented in that file). It lives under a
 // Skyscanner-prefixed name for historical reasons but is a pure, provider-agnostic helper,
@@ -59,25 +59,6 @@ function isObjectLike<T>(value: T | null | undefined): value is T {
  * itinerary rather than a dropped one. */
 function isParsableLocalIsoString(value: unknown): value is string {
 	return isNonEmptyString(value) && !Number.isNaN(Date.parse(`${value}Z`));
-}
-
-/**
- * Kiwi prices as a decimal string ("173", or "173.50"). Converted digit-wise into `Money`'s
- * integer minor units rather than via `Number(amount) * 100`, which is not reliably exact
- * (`14.99 * 100` is `1498.9999999999998`). Returns `undefined` rather than a `NaN` total
- * for anything that is not a plain non-negative decimal — a renamed field, a localised
- * string with a thousands separator, or scientific notation.
- */
-export function parseKiwiMoney(amount: unknown, currencyCode: unknown): Money | undefined {
-	if (!isNonEmptyString(amount) || !isNonEmptyString(currencyCode)) return undefined;
-	if (!/^\d+(\.\d+)?$/.test(amount)) return undefined;
-
-	const [whole, fraction = ''] = amount.split('.');
-	const wholeUnits = Number.parseInt(whole, 10);
-	const minorUnits = Number.parseInt(fraction.padEnd(2, '0').slice(0, 2), 10);
-	if (!Number.isFinite(wholeUnits) || !Number.isFinite(minorUnits)) return undefined;
-
-	return { minorUnits: wholeUnits * 100 + minorUnits, currency: currencyCode.toUpperCase() };
 }
 
 /**
@@ -180,7 +161,10 @@ export function mapItineraryToFlightOffer(itinerary: KiwiPublicItinerary): Fligh
 	if (!isNonEmptyString(segment.code)) return undefined;
 	const flightNumber = `${carrierCode}${segment.code}`;
 
-	const price = parseKiwiMoney(itinerary.price?.amount, itinerary.price?.currency?.code);
+	// Kiwi prices as a decimal string ("173", "173.50"), read digit-wise so nothing goes
+	// through a float, and split into minor units by the currency's own exponent rather
+	// than a hardcoded two decimal places (issue #179).
+	const price = moneyFromDecimalString(itinerary.price?.amount, itinerary.price?.currency?.code);
 	if (!price) return undefined;
 
 	const duration = parseKiwiDurationMinutes(segment.duration);
