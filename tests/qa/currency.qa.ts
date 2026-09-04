@@ -22,7 +22,6 @@
  */
 
 import { test, expect } from './support/bench';
-import { knownBroken } from './known-broken';
 import { QA_KEYS } from './support/bench';
 import { resultsUrl } from './support/scenario';
 import { currenciesIn, resultCards, resultsText, waitForSearchToFinish } from './support/page';
@@ -93,18 +92,18 @@ test.describe('currency', () => {
 	 * total. Not 'No bed priced for this stopover'."
 	 *
 	 * It lives in this file because it is the far end of the same chain. #152 stopped a
-	 * mismatched stay destroying its itinerary, which was the urgent half. The other half is
-	 * still open: `+page.svelte`'s `deps()` names no currency, so `currency_id` never reaches
-	 * Agoda, Agoda answers in USD as it documents, and `build.ts` correctly drops a stay it
-	 * cannot total. The trip survives and the bed never does.
+	 * mismatched stay destroying its itinerary, which was the urgent half. The other half was
+	 * open until PR #176: `+page.svelte`'s `deps()` named no currency, so `currency_id` never
+	 * reached Agoda, Agoda answered in USD as it documents, and `build.ts` correctly dropped a
+	 * stay it could not total. The trip survived and the bed never did. This check was pinned
+	 * to #158 for that and is not any more — the bench still answers USD when nobody names a
+	 * currency, so it would go red again the day something stops naming one.
 	 *
 	 * Asserting "at least one" rather than "every one" on purpose. A stopover with genuinely
 	 * no bed within the radius is a real answer, and the app is right to say so. Every
 	 * stopover being bedless while two stay providers answered is not.
 	 */
 	test('a configured stay provider prices at least one bed', async ({ page, bench, withKeys }) => {
-		knownBroken('stay-never-priced');
-
 		await withKeys();
 		await page.goto(resultsUrl());
 		await waitForSearchToFinish(page);
@@ -127,8 +126,9 @@ test.describe('currency', () => {
 				'',
 				'A get-prices call with no currency_id gets USD back, which is what agoda-mapper.ts',
 				'records Agoda doing. build.ts then drops a stay it cannot total against EUR flights.',
-				'The currency has to be named at the top of the chain: SearchDependencies.currency,',
-				'which +page.svelte deps() does not set.'
+				'The currency has to be named at the top of the chain, in',
+				'SearchDependencies.currency, which +page.svelte deps() sets since #176. Check the',
+				'requests above for a get-prices without a currency_id.'
 			].join('\n')
 		).toBeLessThan(cards.length);
 	});

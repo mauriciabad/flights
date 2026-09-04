@@ -49,11 +49,28 @@ export const AIRPORT_TIME_ZONES: Readonly<Record<string, string>> = {
 	STN: 'Europe/London'
 };
 
-/** The carrier `ryanair-mapper.ts` stamps on every offer it builds (`RYANAIR_CARRIER`), so
- * this is what a card sourced from Ryanair must show and nothing else. The flight NUMBERS in
- * the recorded fares come from the impossible `ZZ0000` pool instead (issue #156), which is
- * what makes a leaked fare recognisable on sight. */
-export const RYANAIR_CARRIER_CODE = 'FR';
+/**
+ * The days inside the window on which the bench actually has a seat to sell.
+ *
+ * Three rather than one, and spaced two days apart, because issue #137 is precisely that
+ * one date pair per stopover leaves the traveller unable to choose how many nights the
+ * stopover lasts (docs/ACCEPTANCE.md condition 4). Spacing them also means the two legs of
+ * an itinerary can never be the same day, which is what a multi-day stopover is.
+ *
+ * Every other day of the month comes back `unavailable: true`, which is how Ryanair's own
+ * fare calendar answers a day it does not sell — and, per ryanair-types.ts, how it answers
+ * a route it does not fly at all.
+ */
+export const SELLING_DAY_OFFSETS: readonly number[] = [0, 2, 4];
+
+/** Wall-clock departure and arrival at their own airports, one pair per selling day. Local
+ * times, not instants: `ryanair-timezone.ts` places each end in its own zone, and every
+ * pair here stays positive across the scenario's zones (Madrid +2 through Tallinn +3). */
+export const SELLING_DAY_TIMES: readonly { departure: string; arrival: string }[] = [
+	{ departure: '07:05', arrival: '09:55' },
+	{ departure: '13:40', arrival: '16:30' },
+	{ departure: '18:15', arrival: '21:05' }
+];
 
 export function flies(from: string, to: string): boolean {
 	return ROUTE_GRAPH[from]?.includes(to) ?? false;

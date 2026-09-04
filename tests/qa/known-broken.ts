@@ -6,13 +6,19 @@
  * permanently ignored, a check that fails because the app is broken is marked
  * expected-to-fail here, against the issue that owns the fix.
  *
- * All four of the defects this suite was written for failed here when it was written. Three
- * were fixed while it was in review (#154, #155, #156) and their entries are gone, which is
- * how this file is meant to shrink. The ones left are #146, #158 and #165 — #165 being the same two defects arriving again in a
- * provider added after they were fixed, which is what this suite is for.
+ * All four of the defects this suite was written for failed here when it was written, and
+ * all four entries are now gone: #154, #155 and #156 landed while it was in review, and
+ * #146 and #158 landed the same day, in PRs #172 and #176. That is how this file is meant
+ * to shrink. What replaced them is #165, the same two defects arriving again in a provider
+ * added after they were fixed, and #188, which this suite found while it was being rebased.
  *
- * The mark is a ratchet, not an excuse. Playwright fails the run when an expected-to-fail
- * test PASSES, so the moment somebody fixes #146 the QA suite goes red until they come
+ * The mark is a promise that an issue exists and is open. Every entry below was checked
+ * against the tracker on 2026-09-04: #165 is open with a draft PR (#174), and #188 was
+ * filed from the failure it pins. An entry whose issue has closed is worse than no entry,
+ * because it hides a check nobody is running any more.
+ *
+ * The mark is also a one-way ratchet. Playwright fails the run when an expected-to-fail
+ * test PASSES, so the moment somebody fixes #165 the QA suite goes red until they come
  * back to this file and delete the entry. A defect cannot be fixed and quietly
  * un-covered, and a new regression in the same area still fails the ordinary way.
  *
@@ -40,17 +46,11 @@ export const PINNED_DEFECTS: Readonly<Record<string, PinnedDefect>> = {
 		observed:
 			'kiwi-public.ts:205 is the line #155 removed from ryanair.ts, in an adapter merged after it; the candidate graph waits on Kiwi, so one adapter discarding undoes stale-first for the page'
 	},
-	'stay-never-priced': {
-		issue: 158,
-		summary: 'Every itinerary still reads "No bed priced for this stopover"',
+	'stay-picker-crashes-the-detail': {
+		issue: 188,
+		summary: 'Opening a card with a priced bed throws each_key_duplicate and renders no detail panel at all',
 		observed:
-			'+page.svelte deps() names no currency, so Agoda is called without currency_id, answers USD, and build.ts drops a stay it cannot total against EUR flights'
-	},
-	'quota-from-headers': {
-		issue: 146,
-		summary: 'The quota shown is a per-browser localStorage tally, not what the key spent',
-		observed:
-			'no client reads x-ratelimit-* on a successful response; the settings card shows cap minus a local counter'
+			'StayPicker.svelte:201 keys its alternatives on name plus coordinates, and groupByProperty hands it one group per stay rather than one per property, so a hotel with three room kinds produces three groups with the same key; the throw takes the timeline, the map and all four pickers with it'
 	}
 };
 

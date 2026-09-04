@@ -199,11 +199,15 @@ export class Bench {
 	#recordedBodyFor(url: URL): unknown {
 		const { host, pathname } = url;
 
-		if (host === RYANAIR_FARES_HOST && pathname.includes('/oneWayFares')) return recorded.ryanairOneWayFares(url);
-		if (host === RYANAIR_WEB_HOST && pathname.includes('/airports/en/active')) return recorded.ryanairActiveAirports();
-		if (host === RYANAIR_WEB_HOST && pathname.includes('/searchWidget/routes/')) {
-			return recorded.ryanairRoutes(pathname.split('/').pop() ?? '');
+		// The two halves of a Ryanair offer since issue #137: prices with no flight identity,
+		// and a timetable with no prices. An unanswered `timtbl` leaves every fare unconfirmed
+		// and the whole search empty, which is how this bench spent a day answering the
+		// endpoint the adapter had stopped calling.
+		if (host === RYANAIR_FARES_HOST && pathname.includes('/timtbl/3/schedules')) {
+			return recorded.ryanairMonthlySchedule(url);
 		}
+		if (host === RYANAIR_FARES_HOST && pathname.includes('/oneWayFares')) return recorded.ryanairCheapestPerDay(url);
+		if (host === RYANAIR_WEB_HOST && pathname.includes('/airports/en/active')) return recorded.ryanairActiveAirports();
 		if (host === AGODA_HOST && pathname.includes('get-prices')) return recorded.agodaGetPrices(url);
 		if (host === AGODA_HOST) return recorded.agodaSearch(url);
 		if (host === BOOKING_HOST && pathname.includes('getRoomList')) return recorded.bookingRooms(url);

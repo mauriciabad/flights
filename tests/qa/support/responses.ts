@@ -25,9 +25,17 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { AIRPORT_TIME_ZONES, ROUTE_GRAPH, RYANAIR_CARRIER_CODE, flies } from './scenario';
+import {
+	AIRPORT_TIME_ZONES,
+	EARLIEST_DEPARTURE,
+	LATEST_ARRIVAL,
+	ROUTE_GRAPH,
+	SELLING_DAY_OFFSETS,
+	SELLING_DAY_TIMES,
+	flies
+} from './scenario';
 import { FIXTURE_TEXT_TOKEN } from './markers';
-import { FIXTURE_FLIGHT_NUMBERS, FIXTURE_NAMES, FIXTURE_PRICES } from '../../e2e/support/fixture-markers';
+import { FIXTURE_FLIGHT_NUMBERS, FIXTURE_PRICES } from '../../e2e/support/fixture-markers';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.join(here, '..', '..', '..');
@@ -77,6 +85,14 @@ function inCurrency<T>(value: T, currency: string): T {
 
 // ---------------------------------------------------------------------------
 // Ryanair (keyless): three endpoints, all route-aware.
+//
+// The two fare endpoints are the pair issue #137 introduced. Neither alone produces a
+// single offer, because `ryanair-mapper.ts` drops any fare the timetable does not confirm,
+// so they are derived from one `benchFlight` below rather than written out twice.
+//
+// Neither carries a human-readable string to stamp `FIXTURE` into. Their marking is the
+// impossible carrier code and the five-figure fare band, which the app joins back together
+// on screen as "ZZ0000" at "€9,111.11" — what `tools/probe-results.mjs` scans the page for.
 // ---------------------------------------------------------------------------
 
 /**
@@ -93,75 +109,166 @@ export function ryanairActiveAirports(): unknown {
 	}));
 }
 
-/** `/searchWidget/routes/en/airport/{code}` — who this airport flies to. Returns `[]` for an
- * airport outside the scenario rather than a 404, so a missing entry reads as "no routes"
- * and never as a network failure the app would report differently. */
-export function ryanairRoutes(airportCode: string): unknown {
-	return (ROUTE_GRAPH[airportCode] ?? []).map((code) => ({
-		arrivalAirport: { code },
-		recent: false,
-		seasonal: false,
-		operator: RYANAIR_CARRIER_CODE,
-		tags: []
-	}));
+/**
+ * One flight the bench is willing to sell, or `undefined` for a route-and-day it has
+ * nothing on.
+ *
+ * Both fare endpoints below are derived from this single function, which is the whole
+ * point of it. Issue #137 split Ryanair's answer across two requests — `cheapestPerDay`
+ * has the price and no flight identity, `timtbl/3/schedules` has the identity and no
+ * price — and `ryanair-mapper.ts` joins them on the exact departure minute, dropping any
+ * fare the timetable does not confirm. A bench whose two endpoints disagreed by a minute
+ * would return zero offers and give no hint why.
+ */
+interface BenchFlight {
+	/** From the impossible pool, split the way the timetable splits it: `ZZ0000` becomes
+	 * carrier `ZZ` and number `0000`, which `ryanair-mapper.ts` joins back into `ZZ0000` on
+	 * the card. A leaked fare therefore still reads as nonsense on sight (issue #156). */
+	carrierCode: string;
+	number: string;
+	departureTime: string;
+	arrivalTime: string;
+	/** Major units, five figures, from the shared pool. */
+	price: number;
 }
 
-function airportBlock(code: string) {
+const SELLING_PRICES = [FIXTURE_PRICES.first, FIXTURE_PRICES.second, FIXTURE_PRICES.third];
+
+/** Which of the scenario's selling days `isoDay` is, or -1 for any other day. */
+function sellingDayIndex(isoDay: string): number {
+	const start = Date.parse(`${EARLIEST_DEPARTURE}T00:00:00Z`);
+	const latest = Date.parse(`${LATEST_ARRIVAL}T00:00:00Z`);
+	return SELLING_DAY_OFFSETS.findIndex((offset) => {
+		const day = start + offset * 24 * 60 * 60 * 1000;
+		return day <= latest && new Date(day).toISOString().slice(0, 10) === isoDay;
+	});
+}
+
+function benchFlight(from: string, to: string, isoDay: string): BenchFlight | undefined {
+	// The route graph is the ground truth `no-fabricated-flights.qa.ts` holds the app to, so
+	// this is the one place that decides what was ever offered. A pair outside it gets the
+	// same answer the real endpoint gives for a route Ryanair does not fly: a month of
+	// `unavailable` rows and an empty timetable (ryanair-types.ts, measured 2026-09-04).
+	if (!flies(from, to)) return undefined;
+	if (AIRPORT_TIME_ZONES[from] === undefined || AIRPORT_TIME_ZONES[to] === undefined) return undefined;
+
+	const index = sellingDayIndex(isoDay);
+	if (index === -1) return undefined;
+
+	const flightNumber = fixtureFlightNumber(from, to, index);
+	const times = SELLING_DAY_TIMES[index];
 	return {
-		countryName: FIXTURE_NAMES.country,
-		iataCode: code,
-		name: `${FIXTURE_TEXT_TOKEN} ${code} airport`,
-		seoName: code.toLowerCase()
+		carrierCode: flightNumber.slice(0, 2),
+		number: flightNumber.slice(2),
+		departureTime: times.departure,
+		arrivalTime: times.arrival,
+		price: SELLING_PRICES[index]
 	};
 }
 
 /**
- * `/farfnd/v4/oneWayFares`. Two fares per leg, on the first and (where the window allows)
- * the third day of the requested range, so `FlightPicker` has something to pick between —
- * a single forced date pair is issue #137, and a bench that only ever offers one would make
- * that defect invisible here too.
+ * `/farfnd/v4/oneWayFares/{origin}/{destination}/cheapestPerDay` — the cheapest sellable
+ * fare per calendar day, for the whole month `outboundMonthOfDate` falls in.
  *
- * Prices are in the currency the caller asked for, defaulting to EUR: Ryanair's fare finder
- * takes a `currency` parameter and honours it.
+ * The airports are in the path, not in the response: this endpoint echoes back neither, so
+ * `ryanair-mapper.ts` takes them from the request it made. Anything reading "which legs did
+ * the provider offer" back out of a recording has to do the same (see
+ * `no-fabricated-flights.qa.ts`).
+ *
+ * Prices are in the currency the caller asked for, defaulting to EUR, because the real
+ * endpoint takes a `currency` parameter and honours it.
  */
-export function ryanairOneWayFares(url: URL): unknown {
-	const from = url.searchParams.get('departureAirportIataCode') ?? '';
-	const to = url.searchParams.get('arrivalAirportIataCode');
-	const dateFrom = url.searchParams.get('outboundDepartureDateFrom') ?? '2026-10-06';
-	const dateTo = url.searchParams.get('outboundDepartureDateTo') ?? dateFrom;
+export function ryanairCheapestPerDay(url: URL): unknown {
+	const route = fareRouteFromPath(url.pathname);
+	const monthOfDate = url.searchParams.get('outboundMonthOfDate') ?? EARLIEST_DEPARTURE;
 	const currency = url.searchParams.get('currency') ?? 'EUR';
-
-	const destinations = to ? [to] : (ROUTE_GRAPH[from] ?? []);
-	const fares: unknown[] = [];
-
-	for (const destination of destinations) {
-		if (!flies(from, destination)) continue;
-		if (AIRPORT_TIME_ZONES[from] === undefined || AIRPORT_TIME_ZONES[destination] === undefined) continue;
-		for (const [index, date] of departureDates(dateFrom, dateTo).entries()) {
-			fares.push({
-				outbound: {
-					departureAirport: airportBlock(from),
-					arrivalAirport: airportBlock(destination),
-					departureDate: `${date}T07:${index === 0 ? '05' : '40'}:00`,
-					arrivalDate: `${date}T09:${index === 0 ? '55' : '30'}:00`,
-					// Five figures, from the shared pool: a leaked fare has to read as nonsense at
-					// a glance rather than as a bargain somebody might act on (issue #156).
-					price: {
-						value: index === 0 ? FIXTURE_PRICES.first : FIXTURE_PRICES.second,
-						valueMainUnit: String(Math.trunc(index === 0 ? FIXTURE_PRICES.first : FIXTURE_PRICES.second)),
-						valueFractionalUnit: index === 0 ? '11' : '22',
-						currencySymbol: currency === 'EUR' ? '€' : '$',
-						currencyCode: currency
-					},
-					flightNumber: fixtureFlightNumber(from, destination, index),
-					flightKey: `ZZ~${fixtureFlightNumber(from, destination, index)}~~${from}~${destination}~${date}~${date}~1`,
-					previousPrice: null
-				}
-			});
-		}
+	const year = Number(monthOfDate.slice(0, 4));
+	const month = Number(monthOfDate.slice(5, 7));
+	if (!route || !Number.isInteger(year) || !Number.isInteger(month)) {
+		return { outbound: { fares: [], minFare: null, maxFare: null } };
 	}
 
-	return { fares, size: fares.length, currency };
+	const fares: unknown[] = [];
+	for (let day = 1; day <= daysInMonth(year, month); day += 1) {
+		const isoDay = `${year}-${pad(month)}-${pad(day)}`;
+		const flight = benchFlight(route.origin, route.destination, isoDay);
+		if (!flight) {
+			fares.push({ day: isoDay, departureDate: null, arrivalDate: null, price: null, soldOut: false, unavailable: true });
+			continue;
+		}
+		const [whole, fractional] = flight.price.toFixed(2).split('.');
+		fares.push({
+			day: isoDay,
+			departureDate: `${isoDay}T${flight.departureTime}:00`,
+			arrivalDate: `${isoDay}T${flight.arrivalTime}:00`,
+			price: {
+				value: flight.price,
+				valueMainUnit: whole,
+				valueFractionalUnit: fractional,
+				currencySymbol: currency === 'EUR' ? '€' : '$',
+				currencyCode: currency
+			},
+			soldOut: false,
+			unavailable: false
+		});
+	}
+
+	return { outbound: { fares, minFare: null, maxFare: null } };
+}
+
+/**
+ * `/timtbl/3/schedules/{origin}/{destination}/years/{year}/months/{month}` — every flight
+ * timetabled on the route that month, with the carrier code and number the fare calendar
+ * omits. Only days that have a flight appear at all, and a route Ryanair does not fly
+ * answers `200 {"month":10,"days":[]}` rather than a 404.
+ */
+export function ryanairMonthlySchedule(url: URL): unknown {
+	const parts = schedulePathParts(url.pathname);
+	if (!parts) return { month: 0, days: [] };
+	const { origin, destination, year, month } = parts;
+
+	const days: unknown[] = [];
+	for (let day = 1; day <= daysInMonth(year, month); day += 1) {
+		const flight = benchFlight(origin, destination, `${year}-${pad(month)}-${pad(day)}`);
+		if (!flight) continue;
+		days.push({
+			day,
+			flights: [
+				{
+					carrierCode: flight.carrierCode,
+					number: flight.number,
+					departureTime: flight.departureTime,
+					arrivalTime: flight.arrivalTime
+				}
+			]
+		});
+	}
+
+	return { month, days };
+}
+
+/** `/farfnd/v4/oneWayFares/BCN/VIE/cheapestPerDay` -> `{ origin: 'BCN', destination: 'VIE' }`. */
+function fareRouteFromPath(pathname: string): { origin: string; destination: string } | undefined {
+	const match = /\/farfnd\/v4\/oneWayFares\/([A-Z]{3})\/([A-Z]{3})\/cheapestPerDay$/.exec(pathname);
+	return match ? { origin: match[1], destination: match[2] } : undefined;
+}
+
+/** `/timtbl/3/schedules/BCN/VIE/years/2026/months/10` -> the four values in it. */
+function schedulePathParts(
+	pathname: string
+): { origin: string; destination: string; year: number; month: number } | undefined {
+	const match = /\/timtbl\/3\/schedules\/([A-Z]{3})\/([A-Z]{3})\/years\/(\d{4})\/months\/(\d{1,2})$/.exec(pathname);
+	return match
+		? { origin: match[1], destination: match[2], year: Number(match[3]), month: Number(match[4]) }
+		: undefined;
+}
+
+function daysInMonth(year: number, month: number): number {
+	return new Date(Date.UTC(year, month, 0)).getUTCDate();
+}
+
+function pad(value: number): string {
+	return String(value).padStart(2, '0');
 }
 
 /** An impossible flight number from the shared pool, picked deterministically per leg so a
@@ -170,17 +277,6 @@ function fixtureFlightNumber(from: string, to: string, index: number): string {
 	let hash = index;
 	for (const char of `${from}${to}`) hash = (hash * 31 + char.charCodeAt(0)) % FIXTURE_FLIGHT_NUMBERS.length;
 	return FIXTURE_FLIGHT_NUMBERS[hash];
-}
-
-/** At most two dates in the requested window: its first day, and two days later when that
- * still falls inside it. */
-function departureDates(from: string, to: string): string[] {
-	const start = new Date(`${from}T00:00:00Z`);
-	const end = new Date(`${to}T00:00:00Z`);
-	const dates = [from];
-	const second = new Date(start.getTime() + 2 * 24 * 60 * 60 * 1000);
-	if (second <= end) dates.push(second.toISOString().slice(0, 10));
-	return dates;
 }
 
 // ---------------------------------------------------------------------------

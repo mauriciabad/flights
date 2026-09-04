@@ -5,9 +5,10 @@ unit tests and a green CI run, and every one would have been obvious within a mi
 using the app with real keys:
 
 1. A search that priced a bed deleted the trip, so the app could only ever show bedless
-   results. Half fixed: the trip survives now, and the bed is still never priced (#158).
+   results. Both halves fixed now, by #152/#154 and #176.
 2. One click could spend 48 Booking.com requests against a 50-a-month free tier.
 3. The quota on screen was what one browser thought it had spent, not what the key spent.
+   Fixed by #172.
 4. Every reload after five minutes was a cold search, with three cache tiers sitting unused.
 
 They are not the same bug, but they are the same kind of gap. Each is about how the whole
@@ -55,11 +56,12 @@ readable, and it says so rather than pretending otherwise.
 
 | File | Holds |
 |---|---|
+| `bench-answers.qa.ts` | The recording still answers the endpoints this app calls, and a scenario search still produces itineraries. Sorts first because every other check rests on it. |
 | `cost-per-search.qa.ts` | One search stays inside a declared per-provider request budget, every provider it touches has one, and the budget itself still leaves a month of searches. |
 | `currency.qa.ts` | Pricing a bed never removes an itinerary, a rendered itinerary quotes one currency, and a configured stay provider actually prices a bed. |
 | `cache-served.qa.ts` | A reload paints the previous answer from cache before the network can reply, inside the TTL and past it, and never calls a stale number current. |
 | `quota-from-headers.qa.ts` | The remaining quota on screen is the provider's own number, not a local tally. |
-| `no-fabricated-flights.qa.ts` | Every itinerary names the provider that sourced it, and flies legs and airlines that provider actually offered in this run. |
+| `no-fabricated-flights.qa.ts` | Every itinerary names the provider that sourced it, flies legs that provider had a sellable fare on, and shows no flight number that is not in a timetable it served. |
 | `no-fixture-data.qa.ts` | No recorded response reaches a live answer, and the detector that decides that still works. |
 
 ## How it is built
@@ -74,24 +76,34 @@ the request log is usually the half the screen leaves out. It installs automatic
 every check — a check that forgot to ask for it would otherwise run with no interception at
 all, which happened once while this was being written and quietly turned a red check green.
 
-**`support/responses.ts`** answers like the provider, not like a test. Ryanair returns fares
-for a leg it flies and an empty list for one it does not. Agoda quotes in the currency it was
-asked for and in USD when nobody asked, which is what `agoda-mapper.ts` recorded the real
-Agoda doing on 2026-09-04. A bench that always says yes cannot catch a caller that forgot to
-ask, and that one branch is the whole reason the currency defect is visible here.
+**`support/responses.ts`** answers like the provider, not like a test. Ryanair prices a day
+on a leg it flies and answers a month of `unavailable` rows for one it does not, which is
+what its own fare calendar does for a route it has no service on. Agoda quotes in the
+currency it was asked for and in USD when nobody asked, which is what `agoda-mapper.ts`
+recorded the real Agoda doing on 2026-09-04. A bench that always says yes cannot catch a
+caller that forgot to ask, and that one branch is the whole reason the currency defect is
+visible here.
 
-**`support/markers.ts`** is the single seam for "this value was never sold by anybody". The
-fixture-sanitisation work landing separately meets it there: add the token to
-`TEST_MARKER_TOKENS` and nothing else in this directory changes.
+Ryanair's fares take two endpoints since #137 — `cheapestPerDay` for the price,
+`timtbl/3/schedules` for the flight number — and `ryanair-mapper.ts` drops any fare the
+timetable does not confirm, so both are derived from one `benchFlight` function. If they
+disagreed by a minute the suite would return no itineraries and say nothing about why.
+
+**`support/markers.ts`** is the single seam for "this value was never sold by anybody". It
+re-exports #156's `tests/e2e/fixtures/markers.json`, so a token added there is a token this
+suite recognises and nothing in this directory changes.
 
 **`known-broken.ts`** pins the checks that fail today to the open issue that owns each fix.
-Three of the four entries it started with are already gone, deleted as #154, #155 and #156
-landed while this was in review — and two arrived to replace them, because #157 added a
-flight provider with the same unbounded fan-out and the same discard-on-expiry that had just
-been fixed elsewhere (#165). Neither check needed a line changed to catch it.
+All four entries it started with are gone: #154, #155 and #156 landed while this was in
+review, and #146 and #158 landed in #172 and #176 while it was being rebased. Three
+replaced them, and none needed a check rewritten to catch it — #157 added a flight provider
+carrying the same unbounded fan-out and the same discard-on-expiry that had just been fixed
+elsewhere (#165), and #188 is a crash the flight-number check walked straight into.
+
 Playwright fails the run when an expected-to-fail check passes, so a defect cannot be fixed
 and quietly un-covered — the suite goes red until somebody deletes the entry. A new
-regression in the same area still fails the ordinary way.
+regression in the same area still fails the ordinary way. A pin is also a promise that the
+issue is open: check the tracker before you add one, and delete one whose issue has closed.
 
 ## Adding a check
 
@@ -106,7 +118,7 @@ Then:
    the traffic is what makes the answer unambiguous.
 3. Write the failure message for somebody who has never seen the check: name the invariant,
    quote the observed value, and say where the fix lives. Every message in here is written
-   that way, and it is the only reason the four pinned ones are readable.
+   that way, and it is the only reason the pinned ones are readable.
 4. If it fails today because the app is broken, pin it in `known-broken.ts` with its issue
    number rather than softening it.
 

@@ -17,6 +17,7 @@
  * from current behaviour can only ever ratify it.
  */
 
+import { AIRLINE_LOGO_BASE_URL, AIRLINE_LOGO_REDIRECT_HOST } from '../../src/lib/data/airline-logos';
 import { SETTINGS_PROVIDERS } from '../../src/lib/settings/provider-catalog';
 import type { ProviderId } from '../../src/lib/providers/types';
 
@@ -78,10 +79,18 @@ export const REQUESTS_PER_SEARCH: Readonly<Record<ProviderId, number>> = {
  *
  * `nominatim.openstreetmap.org` is Agoda's reverse-geocode step (`agoda.ts` excludes it from
  * its own cost estimate for the same reason). `basemaps.cartocdn.com` is the map style the
- * itinerary detail view loads. Adding a host here is a statement that it costs nothing —
- * if that is not true, it belongs in `REQUESTS_PER_SEARCH` instead.
+ * itinerary detail view loads. The last two are the airline-logo CDN and the host it
+ * redirects through, imported from `airline-logos.ts` rather than typed out — the same
+ * lesson `support/catalog.ts` records about `mockOsrm` intercepting a host the adapter had
+ * moved off (issue #132). Adding a host here is a statement that it costs nothing — if that
+ * is not true, it belongs in `REQUESTS_PER_SEARCH` instead.
  */
-export const UNBUDGETED_HOSTS: readonly string[] = ['nominatim.openstreetmap.org', 'basemaps.cartocdn.com'];
+export const UNBUDGETED_HOSTS: readonly string[] = [
+	'nominatim.openstreetmap.org',
+	'basemaps.cartocdn.com',
+	new URL(AIRLINE_LOGO_BASE_URL).host,
+	new URL(AIRLINE_LOGO_REDIRECT_HOST).host
+];
 
 export interface BudgetVerdict {
 	providerId: ProviderId;

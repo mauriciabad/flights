@@ -65,6 +65,14 @@ jobs:
       # Booking, Skyscanner, Kiwi and Flights Sky are answered from a recording in every
       # mode, and `pnpm qa:live` (keyless providers only) is not run here because a
       # volunteer-run transit API having a bad afternoon is not a reason to block a PR.
+      #
+      # No `continue-on-error`, deliberately. This job is meant to go red and stop a merge.
+      # An advisory check on a repo where a dozen agents merge on green is a check nobody
+      # reads, which is the state docs/ACCEPTANCE.md is complaining about when it says a
+      # green CI run "has not caught one of the defects that reached the owner". What makes
+      # blocking survivable is `tests/qa/known-broken.ts`: a defect that is known, filed and
+      # open is pinned and the suite is green, so red always means something new -- a fresh
+      # regression, or a pin whose issue has closed. Both are worth stopping for.
       - run: pnpm qa
       - uses: actions/upload-artifact@v4
         if: ${{ !cancelled() }}

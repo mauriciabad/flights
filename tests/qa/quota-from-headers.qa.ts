@@ -7,10 +7,17 @@
  * a counter is per browser profile and the allowance is per key." (AGENTS.md)
  *
  * A local tally can only ever be right for one browser profile. The account's own count is
- * in the response, and nothing reads it: every client in `providers/` reads `retry-after`
- * on a 429 and drops the `Response` entirely on a 200, so no header survives as far as the
- * budget module — `call-with-budget.ts`'s `execute: () => Promise<T>` has resolved to parsed
- * data by then.
+ * in the response, and until PR #172 nothing read it: every client in `providers/` read
+ * `retry-after` on a 429 and dropped the `Response` entirely on a 200, so no header survived
+ * as far as the budget module. #172 closed that, and this check now holds the fix rather
+ * than the defect — it was pinned to #146 and is not any more.
+ *
+ * What it holds is stricter than "the provider's number appears somewhere". The card shows
+ * two numbers, and they are different on purpose: the header reads the app's own safety cap
+ * (400) minus what it believes is spent, while `.provider-card-quota-reported` carries
+ * Agoda's own figure verbatim. Only the second one can be checked against the response, so
+ * that is the one this reads, along with the spent count derived from it — a number a local
+ * tally could not reach on a profile that has made one request.
  *
  * ## What this can and cannot prove without spending
  *
@@ -23,12 +30,11 @@
  * browser. docs/PROVIDERS.md records `Access-Control-Allow-Headers` (what the browser may
  * send) and has never measured `Access-Control-Expose-Headers` (what it may read). Measuring
  * that costs one metered request against the owner's own key, so it is not something
- * `pnpm qa` may do. It is a one-line note for whoever fixes issue #146, not a gap in this
- * check.
+ * `pnpm qa` may do. It is a one-line note for whoever next touches this path, not a gap in
+ * this check.
  */
 
 import { test, expect } from './support/bench';
-import { knownBroken } from './known-broken';
 
 /** What the account has left, as the provider would report it. Deliberately unrelated to
  * anything a local tally could arrive at: `caps.ts` holds Agoda at 400 and a fresh profile
@@ -53,8 +59,6 @@ test.use({
 
 test.describe('quota', () => {
 	test('the settings card shows what the provider says is left', async ({ page, context, bench }) => {
-		knownBroken('quota-from-headers');
-
 		bench.delayResponsesBy(0);
 		await context.addInitScript(() => {
 			window.localStorage.setItem(
@@ -72,19 +76,32 @@ test.describe('quota', () => {
 		await card.getByRole('button', { name: 'Test' }).click();
 		await expect(card.getByRole('button', { name: 'Test' })).toBeEnabled({ timeout: 20_000 });
 
-		const shown = await card.locator('.provider-card-quota').first().innerText();
+		const reported = await card
+			.locator('.provider-card-quota-reported')
+			.innerText()
+			.catch(() => '');
 		const note = await card.locator('.provider-card-quota-note').innerText();
+		const headline = await card.locator('.provider-card-quota').first().innerText();
 
-		expect(
-			shown,
-			[
-				`The card says "${shown.trim()}" and "${note.replace(/\s+/g, ' ').trim()}".`,
-				`Agoda answered that request with x-ratelimit-requests-remaining: ${REMAINING} of ${LIMIT}.`,
-				'',
-				'The number on screen is cap-minus-a-localStorage-counter, so it is right only for',
-				'this browser profile and only until somebody uses the key anywhere else. Where a',
-				'provider reports its own count, that is the number to show.'
-			].join('\n')
-		).toContain(String(REMAINING));
+		const evidence = [
+			`The card's header says "${headline.trim()}".`,
+			`Its reported line says "${reported.replace(/\s+/g, ' ').trim() || '(the line is not there at all)'}".`,
+			`Its note says "${note.replace(/\s+/g, ' ').trim()}".`,
+			`Agoda answered that request with x-ratelimit-requests-remaining: ${REMAINING}, x-ratelimit-requests-limit: ${LIMIT}.`,
+			'',
+			'A tally kept in localStorage is right only for one browser profile and only until',
+			'somebody uses the key on another device. Where a provider reports its own count,',
+			'that is the number to show, and to say out loud that it is the account\'s.'
+		].join('\n');
+
+		// The provider's own figures, verbatim, in the one line on the card that claims to be
+		// quoting the provider rather than the app.
+		expect(reported, evidence).toContain(String(REMAINING));
+		expect(reported, evidence).toContain(String(LIMIT));
+
+		// And the spent count has to be derived from them. This profile has made exactly one
+		// metered request, so a local tally would say "1"; `LIMIT - REMAINING` is the only way
+		// to reach 107.
+		expect(note, evidence).toContain(String(LIMIT - REMAINING));
 	});
 });
