@@ -277,7 +277,11 @@
 	}
 
 	/* Hidden until the cell is wide enough to hold it; a clipped mark or a clipped
-	   weekday would be worse than none. The thresholds are the stamp plus a little air. */
+	   weekday would be worse than none. A container query measures the content box, and
+	   the free cell's 1px dashed border sits outside it: a six-night stopover at 375px
+	   draws each day at 35px, which is 33px inside the border, and the first threshold
+	   tried (34px) hid every weekday on exactly the route this app is judged on. "Wed"
+	   in the mono face is about 23px, so 30px leaves it a little air on each side. */
 	.trip-strip-stamp {
 		display: none;
 		align-items: center;
@@ -297,7 +301,7 @@
 		}
 	}
 
-	@container (min-width: 2.125rem) {
+	@container (min-width: 1.875rem) {
 		.trip-strip-stamp-day {
 			display: inline;
 		}
