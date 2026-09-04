@@ -6,10 +6,11 @@
  *
  * `src/lib/cache/` implements exactly that, in three tiers, with `ExpiredFallbackResult`
  * carrying an `ageMs` for the label. Every cache-aside reader in `providers/` reimplemented
- * the same three lines instead, and every one chose to discard: `ryanair.ts`'s `readCache`
- * read the entry, saw it was past its 5-minute TTL, and returned `undefined` — losing an
- * answer it was holding in its hand. Fixed for fares by #155; the other readers still do it,
- * which is why this check is written about the behaviour rather than about that function.
+ * the same three lines instead, and each one chose to discard: `ryanair.ts`'s `readCache`
+ * read the entry, saw it was past its TTL, and returned `undefined` — losing an answer it
+ * was holding in its hand. #155 fixed that reader and #174 fixed Kiwi's, and the page still
+ * does not paint, which is why this check is written about the behaviour rather than about
+ * any one of those functions.
  *
  * ## How this is measured
  *
@@ -38,8 +39,10 @@ import { provenanceLines, resultCards, waitForSearchToFinish } from './support/p
 const SLOW_MS = 8_000;
 const CACHE_HIT_MS = 4_000;
 
-/** `ryanair.ts`'s `FARES_TTL_MS` is 5 minutes. Half an hour is past it by any reading. */
-const PAST_THE_FARE_TTL = '30:00';
+/** `ryanair.ts`'s `FARES_TTL_MS` is an hour since #147 widened it from five minutes, so the
+ * jump has to be more than an hour or this check silently becomes a second copy of the one
+ * above it. It was `30:00` and had been inside the TTL since #147 landed. */
+const PAST_THE_FARE_TTL = '01:30:00';
 
 async function firstCardArrivesWithin(page: import('@playwright/test').Page, ms: number): Promise<boolean> {
 	try {
@@ -97,7 +100,7 @@ test.describe('cached answers are served, not discarded', () => {
 		expect(
 			painted,
 			[
-				`Half an hour after a search, a reload showed nothing for ${CACHE_HIT_MS}ms while every provider was held back by ${SLOW_MS}ms.`,
+				`Ninety minutes after a search, a reload showed nothing for ${CACHE_HIT_MS}ms while every provider was held back by ${SLOW_MS}ms.`,
 				'The previous answer is still in IndexedDB. What went back to the network for it:',
 				bench.describeTraffic(),
 				'',
@@ -114,7 +117,7 @@ test.describe('cached answers are served, not discarded', () => {
 		const claimingFresh = lines.filter((line) => /this minute|just now/i.test(line));
 		expect(
 			claimingFresh,
-			`After a 30-minute jump, ${claimingFresh.length} card(s) still describe their numbers as fetched this minute: ${claimingFresh.join(' | ')}. A cache hit must report the age of what it is showing, not the age of the read.`
+			`After a 90-minute jump, ${claimingFresh.length} card(s) still describe their numbers as fetched this minute: ${claimingFresh.join(' | ')}. A cache hit must report the age of what it is showing, not the age of the read.`
 		).toEqual([]);
 	});
 });
