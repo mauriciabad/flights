@@ -1,19 +1,26 @@
+import { normalizeCurrencyCode } from './currency';
 import { KEY_FILE_VERSION } from './types';
 import type { ImportWarning, KeyFileEnvelope, ProviderId, ProviderKeys, ProviderKeyValues } from './types';
+import type { IsoCurrencyCode } from '../domain';
 
-/** Pure — builds the export file's contents. The actual browser download is in `download.ts`. */
-export function buildExportEnvelope(keys: ProviderKeys): KeyFileEnvelope {
+/** Pure — builds the export file's contents. The actual browser download is in `download.ts`.
+ * `currency` is omitted from the file entirely when nothing is saved, rather than written
+ * as the default: an export that names no currency imports as "leave the currency alone",
+ * and stamping EUR into every file would instead quietly overwrite the choice on whichever
+ * device the file lands. */
+export function buildExportEnvelope(keys: ProviderKeys, currency?: IsoCurrencyCode): KeyFileEnvelope {
 	return {
 		version: KEY_FILE_VERSION,
 		exportedAt: new Date().toISOString(),
 		// Copy each provider's field map too, not just the top-level object — the result
 		// must not alias anything the live store could later mutate in place.
-		keys: Object.fromEntries(Object.entries(keys).map(([id, values]) => [id, { ...values }]))
+		keys: Object.fromEntries(Object.entries(keys).map(([id, values]) => [id, { ...values }])),
+		...(currency === undefined ? {} : { currency })
 	};
 }
 
 export type ParseImportResult =
-	| { ok: true; keys: ProviderKeys; warnings: ImportWarning[] }
+	| { ok: true; keys: ProviderKeys; warnings: ImportWarning[]; currency?: IsoCurrencyCode }
 	| { ok: false; error: string };
 
 /**
@@ -48,6 +55,22 @@ export function parseImportedKeysFile(
 	}
 
 	const warnings: ImportWarning[] = [];
+
+	// The currency is read before the keys so a malformed one warns rather than aborting:
+	// somebody restoring a key set on a new phone should get their keys even when the
+	// currency line of the file is junk. `undefined` means "the file said nothing about
+	// the currency", which the store reads as "leave mine alone".
+	let currency: IsoCurrencyCode | undefined;
+	if (envelope.currency !== undefined) {
+		currency = normalizeCurrencyCode(envelope.currency);
+		if (currency === undefined) {
+			warnings.push({
+				providerId: 'currency',
+				message: 'Skipped: not an ISO 4217 currency code. Your saved currency is unchanged.'
+			});
+		}
+	}
+
 	// Built up mutably here, then returned as the caller-facing `Readonly<...>` shape —
 	// `ProviderKeys`'s index signature is read-only precisely so a caller can't do this.
 	const keys: Record<ProviderId, ProviderKeyValues> = {};
@@ -79,7 +102,7 @@ export function parseImportedKeysFile(
 		}
 		keys[providerId] = fields;
 	}
-	return { ok: true, keys, warnings };
+	return { ok: true, keys, warnings, currency };
 }
 
 /** True when two field maps hold the exact same field ids and values. */

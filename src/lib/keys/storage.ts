@@ -1,7 +1,18 @@
+import { normalizeCurrencyCode } from './currency';
+import type { IsoCurrencyCode } from '../domain';
 import type { ProviderKeys, ProviderKeyValues } from './types';
 
 /** Namespaced so this doesn't collide with some other feature's storage key. */
 const STORAGE_KEY = 'flights.byokKeys.v1';
+
+/**
+ * The traveller's chosen search currency, in its own entry rather than inside the keys
+ * blob above. Two reasons, both about failure: a `JSON.parse` throw on the keys entry
+ * would otherwise take the currency down with it, and a browser that refuses one write
+ * (Safari private mode, quota) still leaves the other readable. It is also a plain string,
+ * so it can be read without parsing anything.
+ */
+const CURRENCY_STORAGE_KEY = 'flights.searchCurrency.v1';
 
 /**
  * `localStorage` throws in Safari private mode, in some embedded webviews,
@@ -9,29 +20,29 @@ const STORAGE_KEY = 'flights.byokKeys.v1';
  * file goes through a try/catch, and callers get "keys are absent" rather
  * than an exception — the app must still work with no keys at all.
  */
-function readRaw(): string | null {
+function readRaw(storageKey: string): string | null {
 	try {
 		if (typeof localStorage === 'undefined') return null;
-		return localStorage.getItem(STORAGE_KEY);
+		return localStorage.getItem(storageKey);
 	} catch {
 		return null;
 	}
 }
 
-function writeRaw(raw: string): boolean {
+function writeRaw(storageKey: string, raw: string): boolean {
 	try {
 		if (typeof localStorage === 'undefined') return false;
-		localStorage.setItem(STORAGE_KEY, raw);
+		localStorage.setItem(storageKey, raw);
 		return true;
 	} catch {
 		return false;
 	}
 }
 
-function removeRaw(): void {
+function removeRaw(storageKey: string): void {
 	try {
 		if (typeof localStorage === 'undefined') return;
-		localStorage.removeItem(STORAGE_KEY);
+		localStorage.removeItem(storageKey);
 	} catch {
 		// Nothing to roll back to and nothing the caller can do about it either.
 	}
@@ -42,7 +53,7 @@ function removeRaw(): void {
  * string) is dropped the same as any other corrupt entry, rather than half-read — this is
  * the same "unreadable reads as absent" rule the try/catch below already applies. */
 export function loadKeysFromStorage(): ProviderKeys {
-	const raw = readRaw();
+	const raw = readRaw(STORAGE_KEY);
 	if (!raw) return {};
 	try {
 		const parsed: unknown = JSON.parse(raw);
@@ -68,12 +79,35 @@ export function loadKeysFromStorage(): ProviderKeys {
 /** Writes every key back. Returns whether the write actually landed. */
 export function saveKeysToStorage(keys: ProviderKeys): boolean {
 	try {
-		return writeRaw(JSON.stringify(keys));
+		return writeRaw(STORAGE_KEY, JSON.stringify(keys));
 	} catch {
 		return false;
 	}
 }
 
 export function clearKeysFromStorage(): void {
-	removeRaw();
+	removeRaw(STORAGE_KEY);
+}
+
+/**
+ * The saved search currency, or `undefined` when nothing usable is stored. A value that
+ * is not a well-formed ISO 4217 code reads as absent rather than being handed on: the
+ * caller then falls back to `DEFAULT_SEARCH_CURRENCY`, which the providers understand,
+ * rather than putting whatever was in storage into a provider's query string.
+ */
+export function loadCurrencyFromStorage(): IsoCurrencyCode | undefined {
+	return normalizeCurrencyCode(readRaw(CURRENCY_STORAGE_KEY));
+}
+
+/** Writes the chosen currency back. Returns whether the write actually landed. A code
+ * this function cannot make sense of is refused rather than stored, so a bad value can
+ * never become the saved one. */
+export function saveCurrencyToStorage(currency: IsoCurrencyCode): boolean {
+	const code = normalizeCurrencyCode(currency);
+	if (code === undefined) return false;
+	return writeRaw(CURRENCY_STORAGE_KEY, code);
+}
+
+export function clearCurrencyFromStorage(): void {
+	removeRaw(CURRENCY_STORAGE_KEY);
 }

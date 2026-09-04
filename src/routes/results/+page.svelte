@@ -188,10 +188,11 @@
 	 * `widenWithPriceCalendar`) go through this one function, so the currency it names is
 	 * what puts `currency_id` on the Agoda request and `currency` on both flight leg queries.
 	 * Read live from `keyStore` on every call, never captured once: a key pasted into
-	 * settings in another tab has to reach the next search from this one.
+	 * settings in another tab has to reach the next search from this one, and so does a
+	 * currency picked there.
 	 */
 	function deps(): SearchDependencies {
-		return createSearchDependencies(keyStore.availableKeys);
+		return createSearchDependencies(keyStore.availableKeys, keyStore.currency);
 	}
 
 	/**

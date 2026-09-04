@@ -1,6 +1,14 @@
 import { buildExportEnvelope, mergeProviderKeys, parseImportedKeysFile } from './codec';
-import { clearKeysFromStorage, loadKeysFromStorage, saveKeysToStorage } from './storage';
+import { normalizeCurrencyCode } from './currency';
+import {
+	clearKeysFromStorage,
+	loadCurrencyFromStorage,
+	loadKeysFromStorage,
+	saveCurrencyToStorage,
+	saveKeysToStorage
+} from './storage';
 import { redactKey } from './redact';
+import type { IsoCurrencyCode } from '../domain';
 import type { ImportOutcome, KeyFileEnvelope, ProviderId, ProviderKeys, ProviderKeyValues } from './types';
 
 /**
@@ -17,6 +25,13 @@ import type { ImportOutcome, KeyFileEnvelope, ProviderId, ProviderKeys, Provider
  */
 export class KeyStore {
 	#keys = $state<ProviderKeys>({});
+	// Not a key, but it lives here for the same two reasons the keys do: it is the
+	// traveller's own setting, saved only in this browser, and it rides along in the
+	// export file so a restored key set arrives already priced the way they wanted.
+	// `undefined` means "never chosen", which every reader turns into
+	// `DEFAULT_SEARCH_CURRENCY`. That stays distinct from a chosen EUR, so a future change
+	// of default reaches somebody who never picked and leaves alone somebody who did.
+	#currency = $state<IsoCurrencyCode | undefined>(undefined);
 	// True once the constructor has run. SvelteKit prerenders this module on
 	// the server, where there is no localStorage and keys always read as
 	// empty — a UI built on this store should gate on `hydrated` (or defer
@@ -26,6 +41,7 @@ export class KeyStore {
 
 	constructor() {
 		this.#keys = loadKeysFromStorage();
+		this.#currency = loadCurrencyFromStorage();
 		this.#hydrated = true;
 	}
 
@@ -44,6 +60,30 @@ export class KeyStore {
 	 * `registry.usable('flight', keyStore.availableKeys)`, no conversion function needed. */
 	get availableKeys(): ProviderKeys {
 		return this.#keys;
+	}
+
+	/**
+	 * The currency every provider in a search is asked to quote in, or `undefined` when
+	 * nobody has chosen one. Read through `createSearchDependencies`
+	 * (`results/search-dependencies.ts`), which applies the default. Reading it raw here
+	 * keeps "not chosen" tellable from "chose the default", which is what lets the settings
+	 * picker be honest about which of the two it is showing.
+	 *
+	 * Like `availableKeys`, this is empty during SSR: gate on `hydrated` before drawing a
+	 * selected state from it.
+	 */
+	get currency(): IsoCurrencyCode | undefined {
+		return this.#currency;
+	}
+
+	/** Saves the chosen currency. A code that is not three letters is ignored rather than
+	 * stored, so the picker and an imported file cannot put something a provider will
+	 * reject into every future search. */
+	setCurrency(currency: IsoCurrencyCode): void {
+		const code = normalizeCurrencyCode(currency);
+		if (code === undefined || code === this.#currency) return;
+		this.#currency = code;
+		saveCurrencyToStorage(code);
 	}
 
 	/** True once this provider has at least one field with a non-empty value. This is the
@@ -119,7 +159,10 @@ export class KeyStore {
 		this.#persist();
 	}
 
-	/** Clears every key for every provider. Used by the settings UI's "remove all keys" action. */
+	/** Clears every key for every provider. Used by the settings UI's "remove all keys"
+	 * action. The currency is left alone on purpose: that button is about removing
+	 * credentials, and wiping a display preference alongside them would be a second,
+	 * unasked-for effect on a button whose label promises one. */
 	clearAll(): void {
 		this.#keys = {};
 		clearKeysFromStorage();
@@ -127,7 +170,7 @@ export class KeyStore {
 
 	/** Pure data for the export file. The download side-effect itself is in `download.ts`. */
 	exportEnvelope(): KeyFileEnvelope {
-		return buildExportEnvelope(this.#keys);
+		return buildExportEnvelope(this.#keys, this.#currency);
 	}
 
 	/**
@@ -149,7 +192,17 @@ export class KeyStore {
 		const { merged, added, updated, unchanged } = mergeProviderKeys(this.#keys, parsed.keys);
 		this.#keys = merged;
 		this.#persist();
-		return { added, updated, unchanged, warnings: parsed.warnings };
+		// A file that names no currency leaves the one already saved alone, matching how the
+		// keys merge: an import adds to this device, it never wipes what the file is silent
+		// about.
+		if (parsed.currency !== undefined) this.setCurrency(parsed.currency);
+		return {
+			added,
+			updated,
+			unchanged,
+			warnings: parsed.warnings,
+			...(parsed.currency === undefined ? {} : { currency: parsed.currency })
+		};
 	}
 
 	#persist(): void {

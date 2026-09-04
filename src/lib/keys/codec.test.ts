@@ -157,3 +157,57 @@ describe('mergeProviderKeys', () => {
 		expect(result.updated).toEqual([]);
 	});
 });
+
+describe('the search currency in a key file', () => {
+	it('rides along in the export when one is saved', () => {
+		const envelope = buildExportEnvelope({ agoda: { apiKey: 'ag-1' } }, 'GBP');
+		expect(envelope.currency).toBe('GBP');
+	});
+
+	it('is left out of the file entirely when nothing is saved', () => {
+		const envelope = buildExportEnvelope({ agoda: { apiKey: 'ag-1' } });
+		// Not `currency: undefined`, and not the default written in as if it were a choice:
+		// an absent field is what tells the importing device to leave its own setting alone.
+		expect('currency' in envelope).toBe(false);
+	});
+
+	it('reads back exactly what was exported', () => {
+		const keys = { agoda: { apiKey: 'ag-1' } };
+		const result = parseImportedKeysFile(buildExportEnvelope(keys, 'CHF'));
+		expect(result).toEqual({ ok: true, keys, warnings: [], currency: 'CHF' });
+	});
+
+	it('normalises a hand-edited lowercase code', () => {
+		const result = parseImportedKeysFile({ version: KEY_FILE_VERSION, keys: {}, currency: 'sek' });
+		expect(result.ok && result.currency).toBe('SEK');
+	});
+
+	it('warns and keeps the keys when the currency line is junk', () => {
+		// Somebody restoring a key set on a new phone gets their keys even when this one
+		// field of the file is unreadable.
+		const result = parseImportedKeysFile({
+			version: KEY_FILE_VERSION,
+			keys: { agoda: { apiKey: 'ag-1' } },
+			currency: 'euros'
+		});
+		expect(result.ok).toBe(true);
+		if (!result.ok) return;
+		expect(result.currency).toBeUndefined();
+		expect(result.keys).toEqual({ agoda: { apiKey: 'ag-1' } });
+		expect(result.warnings).toEqual([
+			{ providerId: 'currency', message: expect.stringContaining('ISO 4217') }
+		]);
+	});
+
+	it('reads a file written before the currency existed without complaining', () => {
+		const result = parseImportedKeysFile({
+			version: KEY_FILE_VERSION,
+			exportedAt: '2026-09-01T00:00:00.000Z',
+			keys: { agoda: { apiKey: 'ag-1' } }
+		});
+		expect(result.ok).toBe(true);
+		if (!result.ok) return;
+		expect(result.currency).toBeUndefined();
+		expect(result.warnings).toEqual([]);
+	});
+});

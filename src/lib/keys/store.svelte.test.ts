@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { KeyStore } from './store.svelte';
+import { KEY_FILE_VERSION } from './types';
 
 beforeEach(() => {
 	localStorage.clear();
@@ -167,5 +168,60 @@ describe('KeyStore export / import round trip', () => {
 
 		expect(outcome.error).toBeDefined();
 		expect(store.getFieldValue('skyscanner', 'apiKey')).toBe('sk-live-1234');
+	});
+});
+
+describe('KeyStore search currency', () => {
+	it('reads as undefined until somebody picks one', () => {
+		expect(new KeyStore().currency).toBeUndefined();
+	});
+
+	it('survives a reload', () => {
+		new KeyStore().setCurrency('GBP');
+		expect(new KeyStore().currency).toBe('GBP');
+	});
+
+	it('ignores a code that is not a currency code, keeping the last good one', () => {
+		const store = new KeyStore();
+		store.setCurrency('CZK');
+		store.setCurrency('nonsense');
+		expect(store.currency).toBe('CZK');
+	});
+
+	it('travels in the export file and comes back on import', () => {
+		const source = new KeyStore();
+		source.setFieldValue('agoda', 'apiKey', 'ag-1');
+		source.setCurrency('SEK');
+		const envelope = source.exportEnvelope();
+
+		// A second device: the file is all it has.
+		localStorage.clear();
+		const destination = new KeyStore();
+		const outcome = destination.importFromFile(envelope);
+
+		expect(outcome.currency).toBe('SEK');
+		expect(destination.currency).toBe('SEK');
+		// And it is saved, not merely held in memory for this page load.
+		expect(new KeyStore().currency).toBe('SEK');
+	});
+
+	it('leaves a chosen currency alone when the imported file names none', () => {
+		const store = new KeyStore();
+		store.setCurrency('NOK');
+		const outcome = store.importFromFile({ version: KEY_FILE_VERSION, keys: { agoda: { apiKey: 'ag-1' } } });
+
+		expect(outcome.currency).toBeUndefined();
+		expect(store.currency).toBe('NOK');
+	});
+
+	it('is not wiped by "remove all keys", which promises to remove keys', () => {
+		const store = new KeyStore();
+		store.setFieldValue('agoda', 'apiKey', 'ag-1');
+		store.setCurrency('DKK');
+
+		store.clearAll();
+
+		expect(store.hasKey('agoda')).toBe(false);
+		expect(store.currency).toBe('DKK');
 	});
 });

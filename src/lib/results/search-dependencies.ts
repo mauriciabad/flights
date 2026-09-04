@@ -20,6 +20,7 @@
  */
 
 import { DEFAULT_SEARCH_CURRENCY } from '$lib/domain';
+import type { IsoCurrencyCode } from '$lib/domain';
 import type { SearchDependencies } from '$lib/search';
 import type { ProviderKeys } from '$lib/keys';
 import { getProviderRegistry } from './provider-setup';
@@ -34,11 +35,25 @@ import { getProviderRegistry } from './provider-setup';
  * in that module's 165KB generated dataset. It is optional in the type for exactly that
  * reason — unlike `currency`, which is required, because there is no sane default a layer
  * below can invent for it and a missing one silently costs the traveller a bed.
+ *
+ * `savedCurrency` is the traveller's own choice from the settings screen
+ * (`keyStore.currency`, saved in `localStorage` next to their keys), and `undefined` means
+ * they have never picked one. It arrives as an argument rather than being read from
+ * `keyStore` in here for the same reason `keys` does: this function stays a plain unit a
+ * test can call without a Svelte runtime or a browser, which is the whole reason issue
+ * #158 moved it out of a component closure in the first place.
  */
-export function createSearchDependencies(keys: ProviderKeys): SearchDependencies {
+export function createSearchDependencies(
+	keys: ProviderKeys,
+	savedCurrency?: IsoCurrencyCode
+): SearchDependencies {
 	return {
 		registry: getProviderRegistry(),
 		keys,
-		currency: DEFAULT_SEARCH_CURRENCY
+		// The traveller's pick wins, and `DEFAULT_SEARCH_CURRENCY` is where a search lands
+		// when there is no pick. Kept as a fallback here rather than as a value written into
+		// storage on first load, so someone who never chose follows the app's default if it
+		// ever changes, while someone who chose EUR on purpose keeps EUR.
+		currency: savedCurrency ?? DEFAULT_SEARCH_CURRENCY
 	};
 }

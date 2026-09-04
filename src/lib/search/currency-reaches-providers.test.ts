@@ -159,6 +159,17 @@ function airport(iataCode: string, city: string, isoCode: string): Airport {
 	};
 }
 
+function flightIn(
+	currency: string,
+	from: string,
+	to: string,
+	departure: string,
+	arrival: string,
+	minorUnits: number
+): FlightOffer {
+	return { ...eurFlight(from, to, departure, arrival, minorUnits), price: { minorUnits, currency } };
+}
+
 function eurFlight(from: string, to: string, departure: string, arrival: string, minorUnits: number): FlightOffer {
 	return {
 		carrier: { iataCode: 'FR', name: 'Ryanair' },
@@ -256,5 +267,51 @@ describe('the search currency reaches Agoda (issue #158)', () => {
 		expect(itineraries).toHaveLength(1);
 		expect(itineraries[0].stay).toBeUndefined();
 		expect(itineraries[0].totalPrice).toEqual({ minorUnits: 8000, currency: 'EUR' });
+	});
+});
+
+/**
+ * The settings screen lets a traveller pick the currency (`keyStore.currency`, threaded
+ * through `createSearchDependencies`), so every guarantee above has to hold for whichever
+ * one they picked, not only for the app's own default. These two are the same pair as
+ * above, run against a chosen GBP instead.
+ */
+describe('a currency the traveller chose, rather than the default', () => {
+	it("sends the traveller's own currency_id, not the default one", async () => {
+		const { getPricesUrls } = await resolveStayFor('GBP');
+
+		expect(getPricesUrls.length).toBeGreaterThan(0);
+		for (const url of getPricesUrls) {
+			// 2 is Agoda's own numeric id for GBP (`AGODA_CURRENCY_INFO`). Reading it off the
+			// wire is what proves the picker reaches the provider rather than stopping at a
+			// field somebody forgot to thread, which is exactly how #158 happened.
+			expect(new URL(url).searchParams.get('currency_id')).toBe('2');
+		}
+	});
+
+	it('costs the bed and never the trip when the provider answers in something else anyway', async () => {
+		// The fixture answers EUR whatever id it is sent, which models the provider ignoring
+		// us: asked for GBP, answered in something else. #154's guarantee is that this costs
+		// the bed rather than the itinerary, and it has to survive the traveller changing the
+		// currency, since a mismatch is now reachable from the settings screen.
+		const { resources } = await resolveStayFor('GBP');
+		expect(resources.stay).toBeUndefined();
+		expect(resources.stayCandidates).toEqual([]);
+
+		const outbound = flightIn('GBP', 'BCN', 'VIE', '2026-10-10T08:00:00', '2026-10-10T10:30:00', 4500);
+		const onward = flightIn('GBP', 'VIE', 'OTP', '2026-10-13T15:00:00', '2026-10-13T17:30:00', 3500);
+		const itineraries = buildItineraries({
+			originAirport: airport('BCN', 'Barcelona', 'ES'),
+			destinationAirport: airport('OTP', 'Bucharest', 'RO'),
+			outboundOffers: [outbound],
+			onwardOffers: [onward],
+			connectionAirports: { VIE: airport('VIE', 'Vienna', 'AT') },
+			connectionResources: { VIE: resources },
+			travellers: 1
+		});
+
+		expect(itineraries).toHaveLength(1);
+		expect(itineraries[0].stay).toBeUndefined();
+		expect(itineraries[0].totalPrice).toEqual({ minorUnits: 8000, currency: 'GBP' });
 	});
 });

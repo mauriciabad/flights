@@ -45,4 +45,20 @@ describe('createSearchDependencies', () => {
 		expect(deps.registry.ofKind('flight').length).toBeGreaterThan(0);
 		expect(deps.registry.ofKind('stay').length).toBeGreaterThan(0);
 	});
+
+	it('uses the currency the traveller saved in settings, not the default', () => {
+		expect(createSearchDependencies({}, 'GBP').currency).toBe('GBP');
+	});
+
+	it('falls back to the default when nobody has chosen', () => {
+		// `undefined` is what `keyStore.currency` reads as before anyone opens the picker,
+		// and during SSR, where there is no `localStorage` at all.
+		expect(createSearchDependencies({}, undefined).currency).toBe(DEFAULT_SEARCH_CURRENCY);
+	});
+
+	it('carries a chosen currency that is not one the picker offers', () => {
+		// A key file can name one. Quietly substituting the default here would make the
+		// settings screen and the search disagree about what is being asked for.
+		expect(createSearchDependencies({}, 'JPY').currency).toBe('JPY');
+	});
 });

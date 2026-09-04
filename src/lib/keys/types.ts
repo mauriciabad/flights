@@ -9,6 +9,7 @@
  * data" and "one provider's data," rather than defining a second, incompatible shape the
  * way it used to (issue #49 reconciled the two).
  */
+import type { IsoCurrencyCode } from '../domain';
 import type { AvailableKeys, ProviderKeyValues } from '../providers/types';
 
 export type { ProviderKeyValues };
@@ -42,9 +43,24 @@ export interface KeyFileEnvelope {
 	/** Informational only — nothing reads this back to make a decision. */
 	exportedAt: string;
 	keys: ProviderKeys;
+	/**
+	 * The traveller's chosen search currency, so it travels with a key set instead of
+	 * being re-picked on every device. Optional, and deliberately NOT a version bump: the
+	 * version above exists to stop an old shape being reinterpreted with a new meaning,
+	 * and this adds a field rather than changing one. A file written before this existed
+	 * imports unchanged and leaves the currency alone, and a file written now imports into
+	 * an older build unchanged too, since `parseImportedKeysFile` there only ever read
+	 * `version` and `keys`. Neither direction loses a key, which is what the version is
+	 * for.
+	 */
+	currency?: IsoCurrencyCode;
 }
 
 export interface ImportWarning {
+	/** What in the file the warning is about. A provider id for every warning the key
+	 * entries produce, and the literal `'currency'` for the one thing in the envelope that
+	 * is not a provider. Kept as one field rather than a tagged union because the settings
+	 * UI renders these as a flat "name: message" list and has no branch to make. */
 	providerId: string;
 	message: string;
 }
@@ -57,4 +73,9 @@ export interface ImportOutcome {
 	warnings: ImportWarning[];
 	/** Set when the file itself could not be read at all; nothing was merged. */
 	error?: string;
+	/** The currency the file carried, once applied. Absent when the file named none, or
+	 * named one this app could not read as a currency code (which warns instead). The
+	 * settings UI reports it, because a key file silently changing what every future
+	 * search is priced in would be a surprise worth avoiding. */
+	currency?: IsoCurrencyCode;
 }
