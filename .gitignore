@@ -47,4 +47,11 @@ vite.config.ts.timestamp-*
 !static/**/*.png
 !static/**/*.jpg
 !src/**/*.png
+
+# Review evidence. An agent that redesigns something is required to look at its own
+# work (AGENTS.md), and a screenshot nobody can see is not evidence. Committing them
+# here is the only way to put one in front of a reviewer, since there is no API for
+# attaching an image to a pull request. Keep them small and delete stale ones.
+!docs/screenshots/
+!docs/screenshots/**/*.png
 !src/**/*.jpg
