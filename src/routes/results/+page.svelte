@@ -19,6 +19,7 @@
 	import { page } from '$app/state';
 	import { Button, Card, EmptyState, Skeleton } from '$lib/components';
 	import { getAirport } from '$lib/data/airports';
+	import { DEFAULT_SEARCH_CURRENCY } from '$lib/domain';
 	import type { Airport, IataAirportCode, SearchQuery, Stay } from '$lib/domain';
 	import { keyStore } from '$lib/keys';
 	import { buildSearchQuery } from '$lib/search-form/model';
@@ -37,6 +38,7 @@
 	import type { ResultFilters } from '$lib/results/filters';
 	import { explainNoResults } from '$lib/results/no-results';
 	import { getProviderRegistry } from '$lib/results/provider-setup';
+	import { createSearchDependencies } from '$lib/results/search-dependencies';
 	import { compareResults, sortResults } from '$lib/results/sort';
 	import type { SortMode } from '$lib/results/sort';
 	import { insertStable, slotsToResults, toSlot } from '$lib/results/stream-order';
@@ -141,7 +143,7 @@
 	}
 
 	const results = $derived(slotsToResults(order));
-	const currency = $derived(results[0]?.itinerary.totalPrice.currency ?? 'EUR');
+	const currency = $derived(results[0]?.itinerary.totalPrice.currency ?? DEFAULT_SEARCH_CURRENCY);
 	const filterOptions = $derived(deriveFilterOptions(results));
 	const filteredResults = $derived(applyFilters(results, filters));
 	const providerStatusList = $derived(Object.values(providerStatuses));
@@ -190,8 +192,16 @@
 		});
 	});
 
+	/**
+	 * Issue #158: assembling this moved to `$lib/results/search-dependencies.ts` so it can be
+	 * unit tested. All three search calls below (`runSearch`, `widenSearch`,
+	 * `widenWithPriceCalendar`) go through this one function, so the currency it names is
+	 * what puts `currency_id` on the Agoda request and `currency` on both flight leg queries.
+	 * Read live from `keyStore` on every call, never captured once: a key pasted into
+	 * settings in another tab has to reach the next search from this one.
+	 */
 	function deps(): SearchDependencies {
-		return { registry: getProviderRegistry(), keys: keyStore.availableKeys };
+		return createSearchDependencies(keyStore.availableKeys);
 	}
 
 	/**

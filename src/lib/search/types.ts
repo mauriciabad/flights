@@ -75,12 +75,22 @@ export interface SearchDependencies {
 	 * Currency every provider is asked to quote in. Every fixture and test in this codebase
 	 * uses EUR (docs/PROVIDERS.md's own Travelpayouts sample: `"currency": "eur"`), and
 	 * `SearchQuery` has no currency field of its own — the brief never asks the traveller to
-	 * pick one. Providers may still ignore this and answer in their own default currency;
-	 * `buildItineraries` (issue #13) throws if two of a candidate's parts disagree, which
-	 * `runSearch` catches per-candidate (see pipeline.ts) so one currency mismatch degrades
-	 * that one candidate rather than the whole search.
+	 * pick one, so callers pass `DEFAULT_SEARCH_CURRENCY` (`domain/money.ts`). Providers may
+	 * still ignore this and answer in their own default currency; `buildItineraries` (issue
+	 * #13) throws if two of a candidate's parts disagree, which `runSearch` catches
+	 * per-candidate (see pipeline.ts) so one currency mismatch degrades that one candidate
+	 * rather than the whole search.
+	 *
+	 * Issue #158: this is REQUIRED, and that is the whole fix. It was optional, every layer
+	 * below threaded it correctly, and the one place that builds this object for a real
+	 * search (`routes/results/+page.svelte`'s `deps()`) never set it — so it was `undefined`
+	 * at the top of a chain that was otherwise right, Agoda was called with no
+	 * `currency_id`, answered in USD, and the only candidate that managed to price a bed was
+	 * the only one dropped. An optional field that every consumer needs is a field the next
+	 * caller will forget; making it required moves that from a silent runtime degradation to
+	 * a compile error at the construction site.
 	 */
-	currency?: IsoCurrencyCode;
+	currency: IsoCurrencyCode;
 }
 
 export interface SearchRunOptions {
