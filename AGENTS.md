@@ -354,6 +354,25 @@ Every flight time is a local wall-clock time at a specific airport. Store the of
 Do not normalise everything to UTC and format it back, because that is how an overnight
 connection silently loses a night, and a lost night is a wrong price and a wrong hotel booking.
 
+The owner extended this to everything the app prints, not only flights: "all times should be
+in the local timezone of the place they reffer to. everywhere." So a hotel check-in reads in
+the stopover's timezone, a bus departure in the city it leaves from, an airport wait in that
+airport's. One journey therefore shows several timezones at once, and that is correct: the
+traveller is standing in one of them at a time.
+
+Never call `toLocaleTimeString` without an explicit timezone. It silently uses the browser's,
+which renders a Cyprus departure in Madrid time on the owner's own machine.
+
+## How the app writes times and money
+
+- **am/pm, not 24-hour**, with a setting for 24-hour (#229).
+- **No padded digits, anywhere in the UI.** `9:05am`, never `09:05am`. His words: "i dont
+  like pad digits, anywhere in ui".
+- **Currency symbol first**, English convention, since the app is in English. He noted Spanish
+  puts it last and chose English deliberately. A rate reads `€52.82/night`.
+- **"each way", not "/way"**, for a fare paid in both directions: `€10 each way`. He flagged
+  `/way` as probably wrong and it is: it is not English.
+
 ## Money
 
 Integer minor units and a currency code. Never a float, never a formatted string as the
