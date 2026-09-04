@@ -2,6 +2,7 @@
 	import '../app.css';
 	import { base } from '$app/paths';
 	import { page } from '$app/state';
+	import UpdateToast from '$lib/pwa/UpdateToast.svelte';
 	import type { Snippet } from 'svelte';
 
 	let { children }: { children: Snippet } = $props();
@@ -9,6 +10,12 @@
 	// Served from `static/icons/`, not `$lib` — those files ship as-is to
 	// the build root, so the base path has to be prefixed by hand here.
 	const iconSrc = `${base}/icons/icon.svg`;
+	const appleTouchIconSrc = `${base}/icons/apple-touch-icon.png`;
+	// @vite-pwa/sveltekit writes this next to index.html but never links it
+	// (issue #30: its build plugin only emits sw.js and manifest.webmanifest,
+	// it doesn't touch app.html), so the <link> lives here instead, where
+	// `base` is already in scope for the same reason iconSrc needs it above.
+	const manifestHref = `${base}/manifest.webmanifest`;
 
 	interface NavItem {
 		id: 'search' | 'results' | 'comparator' | 'settings';
@@ -41,9 +48,28 @@
 	<!-- Fallback only. A page announced by screen readers on navigation
 	     needs its own descriptive <title>; route owners should set one. -->
 	<title>Layover</title>
+
+	<!-- Chrome/Edge/Firefox read this for installability; iOS Safari ignores it
+	     entirely (see the apple-* tags below) and Android falls back to
+	     theme_color from here for the browser chrome even before install. -->
+	<link rel="manifest" href={manifestHref} />
+	<meta name="theme-color" content="#0b1020" />
+
+	<!-- iOS Safari never reads the manifest for any of this — no display mode,
+	     no icon, no name. Each needs its own tag (issue #30). -->
+	<link rel="apple-touch-icon" href={appleTouchIconSrc} />
+	<meta name="mobile-web-app-capable" content="yes" />
+	<meta name="apple-mobile-web-app-capable" content="yes" />
+	<!-- Not "black-translucent": that overlays the status bar on the header,
+	     which would need env(safe-area-inset-top) padding added to .app-header
+	     to avoid the clock/battery icons sitting on top of the brand mark. -->
+	<meta name="apple-mobile-web-app-status-bar-style" content="black" />
+	<meta name="apple-mobile-web-app-title" content="Layover" />
 </svelte:head>
 
 <a class="skip-link" href="#main-content">Skip to content</a>
+
+<UpdateToast />
 
 <div class="app-shell">
 	<header class="app-header">

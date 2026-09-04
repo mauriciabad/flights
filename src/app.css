@@ -193,6 +193,9 @@
 	--layout-max-width: 72rem;
 
 	--z-header: 20;
+	/* UpdateToast.svelte's fixed banner — above the header and the bottom tab
+	   bar's grid layer, below anything modal. */
+	--z-toast: 30;
 	--z-overlay: 50;
 	--z-skip-link: 100;
 	/* Always on top, always inert (pointer-events: none) — the grain
