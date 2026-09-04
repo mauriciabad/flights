@@ -176,6 +176,21 @@ URL or the steps written in the issue body, against production, after the deploy
 PR merged" is not the same claim as "the acceptance test in the issue passes", and the gap
 between those two is where this project has lost the most time.
 
+## If you merge other agents' PRs
+
+Green CI is not a review. It means the tests that exist passed, and the bug worth catching is
+usually the one nobody wrote a test for.
+
+Before merging, read the diff and ask what happens to a user who already has state. #131 shipped
+real map geometry and was merged on green CI with a defect sitting in plain sight: the OSRM route
+cache keys on `{service, profile, origin, destination}` with a 30-day TTL, so every entry written
+before the change carries no geometry and gets served straight back. Anyone who had used the app
+that month, the owner included, would have installed the fix and still seen straight lines. A
+cached value whose shape changed needs a key that no longer resolves to the old one.
+
+Do not merge a PR that has an unresolved review comment on it, and post blocking feedback as a
+PR review rather than only as a message to the author, so whoever merges can see it.
+
 ## Definition of done
 
 - `pnpm check` passes. No new type errors, no `any` smuggled in to silence one.
