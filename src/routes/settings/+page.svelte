@@ -51,6 +51,8 @@
 		</p>
 	</section>
 
+	<KeyExportImport />
+
 	{#if keyStore.hydrated}
 		<section class="provider-list" aria-label="Providers">
 			{#each SETTINGS_PROVIDERS as provider (provider.id)}
@@ -63,8 +65,6 @@
 			<Skeleton height="12rem" />
 		</div>
 	{/if}
-
-	<KeyExportImport />
 </div>
 
 <style>

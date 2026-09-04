@@ -218,7 +218,11 @@ export const SETTINGS_PROVIDERS: readonly SettingsProviderDescriptor[] = [
 			// free-text place name, not a coordinate — confirmed live by that adapter's
 			// author (a `latitude`/`longitude` search returned "The location cannot be
 			// empty"), which is why this is a city name rather than coordinates the way
-			// Booking's check above is.
+			// Booking's check above is. Re-run live against a real subscribed key while
+			// investigating issue #122 (2026-09-04): these exact params return a real
+			// property list, not the "location cannot be empty" error a differently-shaped
+			// request produces — the bug there was `key-check.ts`'s own `performCheck`
+			// trusting `response.ok` without ever looking at the body, not this request.
 			path: '/hotels-homes/overnight-stays/search',
 			params: () => ({
 				location: 'Paris, France',

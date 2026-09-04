@@ -60,8 +60,8 @@
 	<h2 class="export-import-heading">Export and import</h2>
 
 	<p class="export-import-blurb">
-		Move your keys to another device, or share a set with someone else, as a plain JSON file. The
-		file never touches a server — it is written and read entirely in this browser.
+		Move your keys to another device, or restore a saved set, as a plain JSON file — never sent
+		anywhere, only written and read in this browser.
 	</p>
 
 	<div class="export-import-actions">
@@ -105,15 +105,22 @@
 </Card>
 
 <style>
+	/* This card now sits above the provider list (issue #123), specifically so it doesn't
+	   push the keys people actually came here to see below the fold on a phone — trimmed
+	   to a compact utility bar rather than the same full-height card a provider gets. */
+	:global(.export-import-card.card-padded > .card-body) {
+		padding: var(--space-4) var(--space-5);
+	}
+
 	.export-import-heading {
-		margin: 0 0 var(--space-3);
-		font-size: var(--font-size-lg);
+		margin: 0 0 var(--space-2);
+		font-size: var(--font-size-base);
 	}
 
 	.export-import-blurb {
-		margin: 0 0 var(--space-4);
+		margin: 0 0 var(--space-3);
 		color: var(--color-text-muted);
-		font-size: var(--font-size-sm);
+		font-size: var(--font-size-xs);
 	}
 
 	.export-import-actions {

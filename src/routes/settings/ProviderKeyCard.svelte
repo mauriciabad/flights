@@ -166,8 +166,12 @@
 						oninput={(event: Event) => {
 							draftValues = { ...draftValues, [field.id]: (event.currentTarget as HTMLInputElement).value };
 						}}
-						autocomplete="off"
+						autocomplete="one-time-code"
+						data-1p-ignore="true"
+						data-lpignore="true"
+						data-bwignore="true"
 						spellcheck="false"
+						autocapitalize="off"
 					>
 						{#snippet labelSuffix()}
 							<span class="provider-card-field-actions">
@@ -226,6 +230,7 @@
 				title={REASON_TITLE[result.reason]}
 				message={result.message}
 				provider={provider.label}
+				providerResponse={result.providerResponse}
 			>
 				{#snippet action()}
 					{#if result !== undefined && !result.ok && result.reason === 'not-subscribed'}
