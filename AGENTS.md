@@ -143,6 +143,39 @@ So:
 
 The owner's words: "we should show the actual errors recieved, not invent our own".
 
+## Testing the live app without lying to yourself
+
+Two failures already made agents report bugs that were not there, and both are cheap to avoid.
+
+**Use your own browser, not the shared one.** Every agent on this project shares one Playwright
+MCP browser. When five agents run at once it carries a dozen tabs, and it will switch tabs
+underneath you between two tool calls, so the page you measure is not the page you loaded. An
+issue got reopened on evidence gathered that way. Launch your own instead, from the repo so the
+import resolves:
+
+```js
+import { chromium } from '@playwright/test';
+const page = await (await (await chromium.launch()).newContext()).newPage();
+```
+
+Attach `page.on('response')` and `page.on('console')` before `goto`. The request log is usually
+the answer: a route that returns nothing because Ryanair `404`s the airport looks identical on
+screen to one that returns nothing because of a bug.
+
+**Clearing site data does not reset this app.** The response cache is in IndexedDB, so
+`localStorage.clear()` and deleting Cache Storage both leave it fully intact:
+
+```js
+indexedDB.deleteDatabase('flights-cache');
+```
+
+A fresh browser context gets all three at once, which is one more reason to prefer it.
+
+**Re-run the issue's own repro before you close it.** Not the test suite, not the PR checks. The
+URL or the steps written in the issue body, against production, after the deploy finished. "The
+PR merged" is not the same claim as "the acceptance test in the issue passes", and the gap
+between those two is where this project has lost the most time.
+
 ## Definition of done
 
 - `pnpm check` passes. No new type errors, no `any` smuggled in to silence one.
