@@ -10,7 +10,7 @@ import type {
 	Stay,
 	Transfer
 } from '../domain';
-import { DEFAULT_SCORING_WEIGHTS, rankItineraries, scoreItinerary, usableFreeHours } from './score';
+import { DEFAULT_SCORING_WEIGHTS, nightBonus, rankItineraries, scoreItinerary, usableFreeHours } from './score';
 
 // ---------------------------------------------------------------------------
 // Fixture builders — enough of each domain type to be a valid Itinerary, no more.
@@ -194,6 +194,170 @@ describe('usableFreeHours', () => {
 
 		// Roughly 3x, not exactly, since the curve isn't a flat rate across a day.
 		expect(usableFreeHours(threeDays)).toBeGreaterThan(usableFreeHours(oneDay) * 2.5);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// Issue #167: the night bonus used to be `nightBonusPerNight * nights`, unbounded, and a
+// stopover with no priced bed was charged nothing at all for its nights. Together those
+// made "more nights" a strict, permanent improvement, and once #166 gave every stopover a
+// month of dated fares to choose between, the top result on BCN -> OTP became a 24-night
+// stay. These tests pin the two properties that stop that: the value of a stopover
+// saturates, and a night nobody priced is not a free night.
+// ---------------------------------------------------------------------------
+
+/**
+ * A stopover of exactly `nights` calendar nights, 11:00 to 11:00, holding everything else
+ * equal: same flights, same durations, same airport waiting. `bedPerNight` is the stay's
+ * nightly rate in minor units, or `undefined` for the keyless default state where no bed
+ * was priced at all; `totalPrice` follows from it the same way `build.ts` computes it, so
+ * these itineraries are the ones the real builder would have produced.
+ */
+function nightsStopover(nights: number, bedPerNight?: number): Itinerary {
+	const departDay = 10 + nights;
+	const freeDuration = nights * 24 * 60;
+	const bedTotal = bedPerNight === undefined ? 0 : bedPerNight * nights;
+	const stayForNights: Stay | undefined =
+		bedPerNight === undefined
+			? undefined
+			: { ...stay, pricePerNight: { minorUnits: bedPerNight, currency: 'EUR' } };
+	const departLocal = `2026-09-${String(departDay).padStart(2, '0')}`;
+	return {
+		originAirport,
+		originWaitingTime: 120 as Duration,
+		outboundFlight: flight('MAD', 'VIE', '2026-09-10T08:00:00', '2026-09-10T10:30:00', 150, carrier('AB', 'Air Baseline')),
+		transferToHotel: stayForNights && transfer(15),
+		stay: stayForNights,
+		freeTime: freeTime('2026-09-10T11:00:00', `${departLocal}T11:00:00`, freeDuration),
+		nightsInConnection: nights,
+		transferToConnectionAirport: stayForNights && transfer(15),
+		connectionWaitingTime: 120 as Duration,
+		onwardFlight: flight('VIE', 'TLL', `${departLocal}T15:00:00`, `${departLocal}T17:30:00`, 150, carrier('AB', 'Air Baseline')),
+		destinationAirport,
+		totalPrice: { minorUnits: 20000 + bedTotal, currency: 'EUR' },
+		travellers: 1,
+		times: {
+			inFlight: 300 as Duration,
+			airportWaiting: 240 as Duration,
+			free: freeDuration as Duration,
+			total: (300 + 240 + freeDuration + 30) as Duration
+		}
+	};
+}
+
+describe('the night bonus saturates (issue #167)', () => {
+	it('pays less for each further night, and never more than its ceiling', () => {
+		const { firstNightBonus, stopoverDecayPerNight } = DEFAULT_SCORING_WEIGHTS;
+		const bonus = (n: number) => nightBonus(n, firstNightBonus, stopoverDecayPerNight);
+
+		expect(bonus(0)).toBe(0);
+		expect(bonus(1)).toBeCloseTo(firstNightBonus, 6);
+
+		// Every marginal night is worth strictly less than the one before it, which is the
+		// whole shape: two nights is much better than one, ten is barely better than eight.
+		const marginal = (n: number) => bonus(n) - bonus(n - 1);
+		for (let n = 3; n <= 30; n++) {
+			expect(marginal(n)).toBeLessThan(marginal(n - 1));
+			expect(marginal(n)).toBeGreaterThan(0);
+		}
+		expect(marginal(2)).toBeGreaterThan(20); // the second night still counts for something
+		expect(marginal(10)).toBeLessThan(5); // the tenth barely does
+
+		const ceiling = firstNightBonus / (1 - stopoverDecayPerNight);
+		expect(bonus(1000)).toBeLessThanOrEqual(ceiling);
+		expect(bonus(1000)).toBeCloseTo(ceiling, 3);
+	});
+
+	it('ranks a 24-night stopover below a 3-night one when no bed was priced', () => {
+		// The exact production symptom: BCN -> OTP, no stay-provider key, the scorer picking
+		// the longest stay the search window allowed. Under the old flat 40-a-night bonus
+		// this assertion is false by roughly 800 points.
+		const long = scoreItinerary(nightsStopover(24));
+		const short = scoreItinerary(nightsStopover(3));
+
+		expect(short.total).toBeGreaterThan(long.total);
+		expect(rankItineraries([nightsStopover(24), nightsStopover(3)])[0].itinerary.nightsInConnection).toBe(3);
+	});
+
+	it('stops rewarding extra nights even when the bed itself is priced at zero', () => {
+		// A zero-priced room is a provider defect, not a free room. If it were taken at face
+		// value nothing would charge for those nights and the runaway would return through
+		// the one gap a saturating bonus leaves: a curve that still creeps upward forever.
+		const long = scoreItinerary(nightsStopover(24, 0));
+		const short = scoreItinerary(nightsStopover(3, 0));
+
+		expect(short.total).toBeGreaterThan(long.total);
+		expect(long.breakdown.unpricedNights).toBeLessThan(0);
+	});
+
+	it('still prefers a real stopover to a same-day layover', () => {
+		// The fix must not overshoot into "no stopover is best", which would defeat the
+		// entire product thesis. Three nights with no bed priced still beats a 2h layover.
+		const stopover = scoreItinerary(nightsStopover(3));
+		const layover = scoreItinerary({
+			...twoHourLayover(),
+			stay: undefined,
+			transferToHotel: undefined,
+			transferToConnectionAirport: undefined
+		});
+
+		expect(stopover.total).toBeGreaterThan(layover.total);
+	});
+});
+
+describe('an unpriced bed is unknown, not free (issue #167)', () => {
+	it('ranks an unpriced stopover below an identical one with a real bed', () => {
+		// Same flights, same nights, same everything — one has a EUR 23/night hostel bed
+		// (the rate in the captured Agoda London fixture), the other has no bed priced at
+		// all, so its total looks EUR 69 cheaper. The cheaper-looking one must not win.
+		const priced = nightsStopover(3, 2300);
+		const unpriced = nightsStopover(3);
+
+		expect(unpriced.totalPrice.minorUnits).toBeLessThan(priced.totalPrice.minorUnits);
+		expect(scoreItinerary(priced).total).toBeGreaterThan(scoreItinerary(unpriced).total);
+		expect(rankItineraries([unpriced, priced])[0].itinerary).toBe(priced);
+	});
+
+	it('charges nothing for nights when a bed was priced, and nothing for a same-day connection', () => {
+		expect(scoreItinerary(nightsStopover(3, 2300)).breakdown.unpricedNights).toBe(0);
+		// Zero nights means no bed is missing — nothing to assume a cost for.
+		expect(scoreItinerary(twoHourLayover()).breakdown.unpricedNights).toBe(0);
+		const sameDayNoStay: Itinerary = {
+			...twoHourLayover(),
+			stay: undefined,
+			transferToHotel: undefined,
+			transferToConnectionAirport: undefined
+		};
+		expect(scoreItinerary(sameDayNoStay).breakdown.unpricedNights).toBe(0);
+	});
+
+	it('charges the stated assumed rate per unpriced night', () => {
+		const scored = scoreItinerary(nightsStopover(4));
+		expect(scored.breakdown.unpricedNights).toBeCloseTo(
+			-4 * DEFAULT_SCORING_WEIGHTS.assumedNightCostWithoutPricedBed,
+			6
+		);
+	});
+});
+
+describe('free time earns diminishing returns too (issue #167)', () => {
+	it('does not keep paying full price for the twentieth afternoon in the same city', () => {
+		// Decaying the night bonus alone would have left this term unbounded: roughly 15
+		// usable hours per extra day at 1.5 points each, about 22 points a night, forever.
+		const six = scoreItinerary(nightsStopover(6)).breakdown.usableFreeTime;
+		const twentyFour = scoreItinerary(nightsStopover(24)).breakdown.usableFreeTime;
+
+		expect(twentyFour).toBeGreaterThan(six);
+		// Four times the nights, nowhere near four times the credit.
+		expect(twentyFour).toBeLessThan(six * 1.3);
+	});
+
+	it('leaves the undiscounted usableFreeHours alone, since the UI reports it as a fact', () => {
+		// `describeWhyGood` tells the traveller "about Nh free in the stopover". That is a
+		// plain count of hours, not a scoring opinion, so it must not decay.
+		const oneDay = freeTime('2026-09-10T09:00:00', '2026-09-11T09:00:00', 1440);
+		const fourDays = freeTime('2026-09-10T09:00:00', '2026-09-14T09:00:00', 5760);
+		expect(usableFreeHours(fourDays)).toBeGreaterThan(usableFreeHours(oneDay) * 3.5);
 	});
 });
 

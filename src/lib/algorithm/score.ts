@@ -103,6 +103,60 @@ export function usableFreeHours(freeTime: FreeTime): number {
 	return usable;
 }
 
+/**
+ * Issue #167: the same "usable hours" integral as above, with every hour additionally
+ * discounted by which day of the stopover it falls on — hours on the first day count in
+ * full, hours on the second count `decay`, on the third `decay²`, and so on.
+ *
+ * Scoring uses this; `usableFreeHours` above stays undiscounted because the results card
+ * reports it to the traveller as a plain fact ("about 6h free in the stopover"), and a
+ * discounted hour is not an hour.
+ *
+ * Without this, decaying the night bonus alone would have fixed half the runaway. Free
+ * time grows with the stopover just as nights do — roughly 15 usable hours per extra day,
+ * worth about 22 points at `usableFreeTimeWeightPerHour` — so a 24-night stay would still
+ * have collected an unbounded 22 points a night after the night bonus flattened out. The
+ * justification is the same one `stopoverDecayPerNight` carries: the tenth afternoon in a
+ * city is not worth what the first one was.
+ *
+ * `decay` outside (0, 1) is treated as no discount at all, so a caller who overwrites the
+ * weight with 1 gets the old linear behaviour rather than a NaN.
+ */
+function discountedUsableFreeHours(freeTime: FreeTime, decay: number): number {
+	const startHours = wallClockHours(freeTime.start);
+	const endHours = wallClockHours(freeTime.end);
+	if (endHours <= startHours) return 0;
+	if (!(decay > 0 && decay < 1)) return usableFreeHours(freeTime);
+
+	let usable = 0;
+	for (let t = startHours; t < endHours; t += USABILITY_SAMPLE_STEP_HOURS) {
+		const sliceEnd = Math.min(t + USABILITY_SAMPLE_STEP_HOURS, endHours);
+		const sliceLength = sliceEnd - t;
+		const dayIndex = Math.floor((t - startHours) / 24);
+		usable += usabilityWeightAtHour(t + sliceLength / 2) * sliceLength * Math.pow(decay, dayIndex);
+	}
+	return usable;
+}
+
+/**
+ * Total night bonus for a stopover of `nights` calendar nights: a geometric series, the
+ * first night worth `firstNightBonus` and each further night `decay` times the one before.
+ * Bounded above by `firstNightBonus / (1 - decay)` however long the stopover runs — see
+ * `ScoringWeights.stopoverDecayPerNight` for why that bound is the whole point.
+ *
+ * Exported so a test can assert the curve's shape directly rather than inferring it from
+ * whole-itinerary scores, and so anything that wants to explain a ranking can quote the
+ * same number the scorer used.
+ */
+export function nightBonus(nights: number, firstNightBonus: number, decay: number): number {
+	if (nights <= 0) return 0;
+	// decay === 1 is the old unbounded linear behaviour; anything outside (0, 1] would make
+	// the series meaningless, so it collapses to "the first night only".
+	if (decay >= 1) return firstNightBonus * nights;
+	if (decay <= 0) return firstNightBonus;
+	return (firstNightBonus * (1 - Math.pow(decay, nights))) / (1 - decay);
+}
+
 // ---------------------------------------------------------------------------
 // Weights
 // ---------------------------------------------------------------------------
@@ -139,12 +193,45 @@ export interface ScoringWeights {
 	 * town, even though both count toward the same total duration. */
 	airportWaitingWeightPerHour: number;
 
-	/** Score gained per night actually spent in the connection city. This is the product
-	 * thesis, so it is deliberately the single biggest number in this config: set to 40 so
-	 * that three nights (120 points) comfortably outweighs an eight-euro price gap — the
-	 * exact trade the brief itself describes — while still losing to a price difference in
-	 * the hundreds. */
-	nightBonusPerNight: number;
+	/** Score gained for the FIRST night spent in the connection city. This is the product
+	 * thesis, so it is deliberately the single biggest number in this config: 40 means one
+	 * night in Vienna outweighs a forty-euro price gap, and two nights (70, see
+	 * `stopoverDecayPerNight`) comfortably outweigh the eight-euro gap the brief itself
+	 * describes, while still losing to a price difference in the hundreds.
+	 *
+	 * Issue #167: this used to be a flat per-night rate, multiplied by the night count with
+	 * no upper bound. Once #166 gave every stopover a month of dated fares to choose
+	 * between, "more nights is always better" made the top result a 24-night stay in
+	 * Bergamo. See `stopoverDecayPerNight`. */
+	firstNightBonus: number;
+
+	/**
+	 * What each further night of the stopover is worth as a fraction of the night before
+	 * it — 0.75 means the second night earns 30 points, the third 22.5, the tenth 3.0.
+	 * Strictly between 0 and 1.
+	 *
+	 * The shape, not the number, is the point. A stopover's value does not grow linearly
+	 * with its length: the second night in a city is a real gain over the first (one night
+	 * is an overnight connection, two is a weekend), the tenth is barely different from the
+	 * eighth, and past that the traveller has stopped having a stopover and started having
+	 * a second holiday. Geometric decay is the cheapest curve with that shape — big early
+	 * gains, a flat tail — and it needs one number rather than a table of breakpoints.
+	 * 0.75 puts the knee where a stopover stops feeling like a trip of its own: nights one
+	 * to four earn 40/30/22.5/17, nights nine to twelve earn 4.0/3.0/2.3/1.7.
+	 *
+	 * The bonus therefore has a ceiling of `firstNightBonus / (1 - decay)` = 160 points, so
+	 * a per-night cost — a real bed's nightly rate, or
+	 * `assumedNightCostWithoutPricedBed` below when no bed was priced — always overtakes it
+	 * eventually. That is what makes a longer stay stop being better: the curve flattens
+	 * and the cost does not. Thirty nights scores below ten for every itinerary, not only
+	 * for the ones a stay provider happened to answer for.
+	 *
+	 * The same factor discounts free-time hours by which day of the stopover they fall on
+	 * (`discountedUsableFreeHours`), for the same reason and to close the same hole: free
+	 * time grows with the stopover too, so decaying the night bonus alone would have left
+	 * roughly 22 unbounded points per night in `usableFreeTimeWeightPerHour`.
+	 */
+	stopoverDecayPerNight: number;
 
 	/** Score gained per "usable" hour of free time (see usableFreeHours). Kept separate
 	 * from the flat per-night bonus above because they reward different things: nights
@@ -154,6 +241,31 @@ export interface ScoringWeights {
 	 * night's flat bonus — free time is good, but a bed to sleep in is what turns hours
 	 * into a trip, so nights should still weigh more than hours. */
 	usableFreeTimeWeightPerHour: number;
+
+	/**
+	 * Score charged per night of a stopover whose bed was never priced — no stay provider
+	 * key configured, every provider out of quota or erroring, or nothing bookable found
+	 * near the connection airport.
+	 *
+	 * Issue #167: without this, an unpriced night is scored as a free night. It is not
+	 * free, it is unknown, and the two must not rank the same — otherwise the app rewards a
+	 * stopover for the app's own ignorance about it, and every night of it looks like pure
+	 * gain. The stated assumption is that a night in the stopover city costs about what a
+	 * bed costs, and 30 is drawn from the only real quotes in this repo: the captured
+	 * Agoda fixture for a London hostel dorm reads EUR 22.97 and EUR 25.53 a night
+	 * (`providers/stays/fixtures/agoda-get-prices-hostelle-london-eur.json`), and the
+	 * Booking one for an airport Ibis in Vienna reads EUR 65.45
+	 * (`booking-search-vienna.json`). 30 sits deliberately above every hostel rate we have
+	 * actually seen, so a stopover with a real cheap bed always beats an identical one with
+	 * no bed at all, and below the hotel rate, so this stays an assumption about a budget
+	 * traveller rather than a penalty dressed up as one.
+	 *
+	 * This is a SCORING charge only. It never reaches `Itinerary.totalPrice`, which keeps
+	 * saying exactly what was actually quoted (AGENTS.md: "never present an estimate as a
+	 * fact"). The traveller sees "no bed priced for this stopover" and a total without one;
+	 * the ranking is what stops pretending that means zero.
+	 */
+	assumedNightCostWithoutPricedBed: number;
 
 	/** Score lost per flight (0, 1, or 2 per itinerary) operated by an airline on the
 	 * traveller's avoid list. Large enough (25 per flight) to reliably sink such an
@@ -169,8 +281,10 @@ export const DEFAULT_SCORING_WEIGHTS: ScoringWeights = {
 	pricePerCurrencyUnit: 1,
 	travelTimeWeightPerHour: 0.5,
 	airportWaitingWeightPerHour: 2,
-	nightBonusPerNight: 40,
+	firstNightBonus: 40,
+	stopoverDecayPerNight: 0.75,
 	usableFreeTimeWeightPerHour: 1.5,
+	assumedNightCostWithoutPricedBed: 30,
 	avoidedAirlinePenaltyPerFlight: 25
 };
 
@@ -185,8 +299,14 @@ export interface ScoreBreakdown {
 	price: number;
 	travelTime: number;
 	airportWaiting: number;
+	/** The saturating night bonus (`nightBonus`), always >= 0. */
 	nights: number;
 	usableFreeTime: number;
+	/** Issue #167: what this stopover's nights are charged when no bed was priced for them,
+	 * always <= 0 and always 0 when `Itinerary.stay` is present — the real nightly rate is
+	 * already inside `price` in that case. Separate from `nights` so a breakdown can show
+	 * "3 nights, none of them priced" as two honest numbers rather than one netted-out one. */
+	unpricedNights: number;
 	avoidedAirline: number;
 }
 
@@ -240,15 +360,25 @@ export function scoreItinerary(
 	// — both flights, both airport waits, and every transfer leg.
 	const travelBurdenHours = (itinerary.times.total - itinerary.times.free) / 60;
 	const airportWaitingHours = itinerary.times.airportWaiting / 60;
-	const usableHours = usableFreeHours(itinerary.freeTime);
+	const usableHours = discountedUsableFreeHours(itinerary.freeTime, weights.stopoverDecayPerNight);
 	const avoidedAirlineFlightCount = countAvoidedAirlineFlights(itinerary, airlinesToAvoid);
+	const nights = Math.max(0, itinerary.nightsInConnection);
+	// Issue #167: a bed quoted at zero is a provider defect, not a free room, so it is
+	// scored the same as no quote at all. Without that reading, a single zero-priced stay
+	// would restore the exact runaway this change exists to remove: nothing at all would
+	// charge for its nights, and a saturating bonus that never quite reaches its ceiling
+	// would keep making one more night marginally better, forever.
+	const bedPriced = (itinerary.stay?.pricePerNight.minorUnits ?? 0) > 0;
 
 	const breakdown: ScoreBreakdown = {
 		price: -weights.pricePerCurrencyUnit * priceInMajorUnits(itinerary),
 		travelTime: -weights.travelTimeWeightPerHour * travelBurdenHours,
 		airportWaiting: -weights.airportWaitingWeightPerHour * airportWaitingHours,
-		nights: weights.nightBonusPerNight * itinerary.nightsInConnection,
+		nights: nightBonus(nights, weights.firstNightBonus, weights.stopoverDecayPerNight),
 		usableFreeTime: weights.usableFreeTimeWeightPerHour * usableHours,
+		// The `=== 0 ? 0 :` guard is the same -0 avoidance `avoidedAirline` below uses.
+		unpricedNights:
+			bedPriced || nights === 0 ? 0 : -weights.assumedNightCostWithoutPricedBed * nights,
 		// The `=== 0 ? 0 :` guard avoids producing -0 for the common case of no avoided
 		// flights, which would otherwise print as "-0" anywhere this breakdown is shown.
 		avoidedAirline:
