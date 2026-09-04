@@ -114,12 +114,28 @@ async function runWithBudget<T>(options: CallProviderWithBudgetOptions<T>): Prom
 
 			if (code === 'not-subscribed') markNotSubscribed(providerId);
 
-			const canRetry = RETRYABLE.has(code) && attempt < maxAttempts;
+			const retryAfterSeconds = retryAfterSecondsOf(rawError);
+			// Issue #124/#157: confirmed live that a bare 429 is not always the short
+			// per-minute limit this loop was built to ride out. Flights Sky's real account,
+			// once its 50-a-month tier was actually exhausted, answered "You have exceeded
+			// the MONTHLY quota" — also a 429, also classified `quota-exceeded`, and this
+			// loop retried it three times on a guessed few-second backoff before giving up,
+			// spending requests an account with zero left could not afford. A per-minute
+			// limit and a monthly one are indistinguishable from the status code alone, but
+			// only the former comes with a `Retry-After` header short enough for a caller to
+			// usefully sleep through (confirmed against the real 429 body: a monthly
+			// exhaustion carries none). So `quota-exceeded` only retries when the provider
+			// itself said how long to wait; no header means "not on any timeline this loop
+			// could sleep through," same treatment as `unknown`. `network-error` is
+			// unaffected — it was never gated on a header to begin with.
+			const canRetry =
+				attempt < maxAttempts &&
+				(code === 'network-error' || (code === 'quota-exceeded' && retryAfterSeconds !== undefined)) &&
+				RETRYABLE.has(code);
 			if (!canRetry) {
 				return { ok: false, requestsUsed, source: source(), error: toProviderError(code, rawError, providerId) };
 			}
 
-			const retryAfterSeconds = retryAfterSecondsOf(rawError);
 			const delayMs =
 				retryAfterSeconds !== undefined
 					? Math.min(retryAfterSeconds * 1000, maxDelayMs)

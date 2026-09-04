@@ -162,11 +162,14 @@ describe('callProviderWithBudget — not-subscribed is permanent for the session
 });
 
 describe('callProviderWithBudget — exponential backoff on 429', () => {
-	it('retries a rate-limited call and succeeds once the provider recovers', async () => {
+	it('retries a rate-limited call, on the provider\'s own Retry-After hint, and succeeds once it recovers', async () => {
+		// Issue #124/#157: every attempt carries a real `Retry-After`, the one signal this
+		// loop now trusts to mean "this specific limit is worth sleeping through" — see the
+		// headerless case below, which no longer retries at all.
 		let call = 0;
 		const execute = vi.fn(async () => {
 			call++;
-			if (call < 3) throw new ProviderHttpError(429, 'Too Many Requests');
+			if (call < 3) throw new ProviderHttpError(429, 'Too Many Requests', 1);
 			return 'ok-on-third-try';
 		});
 		const sleep = vi.fn(instantSleep);
@@ -182,7 +185,7 @@ describe('callProviderWithBudget — exponential backoff on 429', () => {
 		});
 
 		expect(execute).toHaveBeenCalledTimes(3);
-		expect(sleep).toHaveBeenCalledTimes(2); // backed off before attempt 2 and attempt 3
+		expect(sleep).toHaveBeenCalledTimes(2); // before attempt 2 and attempt 3, both on the header's own hint
 		expect(outcome).toMatchObject({ ok: true, data: 'ok-on-third-try', requestsUsed: 3 });
 	});
 
@@ -227,28 +230,37 @@ describe('callProviderWithBudget — exponential backoff on 429', () => {
 		expect(sleep).toHaveBeenCalledWith(8_000);
 	});
 
-	it('gives up after maxAttempts and reports the failure, still counting every real attempt', async () => {
+	/**
+	 * Issue #157, found live while confirming #124 end to end: Flights Sky's real account,
+	 * its 50-a-month tier actually exhausted, answered a bare 429 with no `Retry-After` at
+	 * all — "You have exceeded the MONTHLY quota" — and this loop retried it three times on
+	 * a guessed few-second backoff before giving up, spending requests an account with zero
+	 * left could not afford. A per-minute limit and a monthly one are both a 429; only the
+	 * header tells them apart, and a monthly exhaustion does not send one. This is the
+	 * regression test: a single, un-retried attempt, not three.
+	 */
+	it('does not retry a headerless 429 — it may be a monthly quota, not a per-minute limit', async () => {
 		const execute = vi.fn(async () => {
-			throw new ProviderHttpError(429, 'Too Many Requests');
+			throw new ProviderHttpError(429, 'You have exceeded the MONTHLY quota for Requests');
 		});
 
 		const outcome = await callProviderWithBudget({
 			providerId: 'skyscanner',
 			cap: 15,
-			dedupeKey: 'sky-scrapper:always-429',
+			dedupeKey: 'sky-scrapper:always-429-no-header',
 			execute,
 			sleep: instantSleep,
 			maxAttempts: 3,
 			now: () => SEP_2026
 		});
 
-		expect(execute).toHaveBeenCalledTimes(3);
-		expect(outcome).toMatchObject({ ok: false, requestsUsed: 3, error: { code: 'quota-exceeded' } });
+		expect(execute).toHaveBeenCalledTimes(1);
+		expect(outcome).toMatchObject({ ok: false, requestsUsed: 1, error: { code: 'quota-exceeded' } });
 	});
 
 	it('re-checks the quota before every retry, so a retry storm cannot exceed the cap', async () => {
 		const execute = vi.fn(async () => {
-			throw new ProviderHttpError(429, 'Too Many Requests');
+			throw new ProviderHttpError(429, 'Too Many Requests', 0); // Retry-After: 0s, still a real header
 		});
 
 		const outcome = await callProviderWithBudget({
