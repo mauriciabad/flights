@@ -106,6 +106,21 @@ Wrap such a call in `untrack()`, or restructure so the async work is started out
 reactive graph. And when you touch anything reactive, verify it in a real browser against a
 real build. `pnpm check` and a jsdom test cannot see this class of bug at all.
 
+## Clear the build cache before believing a hydration bug
+
+A stale `.svelte-kit` or `build` directory can produce symptoms identical to a real
+SSR/hydration defect: content silently falling to the wrong branch, present in the server HTML
+and gone after hydration.
+
+That happened here. A component's header was reported as a Svelte bug and worked around in
+shipped code. A later investigation could not reproduce it four different ways against real
+production builds, confirmed the Svelte and Kit versions had not changed, then reproduced the
+exact symptom on purpose by rebuilding without clearing `.svelte-kit` first. A clean rebuild
+made it vanish.
+
+So before concluding the framework is wrong: `rm -rf .svelte-kit build && pnpm build`. If it
+survives that, it is real.
+
 ## Definition of done
 
 - `pnpm check` passes. No new type errors, no `any` smuggled in to silence one.
