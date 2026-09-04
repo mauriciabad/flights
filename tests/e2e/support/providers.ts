@@ -36,6 +36,25 @@ export async function mockRyanair(target: Routable, fixture = 'ryanair/one-way-f
 	await mockJson(target, 'https://services-api.ryanair.com/**', fixture);
 }
 
+/** Ryanair's route-widget: "which airports does this one fly to" (`ryanair-client.ts`'s
+ * `fetchDirectDestinations`). Issue #12's connection graph calls this once per candidate
+ * connection airport to confirm it also reaches the traveller's destination — a real
+ * search cannot get past "0 of 0 itineraries" without this mocked too, which
+ * `mockRyanair` above never covered (nothing exercised the connection graph end to end
+ * until issue #87's e2e coverage). One fixture answers every airport code queried, since
+ * the algorithm only cares whether the SPECIFIC destination it's checking for shows up in
+ * the response, not the full route map. */
+export async function mockRyanairRoutes(target: Routable, fixture = 'ryanair/routes.json') {
+	await mockJson(target, 'https://www.ryanair.com/api/views/locate/searchWidget/routes/en/airport/**', fixture);
+}
+
+/** Ryanair's active-airports list — the only endpoint that carries a timezone per
+ * airport (the fare-finder response has none), so `ryanair-mapper.ts` needs this mocked
+ * too or every offer gets silently dropped for "unknown timezone." */
+export async function mockRyanairActiveAirports(target: Routable, fixture = 'ryanair/active-airports.json') {
+	await mockJson(target, 'https://www.ryanair.com/api/views/locate/3/airports/en/active', fixture);
+}
+
 /** Skyscanner, reached through RapidAPI's "sky-scrapper" product. Requires the user's
  * own RapidAPI key — never call the real host in a test, see tests/e2e/README.md. */
 export async function mockSkyscanner(target: Routable, fixture = 'skyscanner/search-flights.json') {
@@ -64,11 +83,14 @@ export async function mockOsrm(target: Routable, fixture = 'osrm/route.json') {
 	await mockJson(target, 'https://router.project-osrm.org/**', fixture);
 }
 
-/** Registers every keyless provider (Ryanair, Transitous, OSRM). This is the state a
- * first-time visitor with an empty key store is in — see issue #18's "first run with no
- * keys" scenario and issue #3 (the key store). */
+/** Registers every keyless provider (Ryanair — fare-finder, route-widget and
+ * active-airports, all three real endpoints the adapter calls — Transitous, OSRM). This
+ * is the state a first-time visitor with an empty key store is in — see issue #18's
+ * "first run with no keys" scenario and issue #3 (the key store). */
 export async function mockAllKeylessProviders(target: Routable) {
 	await mockRyanair(target);
+	await mockRyanairRoutes(target);
+	await mockRyanairActiveAirports(target);
 	await mockTransitous(target);
 	await mockOsrm(target);
 }
