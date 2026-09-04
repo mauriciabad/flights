@@ -44,7 +44,8 @@
 		allCoordinates,
 		buildItineraryMapModel,
 		findSegment,
-		type ItineraryMapModel
+		type ItineraryMapModel,
+		type ItineraryMarkerKind
 	} from '$lib/itinerary-map/segments';
 	import { viewForCoordinates, type MapView } from '$lib/itinerary-map/geo';
 	import type { ItinerarySegmentId } from '$lib/itinerary-map/segment-id';
@@ -154,6 +155,25 @@
 		applyView(viewForCoordinates(coordinates), animate);
 	}
 
+	/**
+	 * Issue #118: the owner's complaint was literally "markers for start hotel and end"
+	 * being indistinguishable from an airport — so these three get a compact icon glyph
+	 * inside a plain circle (`.itinerary-marker-pin` below), rather than the airport
+	 * pill's elongated shape and IATA-code text. Static, hand-rolled markup rather than
+	 * an icon-library import: this codebase already draws its few icons this way
+	 * (`EmptyState.svelte`, `Chip.svelte`) with no icon dependency at all, and three more
+	 * glyphs isn't reason enough to add one. `currentColor` picks up the tone colour
+	 * `.itinerary-marker-pin`'s CSS sets, exactly like those two components' own icons.
+	 */
+	const MARKER_ICONS: Record<Exclude<ItineraryMarkerKind, 'airport'>, string> = {
+		// A simple house/roofline: the trip's own starting point.
+		start: `<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8.5 8 3l5 5.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" fill="none"/><path d="M4.5 7.5V13a.8.8 0 0 0 .8.8h5.4a.8.8 0 0 0 .8-.8V7.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>`,
+		// A bed: where the free time in the connection city is actually spent.
+		stay: `<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 13V5.5A1.5 1.5 0 0 1 3.5 4H6a1.5 1.5 0 0 1 1.5 1.5V8" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" fill="none"/><path d="M2 9h11a1.5 1.5 0 0 1 1.5 1.5V13" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" fill="none"/><path d="M2 13v-1.2M14 13v-1.7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>`,
+		// A flag: the trip's final destination.
+		end: `<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 14V2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M4 3h8l-2.5 2.5L12 8H4" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" fill="none"/></svg>`
+	};
+
 	function shortLabelFor(label: string): string {
 		// Airports show their IATA code (the label's own "(XYZ)" suffix); the hotel and
 		// any origin/destination location show no on-map text at all, just the dot —
@@ -178,20 +198,41 @@
 		for (const entry of markers) entry.marker.remove();
 		markers = [];
 
-		const waypoints: { id: ItinerarySegmentId | null; coordinates: Airport['coordinates']; label: string; tone: 'neutral' | 'stopover' }[] =
-			[];
+		const waypoints: {
+			id: ItinerarySegmentId | null;
+			coordinates: Airport['coordinates'];
+			label: string;
+			tone: 'neutral' | 'stopover';
+			markerKind: ItineraryMarkerKind;
+		}[] = [];
 		for (const segment of currentModel.segments) {
 			if (segment.kind !== 'point') continue;
-			waypoints.push({ id: segment.id, coordinates: segment.coordinates, label: segment.label, tone: segment.tone });
+			waypoints.push({
+				id: segment.id,
+				coordinates: segment.coordinates,
+				label: segment.label,
+				tone: segment.tone,
+				markerKind: segment.markerKind
+			});
 		}
 		for (const waypoint of currentModel.extraWaypoints) {
-			waypoints.push({ id: null, coordinates: waypoint.coordinates, label: waypoint.label, tone: waypoint.tone });
+			waypoints.push({
+				id: null,
+				coordinates: waypoint.coordinates,
+				label: waypoint.label,
+				tone: waypoint.tone,
+				markerKind: waypoint.markerKind
+			});
 		}
 
 		for (const point of waypoints) {
 			const isSelectable = point.id !== null;
+			const markerKind = point.markerKind;
 			const el = document.createElement(isSelectable ? 'button' : 'div');
-			el.className = `itinerary-marker itinerary-marker-${point.tone}`;
+			el.className =
+				markerKind === 'airport'
+					? `itinerary-marker itinerary-marker-${point.tone}`
+					: `itinerary-marker itinerary-marker-pin itinerary-marker-${point.tone}`;
 			el.title = point.label;
 			el.setAttribute('aria-label', point.label);
 			if (isSelectable) {
@@ -207,18 +248,29 @@
 				el.setAttribute('role', 'img');
 			}
 
-			const dot = document.createElement('span');
-			dot.className = 'itinerary-marker-dot';
-			dot.setAttribute('aria-hidden', 'true');
-			el.appendChild(dot);
+			if (markerKind === 'airport') {
+				const dot = document.createElement('span');
+				dot.className = 'itinerary-marker-dot';
+				dot.setAttribute('aria-hidden', 'true');
+				el.appendChild(dot);
 
-			const short = shortLabelFor(point.label);
-			if (short) {
-				const shortLabelEl = document.createElement('span');
-				shortLabelEl.className = 'itinerary-marker-code font-mono tabular-nums';
-				shortLabelEl.textContent = short;
-				shortLabelEl.setAttribute('aria-hidden', 'true');
-				el.appendChild(shortLabelEl);
+				const short = shortLabelFor(point.label);
+				if (short) {
+					const shortLabelEl = document.createElement('span');
+					shortLabelEl.className = 'itinerary-marker-code font-mono tabular-nums';
+					shortLabelEl.textContent = short;
+					shortLabelEl.setAttribute('aria-hidden', 'true');
+					el.appendChild(shortLabelEl);
+				}
+			} else {
+				// Issue #118: a distinct icon glyph, not a plain dot, so the start point, the
+				// hotel and the end point read as what they are rather than as another
+				// airport. Static markup from MARKER_ICONS, never interpolated user data.
+				const iconWrap = document.createElement('span');
+				iconWrap.className = 'itinerary-marker-icon';
+				iconWrap.setAttribute('aria-hidden', 'true');
+				iconWrap.innerHTML = MARKER_ICONS[markerKind];
+				el.appendChild(iconWrap);
 			}
 
 			const marker = new Marker({ element: el, anchor: 'bottom' })
@@ -580,6 +632,37 @@
 		font-size: var(--font-size-xs);
 		font-weight: var(--font-weight-semibold);
 		letter-spacing: var(--tracking-wide);
+	}
+
+	/* Issue #118: start/hotel/end markers, deliberately a different silhouette from an
+	   airport's elongated, text-bearing pill above — a plain circle with an icon and no
+	   label, so the two kinds of marker are never mistaken for each other even at a
+	   glance. Same background/shadow/hover language as `.itinerary-marker` itself
+	   (inherited, unmodified), only the shape and the dot-vs-icon content change. */
+	:global(.itinerary-marker-pin) {
+		gap: 0;
+		padding: var(--space-2);
+		border-radius: var(--radius-full);
+		aspect-ratio: 1;
+	}
+
+	:global(.itinerary-marker-icon) {
+		display: flex;
+		width: 1rem;
+		height: 1rem;
+	}
+
+	:global(.itinerary-marker-icon svg) {
+		width: 100%;
+		height: 100%;
+	}
+
+	:global(.itinerary-marker-pin.itinerary-marker-neutral .itinerary-marker-icon) {
+		color: var(--color-accent);
+	}
+
+	:global(.itinerary-marker-pin.itinerary-marker-stopover .itinerary-marker-icon) {
+		color: var(--color-stopover);
 	}
 
 	:global(button.itinerary-marker:hover),

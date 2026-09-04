@@ -21,8 +21,8 @@ function jsonResponse(body: unknown, status = 200): Response {
 	return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 }
 
-function routeBody(durationSeconds: number, distanceMeters: number) {
-	return { code: 'Ok', routes: [{ duration: durationSeconds, distance: distanceMeters }] };
+function routeBody(durationSeconds: number, distanceMeters: number, geometry?: unknown) {
+	return { code: 'Ok', routes: [{ duration: durationSeconds, distance: distanceMeters, geometry }] };
 }
 
 function tableBody(durationsRow: (number | null)[]) {
@@ -88,6 +88,42 @@ describe('createOsrmTransferProvider / searchTransfers', () => {
 		// The taxi Transfer must never carry a price: only a real Money belongs there,
 		// and OSRM never has one.
 		expect(byMode.taxi.price).toBeUndefined();
+	});
+
+	it('asks for a simplified GeoJSON overview and turns it into the Transfer\'s path (issue #118)', async () => {
+		const geometry = { type: 'LineString', coordinates: [[2.0785, 41.2971], [2.12, 41.34], [2.1686, 41.3874]] };
+		const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(routeBody(600, 800, geometry)));
+		const provider = createOsrmTransferProvider({ store: new MemoryCacheStore(), fetchImpl });
+
+		const result = await provider.searchTransfers({ from: AIRPORT, to: HOTEL, modes: ['walk'] }, ctxFor());
+
+		const [url] = fetchImpl.mock.calls[0] as [string];
+		expect(url).toContain('overview=simplified');
+		expect(url).toContain('geometries=geojson');
+		// Still one request — the geometry rides along on the same route fetch this
+		// adapter already made for the duration, not a second one.
+		expect(fetchImpl).toHaveBeenCalledTimes(1);
+
+		expect(result.ok).toBe(true);
+		if (!result.ok) return;
+		// GeoJSON's [lon, lat] order flipped back to this codebase's {latitude, longitude}.
+		expect(result.data[0].path).toEqual([
+			{ latitude: 41.2971, longitude: 2.0785 },
+			{ latitude: 41.34, longitude: 2.12 },
+			{ latitude: 41.3874, longitude: 2.1686 }
+		]);
+	});
+
+	it('leaves Transfer.path undefined, without throwing, when OSRM omits or malforms the geometry', async () => {
+		const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(routeBody(600, 800))); // no geometry field
+		const provider = createOsrmTransferProvider({ store: new MemoryCacheStore(), fetchImpl });
+
+		const result = await provider.searchTransfers({ from: AIRPORT, to: HOTEL, modes: ['walk'] }, ctxFor());
+
+		expect(result.ok).toBe(true);
+		if (!result.ok) return;
+		expect(result.data[0].duration).toBe(10); // the duration this call actually needed still comes through
+		expect(result.data[0].path).toBeUndefined();
 	});
 
 	it('never issues a network request for a pair already cached and still fresh', async () => {

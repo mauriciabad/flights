@@ -1,3 +1,4 @@
+import type { Coordinates } from './coordinates';
 import type { LocalDateTime } from './datetime';
 import type { Duration } from './duration';
 import type { Money } from './money';
@@ -36,4 +37,15 @@ export interface Transfer {
 		intended: LocalDateTime;
 		following: LocalDateTime[];
 	};
+	/**
+	 * Issue #118: the actual road/path this transfer follows, when a provider has one to
+	 * give. OSRM's `route` service returns this alongside the duration it was already
+	 * being asked for (`providers/transfers/osrm.ts`), so populating it costs a query
+	 * parameter on a request already being made, never an extra one. `undefined` means
+	 * no real shape is known — a `transit` leg (Transitous returns a schedule, not a
+	 * geometry) or a route OSRM couldn't find — and a consumer (the itinerary map) must
+	 * fall back to a straight line between the two endpoints, drawn so it visibly reads
+	 * as a schematic hop rather than a real road.
+	 */
+	path?: Coordinates[];
 }
