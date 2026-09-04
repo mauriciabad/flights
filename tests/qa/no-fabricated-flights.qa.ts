@@ -28,10 +28,14 @@
  * empty list. A check that reads the screen or the wire has to fail when what it reads
  * disappears, which is why both halves below assert they found something before they assert
  * anything about it.
+ *
+ * Opening a card to read its flight numbers is also what found #188: a card with a priced
+ * bed threw while rendering and showed no timeline at all. Fixed in #195. The assertion
+ * that at least one card showed a flight row is what turned that from a silent pass into a
+ * failure somebody could read.
  */
 
 import { test, expect, type Bench } from './support/bench';
-import { knownBroken } from './known-broken';
 import { DESTINATION, ORIGIN, ROUTE_GRAPH, flies, resultsUrl } from './support/scenario';
 import { resultCards, waitForSearchToFinish } from './support/page';
 
@@ -197,12 +201,6 @@ test.describe('no fabricated flights', () => {
 	});
 
 	test('every flight number on screen came out of a timetable', async ({ page, bench, withKeys }) => {
-		// This is the check that found #188. It has to open a card to read a flight number,
-		// and opening a card with a priced bed throws before the timeline renders, so it
-		// cannot pass until that is fixed. Pinned rather than narrowed: reading only the
-		// cards that happen to open would quietly stop covering the ones that do not.
-		knownBroken('stay-picker-crashes-the-detail');
-
 		await withKeys();
 		await page.goto(resultsUrl());
 		await waitForSearchToFinish(page);

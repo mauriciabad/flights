@@ -41,6 +41,11 @@ const METERED_HOSTS = new Set([AGODA_HOST, BOOKING_HOST, 'sky-scrapper.p.rapidap
 
 export const LIVE_MODE = process.env.QA_LIVE === '1';
 
+/** A 1x1 transparent GIF, the smallest thing that decodes as an image. Every image request
+ * gets this, so an `<img>` whose host nobody recorded loads rather than firing `onerror` and
+ * changing what the page renders. */
+const TRANSPARENT_GIF = Buffer.from('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7', 'base64');
+
 export interface RecordedRequest {
 	url: string;
 	method: string;
@@ -153,6 +158,17 @@ export class Bench {
 			host: parsed.host,
 			atMs: Date.now() - this.#startedAt
 		});
+
+		// A picture the page shows, not an answer it reasons about. Answered by resource type
+		// rather than by host on purpose: a provider's own response names the CDN its photos
+		// come from, so a hotel from Agoda arrives with a `pix8.agoda.net` URL and one from
+		// Booking with a `q-xx.bstatic.com` one. A host allowlist could never be complete, and
+		// an entry missing from it would read as "the app called a host nobody declared" when
+		// what happened is that a stay picker rendered a photo. Still counted above, because a
+		// request nobody expected is worth seeing even when it is free.
+		if (request.resourceType() === 'image') {
+			return route.fulfill({ status: 200, contentType: 'image/gif', body: TRANSPARENT_GIF });
+		}
 
 		if (this.#options.responseDelayMs) {
 			await new Promise((resolve) => setTimeout(resolve, this.#options.responseDelayMs));

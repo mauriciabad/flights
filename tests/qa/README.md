@@ -96,9 +96,9 @@ suite recognises and nothing in this directory changes.
 **`known-broken.ts`** pins the checks that fail today to the open issue that owns each fix.
 Every entry it started with is gone: #154, #155 and #156 landed while this was in review,
 and #146, #158 and #165 landed in #172, #176 and #174 during the rebase that made the suite
-measure anything at all. What is pinned now is two defects this suite found — #188, a crash
-the flight-number check walked straight into, and #194, a reload that stopped painting from
-cache the day #174 merged.
+measure anything at all. What is pinned now is #194, a reload that stopped painting from
+cache the day #174 merged. #188, a crash the flight-number check walked straight into, was
+pinned for about an hour before #195 closed it.
 
 Playwright fails the run when an expected-to-fail check passes, so a defect cannot be fixed
 and quietly un-covered — the suite goes red until somebody deletes the entry. A new
