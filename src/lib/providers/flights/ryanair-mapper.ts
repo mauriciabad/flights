@@ -6,6 +6,7 @@
  */
 
 import type { BaggageAllowance, Carrier, FlightOffer, IataAirportCode, Money } from '../../domain';
+import { isSupportedTimeZone } from './airport-timezone';
 import { computeFlightDuration, toLocalDateTime } from './ryanair-timezone';
 import type { RyanairNetworkSnapshot } from '../../data/ryanair-network';
 import type {
@@ -239,7 +240,15 @@ export function buildNetworkSnapshot(
 	for (const airport of airports) {
 		if (!airport?.iataCode) continue;
 		destinationsByOrigin[airport.iataCode] = directDestinationsOf(airport);
-		if (airport.timeZone) timeZonesByIataCode[airport.iataCode] = airport.timeZone;
+		// Issue #124: validated, not just present-checked. Ryanair's own feed is exactly the
+		// kind of unvalidated provider string that already crashed a different adapter with
+		// an uncaught `RangeError` when it turned out not to be a real IANA zone
+		// (airport-timezone.ts's own header on the live "tz":"IANA" case) — the same class
+		// of bug, not a Flights-Sky-specific one, so it gets the same guard here rather than
+		// trusting this feed not to do the same thing on some future airport.
+		if (airport.timeZone && isSupportedTimeZone(airport.timeZone)) {
+			timeZonesByIataCode[airport.iataCode] = airport.timeZone;
+		}
 	}
 	return { fetchedAt, destinationsByOrigin, timeZonesByIataCode };
 }

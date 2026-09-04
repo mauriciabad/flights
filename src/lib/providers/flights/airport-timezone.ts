@@ -187,12 +187,21 @@ export async function resolveAirportTimeZone(
 	return isSupportedTimeZone(result.data) ? result.data : undefined;
 }
 
-/** Whether `Intl.DateTimeFormat` will actually accept `timeZone` as a zone identifier,
+/**
+ * Whether `Intl.DateTimeFormat` will actually accept `timeZone` as a zone identifier,
  * rather than throwing when `offsetAtInstant` below first tries to use it. Delegates to the
  * runtime's own validation (construction throws `RangeError` for anything it does not
  * recognise) instead of pattern-matching IANA name syntax by hand, which would have its own
- * gaps (aliases, legacy names) this project has no reason to maintain a list of. */
-function isSupportedTimeZone(timeZone: string): boolean {
+ * gaps (aliases, legacy names) this project has no reason to maintain a list of.
+ *
+ * Exported because the bug this guards against is not specific to Flights Sky or Skyscanner:
+ * any provider-supplied string that reaches `Intl.DateTimeFormat` unchecked can crash the
+ * same way `"tz":"IANA"` did here, and `ryanair-mapper.ts`'s own network-snapshot timezone
+ * table (built from Ryanair's `/airports/en/active` feed, not from this file's seed table or
+ * Transitous) needed the identical check for the identical reason. A shared one-line
+ * validator beats two adapters independently trusting `Intl` not to throw.
+ */
+export function isSupportedTimeZone(timeZone: string): boolean {
 	try {
 		new Intl.DateTimeFormat('en-US', { timeZone });
 		return true;
