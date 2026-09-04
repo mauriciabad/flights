@@ -21,3 +21,28 @@ jobs:
       - run: pnpm check
       - run: pnpm test
       - run: pnpm build
+
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # Only chromium: the mocked suite tests app behaviour, not cross-browser
+      # rendering, and a second browser download would only slow CI down.
+      - run: pnpm exec playwright install --with-deps chromium
+      # This never talks to a real provider API — see tests/e2e/README.md. The `@live`
+      # suite that does is excluded here and runs only on demand, by hand.
+      - run: pnpm test:e2e
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7

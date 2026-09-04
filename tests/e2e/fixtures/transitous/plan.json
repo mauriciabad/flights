@@ -1,0 +1,19 @@
+{
+	"itineraries": [
+		{
+			"duration": 1500,
+			"startTime": "2026-10-12T09:55:00Z",
+			"endTime": "2026-10-12T10:20:00Z",
+			"legs": [
+				{
+					"mode": "BUS",
+					"routeShortName": "VAL",
+					"from": { "name": "Vienna Airport", "lat": 48.1103, "lon": 16.5697 },
+					"to": { "name": "Vienna Hauptbahnhof", "lat": 48.185, "lon": 16.377 },
+					"startTime": "2026-10-12T09:55:00Z",
+					"endTime": "2026-10-12T10:20:00Z"
+				}
+			]
+		}
+	]
+}
