@@ -79,6 +79,134 @@ describe('searchOffers', () => {
 		expect(fetchCallCount).toBe(callsAfterFirst); // no new network calls
 	});
 
+	describe('an expired fare entry (issue #147)', () => {
+		/** Ages every entry in `store` by `ms`, by rewriting `storedAt` in place. Cleaner
+		 * than faking timers: the adapter reads `Date.now()` in three places and the cache
+		 * store in two, and moving the clock under both is how the last round of
+		 * cache-expiry tests ended up asserting on their own mock rather than the code. */
+		async function ageStoredEntriesBy(store: MemoryCacheStore, ms: number, keys: string[]) {
+			for (const key of keys) {
+				const entry = await store.get(key);
+				if (entry) await store.set({ ...entry, storedAt: entry.storedAt - ms });
+			}
+		}
+
+		/** Both keys this adapter writes under, discovered rather than hardcoded, since
+		 * `defineCacheKey` hashes the query and the hash is not this test's business. */
+		async function keysIn(store: MemoryCacheStore, seed: () => Promise<unknown>) {
+			const seen: string[] = [];
+			const realSet = store.set.bind(store);
+			store.set = async (entry) => {
+				seen.push(entry.key);
+				return realSet(entry);
+			};
+			await seed();
+			store.set = realSet;
+			return seen;
+		}
+
+		it('is served immediately with its real age, rather than discarded for a fresh fetch', async () => {
+			const store = new MemoryCacheStore();
+			const provider = createRyanairFlightProvider({ store, fetchImpl: fixtureFetch() });
+			const keys = await keysIn(store, () =>
+				provider.searchOffers(query, { signal: new AbortController().signal })
+			);
+
+			const twoHours = 2 * 60 * 60_000;
+			await ageStoredEntriesBy(store, twoHours, keys);
+			const before = Date.now();
+			const result = await provider.searchOffers(query, { signal: new AbortController().signal });
+
+			expect(result.ok).toBe(true);
+			if (!result.ok) return;
+			expect(result.data).toHaveLength(1);
+			// The whole point: the caller got the answer without waiting on the fare fetch,
+			// and it is labelled with when the price was really read, not with "now".
+			const ageMs = before - Date.parse(result.source.fetchedAt);
+			expect(ageMs).toBeGreaterThanOrEqual(twoHours);
+		});
+
+		it('refreshes it behind the answer, and charges the request it issued', async () => {
+			const store = new MemoryCacheStore();
+			const provider = createRyanairFlightProvider({ store, fetchImpl: fixtureFetch() });
+			const keys = await keysIn(store, () =>
+				provider.searchOffers(query, { signal: new AbortController().signal })
+			);
+			await ageStoredEntriesBy(store, 2 * 60 * 60_000, keys);
+
+			const callsBefore = fetchCallCount;
+			const result = await provider.searchOffers(query, { signal: new AbortController().signal });
+
+			// Reported as one request because one really was issued on this call's behalf,
+			// even though the call did not wait for it.
+			expect(result.requestsUsed).toBe(1);
+			expect(fetchCallCount).toBeGreaterThan(callsBefore);
+
+			// Waits for the WRITE, not just the fetch: the point of the refresh is the
+			// entry it leaves behind, and a test that stops at "a request went out" would
+			// pass against a refresh that fetched and then dropped the result on the floor.
+			await vi.waitFor(async () => {
+				const ages = await Promise.all(keys.map(async (key) => Date.now() - ((await store.get(key))?.storedAt ?? 0)));
+				expect(Math.min(...ages)).toBeLessThan(60_000);
+			});
+
+			// And with it landed, the next call is an ordinary fresh hit again.
+			const next = await provider.searchOffers(query, { signal: new AbortController().signal });
+			expect(next.requestsUsed).toBe(0);
+			expect(Date.now() - Date.parse(next.source.fetchedAt)).toBeLessThan(60_000);
+		});
+
+		it('does not refresh when the caller has no request budget left', async () => {
+			const store = new MemoryCacheStore();
+			const provider = createRyanairFlightProvider({ store, fetchImpl: fixtureFetch() });
+			const keys = await keysIn(store, () =>
+				provider.searchOffers(query, { signal: new AbortController().signal })
+			);
+			await ageStoredEntriesBy(store, 2 * 60 * 60_000, keys);
+
+			const callsBefore = fetchCallCount;
+			const result = await provider.searchOffers(query, {
+				signal: new AbortController().signal,
+				maxRequests: 0
+			});
+
+			// Still answered from cache — running out of budget is a partial result, never
+			// a failure, and the cached fares cost nothing to hand back.
+			expect(result).toMatchObject({ ok: true, requestsUsed: 0 });
+			if (!result.ok) return;
+			expect(result.data).toHaveLength(1);
+			expect(fetchCallCount).toBe(callsBefore);
+		});
+
+		it('keeps the cached fares and their age when the background refresh fails', async () => {
+			const store = new MemoryCacheStore();
+			let failFares = false;
+			const fetchImpl = fixtureFetch({
+				'https://services-api.ryanair.com': () =>
+					failFares ? new Response(null, { status: 503 }) : new Response(JSON.stringify(oneWayFaresSingleFixture), { status: 200 })
+			});
+			const provider = createRyanairFlightProvider({ store, fetchImpl });
+			const keys = await keysIn(store, () =>
+				provider.searchOffers(query, { signal: new AbortController().signal })
+			);
+			await ageStoredEntriesBy(store, 2 * 60 * 60_000, keys);
+			failFares = true;
+
+			const callsBefore = fetchCallCount;
+			const result = await provider.searchOffers(query, { signal: new AbortController().signal });
+			expect(result.ok).toBe(true);
+			await vi.waitFor(() => expect(fetchCallCount).toBeGreaterThan(callsBefore));
+
+			// A failed background refresh is invisible: the same fares, still dated when
+			// they were really read, and no rejection anywhere.
+			const next = await provider.searchOffers(query, { signal: new AbortController().signal });
+			expect(next.ok).toBe(true);
+			if (!next.ok || !result.ok) return;
+			expect(next.data).toEqual(result.data);
+			expect(Date.now() - Date.parse(next.source.fetchedAt)).toBeGreaterThan(60 * 60_000);
+		});
+	});
+
 	it('reuses the already-cached network snapshot across different routes', async () => {
 		const store = new MemoryCacheStore();
 		const fetchImpl = fixtureFetch();

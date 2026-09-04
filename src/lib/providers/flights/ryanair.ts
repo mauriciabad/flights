@@ -50,10 +50,23 @@ import type { RyanairFetchError } from './ryanair-types';
  * like every other adapter's id. */
 export const RYANAIR_PROVIDER_ID: ProviderId = 'ryanair';
 
-/** Matches the `Cache-Control: max-age=60, s-maxage=300` Ryanair's own fare-finder
- * endpoint sends (observed 2026-09-04) — short, because a price is only ground truth for
- * as long as it is actually still on sale. */
-const FARES_TTL_MS = 5 * 60_000;
+/**
+ * How long a fare counts as current enough to paint with no caveat.
+ *
+ * This was 5 minutes, matching the `Cache-Control: max-age=60, s-maxage=300` Ryanair's own
+ * fare-finder sends. Issue #147 is what that cost: the owner said "loading takes a lot of
+ * time every time i reload", and he was right — a search reloaded 5 minutes later spent 48
+ * fresh fare requests, because past the TTL the cached answer was thrown away rather than
+ * shown. Coming back to a search after lunch was a cold search.
+ *
+ * An hour is the trade, stated plainly: a fare that moved in the last hour is now shown at
+ * its old price for as long as the refresh takes, labelled with its real age (`source()`
+ * below, rendered as "fetched 40 minutes ago" by ResultCard). An hour-old price the
+ * traveller can see immediately, and can see the age of, beats a blank screen while 48
+ * requests go out. Ryanair's own cache header is about its CDN's economics, not about how
+ * fast its prices actually move.
+ */
+const FARES_TTL_MS = 60 * 60_000;
 /**
  * One TTL for the route graph and the airport timezone table, because they arrive in the
  * same response and there is no way to refresh one without the other. A day is the route
@@ -74,8 +87,23 @@ export interface RyanairProviderOptions {
 	fetchImpl?: typeof fetch;
 }
 
-function source(): ProviderSource {
-	return { providerId: RYANAIR_PROVIDER_ID, fetchedAt: new Date().toISOString() };
+/**
+ * `storedAt` is the epoch millis this data actually came off Ryanair's wire. Omitted means
+ * "just now", i.e. this call did the fetch.
+ *
+ * Passing it matters more than it looks. `ProviderSource.fetchedAt` is documented as "the
+ * instant the adapter finished fetching this, NOT when a caller later reads it out of a
+ * cache", and ResultCard already renders it as "via Ryanair · fetched 2 minutes ago".
+ * Stamping `new Date()` on a cache hit, which is what this function used to do
+ * unconditionally, made that footer say "fetched just now" about an hour-old price —
+ * AGENTS.md's "never present an estimate as a fact", in the one place the UI was already
+ * built to be honest. Issue #147. The same pattern as transfers/transitous.ts.
+ */
+function source(storedAt?: number): ProviderSource {
+	return {
+		providerId: RYANAIR_PROVIDER_ID,
+		fetchedAt: new Date(storedAt ?? Date.now()).toISOString()
+	};
 }
 
 function toProviderError(error: RyanairFetchError): ProviderError {
@@ -124,10 +152,38 @@ async function resolveStore(options: RyanairProviderOptions): Promise<CacheStore
  * so "fetch every time" costs one request rather than one per caller.
  */
 async function readCache<T>(store: CacheStore, key: CacheKey): Promise<T | undefined> {
+	return (await readCachedEntry<T>(store, key))?.fresh;
+}
+
+/**
+ * One cached value and the two facts a caller needs about it: when it was really fetched,
+ * and whether that is still inside its TTL.
+ *
+ * `fresh` is deliberately a separate field rather than a boolean beside `value`, so
+ * "give me this only if it is current" (`readCache` above) and "give me this whatever its
+ * age" (`searchOffers`) are different property accesses rather than a flag someone can
+ * forget to check. Issue #147: the old `readCache` returned `undefined` for an expired
+ * entry, which threw away data the app already held and sent the user to the network for
+ * it. Nothing could serve it, and nothing could say how old it was, because `storedAt`
+ * never left this function.
+ */
+interface CachedEntry<T> {
+	value: T;
+	/** Epoch millis the value came off the wire — `ProviderSource.fetchedAt`'s input. */
+	storedAt: number;
+	/** The same value when it is still within its TTL, `undefined` once it is not. */
+	fresh: T | undefined;
+}
+
+async function readCachedEntry<T>(
+	store: CacheStore,
+	key: CacheKey
+): Promise<CachedEntry<T> | undefined> {
 	const entry = await store.get(key.raw);
 	if (entry === undefined) return undefined;
-	if (Date.now() - entry.storedAt >= entry.ttlMs) return undefined;
-	return entry.value as T;
+	const value = entry.value as T;
+	const isFresh = Date.now() - entry.storedAt < entry.ttlMs;
+	return { value, storedAt: entry.storedAt, fresh: isFresh ? value : undefined };
 }
 
 /** Reads whatever is cached under `key` regardless of freshness — used only as a
@@ -288,6 +344,54 @@ async function bestSnapshotWithoutFetching(store: CacheStore): Promise<RyanairNe
 
 function createRyanairFlightProvider(options: RyanairProviderOptions = {}): FlightProvider {
 	const refreshState: RefreshState = {};
+	/** Cache keys with a background fare refresh already running. Without this, two
+	 * searches for the same route a second apart each issue their own, and neither is
+	 * waiting on the other to notice. */
+	const revalidating = new Set<string>();
+
+	/**
+	 * Refetches one route's fares and writes them to the cache. Issue #147's other half:
+	 * `searchOffers` answers from an expired entry immediately, and this is what stops
+	 * that entry from being the answer forever.
+	 *
+	 * Returns nothing and rejects never. The caller deliberately does not await it — the
+	 * awaiting is the wait being removed — so a rejection here would be unhandled, and a
+	 * failed refresh is not a failure of the call that started it. The user keeps the
+	 * price they were already shown, with its age still on the card.
+	 */
+	async function revalidateFares(
+		query: FlightSearchQuery,
+		ctx: ProviderContext,
+		store: CacheStore,
+		cacheKey: CacheKey
+	): Promise<void> {
+		if (revalidating.has(cacheKey.raw)) return;
+		revalidating.add(cacheKey.raw);
+		try {
+			const faresResponse = await fetchOneWayFares(
+				{
+					departureAirportIataCode: query.origin,
+					arrivalAirportIataCode: query.destination,
+					outboundDepartureDateFrom: query.earliestDeparture,
+					outboundDepartureDateTo: query.latestDeparture,
+					currency: query.currency
+				},
+				{ signal: ctx.signal, fetchImpl: options.fetchImpl }
+			);
+			if (!faresResponse.ok) return;
+
+			// Budget 0 so this never triggers a network snapshot refresh of its own: this
+			// is a background task nobody is waiting for, and it can map its fares against
+			// whatever timezone table is already to hand.
+			const { snapshot } = await resolveNetworkSnapshot(ctx, store, options.fetchImpl, refreshState, 0);
+			await writeCache(store, cacheKey, mapFaresToFlightOffers(faresResponse.data, snapshot.timeZonesByIataCode));
+		} catch {
+			// A background refresh that fails changes nothing the user can see. The cached
+			// fares and their age stay exactly as they were, and the next search tries again.
+		} finally {
+			revalidating.delete(cacheKey.raw);
+		}
+	}
 
 	async function searchOffers(
 		query: FlightSearchQuery,
@@ -305,9 +409,35 @@ function createRyanairFlightProvider(options: RyanairProviderOptions = {}): Flig
 		const store = await resolveStore(options);
 		const cacheKey = defineCacheKey(RYANAIR_PROVIDER_ID, { op: 'searchOffers', ...query }, FARES_TTL_MS);
 
-		const cached = await readCache<FlightOffer[]>(store, cacheKey);
+		const cached = await readCachedEntry<FlightOffer[]>(store, cacheKey);
 		if (cached) {
-			return { ok: true, data: cached, source: source(), requestsUsed: 0 };
+			// Served at any age, never discarded for being past its TTL. Issue #147: the
+			// owner's "loading takes a lot of time every time i reload" was an expired
+			// entry being thrown away and the user made to wait on 48 fare requests for
+			// prices the app was already holding. `source(cached.storedAt)` is what keeps
+			// that honest — the card says how old this price is, in the footer the UI
+			// already had.
+			const canRevalidate = ctx.maxRequests === undefined || ctx.maxRequests >= 1;
+			const revalidated = !cached.fresh && canRevalidate;
+			if (revalidated) {
+				// Past its TTL, so refresh it behind the answer rather than instead of it.
+				// Not awaited on purpose: awaiting is the wait this whole change removes.
+				// The fresher fares land in the cache for the next search or reload, not
+				// into the page currently rendering — in-place replacement needs a second
+				// snapshot from the pipeline, which `results/stream-order.ts`'s
+				// `insertStable` is already built for and nothing yet triggers.
+				void revalidateFares(query, ctx, store, cacheKey);
+			}
+			return {
+				ok: true,
+				data: cached.value,
+				source: source(cached.storedAt),
+				// A request WAS issued on this call's behalf, even though this call did not
+				// wait for it. Reporting 0 here would quietly under-count against
+				// `ProviderContext.maxRequests`, which is the one number a caller uses to
+				// reason about what a search costs.
+				requestsUsed: revalidated ? 1 : 0
+			};
 		}
 
 		if (ctx.maxRequests !== undefined && ctx.maxRequests < 1) {
@@ -377,10 +507,14 @@ function createRyanairFlightProvider(options: RyanairProviderOptions = {}): Flig
 		// absence of it, which is the same answer the deleted per-airport endpoint spent an
 		// HTTP 404 on (issue #89). Never an error, and never a second request to re-learn
 		// it: DUS is not in Ryanair's network today and will not be by the next candidate.
+		// `fetchedAt` is the snapshot's own, not now: this answer can come from a graph
+		// fetched yesterday or from the one shipped with the build, and saying "just now"
+		// about either would be the same lie issue #147 fixed on the fare path.
+		const snapshotFetchedAt = Date.parse(snapshot.fetchedAt);
 		return {
 			ok: true,
 			data: directDestinationsFrom(snapshot, origin),
-			source: source(),
+			source: source(Number.isFinite(snapshotFetchedAt) ? snapshotFetchedAt : undefined),
 			requestsUsed
 		};
 	}

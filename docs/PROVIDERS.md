@@ -426,6 +426,23 @@ Nothing was throttled at 140 requests in a burst from a quiet IP, and a search n
 well under half that, so the question stopped being urgent. If it has to be answered later,
 the honest way is one deliberate measurement, written down here.
 
+#### Fares are cached for an hour, and shown with their age (issue #147)
+
+Ryanair's fare-finder sends `Cache-Control: max-age=60, s-maxage=300`, and this app used to
+take the 5 minutes literally. The owner reported what that felt like: *"it doesnt seem like
+that because loading takes a lot of time every time i reload"*. Measured on BCN→OTP: a
+reload 30 seconds after a search cost 0 requests and painted in 0.3s, and the same reload
+5.5 minutes later cost 48 fare requests. Coming back to a search after lunch was a cold
+search.
+
+The header is about Ryanair's CDN economics, not about how fast its prices move, so the
+adapter now holds a fare for an hour. Past that, the cached answer is still served
+immediately and refreshed behind the page rather than discarded — an expired entry used to
+be thrown away, sending the user to the network for prices the app was already holding.
+Every fare carries the instant it was really read, in `ProviderSource.fetchedAt`, which the
+result card already renders as "fetched 40 minutes ago". A price that old, visibly that
+old, beats a spinner.
+
 **Transitous / MOTIS** answers the question ordinary flight search cannot: is there
 actually a bus at the hour this flight lands, and if not, when is the next one.
 
