@@ -57,7 +57,9 @@
 	 * Getting back to an earlier search is what the history on `/` is for.
 	 */
 	const navItems: NavItem[] = [
-		{ id: 'search', label: 'Search', href: '/', alsoOwns: ['/results/'] },
+		// `/results/when/` too (issue #71): "which week should I go" is the same search asked
+		// a different way, not a third place to be.
+		{ id: 'search', label: 'Search', href: '/', alsoOwns: ['/results/', '/results/when/'] },
 		{ id: 'settings', label: 'Settings', href: '/settings/' }
 	];
 

@@ -27,6 +27,7 @@
 	import { getAirport } from '$lib/data/airports';
 	import { DEFAULT_SEARCH_CURRENCY } from '$lib/domain';
 	import type { Airport, IataAirportCode, SearchQuery, Stay } from '$lib/domain';
+	import { recordItineraryGroup } from '$lib/flexible-dates';
 	import { keyStore } from '$lib/keys';
 	import { buildSearchQuery } from '$lib/search-form/model';
 	import { searchParamsToFields } from '$lib/search-form/url-codec';
@@ -176,6 +177,11 @@
 	// own, only the `$state` fields written from inside the functions below do that.
 	const requestedAirportCodes = new Set<string>();
 	const requestedEndpointCodes = new Set<string>();
+	/** Issue #71: what has already gone into the price ledger, keyed by the fares themselves
+	 * (`ledgerSignature`). Not `$state`: nothing renders from it. Never cleared between
+	 * searches on purpose, since the same fares have nothing new to record whichever search
+	 * yielded them. */
+	const recordedToLedger = new Set<string>();
 	const sequenceByConnection = new Map<string, number>();
 	let nextSequence = 1;
 
@@ -194,6 +200,26 @@
 	const filteredResults = $derived(applyFilters(results, filters));
 	const providerStatusList = $derived(Object.values(providerStatuses));
 	const stillSearching = $derived(searchesInFlight > 0);
+
+	/**
+	 * Issue #71: the stopovers this search has actually surfaced, handed to `/results/when/`
+	 * so it knows which two legs to price a year of.
+	 *
+	 * Passed as `stops`, deliberately NOT as `via`. `via` is a real search constraint
+	 * (`allowedConnectionAirports`), and writing the stopovers this search happened to find
+	 * into it would narrow the next search to them behind the traveller's back. The when-view
+	 * sets `via` only once somebody has picked one.
+	 */
+	const flexibleDatesStopovers = $derived(
+		[...new Set(results.map((result) => connectionAirportCode(result.itinerary)))]
+	);
+	const flexibleDatesHref = $derived.by(() => {
+		if (!browser) return `${base}/results/when/`;
+		const params = new URLSearchParams(page.url.searchParams);
+		if (flexibleDatesStopovers.length > 0) params.set('stops', flexibleDatesStopovers.join(','));
+		const query = params.toString();
+		return query ? `${base}/results/when/?${query}` : `${base}/results/when/`;
+	});
 
 	/** Issue #136: the city name behind each connection code, for the "Connection city"
 	 * filter chips. Derived from the same `connectionAirports` records the cards already
@@ -274,6 +300,17 @@
 				const compare = untrack(() => compareResults(sortMode));
 				for (const group of snapshot.itineraryGroups) {
 					groupsByConnection = { ...groupsByConnection, [group.connectionAirportCode]: group };
+					// Issue #71: write this group's per-day fares into the price ledger, so a later
+					// "which week is cheapest" can answer from prices this search already paid for.
+					// Zero requests, deliberately not awaited: it is bookkeeping for a future visit,
+					// and `recordItineraryGroup` never rejects (see its own doc comment), so nothing
+					// here can delay or fail the results the traveller is waiting on.
+					// `recordedToLedger` is this page's memo of what it has already written, so the
+					// pipeline re-yielding an unchanged group does not re-run a read-modify-write
+					// against the same IndexedDB store the search is reading from.
+					void recordItineraryGroup(group, keyStore.currency ?? DEFAULT_SEARCH_CURRENCY, {
+						alreadyWritten: recordedToLedger
+					});
 					const scored = deriveScoredResult(group, snapshot, sequenceFor(group.connectionAirportCode));
 					order = insertStable(order, toSlot(scored), compare);
 				}
@@ -524,6 +561,29 @@
 				{#if stillSearching}<span class="still-searching">&middot; still searching</span>{/if}
 			</p>
 
+			<!-- Issue #71. One line, above the results rather than below them, because somebody
+			     whose dates are flexible decides that before reading a single card. A link, not
+			     a button: it is a place, it deep-links, and cmd-click has to open it in a tab
+			     like everything else. -->
+			<a class="when-link" href={flexibleDatesHref}>
+				<span class="when-link-icon" aria-hidden="true">
+					<svg viewBox="0 0 24 24" fill="none">
+						<rect x="3" y="5" width="18" height="16" rx="2" stroke="currentColor" stroke-width="1.7" />
+						<path d="M3 10h18M8 3v4M16 3v4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" />
+						<path d="M7.5 14h2M12 14h2M16.5 17h1" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+					</svg>
+				</span>
+				<span class="when-link-text">
+					Flexible dates? See which week is cheapest
+					{#if flexibleDatesStopovers.length > 0}
+						<span class="when-link-note"
+							>from prices already cached for {flexibleDatesStopovers.length}
+							{flexibleDatesStopovers.length === 1 ? 'stopover' : 'stopovers'}</span
+						>
+					{/if}
+				</span>
+			</a>
+
 			<div class="results-layout">
 				<aside class="results-filters" aria-label="Filters and sorting">
 					<!-- On a phone this whole panel starts closed behind one button, because
@@ -660,6 +720,57 @@
 </div>
 
 <style>
+	/* Issue #71's entry point. A single row, not a card: it sits between the result count
+	   and the results themselves, and #139's lesson is that anything with a box around it
+	   up here pushes the answer down the page. */
+	.when-link {
+		display: flex;
+		align-items: center;
+		gap: var(--space-3);
+		min-height: 2.75rem;
+		padding: var(--space-2) var(--space-3);
+		border: 1px dashed var(--color-border-strong);
+		border-radius: var(--radius-md);
+		color: var(--color-text);
+		text-decoration: none;
+		font-size: var(--font-size-sm);
+		line-height: var(--line-height-sm);
+	}
+
+	.when-link:hover {
+		border-color: var(--color-accent);
+		background: var(--color-accent-muted);
+	}
+
+	.when-link:focus-visible {
+		outline: 2px solid var(--color-focus-ring);
+		outline-offset: 2px;
+	}
+
+	.when-link-icon {
+		flex: none;
+		display: inline-flex;
+		width: 1.25rem;
+		height: 1.25rem;
+		color: var(--color-accent);
+	}
+
+	.when-link-icon svg {
+		width: 100%;
+		height: 100%;
+	}
+
+	.when-link-text {
+		min-width: 0;
+	}
+
+	.when-link-note {
+		display: block;
+		color: var(--color-text-muted);
+		font-size: var(--font-size-xs);
+		line-height: var(--line-height-xs);
+	}
+
 	.results-page {
 		display: flex;
 		flex-direction: column;
