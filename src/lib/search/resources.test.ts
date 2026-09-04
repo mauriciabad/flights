@@ -388,6 +388,57 @@ describe('fetchConnectionResources: transfer candidates for both connection-side
 		expect(resources.transferToHotelCandidates).toEqual([]);
 		expect(resources.transferToConnectionAirportCandidates).toEqual([]);
 	});
+
+	// Issue #211 -------------------------------------------------------------
+
+	/** A transfer provider that is simply down, the way OSRM was on production. */
+	function brokenTransferProvider(): TransferProvider {
+		return {
+			...configurableTransferProvider([]),
+			async searchTransfers(): Promise<ProviderResult<Transfer[]>> {
+				return {
+					ok: false,
+					error: { code: 'network-error', message: 'Failed to fetch' },
+					source: source('transfer-fixture'),
+					requestsUsed: 1
+				};
+			}
+		};
+	}
+
+	it('keeps a priced bed when no transfer provider can route to it', async () => {
+		// Measured on production with OSRM as the only variable: answering gave "Bed, 6
+		// nights EUR 78.00"; refused gave "Bed not priced", three times running, on
+		// identical Hostelworld responses. A bed a provider quoted a real price for was
+		// being deleted because a routing service was unreachable, and the traveller was
+		// told the wrong one of two different answers.
+		const bed = stay('Reachable-in-principle Hostel', 'dorm', 1300);
+		const resources = await fetchConnectionResources(
+			baseInput([fakeStayProvider('stays', [bed])], {
+				transferProviders: [brokenTransferProvider()],
+				currency: 'EUR'
+			})
+		);
+
+		expect(resources.stay).toEqual(bed);
+		expect(resources.transferToHotel).toBeUndefined();
+		expect(resources.transferToConnectionAirport).toBeUndefined();
+		expect(resources.transferAnchor).toBeUndefined();
+	});
+
+	it('still reports no bed when there was never a bed to report', async () => {
+		// The other side of the same distinction. A transfer provider being down must not
+		// start inventing a stay, and "nothing was found" stays its own answer.
+		const resources = await fetchConnectionResources(
+			baseInput([fakeStayProvider('stays', [])], {
+				transferProviders: [brokenTransferProvider()],
+				currency: 'EUR'
+			})
+		);
+
+		expect(resources.stay).toBeUndefined();
+		expect(resources.stayCandidates).toEqual([]);
+	});
 });
 
 describe('fetchConnectionResources: taxi fare estimate wiring (issue #114)', () => {

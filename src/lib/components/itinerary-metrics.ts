@@ -146,11 +146,34 @@ function buildMetric(itinerary: Itinerary, id: ItineraryMetricId): ItineraryMetr
  */
 function totalPriceCaveat(itinerary: Itinerary): string | undefined {
 	const missingStay = !itinerary.stay && itinerary.nightsInConnection > 0;
-	const missingGround = unpricedTransferLegs(itinerary).length > 0;
+	const missingGround = groundCostUnknownFor(itinerary) > 0;
 	if (missingStay && missingGround) return 'excludes a bed and ground transport';
 	if (missingStay) return 'excludes an unpriced stay';
 	if (missingGround) return 'excludes unpriced ground transport';
 	return undefined;
+}
+
+/**
+ * How many rides this trip needs whose cost is not in `totalPrice` — issue #204.
+ *
+ * Two things put a ride in this count, and they are the same fact to a traveller reading a
+ * price. A leg that exists but carries no fare is `unpricedTransferLegs`: the provider
+ * routed it and quoted nothing. A connection-side leg that does not exist at all, on a
+ * stopover that has a bed to reach, is issue #211's state: the bed is priced and no
+ * provider could route to it. Either way the traveller still has to get from the runway to
+ * the bed and back, and the total says nothing about what that costs.
+ *
+ * A walk is never counted, here or in `unpricedTransferLegs`. Walking is free.
+ */
+function groundCostUnknownFor(itinerary: Itinerary): number {
+	const unpriced = unpricedTransferLegs(itinerary).length;
+	if (!itinerary.stay) return unpriced;
+	// Only the two connection-side legs. The outer two are absent whenever the query
+	// carried no origin or destination location, which is a trip that genuinely has no such
+	// ride rather than one nobody could route.
+	const unrouted =
+		(itinerary.transferToHotel ? 0 : 1) + (itinerary.transferToConnectionAirport ? 0 : 1);
+	return unpriced + unrouted;
 }
 
 /** One line of the brief's "price of each part": a named share of the total. */
@@ -170,9 +193,10 @@ export interface PriceBreakdown {
 	 * connection, which has no bed to be missing. */
 	missingStay: boolean;
 	/**
-	 * Issue #204: how many of this trip's ground legs charge a fare nobody quoted. Zero
-	 * for a trip whose every leg is walked or priced, which is the only case where `total`
-	 * is the whole answer.
+	 * Issue #204: how many rides this trip needs whose cost `total` does not include, either
+	 * because nobody quoted a fare for them or because nobody could route them at all
+	 * (issue #211). See `groundCostUnknownFor`. Zero for a trip whose every leg is walked
+	 * or priced, which is the only case where `total` is the whole answer.
 	 *
 	 * A count, not a boolean, because "the airport run, both ways" and "one leg of four"
 	 * are different sizes of hole and the card says which. It is never a Money: this is
@@ -237,6 +261,6 @@ export function priceBreakdown(itinerary: Itinerary): PriceBreakdown {
 		parts,
 		total: itinerary.totalPrice,
 		missingStay: !itinerary.stay && itinerary.nightsInConnection > 0,
-		unpricedTransferCount: unpricedTransferLegs(itinerary).length
+		unpricedTransferCount: groundCostUnknownFor(itinerary)
 	};
 }

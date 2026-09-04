@@ -143,6 +143,32 @@ describe('priceBreakdown', () => {
 		expect(itineraryMetrics(bedOnly, ['total-price'])[0]!.note).toBe('excludes an unpriced stay');
 	});
 
+	it('counts the rides to a bed nothing could route to', () => {
+		// Issue #211: `resources.ts` now keeps a priced bed whose transfers no provider
+		// could find. The bed's price is real and belongs in the total; getting to it and
+		// back is two rides whose cost is completely unknown, which is a bigger hole than an
+		// unquoted fare, not a smaller one. A total that read as complete here would be the
+		// same overstatement issue #204 exists to remove, in a new shape.
+		const { transferToHotel: _to, transferToConnectionAirport: _back, ...unrouted } = makeItinerary({
+			nightsInConnection: 3
+		});
+		const breakdown = priceBreakdown(unrouted as Itinerary);
+
+		expect(breakdown.unpricedTransferCount).toBe(2);
+		expect(itineraryMetrics(unrouted as Itinerary, ['total-price'])[0]!.note).toBe(
+			'excludes unpriced ground transport'
+		);
+	});
+
+	it('does not invent rides for a trip that has no bed to reach', () => {
+		// Without a stay there is no hotel leg to have failed, so the missing legs are not a
+		// routing failure and counting them would manufacture a caveat.
+		const { transferToHotel: _to, transferToConnectionAirport: _back, ...bedless } = withoutStay(
+			makeItinerary({ nightsInConnection: 3 })
+		);
+		expect(priceBreakdown(bedless as Itinerary).unpricedTransferCount).toBe(0);
+	});
+
 	it('leaves a fully-known total with no caveat at all', () => {
 		// A same-day connection walked at both ends really is completely priced, and
 		// warning about it would invent a cost the trip never had (issue #140).

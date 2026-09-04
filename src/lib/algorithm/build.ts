@@ -198,9 +198,12 @@ export type TransferAnchor = 'stay' | 'city-centre';
  * without a bed there is nowhere for a hotel-bound transfer to go. Issue #161 found the
  * better destination that reasoning missed: the city centre. Both transfers can now be
  * present with `stay` absent (`transferAnchor === 'city-centre'`), which is the ordinary
- * state of a search with no stay-provider key — every first visit. `stay` present without
- * them is still impossible; `resources.ts`'s `fetchConnectionResources` is what enforces
- * that direction.
+ * state of a search with no stay-provider key — every first visit.
+ *
+ * Issue #211 removed the other half of that invariant. `stay` present with neither
+ * transfer is now a real state: a bed a provider quoted a price for, which no transfer
+ * provider could find a route to. `resources.ts` used to delete such a bed and report it
+ * as never priced, which told the traveller the wrong one of two different answers.
  *
  * Issue #94 still holds otherwise: a connection with no bed reachable produces an
  * itinerary anyway, just one with no bed priced. A connection with no entry in

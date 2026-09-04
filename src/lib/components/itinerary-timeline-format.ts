@@ -120,6 +120,14 @@ export function unroutedLegNote(
 				? 'No bed priced for this stopover, and nothing routed into the city either.'
 				: 'No bed priced for this stopover, and nothing routed back from the city either.';
 		}
+		// Issue #211: a bed WAS priced and no transfer provider could route to it. Until
+		// that issue this state could not occur, because `search/resources.ts` deleted the
+		// bed instead and the row above claimed nothing had ever been priced. Naming the bed
+		// is the whole point: the traveller can see its price on the same card, so a row
+		// that only said "no route" would read as being about some other place.
+		return leg === 'to-hotel'
+			? 'The bed is priced, but no transport provider could route to it.'
+			: 'The bed is priced, but no transport provider could route back from it.';
 	}
 	return 'No route came back from the transport providers for this leg.';
 }

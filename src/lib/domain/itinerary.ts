@@ -58,8 +58,10 @@ export interface Itinerary {
 	 * bookable by this party was found nearby (issue #94). A missing stay is not a
 	 * missing itinerary: flights, free time and transfers still stand on their own, per
 	 * AGENTS.md ("partial results are the normal case... say what you do not know").
-	 * `transferToHotel`/`transferToConnectionAirport` are present only alongside this
-	 * field — without a bed, there is nowhere for either transfer to go. `totalPrice`
+	 * Neither this field nor `transferToHotel`/`transferToConnectionAirport` implies the
+	 * other any more: issue #161 gave the transfers a second destination (the city centre)
+	 * so they can exist without a bed, and issue #211 stopped deleting a priced bed that no
+	 * transfer provider could route to, so a bed can exist without them. `totalPrice`
 	 * never guesses a stay cost when this is `undefined`; a caller must render that
 	 * plainly rather than let the total read as complete. `nightsInConnection` below is
 	 * NOT gated on this field (issue #105) — a stopover's night count comes from the
