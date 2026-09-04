@@ -128,17 +128,30 @@ test.describe('search to results', () => {
 		await expect(page.getByRole('link', { name: /BCN.*TLL/ })).toHaveCount(0);
 	});
 
-	test('Results is no longer a tab, and Search stays the current tab on a results page', async ({
+	test('the chrome offers exactly two destinations, and Results is not one of them', async ({
 		page
 	}) => {
+		// #182's rule, re-asserted against the chrome that replaced the tab bar: a search and
+		// its results are one place. The bar itself is gone (two destinations did not need
+		// one), so this now checks the header rather than a nav, but the claim is unchanged.
 		await mockConnectingFlights(page);
 
 		await page.goto('/');
-		const nav = page.getByRole('navigation', { name: 'Primary' });
-		await expect(nav.getByRole('link', { name: 'Results' })).toHaveCount(0);
+		const header = page.getByRole('banner');
+		await expect(header.getByRole('link', { name: 'Results' })).toHaveCount(0);
+		await expect(header.getByRole('link')).toHaveCount(2);
 
 		await page.goto(`/results/?dep=${DEPARTURE}&arr=${ARRIVAL}&from=BCN&to=TLL`);
-		await expect(nav.getByRole('link', { name: 'Search' })).toHaveAttribute(
+		// The way back to the search is the brand, which is why Settings is the only thing
+		// that ever marks itself current.
+		await expect(header.getByRole('link', { name: /Layover/ })).toHaveAttribute('href', /\/$/);
+		await expect(header.getByRole('link', { name: 'Settings' })).not.toHaveAttribute(
+			'aria-current',
+			'page'
+		);
+
+		await page.goto('/settings/');
+		await expect(header.getByRole('link', { name: 'Settings' })).toHaveAttribute(
 			'aria-current',
 			'page'
 		);
