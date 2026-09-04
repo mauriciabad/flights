@@ -7,6 +7,12 @@
  * #61) exporting a ready singleton or a zero-argument factory, so this file registers them
  * and nothing else, no adapter logic lives here.
  *
+ * Two unrelated things share the Kiwi name below, so read the ids rather than the brand.
+ * `kiwi` is a third party's RapidAPI listing reselling Kiwi data, whose backend is offline;
+ * it is not registered, for the reasons that follow. `kiwi-public` is Kiwi's own keyless
+ * GraphQL endpoint, which works, needs no key at all, and IS registered — none of the
+ * reasoning below applies to it.
+ *
  * Kiwi (issue #51) is deliberately NOT registered here, even though the adapter module
  * itself exists, is tested, and stays importable for whenever this changes. It used to be:
  * the reasoning was "a key nobody can enter yet just means `registry.usable` never selects
@@ -45,6 +51,7 @@
 import { ryanairFlightProvider } from '$lib/providers/flights/ryanair';
 import { createSkyscannerFlightProvider } from '$lib/providers/flights/skyscanner';
 import { flightsSkyFlightProvider } from '$lib/providers/flights/flights-sky';
+import { kiwiPublicFlightProvider } from '$lib/providers/flights/kiwi-public';
 import { agodaStayProvider } from '$lib/providers/stays/agoda';
 import { bookingStayProvider } from '$lib/providers/stays/booking';
 import { osrmTransferProvider } from '$lib/providers/transfers/osrm';
@@ -58,11 +65,18 @@ let registry: ProviderRegistry | undefined;
  * during SvelteKit's prerender: every adapter here only touches the network or a
  * browser-only store (cache, IndexedDB) from inside its async methods, never at
  * construction time, same convention `keyStore`'s own "hydrated" flag exists to work
- * around for `localStorage`. See this module's own header for why Kiwi is not among
- * these despite its adapter module existing and being fully tested. */
+ * around for `localStorage`. See this module's own header for why the RapidAPI `kiwi`
+ * adapter is not among these despite existing and being fully tested — and for why
+ * `kiwi-public`, a different endpoint entirely, is. */
 export function getProviderRegistry(): ProviderRegistry {
 	registry ??= new ProviderRegistry([
 		ryanairFlightProvider,
+		// Registered next to Ryanair because it plays the same role — a keyless source that
+		// works before any key is entered — but across every airline instead of one. It is
+		// also the only registered adapter whose `listDirectDestinations` answers for an
+		// arbitrary airport, which is what `algorithm/connections.ts` needs before it can
+		// propose a single stopover (see that adapter's own header).
+		kiwiPublicFlightProvider,
 		createSkyscannerFlightProvider(),
 		flightsSkyFlightProvider,
 		agodaStayProvider,

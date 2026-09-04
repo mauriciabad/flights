@@ -22,7 +22,15 @@ export default defineConfig({
 		baseURL,
 		trace: 'on-first-retry',
 		screenshot: 'only-on-failure',
-		video: 'retain-on-failure'
+		video: 'retain-on-failure',
+		// Headless Chromium's own User-Agent says "HeadlessChrome", and providers read it.
+		// Kiwi's public endpoint (providers/flights/kiwi-public.ts) answers that UA with a
+		// 403 carrying no CORS headers while giving an ordinary Chrome UA a 200 with
+		// `Access-Control-Allow-Origin: *` — measured, see docs/PROVIDERS.md. The mocked
+		// suite does not care, but the `@live` suite would otherwise measure a bot wall and
+		// report it as a broken provider. Real visitors always send an ordinary UA.
+		userAgent:
+			'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36'
 	},
 	projects: [
 		{

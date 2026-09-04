@@ -46,6 +46,7 @@ export const PROVIDER_IDS = [
 	'skyscanner',
 	'flights-sky',
 	'kiwi',
+	'kiwi-public',
 	'ryanair',
 	'agoda',
 	'booking',

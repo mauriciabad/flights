@@ -1,0 +1,11 @@
+{
+	"extensions": {
+		"note": "FIXTURE — a mocked Kiwi.com response, not a real provider answer. GraphQL allows any top-level `extensions` object, so the marker guard.spec.ts requires lives here rather than in a field the adapter reads."
+	},
+	"data": {
+		"onewayItineraries": {
+			"__typename": "Itineraries",
+			"itineraries": []
+		}
+	}
+}

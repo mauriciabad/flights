@@ -1,5 +1,6 @@
 import { test, expect } from './support/fixtures';
 import { FIXTURE_FLIGHT_NUMBERS, FIXTURE_NAMES, FIXTURE_PRICES } from './support/fixture-markers';
+import { mockKiwiPublic } from './support/providers';
 
 /**
  * Issue #118: the owner's own complaint, verified against a real search end to end
@@ -232,6 +233,15 @@ test.describe('itinerary map: every transfer leg, distinct markers, honest geome
 				body: JSON.stringify({ fares, size: fares.length, currency: 'EUR' })
 			});
 		});
+
+		// -----------------------------------------------------------------
+		// 2b. Kiwi.com's keyless endpoint, answering with nothing. This spec builds one
+		//     exact itinerary by hand out of Ryanair fares so its geometry assertions are
+		//     deterministic, and a second flight source contributing real offers would add
+		//     stopovers it never asked about. An empty-but-well-formed answer is a real
+		//     thing Kiwi returns, and it keeps this test measuring what it is about.
+		// -----------------------------------------------------------------
+		await mockKiwiPublic(page.context());
 
 		// -----------------------------------------------------------------
 		// 3. Transitous: no transit anywhere, so OSRM's walking route always wins

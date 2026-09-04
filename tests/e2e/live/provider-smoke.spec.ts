@@ -1,4 +1,4 @@
-import { test } from '../support/live-fixtures';
+import { expect, test } from '../support/live-fixtures';
 
 /**
  * The `@live` suite: on-demand checks against real provider APIs. Run with
@@ -6,11 +6,13 @@ import { test } from '../support/live-fixtures';
  * tests/e2e/README.md for why, and tests/e2e/support/live-fixtures.ts for the opt-in
  * gate that keeps this from running by accident even then).
  *
- * Every test below is skipped because no adapter calls these providers from the app
- * yet (issues #5 through #10) — there is nothing for a live test to drive. Each one
- * names the provider it will exercise once its adapter issue closes.
+ * Most tests below are skipped placeholders naming the provider they will exercise once
+ * a way to supply that provider's key in a test environment exists. The exception is the
+ * Kiwi one at the bottom, which runs: it needs no key and spends no quota, and it is the
+ * only guard this repo has against an undocumented endpoint changing shape underneath a
+ * shipped adapter.
  *
- * IMPORTANT once these stop being skipped: Skyscanner's RapidAPI free tier is 20
+ * IMPORTANT once the others stop being skipped: Skyscanner's RapidAPI free tier is 20
  * requests a month, total, for the whole account. That test must run at most a
  * handful of times a month, by a person, on purpose — never in a loop, never as part
  * of automated verification.
@@ -56,4 +58,110 @@ test.describe('provider smoke tests', () => {
 		// Once the Agoda/Booking stay adapter (#10) exists: search a real city and
 		// assert the response parses into the adapter's return type.
 	});
+
+	/**
+	 * The one live test here that actually runs, because it is the only one that costs
+	 * nothing: Kiwi's public endpoint is keyless and unmetered, so there is no quota to
+	 * protect and no key to supply.
+	 *
+	 * It is also the one this project most needs. `providers/flights/kiwi-public.ts` reads
+	 * an undocumented endpoint belonging to someone else's website, and its single realistic
+	 * failure is Kiwi renaming a field or withdrawing a query — which every unit test in the
+	 * repo will keep passing through, because they all run against fixtures captured on the
+	 * day it was written. This is what tells you the fixtures have gone stale.
+	 *
+	 * Runs in a page context rather than in Node so it exercises the real thing: a browser
+	 * making a cross-origin request, CORS enforced, from a page origin. Playwright's own
+	 * headless User-Agent is overridden in playwright.config.ts for the same reason
+	 * docs/PROVIDERS.md gives — Kiwi answers `HeadlessChrome` with a 403 and no CORS headers.
+	 */
+	test(
+		'Kiwi.com public API still answers the shape the adapter was built against',
+		{ tag: '@live' },
+		async ({ page }) => {
+			await page.goto('/');
+
+			const result = await page.evaluate(async () => {
+				const response = await fetch(
+					'https://api.skypicker.com/umbrella/v2/graphql?featureName=OnePerCityItinerariesQuery',
+					{
+						method: 'POST',
+						headers: { 'content-type': 'application/json' },
+						body: JSON.stringify({
+							query: `query OnePerCityItinerariesQuery($search: SearchOnewayInput, $filter: ItinerariesFilterInput, $options: ItinerariesOptionsInput) {
+								onewayOnePerCityItineraries(search: $search, filter: $filter, options: $options) {
+									__typename
+									... on AppError { error: message }
+									... on OnePerCityItineraries { itineraries { destination { station { code type } } } }
+								}
+							}`,
+							variables: {
+								search: {
+									itinerary: {
+										source: { ids: ['Station:airport:LGW'] },
+										destination: { ids: ['anywhere'] },
+										outboundDepartureDate: (() => {
+											const start = new Date(Date.now() + 14 * 86_400_000);
+											const end = new Date(Date.now() + 44 * 86_400_000);
+											return {
+												start: `${start.toISOString().slice(0, 10)}T00:00:00`,
+												end: `${end.toISOString().slice(0, 10)}T23:59:59`
+											};
+										})()
+									},
+									passengers: {
+										adults: 1,
+										children: 0,
+										infants: 0,
+										adultsHoldBags: [0],
+										adultsHandBags: [0],
+										childrenHoldBags: [],
+										childrenHandBags: []
+									},
+									cabinClass: { cabinClass: 'ECONOMY', applyMixedClasses: false }
+								},
+								filter: {
+									transportTypes: ['FLIGHT'],
+									contentProviders: ['KIWI'],
+									maxStopsCount: 0,
+									limit: 100,
+									flightsApiLimit: 100
+								},
+								options: {
+									sortBy: 'PRICE',
+									currency: 'eur',
+									locale: 'en',
+									partner: 'skypicker',
+									affilID: 'skypicker',
+									storeSearch: false,
+									searchStrategy: 'REDUCED'
+								}
+							}
+						})
+					}
+				);
+				return { status: response.status, body: await response.json() };
+			});
+
+			// A 403 here means the bot wall, not a broken adapter — check the User-Agent
+			// before assuming Kiwi withdrew the endpoint.
+			expect(result.status).toBe(200);
+			// A GraphQL `errors` array is the schema-drift signal: a field this adapter asks
+			// for no longer exists.
+			expect(result.body.errors).toBeUndefined();
+
+			const answer = result.body.data?.onewayOnePerCityItineraries;
+			expect(answer?.__typename).toBe('OnePerCityItineraries');
+
+			const codes = (answer?.itineraries ?? [])
+				.map((entry: { destination?: { station?: { code?: string; type?: string } } }) =>
+					entry.destination?.station?.type === 'AIRPORT' ? entry.destination?.station?.code : undefined
+				)
+				.filter(Boolean);
+
+			// London Gatwick flies direct to dozens of airports year-round. A handful would
+			// mean something changed at Kiwi's end, not that Gatwick shrank.
+			expect(codes.length).toBeGreaterThan(20);
+		}
+	);
 });

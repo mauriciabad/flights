@@ -26,7 +26,17 @@ const waitMs = Number(process.argv[3] ?? 90000);
 const appOrigin = new URL(url).origin;
 
 const browser = await chromium.launch();
-const page = await (await browser.newContext()).newPage();
+// Playwright's default headless User-Agent says "HeadlessChrome", and Kiwi's public
+// endpoint (providers/flights/kiwi-public.ts) answers that with a 403 carrying no CORS
+// headers while giving an ordinary Chrome UA a 200. Probing with the default therefore
+// shows a provider failing for a reason no real visitor will ever hit, and the app's
+// itinerary count comes out lower than what a person actually sees.
+const page = await (
+	await browser.newContext({
+		userAgent:
+			'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36'
+	})
+).newPage();
 const responses = [];
 const failed = [];
 // Provider response bodies, kept so the fixture check has something authoritative to read.
