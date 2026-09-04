@@ -35,7 +35,9 @@ import type { TransitousPlanResponse } from './transitous-types';
 
 export const TRANSITOUS_PROVIDER_ID = 'transitous';
 
-const BASE_URL = 'https://api.transitous.org/api/v1';
+/** Exported so a second Transitous-backed adapter (geocode/transitous-client.ts, issue
+ * #64) hits the same host through the same constant instead of re-typing the URL. */
+export const BASE_URL = 'https://api.transitous.org/api/v1';
 
 /** See the file header — kept as a real value (not removed) so intent survives even
  * though no browser today sends it. */
@@ -148,13 +150,15 @@ function isPlanResponseShape(value: unknown): value is TransitousPlanResponse {
 	);
 }
 
-function parseRetryAfter(header: string | null): number | undefined {
+/** Exported alongside BASE_URL above for the same reason: a second Transitous adapter
+ * reads a 429's Retry-After the same way this one does, not a re-derived copy. */
+export function parseRetryAfter(header: string | null): number | undefined {
 	if (!header) return undefined;
 	const seconds = Number(header);
 	return Number.isFinite(seconds) ? seconds : undefined;
 }
 
-async function safeReadText(response: Response): Promise<string> {
+export async function safeReadText(response: Response): Promise<string> {
 	try {
 		return (await response.text()).slice(0, 200);
 	} catch {

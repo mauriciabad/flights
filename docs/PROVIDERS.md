@@ -304,6 +304,43 @@ Their terms require a `User-Agent` naming the app with contact details, ask that
 project be open-source and non-commercial, and ask for attribution. Honour all three.
 The service is free and run by volunteers.
 
+**The same server also geocodes** (issue #64), which turned out to matter more for
+timezones than for the search form it was originally asked for. Two endpoints:
+
+```
+https://api.transitous.org/api/v1/geocode?text=Sagrada%20Familia%20Barcelona
+https://api.transitous.org/api/v1/reverse-geocode?place=LAT,LON
+```
+
+Both return a bare JSON array of places, each with `name`, `lat`, `lon`, `country`, `tz`
+and an `areas` trail (admin regions, broadest first, each flagged `matched` against the
+query). Verified 2026-09-04: keyless, `access-control-allow-origin: *`, same host and
+terms as `/plan` above.
+
+Numbers print in scientific notation on real responses (`"lat":4.1403983999999994E1`),
+not `41.403984`. That is still valid JSON number syntax, so `JSON.parse`/`Response.json()`
+already decode it correctly — there is nothing to hand-parse, and the risk is a future
+change adding a manual decimal parse that breaks on exactly this shape.
+
+`/geocode` free-text search is genuinely ambiguous by design: "Barcelona" resolves to the
+Catalan city, a Venezuelan city, a Philippine one, a Colombian one and a Brazilian one, all
+in one response. A UI built on this must show every candidate and let a person choose —
+picking the first result silently is wrong roughly as often as it is right.
+
+Searching `/geocode` by IATA code or "`<code>` Airport" is NOT reliable enough to hang a
+timezone lookup on: `text=BCN` resolves to a hamlet in the Swiss canton of Fribourg (the
+geocoder has no notion that "BCN" means an airport), and `text=BCN Airport` surfaces
+airports in Kobe and Naha ahead of Barcelona because "Airport" outweighs a 3-letter code in
+its ranking. `/reverse-geocode`, fed an airport's own coordinates (already exact in this
+app's OurAirports-derived dataset, `src/lib/data/airports.ts`), sidesteps the problem
+entirely: checked against 16 airports spanning every populated continent (BCN, VIE, JFK,
+LAX, SYD, DXB, NRT, GRU, JNB, SIN, LHR, ANC, CPT, HND, GIG, AKL) on 2026-09-04, it returned
+the correct IANA zone for all 16, DST-observing and half-hour-offset cases included. That
+makes it a live replacement candidate for `skyscanner-timezone.ts`'s hand-curated,
+silently-rotting IATA table — not swapped in yet (issue #64 built the capability and
+proved it works; wiring it into an existing, shipped adapter is its own follow-up issue,
+deliberately not bundled with this one).
+
 **OSRM** gives walking and driving durations, keyless, on a shared demo server. Cache
 hard and do not hammer it.
 
