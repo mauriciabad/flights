@@ -1,7 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { scoreItinerary } from '$lib/algorithm/score';
 import type { ItineraryGroup, ItineraryResult, PriceCalendarOutcome, ProviderStatus, WidenOption } from '$lib/search';
-import { describeProviderError, deriveScoredResult, summarizePriceCalendarOutcome, widenOptionKey } from './types';
+import {
+	describeProviderError,
+	deriveScoredResult,
+	groupWidenOptions,
+	summarizePriceCalendarOutcome,
+	widenOptionGroupKey,
+	widenOptionKey
+} from './types';
 import { makeItinerary } from './test-support';
 
 function providerStatus(overrides: Partial<ProviderStatus> = {}): ProviderStatus {
@@ -155,6 +162,91 @@ describe('widenOptionKey', () => {
 		expect(widenOptionKey(base)).not.toBe(widenOptionKey({ ...base, tier: 'calendar' }));
 		expect(widenOptionKey(base)).not.toBe(widenOptionKey({ ...base, candidateAirportCode: 'PRG' }));
 	});
+});
+
+describe('groupWidenOptions', () => {
+	function confirmOption(overrides: Partial<WidenOption> = {}): WidenOption {
+		return {
+			providerId: 'skyscanner',
+			kind: 'flight',
+			tier: 'confirm',
+			label: 'Skyscanner (RapidAPI)',
+			candidateAirportCode: 'VIE',
+			requests: 8,
+			requiresKey: false,
+			...overrides
+		};
+	}
+
+	it('issue #96: folds one row per candidate into one row per provider and tier, summing cost', () => {
+		const options = [
+			confirmOption({ candidateAirportCode: 'VIE', requests: 8 }),
+			confirmOption({ candidateAirportCode: 'PRG', requests: 6 }),
+			confirmOption({ candidateAirportCode: 'MXP', requests: 10 })
+		];
+
+		const groups = groupWidenOptions(options);
+
+		expect(groups).toHaveLength(1);
+		expect(groups[0].providerId).toBe('skyscanner');
+		expect(groups[0].tier).toBe('confirm');
+		expect(groups[0].requests).toBe(24);
+		expect(groups[0].options).toHaveLength(3);
+	});
+
+	it('keeps different providers, and the same provider across tiers, in separate rows', () => {
+		const options = [
+			confirmOption({ providerId: 'skyscanner', candidateAirportCode: 'VIE', requests: 8 }),
+			confirmOption({ providerId: 'kiwi', candidateAirportCode: 'VIE', requests: 1 }),
+			confirmOption({ providerId: 'skyscanner', tier: 'calendar', candidateAirportCode: 'VIE', requests: 2 })
+		];
+
+		const groups = groupWidenOptions(options);
+
+		expect(groups).toHaveLength(3);
+		const keys = groups.map((group) => widenOptionGroupKey(group));
+		expect(new Set(keys).size).toBe(3);
+	});
+
+	it('carries requiresKey through unchanged, since every option in a group shares one provider', () => {
+		const groups = groupWidenOptions([confirmOption({ requiresKey: true })]);
+		expect(groups[0].requiresKey).toBe(true);
+	});
+
+	it('sorts cheapest group first, same as the underlying per-candidate options', () => {
+		const options = [
+			confirmOption({ providerId: 'kiwi', candidateAirportCode: 'VIE', requests: 20 }),
+			confirmOption({ providerId: 'skyscanner', candidateAirportCode: 'VIE', requests: 8 })
+		];
+		const groups = groupWidenOptions(options);
+		expect(groups.map((group) => group.providerId)).toEqual(['skyscanner', 'kiwi']);
+	});
+
+	it('returns nothing for an empty option list', () => {
+		expect(groupWidenOptions([])).toEqual([]);
+	});
+});
+
+describe('widenOptionGroupKey', () => {
+	it('is stable for the same provider and tier, and ignores candidate', () => {
+		const a = confirmOptionGroupInput({ candidateAirportCode: 'VIE' });
+		const b = confirmOptionGroupInput({ candidateAirportCode: 'PRG' });
+		expect(widenOptionGroupKey(a)).toBe(widenOptionGroupKey(b));
+		expect(widenOptionGroupKey(a)).not.toBe(widenOptionGroupKey({ ...a, tier: 'calendar' }));
+	});
+
+	function confirmOptionGroupInput(overrides: Partial<WidenOption> = {}): WidenOption {
+		return {
+			providerId: 'skyscanner',
+			kind: 'flight',
+			tier: 'confirm',
+			label: 'Skyscanner (RapidAPI)',
+			candidateAirportCode: 'VIE',
+			requests: 8,
+			requiresKey: false,
+			...overrides
+		};
+	}
 });
 
 describe('summarizePriceCalendarOutcome', () => {

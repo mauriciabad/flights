@@ -17,7 +17,7 @@
 	import { page } from '$app/state';
 	import { Button, Card, EmptyState, Skeleton } from '$lib/components';
 	import { getAirport } from '$lib/data/airports';
-	import type { Airport, SearchQuery } from '$lib/domain';
+	import type { Airport, IataAirportCode, SearchQuery } from '$lib/domain';
 	import { keyStore } from '$lib/keys';
 	import { buildSearchQuery } from '$lib/search-form/model';
 	import { searchParamsToFields } from '$lib/search-form/url-codec';
@@ -30,8 +30,8 @@
 	import type { SortMode } from '$lib/results/sort';
 	import { insertStable, slotsToResults, toSlot } from '$lib/results/stream-order';
 	import type { StreamSlot } from '$lib/results/stream-order';
-	import { connectionAirportCode, deriveScoredResult, summarizePriceCalendarOutcome, widenOptionKey } from '$lib/results/types';
-	import type { ProviderStatus } from '$lib/results/types';
+	import { connectionAirportCode, deriveScoredResult, summarizePriceCalendarOutcome, widenOptionGroupKey } from '$lib/results/types';
+	import type { ProviderStatus, WidenOptionGroup } from '$lib/results/types';
 	import FilterPanel from './FilterPanel.svelte';
 	import ProviderStatusStrip from './ProviderStatusStrip.svelte';
 	import ResultCard from './ResultCard.svelte';
@@ -184,28 +184,41 @@
 		return { candidateAirportCode: option.candidateAirportCode, earliestDeparture: date, latestDeparture: date };
 	}
 
-	async function handleWiden(option: WidenOption) {
+	/** Issue #96: the panel now shows one row per provider, summing cost across every
+	 * candidate that provider's tier covers (`WidenOptionGroup`), rather than one row per
+	 * candidate. Spending it means widening every one of `group.options`' candidates in a
+	 * single call sharing `group.requests` as one ceiling. Both `widenSearch` (its
+	 * `targets` array) and `widenWithPriceCalendar` (its `candidateAirportCodes` array)
+	 * already accept many candidates behind one shared budget, so this is not a new
+	 * capability, only a caller that finally uses it for more than one candidate at a time. */
+	async function handleWiden(group: WidenOptionGroup) {
 		const activeQuery = query;
 		if (!activeQuery) return;
-		const key = widenOptionKey(option);
+		const key = widenOptionGroupKey(group);
 		pendingWidenKey = key;
 		const controller = new AbortController();
 		try {
-			if (option.tier === 'confirm') {
-				const target = buildConfirmTarget(option, activeQuery);
-				if (!target) return;
+			if (group.tier === 'confirm') {
+				const targets = group.options
+					.map((option) => buildConfirmTarget(option, activeQuery))
+					.filter((target): target is WidenTarget => target !== undefined);
+				if (targets.length === 0) return;
 				await consumeSearch(
-					widenSearch(activeQuery, { targets: [target], maxMeteredRequests: option.requests }, deps(), {
+					widenSearch(activeQuery, { targets, maxMeteredRequests: group.requests }, deps(), {
 						signal: controller.signal
 					}),
 					{ trackWidenOptions: false }
 				);
-			} else if (option.candidateAirportCode) {
+			} else {
+				const candidateAirportCodes = group.options
+					.map((option) => option.candidateAirportCode)
+					.filter((code): code is IataAirportCode => code !== undefined);
+				if (candidateAirportCodes.length === 0) return;
 				searchesInFlight += 1;
 				try {
 					for await (const outcome of widenWithPriceCalendar(
 						activeQuery,
-						{ candidateAirportCodes: [option.candidateAirportCode], maxMeteredRequests: option.requests },
+						{ candidateAirportCodes, maxMeteredRequests: group.requests },
 						deps(),
 						{ signal: controller.signal }
 					)) {

@@ -17,7 +17,7 @@
 
 import type { IataAirlineCode, IataAirportCode, Itinerary, Money } from '$lib/domain';
 import type { ItineraryScore } from '$lib/algorithm/score';
-import type { ProviderError, ProviderId } from '$lib/providers/types';
+import type { ProviderError, ProviderId, ProviderKind } from '$lib/providers/types';
 import type { ProviderIssueReason } from '$lib/components';
 import type {
 	ItineraryGroup,
@@ -25,7 +25,8 @@ import type {
 	PriceCalendarOutcome,
 	ProviderStatus,
 	SearchSnapshot,
-	WidenOption
+	WidenOption,
+	WidenTier
 } from '$lib/search';
 
 export type { ItineraryGroup, ProviderStatus, SearchSnapshot, WidenOption } from '$lib/search';
@@ -196,6 +197,68 @@ export type AvoidedAirlines = readonly IataAirlineCode[];
  * ideas of "the same option." */
 export function widenOptionKey(option: WidenOption): string {
 	return `${option.providerId}:${option.tier}:${option.candidateAirportCode ?? 'all'}`;
+}
+
+/**
+ * Issue #96: `pipeline.ts` computes one `WidenOption` per connection candidate per
+ * provider, which is right for `widenSearch`'s own bookkeeping but wrong to render
+ * one-for-one. A traveller decides "spend N requests on Skyscanner" once, not once per
+ * stopover city the panel never even names. This is that one row: every underlying
+ * per-candidate option for the same provider and tier, folded together with their costs
+ * summed, so "the total is the number a person actually decides on" (the issue's own
+ * words) is the number shown.
+ */
+export interface WidenOptionGroup {
+	providerId: ProviderId;
+	kind: ProviderKind;
+	tier: WidenTier;
+	label: string;
+	/** Sum of every underlying option's `requests`, what committing to this one row would
+	 * spend across every candidate it covers, in one `widenSearch`/`widenWithPriceCalendar`
+	 * call (both already accept many candidates sharing one budget ceiling). */
+	requests: number;
+	/** Identical across every option folded into this group: it depends only on whether
+	 * `providerId` has a usable key, never on which candidate, so reading it off the first
+	 * underlying option is exact, not a guess. */
+	requiresKey: boolean;
+	/** The per-candidate options this group summarises. A caller building a real
+	 * `WidenRequest`/`candidateAirportCodes` list widens every one of these at once, rather
+	 * than the traveller picking a single stopover the panel never showed them anyway. */
+	options: WidenOption[];
+}
+
+/** Groups `WidenOption`s by provider and tier, summing their cost. Cheapest group first,
+ * same tie-break as `estimatePriceCalendarWidenCost`'s own sort, so the panel's row order
+ * doesn't reshuffle for reasons a traveller can't see. */
+export function groupWidenOptions(options: readonly WidenOption[]): WidenOptionGroup[] {
+	const groups = new Map<string, WidenOptionGroup>();
+	for (const option of options) {
+		const key = widenOptionGroupKey(option);
+		const existing = groups.get(key);
+		if (existing) {
+			existing.requests += option.requests;
+			existing.options.push(option);
+		} else {
+			groups.set(key, {
+				providerId: option.providerId,
+				kind: option.kind,
+				tier: option.tier,
+				label: option.label,
+				requests: option.requests,
+				requiresKey: option.requiresKey,
+				options: [option]
+			});
+		}
+	}
+	return [...groups.values()].sort((a, b) => a.requests - b.requests || a.providerId.localeCompare(b.providerId));
+}
+
+/** Identifies one `WidenOptionGroup` for the lifetime of a search, the same role
+ * `widenOptionKey` plays for a single candidate's option, one level up now that a panel
+ * row is a provider+tier pair rather than a provider+tier+candidate triple. Also accepts a
+ * plain `WidenOption`, since a group's key is exactly what its underlying options share. */
+export function widenOptionGroupKey(option: Pick<WidenOption, 'providerId' | 'tier'>): string {
+	return `${option.providerId}:${option.tier}`;
 }
 
 /**
