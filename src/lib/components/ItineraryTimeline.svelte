@@ -18,9 +18,14 @@
 	 * scheme: pass `subgrid` and this `<ol>` becomes `grid-template-rows: subgrid`, so a
 	 * parent grid's row tracks size to the tallest sibling at each position. See this
 	 * file's PR description for the exact contract issue #25 can build on.
+	 *
+	 * Issue #73 makes each `<li>` clickable (to drive `ItineraryMap`'s selection, issue
+	 * #26), but only by adding attributes and handlers directly to that same `<li>` — no
+	 * wrapping element, so the contract above still holds.
 	 */
 	import type { Duration, FlightOffer, Itinerary, LocalDateTime, Location, Transfer } from '../domain';
 	import { recomputeItineraryWaitingTimes } from '../algorithm/build';
+	import type { ItinerarySegmentId } from '../itinerary-map/segment-id';
 	import {
 		formatCalendarDate,
 		formatClockTime,
@@ -40,11 +45,28 @@
 		/** The totals `<dl>` after the row list. Off when a parent (the comparator) is
 		 * building one shared totals bar across every column instead of one per column. */
 		showTotals?: boolean;
+		/**
+		 * Issue #73: the selection half of the contract `ItineraryMap` (issue #26) already
+		 * implements on its own `selectedSegmentId` prop. One `ItinerarySegmentId` value
+		 * (`../itinerary-map/segment-id.ts`) is the single place a "which stretch of the
+		 * trip is picked" fact lives; a parent binds the same variable to both components
+		 * (`bind:selectedSegmentId` here and on the map) rather than each side keeping its
+		 * own copy, so the two can never drift apart. No translation table exists because
+		 * none is needed: this component's rows already carry these same eleven strings as
+		 * their `data-segment` attribute, checked directly against the map's source.
+		 */
+		selectedSegmentId?: ItinerarySegmentId | null;
 		/** Applied to the row list; the totals block keeps its own fixed class. */
 		class?: string;
 	}
 
-	let { itinerary, subgrid = false, showTotals = true, class: className }: Props = $props();
+	let {
+		itinerary,
+		subgrid = false,
+		showTotals = true,
+		selectedSegmentId = $bindable(null),
+		class: className
+	}: Props = $props();
 
 	/** The origin buffer has no domain-side ceiling (unlike the connection buffer, it never
 	 * borrows from free time), so this is purely a sane upper bound for the number input. */
@@ -113,6 +135,27 @@
 		connectionWaitingTimeOverride = clamp(minutes, 0, maxConnectionWaitingTime) as Duration;
 	}
 
+	function selectSegment(segment: ItinerarySegmentId) {
+		selectedSegmentId = segment;
+	}
+
+	// Every row is `role="option"` on the `<li>` itself rather than a wrapping element,
+	// since the comparator (issue #25) depends on each step being exactly one flat `<li
+	// class="tl-row">`. (Svelte's own a11y check rejects `role="button"` there: a `<li>`
+	// is not natively interactive, and `option` is the one interactive role the compiler
+	// accepts on a non-interactive list item — the same "row picked from a list" shape
+	// `<ol role="listbox">` below declares for its children.) The waiting-time rows nest
+	// their own real `<button>`/`<input>` controls; a keydown bubbles up from those too,
+	// and without this guard, `preventDefault()` here would run on *their* Space/Enter
+	// press and swallow the native control's own activation before it happens. Checking
+	// that the row itself (not a descendant) is what has focus keeps the two independent.
+	function handleRowKeydown(event: KeyboardEvent & { currentTarget: HTMLLIElement }, segment: ItinerarySegmentId) {
+		if (event.target !== event.currentTarget) return;
+		if (event.key !== 'Enter' && event.key !== ' ') return;
+		event.preventDefault();
+		selectSegment(segment);
+	}
+
 	// Accommodation subtotal for the free-time row: not stored anywhere on Itinerary
 	// (totalPrice is the door-to-door figure), but it is exactly nights × nightly rate, and
 	// both of those already live on `shown`.
@@ -147,8 +190,18 @@
 	></span>
 {/snippet}
 
-{#snippet locationRow(location: Location, label: string, segment: string)}
-	<li class="tl-row" data-segment={segment}>
+{#snippet locationRow(location: Location, label: string, segment: ItinerarySegmentId)}
+	<li
+		class="tl-row"
+		class:is-selected={selectedSegmentId === segment}
+		data-segment={segment}
+		role="option"
+		tabindex="0"
+		aria-label={`${label}: ${location.label}`}
+		aria-selected={selectedSegmentId === segment}
+		onclick={() => selectSegment(segment)}
+		onkeydown={(event) => handleRowKeydown(event, segment)}
+	>
 		<span class="tl-rail">{@render dot('point')}</span>
 		<div class="tl-content">
 			<p class="tl-label">{label}</p>
@@ -157,8 +210,18 @@
 	</li>
 {/snippet}
 
-{#snippet transferRow(transfer: Transfer | undefined, label: string, segment: string)}
-	<li class="tl-row" data-segment={segment}>
+{#snippet transferRow(transfer: Transfer | undefined, label: string, segment: ItinerarySegmentId)}
+	<li
+		class="tl-row"
+		class:is-selected={selectedSegmentId === segment}
+		data-segment={segment}
+		role="option"
+		tabindex="0"
+		aria-label={label}
+		aria-selected={selectedSegmentId === segment}
+		onclick={() => selectSegment(segment)}
+		onkeydown={(event) => handleRowKeydown(event, segment)}
+	>
 		<span class="tl-rail">{@render dot('point')}</span>
 		<div class="tl-content tl-content-row">
 			<div class="tl-transfer-info">
@@ -207,13 +270,23 @@
 	airportLabel: string,
 	minutes: Duration,
 	flight: FlightOffer,
-	segment: string,
+	segment: ItinerarySegmentId,
 	onAdjust: (delta: number) => void,
 	onInput: (event: Event & { currentTarget: HTMLInputElement }) => void,
 	maxMinutes: number
 )}
 	{@const inputId = `${uid}-${segment}`}
-	<li class="tl-row" data-segment={segment}>
+	<li
+		class="tl-row"
+		class:is-selected={selectedSegmentId === segment}
+		data-segment={segment}
+		role="option"
+		tabindex="0"
+		aria-label={`Waiting time at ${airportLabel}`}
+		aria-selected={selectedSegmentId === segment}
+		onclick={() => selectSegment(segment)}
+		onkeydown={(event) => handleRowKeydown(event, segment)}
+	>
 		<span class="tl-rail">{@render dot('event')}</span>
 		<div class="tl-content">
 			<p class="tl-label">Waiting at {airportLabel}</p>
@@ -256,8 +329,18 @@
 	</li>
 {/snippet}
 
-{#snippet flightRow(flight: FlightOffer, label: string, segment: string)}
-	<li class="tl-row" data-segment={segment}>
+{#snippet flightRow(flight: FlightOffer, label: string, segment: ItinerarySegmentId)}
+	<li
+		class="tl-row"
+		class:is-selected={selectedSegmentId === segment}
+		data-segment={segment}
+		role="option"
+		tabindex="0"
+		aria-label={label}
+		aria-selected={selectedSegmentId === segment}
+		onclick={() => selectSegment(segment)}
+		onkeydown={(event) => handleRowKeydown(event, segment)}
+	>
 		<span class="tl-rail">{@render dot('event')}</span>
 		<div class="tl-content tl-content-row">
 			<div class="tl-flight-info">
@@ -293,7 +376,7 @@
 	class={['itinerary-timeline', className]}
 	class:itinerary-timeline--subgrid={subgrid}
 	aria-label={routeDescription}
-	role="list"
+	role="listbox"
 >
 	{#if shown.originLocation}
 		{@render locationRow(shown.originLocation, 'Starting point', 'origin-location')}
@@ -314,7 +397,17 @@
 
 	{@render transferRow(shown.transferToHotel, `Travel to ${shown.stay.property.name}`, 'transfer-to-hotel')}
 
-	<li class="tl-row tl-row-stopover" data-segment="free-time">
+	<li
+		class="tl-row tl-row-stopover"
+		class:is-selected={selectedSegmentId === 'free-time'}
+		data-segment="free-time"
+		role="option"
+		tabindex="0"
+		aria-label={`The stopover, in ${shown.outboundFlight.arrivalAirport}`}
+		aria-selected={selectedSegmentId === 'free-time'}
+		onclick={() => selectSegment('free-time')}
+		onkeydown={(event) => handleRowKeydown(event, 'free-time')}
+	>
 		<span class="tl-rail">{@render dot('stopover')}</span>
 		<div class="tl-content tl-stopover">
 			<p class="tl-stopover-eyebrow">The stopover</p>
@@ -440,6 +533,24 @@
 		grid-column: 1 / -1;
 		grid-template-columns: subgrid;
 		align-items: start;
+		border-radius: var(--radius-md);
+		/* `role="option"` on the `<li>` itself (issue #73, the map selection contract), not a
+		   wrapper: a wrapper would need its own `grid-template-columns: subgrid`, breaking the
+		   two-column contract every row here relies on and the comparator (#25) reads from. */
+		cursor: pointer;
+		transition: background-color var(--transition-fast);
+	}
+
+	.tl-row:hover {
+		background: var(--color-surface-hover);
+	}
+
+	/* A box-shadow, not `outline`: `outline` is reserved for the global `:focus-visible` ring
+	   below, so a row that is both selected and keyboard-focused still shows both, rather than
+	   one replacing the other under the same CSS property. */
+	.tl-row.is-selected {
+		background: var(--color-accent-muted);
+		box-shadow: 0 0 0 2px var(--color-accent);
 	}
 
 	/* ---------------------------------------------------------------------
