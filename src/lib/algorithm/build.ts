@@ -137,14 +137,28 @@ export function sumDurations(...durations: (Duration | undefined)[]): Duration {
 }
 
 /** Multiplies a Money value by a positive integer traveller count, rounding to the
- * nearest minor unit. Issue #106: `Itinerary.travellers`'s own doc comment is the
- * authority on which prices this is safe to apply to (flight fares, confirmed per-adult
- * for the free Ryanair path) and which it deliberately is not (a stay's flat per-party
- * rate). Exported so `recomputeItineraryWaitingTimes` below and
- * `recompute-selection.ts`'s `recomputeItinerarySelection` share the exact same
- * arithmetic rather than a second implementation that could round differently. */
+ * nearest minor unit. Never call this on a `FlightOffer.price` directly — use
+ * `scaleFareForParty` below, which reads the offer's own `priceScope` first. This stays
+ * exported for the one price that IS always safe to scale by a plain traveller count
+ * regardless of provider (none currently — kept for symmetry with `sumMoney` and in case
+ * a future per-traveller, non-flight cost needs the identical rounding rule). */
 export function scaleMoney(money: Money, travellers: number): Money {
 	return { minorUnits: Math.round(money.minorUnits * travellers), currency: money.currency };
+}
+
+/**
+ * A `FlightOffer`'s own contribution to a party's total, honouring what that specific
+ * offer declares about itself (`FlightOffer.priceScope`, issue #109) rather than a
+ * blanket "always multiply by travellers": a `'per-person'` fare (confirmed for Ryanair
+ * and Flights Sky, both structurally unable to request more than one adult's price) is
+ * multiplied by `travellers`; a `'party-total'` fare (confirmed live for Skyscanner —
+ * see `FlightFarePriceScope`'s own doc comment for the measurement) is used as-is,
+ * multiplying it again would overcount a group's fare, the worse of the two failure
+ * modes. Two legs of the same itinerary can come from different providers with different
+ * answers, so this is applied per offer, never once to their sum. Exported for the same
+ * reason as `minutesBetween` above. */
+export function scaleFareForParty(offer: FlightOffer, travellers: number): Money {
+	return offer.priceScope === 'party-total' ? offer.price : scaleMoney(offer.price, travellers);
 }
 
 /** Totals Money values that must already share one currency — converting between
@@ -287,12 +301,14 @@ export function buildItineraries(input: BuildItinerariesInput): Itinerary[] {
 			// `stay` being absent only ever affects `totalPrice` below, not this.
 			const nightsInConnection = nightsBetween(freeStart, freeEnd);
 
-			// Issue #106: flight fares are per-adult (see `Itinerary.travellers`'s own doc
-			// comment for exactly which providers this is confirmed for), so the party's
-			// flight cost scales with `travellers`; the stay's per-night rate does not —
-			// issue #80/#94's own deliberate flat-per-party choice, unchanged here.
+			// Issue #106/#109: each flight leg scales to the party by its OWN declared
+			// `priceScope` (`scaleFareForParty`), never a blanket multiply — a per-adult
+			// Ryanair fare needs `travellers` applied, an already-party-total Skyscanner
+			// fare must not be multiplied again. The stay's per-night rate is never scaled
+			// either way — issue #80/#94's own deliberate flat-per-party choice.
 			const totalPrice = sumMoney(
-				scaleMoney(sumMoney(outbound.price, onward.price), travellers),
+				scaleFareForParty(outbound, travellers),
+				scaleFareForParty(onward, travellers),
 				stay && nightsInConnection > 0
 					? {
 							minorUnits: stay.pricePerNight.minorUnits * nightsInConnection,
@@ -364,11 +380,11 @@ export interface WaitingTimeOverrides {
  * dependent field recomputed. It never leaves a partial patch that skips one total.
  *
  * Reuses this module's own arithmetic (`addLocalMinutes`, `minutesBetween`, `nightsBetween`,
- * `sumMoney`, `scaleMoney`) rather than a second implementation in the UI layer, so a hand
- * edit can never disagree with how `buildItineraries` would have computed the same
- * itinerary from scratch. Every value this needs (both flights' price/duration and the
- * party size they're scaled by, the stay's nightly rate, both connection-side transfers)
- * already lives on the Itinerary itself, so this takes no other input, unlike
+ * `sumMoney`, `scaleFareForParty`) rather than a second implementation in the UI layer, so
+ * a hand edit can never disagree with how `buildItineraries` would have computed the same
+ * itinerary from scratch. Every value this needs (both flights' price/duration/priceScope
+ * and the party size they're scaled by, the stay's nightly rate, both connection-side
+ * transfers) already lives on the Itinerary itself, so this takes no other input, unlike
  * `buildItineraries`, which needs the wider candidate pool.
  *
  * `originWaitingTime` only ever affects `airportWaiting` and `total`: it is time spent
@@ -412,11 +428,12 @@ export function recomputeItineraryWaitingTimes(
 	// Issue #105: not gated on `stay` — see `buildItineraries`'s own identical comment.
 	const nightsInConnection = nightsBetween(freeStart, freeEnd);
 
-	// Issue #106: `itinerary.travellers` is the party size this itinerary was already
+	// Issue #106/#109: `itinerary.travellers` is the party size this itinerary was already
 	// priced for (set once by `buildItineraries`, carried over untouched by a waiting-time
-	// edit), so the flight fares scale by it the same way here.
+	// edit); each flight leg still scales by its own `priceScope`, same as `buildItineraries`.
 	const totalPrice = sumMoney(
-		scaleMoney(sumMoney(itinerary.outboundFlight.price, itinerary.onwardFlight.price), itinerary.travellers),
+		scaleFareForParty(itinerary.outboundFlight, itinerary.travellers),
+		scaleFareForParty(itinerary.onwardFlight, itinerary.travellers),
 		stay && nightsInConnection > 0
 			? {
 					minorUnits: stay.pricePerNight.minorUnits * nightsInConnection,

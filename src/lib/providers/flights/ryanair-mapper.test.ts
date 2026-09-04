@@ -39,6 +39,7 @@ describe('mapFareToFlightOffer', () => {
 			arrival: { local: '2026-10-13T10:35:00', timeZone: 'Europe/London', utcOffsetMinutes: 60 },
 			duration: 145,
 			price: { minorUnits: 1499, currency: 'EUR' },
+			priceScope: 'per-person',
 			fareBrand: 'Basic',
 			baggage: { cabinBagsIncluded: 1, checkedBagsIncluded: 0 },
 			deepLink: expect.stringContaining('originIata=BCN')

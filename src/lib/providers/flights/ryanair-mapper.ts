@@ -146,6 +146,10 @@ export function mapFareToFlightOffer(
 		arrival,
 		duration: computeFlightDuration(departure, arrival),
 		price,
+		// Issue #109: the fare-finder endpoint has no adults/travellers parameter at all
+		// (confirmed: neither this file nor ryanair.ts/ryanair-client.ts ever sends one),
+		// so whatever it returns is definitionally one adult's fare, never a party total.
+		priceScope: 'per-person',
 		fareBrand: 'Basic',
 		baggage: BASIC_FARE_BAGGAGE,
 		deepLink: deepLinkFor(fare)

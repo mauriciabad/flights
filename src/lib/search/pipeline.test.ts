@@ -93,6 +93,7 @@ function flightOffer(
 		arrival,
 		duration: duration as Duration,
 		price: { minorUnits: 4500, currency: 'EUR' },
+		priceScope: 'per-person',
 		baggage: { cabinBagsIncluded: 1, checkedBagsIncluded: 0 },
 		deepLink: 'https://example.test/offer'
 	};

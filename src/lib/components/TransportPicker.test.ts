@@ -34,6 +34,7 @@ function makeFlight(departure: LocalDateTime, arrival: LocalDateTime): FlightOff
 		arrival,
 		duration: 120 as Duration,
 		price: { minorUnits: 5000, currency: 'EUR' },
+		priceScope: 'per-person',
 		baggage: { cabinBagsIncluded: 1, checkedBagsIncluded: 0 },
 		deepLink: 'https://example.test/offer'
 	};

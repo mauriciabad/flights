@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { Airport, City, Country, Duration, FlightOffer, LocalDateTime, Stay, Transfer } from '../domain';
+import type { Airport, City, Country, Duration, FlightFarePriceScope, FlightOffer, LocalDateTime, Stay, Transfer } from '../domain';
 import { buildItineraries, type BuildItinerariesInput } from './build';
 import { diffFlightOffers, diffTransfers, recomputeItinerarySelection } from './recompute-selection';
 
@@ -27,7 +27,8 @@ function makeFlight(
 	departure: LocalDateTime,
 	arrival: LocalDateTime,
 	duration: number,
-	priceMinorUnits = 5000
+	priceMinorUnits = 5000,
+	priceScope: FlightFarePriceScope = 'per-person'
 ): FlightOffer {
 	return {
 		carrier: { iataCode: 'FR', name: 'Test Air' },
@@ -36,6 +37,7 @@ function makeFlight(
 		arrivalAirport,
 		departure,
 		arrival,
+		priceScope,
 		duration: duration as Duration,
 		price: { minorUnits: priceMinorUnits, currency: 'EUR' },
 		baggage: { cabinBagsIncluded: 1, checkedBagsIncluded: 0 },
@@ -179,6 +181,26 @@ describe('recomputeItinerarySelection: totals and nights', () => {
 		// onward stays at its default 5000; solo = 4000 + 5000, group = (4000 + 5000) * 3.
 		expect(soloResult.itinerary.totalPrice.minorUnits).toBe(4000 + 5000);
 		expect(groupResult.itinerary.totalPrice.minorUnits).toBe((4000 + 5000) * 3);
+	});
+
+	it('does not multiply a party-total fare swapped in by a picker (issue #109)', () => {
+		const group = { ...baseItinerary(), travellers: 3 };
+		// Swapping in an already-party-total offer (e.g. a Skyscanner alternative) must not
+		// get tripled on top of already covering all three travellers.
+		const partyTotalOutbound = makeFlight(
+			'LGW',
+			'VIE',
+			localDateTime('2026-06-01T09:00:00'),
+			localDateTime('2026-06-01T09:00:00'),
+			150,
+			18000,
+			'party-total'
+		);
+
+		const result = recomputeItinerarySelection(group, { outboundFlight: partyTotalOutbound });
+
+		// 18000 (already for all three, untouched) + onward's default 5000 * 3 (per-person).
+		expect(result.itinerary.totalPrice.minorUnits).toBe(18000 + 5000 * 3);
 	});
 
 	it('leaves every other field untouched when only one transfer is overridden', () => {

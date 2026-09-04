@@ -101,6 +101,12 @@ function mapDirectItinerary(itinerary: unknown, options: MapSearchOneWayOptions)
 		arrival,
 		duration: durationMinutes as Duration,
 		price,
+		// Issue #109: `search-one-way`'s own request shape (`SearchOneWayParams`,
+		// flights-sky-client.ts) has no adults/travellers field at all — this adapter never
+		// tells the API how many travellers to price for, so whatever comes back is
+		// definitionally one adult's fare, confirmed by construction rather than a live
+		// measurement (there is no "ask for N adults" channel to have measured against).
+		priceScope: 'per-person',
 		// `fareAttributes` is always `{}` in the captured fixture, so this API never returns
 		// baggage allowance for a search-one-way result. `baggage` is not optional on
 		// `FlightOffer`, so 0 here means "not returned by this provider," not "confirmed zero

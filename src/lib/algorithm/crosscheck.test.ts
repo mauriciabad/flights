@@ -33,6 +33,7 @@ function offer(overrides: Partial<FlightOffer> & { carrierCode: string }): Fligh
 		arrival: { local: '2026-10-01T08:00:00', timeZone: 'Europe/London', utcOffsetMinutes: 60 },
 		duration: 120 as Duration,
 		price: money(4599),
+		priceScope: 'per-person',
 		baggage: { cabinBagsIncluded: 1, checkedBagsIncluded: 0 },
 		deepLink: 'https://example.test/book',
 		...rest

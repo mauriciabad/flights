@@ -114,6 +114,12 @@ function mapDirectItinerary(itinerary: unknown, options: MapSearchFlightsOptions
 		// This minute count came straight off the wire, so this is that point.
 		duration: durationMinutes as Duration,
 		price,
+		// Issue #109: measured live 2026-09-04, same route/date, only `adults` changed —
+		// 1 adult priced at 336.51/588.97, 3 adults at 966.21/1766.38. 588.97 * 3 = 1766.91,
+		// not 1766.38: Sky Scrapper already returns the whole party's total for the
+		// `adults` count this adapter requests (skyscanner.ts's own `adults: String(travellers)`),
+		// never a per-adult figure to multiply again.
+		priceScope: 'party-total',
 		// Sky Scrapper's search endpoint never returns baggage allowance at all (confirmed
 		// against the real captured fixture: `fareAttributes` is always `{}`). Getting it
 		// needs a per-itinerary details call this adapter's 20-requests-a-month budget
