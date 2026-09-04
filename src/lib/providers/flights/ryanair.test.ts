@@ -2,7 +2,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryCacheStore } from '../../cache';
 import activeAirportsFixture from './fixtures/active-airports.json';
 import oneWayFaresSingleFixture from './fixtures/one-way-fares-single-route.json';
-import routesBcnFixture from './fixtures/routes-bcn.json';
 import { createRyanairFlightProvider } from './ryanair';
 
 /**
@@ -24,9 +23,6 @@ function fixtureFetch(overrides: Record<string, () => Response> = {}): typeof fe
 		}
 		if (url.startsWith('https://services-api.ryanair.com/farfnd/v4/oneWayFares')) {
 			return new Response(JSON.stringify(oneWayFaresSingleFixture), { status: 200 });
-		}
-		if (url.startsWith('https://www.ryanair.com/api/views/locate/searchWidget/routes/en/airport/')) {
-			return new Response(JSON.stringify(routesBcnFixture), { status: 200 });
 		}
 		if (url === 'https://www.ryanair.com/api/views/locate/3/airports/en/active') {
 			return new Response(JSON.stringify(activeAirportsFixture), { status: 200 });
@@ -61,7 +57,7 @@ describe('searchOffers', () => {
 			price: { minorUnits: 1499, currency: 'EUR' }
 		});
 		expect(result.source.providerId).toBe('ryanair');
-		// One request for the fares, one for the airport-timezone table (also cold).
+		// One request for the fares, one for the network snapshot (also cold).
 		expect(result.requestsUsed).toBe(2);
 	});
 
@@ -83,7 +79,7 @@ describe('searchOffers', () => {
 		expect(fetchCallCount).toBe(callsAfterFirst); // no new network calls
 	});
 
-	it('reuses the already-cached airport-timezone table across different routes', async () => {
+	it('reuses the already-cached network snapshot across different routes', async () => {
 		const store = new MemoryCacheStore();
 		const fetchImpl = fixtureFetch();
 		const provider = createRyanairFlightProvider({ store, fetchImpl });
@@ -96,8 +92,49 @@ describe('searchOffers', () => {
 
 		expect(result.ok).toBe(true);
 		// A different route is a different cache key for the fares themselves (1 request),
-		// but the timezone table from the first call is still fresh (0 requests for it).
+		// but the snapshot from the first call is still fresh (0 requests for it).
 		expect(result.requestsUsed).toBe(1);
+	});
+
+	it('issues one snapshot request, not one per caller, for a concurrent fan-out (issue #121)', async () => {
+		// The real failure this guards: a search fans searchOffers out across many
+		// candidate routes at once, every one of them misses the cold snapshot cache, and
+		// one measured search fetched the same 278 KB active-airports table twelve times.
+		let snapshotCalls = 0;
+		const fetchImpl = fixtureFetch({
+			'https://www.ryanair.com/api/views/locate/3/airports/en/active': () => {
+				snapshotCalls++;
+				return new Response(JSON.stringify(activeAirportsFixture), { status: 200 });
+			}
+		});
+		const provider = createRyanairFlightProvider({ store: new MemoryCacheStore(), fetchImpl });
+
+		const results = await Promise.all(
+			['STN', 'AHO', 'BHX', 'STN'].map((destination) =>
+				provider.searchOffers({ ...query, destination }, { signal: new AbortController().signal })
+			)
+		);
+
+		expect(snapshotCalls).toBe(1);
+		// Exactly one of the four is charged for it; the rest joined the same request.
+		expect(results.reduce((total, r) => total + r.requestsUsed, 0)).toBe(results.length + 1);
+	});
+
+	it('still maps offers when the snapshot fetch fails, using the snapshot shipped with the app', async () => {
+		const fetchImpl = fixtureFetch({
+			'https://www.ryanair.com/api/views/locate/3/airports/en/active': () =>
+				new Response(null, { status: 503 })
+		});
+		const provider = createRyanairFlightProvider({ store: new MemoryCacheStore(), fetchImpl });
+
+		const result = await provider.searchOffers(query, { signal: new AbortController().signal });
+
+		expect(result.ok).toBe(true);
+		if (!result.ok) return;
+		// BCN and STN are both real Ryanair airports, so the bundled snapshot has their
+		// zones and the fare still maps. Before issue #121 this returned zero offers.
+		expect(result.data).toHaveLength(1);
+		expect(result.data[0]?.departure.timeZone).toBe('Europe/Madrid');
 	});
 
 	it('resolves cancelled, not a rejected promise, for an already-aborted signal', async () => {
@@ -151,8 +188,7 @@ describe('listDirectDestinations', () => {
 
 		expect(result.ok).toBe(true);
 		if (!result.ok) return;
-		expect(result.data.length).toBeGreaterThan(0);
-		expect(result.data).toEqual(expect.arrayContaining(['AGP', 'AHO', 'STN']));
+		expect(result.data).toEqual(expect.arrayContaining(['AHO', 'BHX', 'STN']));
 		expect(result.requestsUsed).toBe(1);
 	});
 
@@ -168,21 +204,35 @@ describe('listDirectDestinations', () => {
 		expect(fetchCallCount).toBe(callsAfterFirst);
 	});
 
-	it('maps a 404 to an empty result, not an error, and logs nothing (issue #89)', async () => {
-		// Ryanair 404s this endpoint for any airport it doesn't fly from at all — DUS here
-		// stands in for the real airports (DUS, ZRH, CDG, ...) issue #89 measured this
-		// against. That is a normal "no routes" answer, never worth a console error.
-		const fetchImpl = fixtureFetch({
-			'https://www.ryanair.com/api/views/locate/searchWidget/routes/en/airport/':
-				() => new Response(null, { status: 404 })
-		});
+	it('answers for every other airport too, without a second request (issue #121)', async () => {
+		// The whole point of the change. `algorithm/connections.ts` asks this once per
+		// candidate airport, 80 distinct airports on a measured BCN->OTP search, and before
+		// this each one of those was its own request to Ryanair.
+		const store = new MemoryCacheStore();
+		const provider = createRyanairFlightProvider({ store, fetchImpl: fixtureFetch() });
+
+		await provider.listDirectDestinations('BCN', { signal: new AbortController().signal });
+		const callsAfterFirst = fetchCallCount;
+
+		for (const origin of ['STN', 'AHO', 'BHX', 'DUS', 'IST']) {
+			const result = await provider.listDirectDestinations(origin, { signal: new AbortController().signal });
+			expect(result.requestsUsed).toBe(0);
+		}
+		expect(fetchCallCount).toBe(callsAfterFirst);
+	});
+
+	it('answers an airport Ryanair does not serve with an empty list, not an error, and logs nothing (issue #89)', async () => {
+		// DUS stands in for the real airports (DUS, ZRH, CDG, ...) issue #89 measured
+		// against. They are simply absent from the active-airports response, which is the
+		// same fact the deleted per-airport endpoint spent a 404 stating. Never worth a
+		// console error, and now never worth a request either.
 		const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
 		const consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
-		const provider = createRyanairFlightProvider({ store: new MemoryCacheStore(), fetchImpl });
+		const provider = createRyanairFlightProvider({ store: new MemoryCacheStore(), fetchImpl: fixtureFetch() });
 		const result = await provider.listDirectDestinations('DUS', { signal: new AbortController().signal });
 
-		expect(result).toMatchObject({ ok: true, data: [], requestsUsed: 1 });
+		expect(result).toMatchObject({ ok: true, data: [] });
 		expect(consoleError).not.toHaveBeenCalled();
 		expect(consoleWarn).not.toHaveBeenCalled();
 
@@ -190,20 +240,33 @@ describe('listDirectDestinations', () => {
 		consoleWarn.mockRestore();
 	});
 
-	it('caches the empty result of a 404, spending nothing on a repeat call for the same airport', async () => {
-		const store = new MemoryCacheStore();
-		const fetchImpl = fixtureFetch({
-			'https://www.ryanair.com/api/views/locate/searchWidget/routes/en/airport/':
-				() => new Response(null, { status: 404 })
+	it('falls back to the snapshot shipped with the app when Ryanair is unreachable', async () => {
+		// Before issue #121 an unreachable Ryanair meant an empty candidate list and a
+		// search that silently found nothing. The bundled route graph is the floor.
+		const fetchImpl = (async () => {
+			throw new TypeError('Failed to fetch');
+		}) as typeof fetch;
+		const provider = createRyanairFlightProvider({ store: new MemoryCacheStore(), fetchImpl });
+
+		const result = await provider.listDirectDestinations('BCN', { signal: new AbortController().signal });
+
+		expect(result.ok).toBe(true);
+		if (!result.ok) return;
+		expect(result.data.length).toBeGreaterThan(20);
+		expect(result.data).toContain('STN');
+	});
+
+	it('answers from the bundled snapshot without spending a request when maxRequests is 0', async () => {
+		const provider = createRyanairFlightProvider({ store: new MemoryCacheStore(), fetchImpl: fixtureFetch() });
+		const result = await provider.listDirectDestinations('BCN', {
+			signal: new AbortController().signal,
+			maxRequests: 0
 		});
-		const provider = createRyanairFlightProvider({ store, fetchImpl });
 
-		await provider.listDirectDestinations('DUS', { signal: new AbortController().signal });
-		const callsAfterFirst = fetchCallCount;
-		const second = await provider.listDirectDestinations('DUS', { signal: new AbortController().signal });
-
-		expect(second).toMatchObject({ ok: true, data: [], requestsUsed: 0 });
-		expect(fetchCallCount).toBe(callsAfterFirst);
+		expect(result).toMatchObject({ ok: true, requestsUsed: 0 });
+		expect(fetchCallCount).toBe(0);
+		if (!result.ok) return;
+		expect(result.data).toContain('STN');
 	});
 
 	it('resolves cancelled for an already-aborted signal', async () => {

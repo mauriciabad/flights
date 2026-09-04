@@ -9,12 +9,10 @@
 import type {
 	RyanairActiveAirportsResponse,
 	RyanairFetchResult,
-	RyanairOneWayFaresResponse,
-	RyanairRoutesResponse
+	RyanairOneWayFaresResponse
 } from './ryanair-types';
 
 const FARE_FINDER_URL = 'https://services-api.ryanair.com/farfnd/v4/oneWayFares';
-const ROUTES_URL_PREFIX = 'https://www.ryanair.com/api/views/locate/searchWidget/routes/en/airport';
 const ACTIVE_AIRPORTS_URL = 'https://www.ryanair.com/api/views/locate/3/airports/en/active';
 
 export interface RyanairHttpDeps {
@@ -103,10 +101,6 @@ function isOneWayFaresResponse(value: unknown): value is RyanairOneWayFaresRespo
 	);
 }
 
-function isRoutesResponse(value: unknown): value is RyanairRoutesResponse {
-	return Array.isArray(value);
-}
-
 function isActiveAirportsResponse(value: unknown): value is RyanairActiveAirportsResponse {
 	return Array.isArray(value);
 }
@@ -140,18 +134,19 @@ export function fetchOneWayFares(
 	return getJson(url.toString(), deps, isOneWayFaresResponse);
 }
 
-export function fetchDirectDestinations(
-	originIataCode: string,
-	deps: RyanairHttpDeps
-): Promise<RyanairFetchResult<RyanairRoutesResponse>> {
-	return getJson(`${ROUTES_URL_PREFIX}/${encodeURIComponent(originIataCode)}`, deps, isRoutesResponse);
-}
-
-/** The full list of Ryanair's ~220 active airports, each with an IANA timezone. This
- * project's only use for it is that timezone field (ryanair-mapper.ts
- * `buildTimeZoneIndex`) — the fare-finder response has an airport's IATA code but not its
- * zone, and this is the one Ryanair endpoint that hands over every airport's zone in a
- * single call instead of one call per airport. */
+/**
+ * Ryanair's ~220 active airports: every airport's IANA timezone AND every airport's
+ * route list, in one response. Both of the adapter's non-fare needs are met here, which
+ * is why this is now the only `www.ryanair.com` call it ever makes.
+ *
+ * There used to be a `fetchDirectDestinations` next to this one, hitting
+ * `/views/locate/searchWidget/routes/en/airport/{IATA}` once per airport. Issue #121
+ * measured a single BCN->OTP search spending 80 requests on it, and this endpoint's own
+ * `routes` arrays answer the same question for the whole network at once (verified for
+ * BCN: identical 64 destinations), so it was deleted rather than cached harder. Falling
+ * back to it when this call fails would mean answering a rate limit with 80 more
+ * requests, which is exactly backwards.
+ */
 export function fetchActiveAirports(
 	deps: RyanairHttpDeps
 ): Promise<RyanairFetchResult<RyanairActiveAirportsResponse>> {

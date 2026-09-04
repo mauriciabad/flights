@@ -10,7 +10,6 @@ import type { IataAirportCode } from '../domain';
 import { MemoryCacheStore } from '../cache';
 import type { FlightProvider, ProviderId, ProviderResult } from '../providers/types';
 import { createRyanairFlightProvider } from '../providers/flights/ryanair';
-import routesBcnFixture from '../providers/flights/fixtures/routes-bcn.json';
 
 /** Every `ConnectionQuery` needs a `soonestDeparture` (used only to build the probe query
  * `isFreeProvider` classifies a provider with — see connections.ts), never to actually
@@ -401,12 +400,22 @@ describe('findConnectionCandidates', () => {
 		// Same fixture-`fetch` pattern `../providers/flights/ryanair.test.ts` itself uses:
 		// no real network call, no real IndexedDB — just this adapter's own public
 		// test-injection points (`store`, `fetchImpl`).
+		//
+		// A purpose-built three-airport network rather than the shared active-airports
+		// fixture, because this test needs a BCN -> AHO -> AGP path and that fixture has
+		// no AGP. Real shape: since issue #121 the adapter reads its whole route graph off
+		// this one endpoint's `routes` arrays, so a stub has to speak that encoding.
 		const requestedUrls: string[] = [];
+		const activeAirports = [
+			{ iataCode: 'BCN', timeZone: 'Europe/Madrid', routes: ['airport:AHO', 'city:ALGHERO'] },
+			{ iataCode: 'AHO', timeZone: 'Europe/Rome', routes: ['airport:AGP', 'airport:BCN'] },
+			{ iataCode: 'AGP', timeZone: 'Europe/Madrid', routes: ['airport:AHO'] }
+		];
 		const fetchImpl = (async (input: RequestInfo | URL) => {
 			const url = input.toString();
 			requestedUrls.push(url);
-			if (url.startsWith('https://www.ryanair.com/api/views/locate/searchWidget/routes/en/airport/')) {
-				return new Response(JSON.stringify(routesBcnFixture), { status: 200 });
+			if (url === 'https://www.ryanair.com/api/views/locate/3/airports/en/active') {
+				return new Response(JSON.stringify(activeAirports), { status: 200 });
 			}
 			throw new Error(`no fixture stubbed for ${url}`);
 		}) as typeof fetch;
@@ -421,10 +430,12 @@ describe('findConnectionCandidates', () => {
 			{ flightProviders: [ryanair] }
 		);
 
-		expect(requestedUrls.some((url) => url.includes('/routes/en/airport/'))).toBe(true);
 		expect(
 			candidates.some((c) => c.confirmedBy.outbound === 'ryanair' || c.confirmedBy.inbound === 'ryanair')
 		).toBe(true);
+		// Issue #121: the adapter is asked about every candidate airport, but it spends one
+		// request for the whole graph rather than one per airport.
+		expect(requestedUrls).toEqual(['https://www.ryanair.com/api/views/locate/3/airports/en/active']);
 	});
 });
 

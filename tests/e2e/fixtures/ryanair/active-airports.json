@@ -1,15 +1,15 @@
 [
-	{ "iataCode": "BCN", "timeZone": "Europe/Madrid" },
-	{ "iataCode": "TLL", "timeZone": "Europe/Tallinn" },
-	{ "iataCode": "STN", "timeZone": "Europe/London" },
-	{ "iataCode": "CRL", "timeZone": "Europe/Brussels" },
-	{ "iataCode": "WAW", "timeZone": "Europe/Warsaw" },
-	{ "iataCode": "BUD", "timeZone": "Europe/Budapest" },
-	{ "iataCode": "MXP", "timeZone": "Europe/Rome" },
-	{ "iataCode": "VIE", "timeZone": "Europe/Vienna" },
-	{ "iataCode": "LTN", "timeZone": "Europe/London" },
-	{ "iataCode": "DUB", "timeZone": "Europe/Dublin" },
-	{ "iataCode": "FCO", "timeZone": "Europe/Rome" },
-	{ "iataCode": "BGY", "timeZone": "Europe/Rome" },
-	{ "iataCode": "KRK", "timeZone": "Europe/Warsaw" }
+	{ "iataCode": "BCN", "timeZone": "Europe/Madrid", "routes": ["airport:VIE", "airport:STN", "airport:TLL"] },
+	{ "iataCode": "TLL", "timeZone": "Europe/Tallinn", "routes": ["airport:VIE", "airport:STN", "airport:BCN"] },
+	{ "iataCode": "STN", "timeZone": "Europe/London", "routes": ["airport:VIE", "airport:TLL", "airport:BCN"] },
+	{ "iataCode": "CRL", "timeZone": "Europe/Brussels", "routes": ["airport:VIE", "airport:STN", "airport:TLL"] },
+	{ "iataCode": "WAW", "timeZone": "Europe/Warsaw", "routes": ["airport:VIE", "airport:STN", "airport:TLL"] },
+	{ "iataCode": "BUD", "timeZone": "Europe/Budapest", "routes": ["airport:VIE", "airport:STN", "airport:TLL"] },
+	{ "iataCode": "MXP", "timeZone": "Europe/Rome", "routes": ["airport:VIE", "airport:STN", "airport:TLL"] },
+	{ "iataCode": "VIE", "timeZone": "Europe/Vienna", "routes": ["airport:STN", "airport:TLL", "airport:BCN"] },
+	{ "iataCode": "LTN", "timeZone": "Europe/London", "routes": ["airport:VIE", "airport:STN", "airport:TLL"] },
+	{ "iataCode": "DUB", "timeZone": "Europe/Dublin", "routes": ["airport:VIE", "airport:STN", "airport:TLL"] },
+	{ "iataCode": "FCO", "timeZone": "Europe/Rome", "routes": ["airport:VIE", "airport:STN", "airport:TLL"] },
+	{ "iataCode": "BGY", "timeZone": "Europe/Rome", "routes": ["airport:VIE", "airport:STN", "airport:TLL"] },
+	{ "iataCode": "KRK", "timeZone": "Europe/Warsaw", "routes": ["airport:VIE", "airport:STN", "airport:TLL"] }
 ]

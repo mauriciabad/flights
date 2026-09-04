@@ -42,21 +42,20 @@ export async function mockRyanair(target: Routable, fixture = 'ryanair/one-way-f
 	await mockJson(target, 'https://services-api.ryanair.com/**', fixture);
 }
 
-/** Ryanair's route-widget: "which airports does this one fly to" (`ryanair-client.ts`'s
- * `fetchDirectDestinations`). Issue #12's connection graph calls this once per candidate
- * connection airport to confirm it also reaches the traveller's destination — a real
- * search cannot get past "0 of 0 itineraries" without this mocked too, which
- * `mockRyanair` above never covered (nothing exercised the connection graph end to end
- * until issue #87's e2e coverage). One fixture answers every airport code queried, since
- * the algorithm only cares whether the SPECIFIC destination it's checking for shows up in
- * the response, not the full route map. */
-export async function mockRyanairRoutes(target: Routable, fixture = 'ryanair/routes.json') {
-	await mockJson(target, 'https://www.ryanair.com/api/views/locate/searchWidget/routes/en/airport/**', fixture);
-}
-
-/** Ryanair's active-airports list — the only endpoint that carries a timezone per
- * airport (the fare-finder response has none), so `ryanair-mapper.ts` needs this mocked
- * too or every offer gets silently dropped for "unknown timezone." */
+/**
+ * Ryanair's active-airports list, which since issue #121 answers both non-fare questions
+ * the adapter has: every airport's IANA timezone (the fare-finder response carries none,
+ * so without this every offer is silently dropped for "unknown timezone") and every
+ * airport's `routes` array, which is issue #12's connection graph — "which airports does
+ * this one fly to", for the whole network in one response.
+ *
+ * There used to be a second mock next to this one for
+ * `/views/locate/searchWidget/routes/en/airport/**`, answering the same fixture for every
+ * airport code asked. That endpoint is gone from the adapter, so a test that mocks it now
+ * mocks nothing: the search gets no route graph, finds no candidate, and fails on a
+ * missing result card rather than on anything to do with what it was testing. If a route
+ * graph is what your test needs, put `routes` on the airports in the fixture.
+ */
 export async function mockRyanairActiveAirports(target: Routable, fixture = 'ryanair/active-airports.json') {
 	await mockJson(target, 'https://www.ryanair.com/api/views/locate/3/airports/en/active', fixture);
 }
@@ -94,13 +93,12 @@ export async function mockOsrm(target: Routable, fixture = 'osrm/route.json') {
 	await mockJson(target, `${OSRM_BASE_URL}/**`, fixture);
 }
 
-/** Registers every keyless provider (Ryanair — fare-finder, route-widget and
- * active-airports, all three real endpoints the adapter calls — Transitous, OSRM). This
- * is the state a first-time visitor with an empty key store is in — see issue #18's
- * "first run with no keys" scenario and issue #3 (the key store). */
+/** Registers every keyless provider (Ryanair — the fare-finder and active-airports, both
+ * real endpoints the adapter calls — Transitous, OSRM). This is the state a first-time
+ * visitor with an empty key store is in — see issue #18's "first run with no keys"
+ * scenario and issue #3 (the key store). */
 export async function mockAllKeylessProviders(target: Routable) {
 	await mockRyanair(target);
-	await mockRyanairRoutes(target);
 	await mockRyanairActiveAirports(target);
 	await mockTransitous(target);
 	await mockOsrm(target);

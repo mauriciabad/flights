@@ -1,6 +1,12 @@
 import { defineConfig, devices } from '@playwright/test';
 
-const PORT = 4173;
+// Overridable because a dozen agents share one machine and `reuseExistingServer` below
+// is on for local runs: with a fixed port, `pnpm test:e2e` in one worktree silently
+// attaches to another worktree's already-running server and tests THEIR build. That
+// happened — six tests failed against a sibling's build and the network guard reported an
+// endpoint this branch had already deleted. `E2E_PORT=41999 pnpm test:e2e` gets your own.
+// CI sets nothing and keeps 4173.
+const PORT = Number(process.env.E2E_PORT ?? 4173);
 const baseURL = `http://127.0.0.1:${PORT}`;
 
 export default defineConfig({

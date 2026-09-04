@@ -1,0 +1,57 @@
+name: Ryanair network
+
+# Issue #121: keeps the shipped Ryanair route graph and airport timezone table
+# from going stale. Unlike the cheap-routes job next to it, this endpoint IS
+# reachable from the browser -- the build step exists to make a cold search cost
+# nothing rather than to work around missing CORS headers. The runtime adapter
+# still refreshes the same data live once a day; this is its floor.
+#
+# Weekly, not nightly: an airline's route network moves seasonally, and one
+# commit a week is enough to keep the floor within a few days of the truth.
+on:
+  schedule:
+    # 04:23 UTC on Mondays. Off the hour and off the cheap-routes job's slot so
+    # the two never race for the same push.
+    - cron: '23 4 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ryanair-network
+  cancel-in-progress: false
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # No pnpm/install step: this script needs nothing beyond Node's own fetch
+      # and fs/promises. Keyless, so no secret either.
+      - name: Fetch the Ryanair network snapshot
+        run: node scripts/fetch-ryanair-network.mjs
+
+      # Unlike the cheap-routes job, this lands a commit every week even when no
+      # route changed, because `fetchedAt` moves every run. That is wanted, not
+      # churn: the runtime picks between the shipped snapshot and a device's own
+      # cached one by that timestamp (`newerSnapshot`), so a date that stopped
+      # advancing would make a still-accurate snapshot look older than it is. The
+      # `git diff` guard is still here for the case where the script wrote nothing
+      # at all.
+      - name: Commit the snapshot
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          if git diff --quiet -- src/lib/data/ryanair-network.generated.json; then
+            echo "Ryanair network unchanged, nothing to commit."
+            exit 0
+          fi
+          git add src/lib/data/ryanair-network.generated.json
+          git commit -m "Update Ryanair network snapshot"
+          git push

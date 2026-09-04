@@ -14,19 +14,21 @@ import { mockAllKeylessProviders } from './support/providers';
  * visible state, distinct from never having answered. Issue #87 is the standing reminder
  * that this class of bug survives a green unit suite.
  *
- * The 404 is registered after `mockAllKeylessProviders`, which Playwright gives first
- * refusal, so this reproduces the real endpoint's behaviour rather than a missing mock.
+ * How "not on Ryanair's network" arrives changed with issue #121, but the fact being
+ * tested did not. The adapter no longer asks
+ * `/views/locate/searchWidget/routes/en/airport/{IATA}` and no longer receives that
+ * endpoint's `404`; it reads the whole route graph off the active-airports response, where
+ * an airport Ryanair does not serve is simply absent. `mockAllKeylessProviders`'s fixture
+ * lists neither BVC nor PFO, which is the same statement the two `404`s made — so this
+ * still reproduces a provider answering, with nothing, rather than a missing mock.
+ *
  * Keyless providers only: no Agoda or Booking request is made or mocked here.
  */
 test.describe('providers that answer with nothing (issue #130)', () => {
-	test('a 404 from Ryanair reads as answered-with-nothing, never as silence', async ({ page }) => {
+	test('an airport outside Ryanair’s network reads as answered-with-nothing, never as silence', async ({
+		page
+	}) => {
 		await mockAllKeylessProviders(page.context());
-		await page.context().route(
-			'https://www.ryanair.com/api/views/locate/searchWidget/routes/en/airport/**',
-			async (route) => {
-				await route.fulfill({ status: 404, contentType: 'application/json', body: '{}' });
-			}
-		);
 
 		// The issue's own URL. BCN would not reproduce it: the bundled fallback route table
 		// covers Barcelona, so candidates survive, fares get fetched, and Ryanair ends the
@@ -40,8 +42,11 @@ test.describe('providers that answer with nothing (issue #130)', () => {
 		await expect(ryanair).toBeVisible();
 		await expect(ryanair).toHaveAttribute('data-answer', 'nothing-found');
 		await expect(page.getByTestId('provider-strip-empty')).toHaveCount(0);
-		// Requests were really spent, and the strip says how many.
-		await expect(ryanair).toContainText('reqs');
+		// Requests were really spent, and the strip says how many. A regex rather than the
+		// literal "reqs", because the strip correctly writes "1 req" and the whole point of
+		// issue #121 is that this scenario now costs exactly one request: the route graph
+		// arrives for the entire network at once instead of once per airport.
+		await expect(ryanair).toContainText(/\d+\s*reqs?\b/);
 
 		// The second lie: the empty state must name what happened rather than assert a cause.
 		const board = page.getByTestId('no-results-board');

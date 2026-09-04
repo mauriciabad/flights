@@ -135,26 +135,24 @@ test.describe('itinerary map: every transfer leg, distinct markers, honest geome
 		// 2. Ryanair standing in for a real flight source (keyless — see this file's
 		//    header) on the owner's own BVC -> LGW -> PFO pairing.
 		// -----------------------------------------------------------------
-		await page.context().route(
-			'https://www.ryanair.com/api/views/locate/searchWidget/routes/en/airport/**',
-			async (route) => {
-				const origin = decodeURIComponent(new URL(route.request().url()).pathname.split('/').pop() ?? '');
-				const arrivalByOrigin: Record<string, string> = { BVC: 'LGW', LGW: 'PFO' };
-				const arrival = arrivalByOrigin[origin];
-				const body = arrival
-					? [{ arrivalAirport: { code: arrival }, recent: false, seasonal: false, operator: 'FR', tags: [] }]
-					: [];
-				await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
-			}
-		);
+		// One endpoint, not two: since issue #121 the adapter reads the route graph off
+		// the same active-airports response it reads timezones off, and no longer asks
+		// /views/locate/searchWidget/routes/en/airport/{IATA} anything. `routes` entries
+		// are prefixed by what they name, so `airport:LGW` is the BVC -> LGW edge.
+		//
+		// This mocked network is fictional and deliberately so: the real Ryanair serves
+		// none of BVC, RAI or SID (docs/ACCEPTANCE.md), and LGW's four Ryanair
+		// destinations do not include PFO. It stands in for "some keyless flight source
+		// covers this pairing" so the map has four transfer legs to draw, which is what
+		// this test is about.
 		await page.context().route('https://www.ryanair.com/api/views/locate/3/airports/en/active', (route) =>
 			route.fulfill({
 				status: 200,
 				contentType: 'application/json',
 				body: JSON.stringify([
-					{ iataCode: 'BVC', timeZone: 'Atlantic/Cape_Verde' },
-					{ iataCode: 'LGW', timeZone: 'Europe/London' },
-					{ iataCode: 'PFO', timeZone: 'Asia/Nicosia' }
+					{ iataCode: 'BVC', timeZone: 'Atlantic/Cape_Verde', routes: ['airport:LGW'] },
+					{ iataCode: 'LGW', timeZone: 'Europe/London', routes: ['airport:PFO', 'airport:BVC'] },
+					{ iataCode: 'PFO', timeZone: 'Asia/Nicosia', routes: ['airport:LGW'] }
 				])
 			})
 		);

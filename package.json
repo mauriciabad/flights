@@ -14,6 +14,7 @@
 		"test:watch": "vitest",
 		"data:airports": "node scripts/prepare-airports.mjs",
 		"data:cheap-routes": "node scripts/fetch-cheap-routes.mjs",
+		"data:ryanair-network": "node scripts/fetch-ryanair-network.mjs",
 		"test:e2e": "playwright test --grep-invert @live",
 		"test:e2e:live": "ALLOW_LIVE_TESTS=1 playwright test --grep @live",
 		"test:e2e:report": "playwright show-report"
