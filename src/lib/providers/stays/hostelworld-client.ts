@@ -214,10 +214,13 @@ export interface HostelworldPropertiesParams {
  * Three parameters here are load-bearing and were each settled by measurement on
  * 2026-09-04, London, 9-12 October 2026:
  *
- * - **`show-rooms=1` is mandatory, not an enrichment.** With `show-rooms=0` the endpoint
- *   answers `200` with an 84-byte body and NO `properties` array at all — not a shorter
- *   response, an empty one. It is also the only place a female-dorm price exists
- *   (hostelworld-mapper.ts).
+ * - **`show-rooms=1` is mandatory, not an enrichment.** Re-measured 2026-09-04:
+ *   `show-rooms=0` is rejected outright with `400` and Hostelworld's own
+ *   `{"description":[{"code":"90597","message":"show-rooms should be positive integer"}]}`.
+ *   An earlier draft of this comment recorded that 84-byte body as a `200`, which would
+ *   have meant a silently empty result rather than an error this adapter reports; the
+ *   status code is the whole difference, and AGENTS.md says to carry it. It is also the
+ *   only place a female-dorm price exists (hostelworld-mapper.ts).
  * - **`sort=price` is honoured** (`order-by=price` is silently ignored — the two were
  *   compared and only one changed the order). It matters because `per-page` truncates: the
  *   default ranking put a 39.68 dorm first and the city's real cheapest, 19.12, at no fixed

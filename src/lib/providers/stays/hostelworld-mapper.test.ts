@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
 	classifyRoomKind,
-	decimalStringToMinorUnits,
 	flattenGeoCities,
 	mapPropertiesToStays,
 	mapPropertyToStays,
@@ -32,39 +31,6 @@ const GATWICK = { latitude: 51.148744, longitude: -0.185739 };
 const MANCHESTER = { latitude: 53.353744, longitude: -2.27495 };
 const BIRMINGHAM = { latitude: 52.453856, longitude: -1.74803 };
 const PAPHOS = { latitude: 34.717999, longitude: 32.485699 };
-
-describe('decimalStringToMinorUnits', () => {
-	it('reads the digits rather than multiplying a float', () => {
-		// The values every other adapter in this repo needs a `Math.round` to survive:
-		// `19.99 * 100` is 1998.9999999999998 in JavaScript. Nothing is multiplied here.
-		expect(decimalStringToMinorUnits('19.99', 2)).toBe(1999);
-		expect(decimalStringToMinorUnits('26.44', 2)).toBe(2644);
-		expect(decimalStringToMinorUnits('39.68', 2)).toBe(3968);
-	});
-
-	it('pads a short or absent fraction instead of truncating the wrong way', () => {
-		expect(decimalStringToMinorUnits('7', 2)).toBe(700);
-		expect(decimalStringToMinorUnits('7.5', 2)).toBe(750);
-		expect(decimalStringToMinorUnits('7.', 2)).toBe(700);
-	});
-
-	it('honours a zero-decimal currency, so JPY is not reported 100x too large', () => {
-		expect(decimalStringToMinorUnits('3500', 0)).toBe(3500);
-	});
-
-	it('rounds half up on a digit the currency has no room for', () => {
-		expect(decimalStringToMinorUnits('1.005', 2)).toBe(101);
-		expect(decimalStringToMinorUnits('1.004', 2)).toBe(100);
-	});
-
-	it('refuses anything that is not a plain decimal', () => {
-		// A signed, formatted or exponential value is a parse failure, never a price: a
-		// negative room rate is not a discount and "€ 26.44" is Hostelworld's UI, not its data.
-		for (const bad of ['-1.00', '1e3', '1,234.00', '€26.44', '', 'free', '..']) {
-			expect(decimalStringToMinorUnits(bad, 2)).toBeUndefined();
-		}
-	});
-});
 
 describe('nightsBetweenDates', () => {
 	it('counts the acceptance trip stopover', () => {
@@ -97,10 +63,38 @@ describe('toMoney', () => {
 		});
 	});
 
+	it('reads the digits rather than multiplying a float', () => {
+		// The values every adapter that goes through a `Number()` needs a `Math.round` to
+		// survive: `19.99 * 100` is 1998.9999999999998 in JavaScript.
+		expect(toMoney({ value: '19.99', currency: 'EUR' })?.minorUnits).toBe(1999);
+		expect(toMoney({ value: '39.68', currency: 'EUR' })?.minorUnits).toBe(3968);
+		expect(toMoney({ value: '7', currency: 'EUR' })?.minorUnits).toBe(700);
+		expect(toMoney({ value: '7.5', currency: 'EUR' })?.minorUnits).toBe(750);
+	});
+
+	it('scales by the currency exponent domain/money.ts holds, not one of its own', () => {
+		// This adapter used to carry a private copy of the exponent table that put HUF in
+		// the zero-decimal set. ISO 4217 gives the forint two, so that copy read every
+		// forint price 100x too small — the #179 bug, in the file that arrived after it was
+		// fixed everywhere else. These three assertions fail the moment anyone reintroduces
+		// a local table.
+		expect(toMoney({ value: '45000.00', currency: 'HUF' })?.minorUnits).toBe(4500000);
+		expect(toMoney({ value: '3500', currency: 'JPY' })?.minorUnits).toBe(3500);
+		expect(toMoney({ value: '1.500', currency: 'KWD' })?.minorUnits).toBe(1500);
+	});
+
 	it('drops a price with no currency rather than assuming one', () => {
 		expect(toMoney({ value: '26.44' })).toBeUndefined();
 		expect(toMoney({ currency: 'EUR' })).toBeUndefined();
 		expect(toMoney(undefined)).toBeUndefined();
+	});
+
+	it('refuses anything that is not a plain decimal', () => {
+		// A signed, formatted or exponential value is a parse failure, never a price: a
+		// negative room rate is not a discount and "€ 26.44" is Hostelworld's UI, not its data.
+		for (const bad of ['-1.00', '1e3', '1,234.00', '€26.44', '', 'free', '..']) {
+			expect(toMoney({ value: bad, currency: 'EUR' })).toBeUndefined();
+		}
 	});
 });
 
@@ -144,25 +138,25 @@ describe('mapPropertyToStays', () => {
 		// its "from" price for these dates while the three nights really average 19.07.
 		// Reading the teaser would under-report the bed by 35% and call it a total.
 		expect(restUp.lowestDormPricePerNight?.value).toBe('12.32');
-		const dorm = mapPropertyToStays(restUp).find((stay) => stay.roomKind === 'dorm');
+		const dorm = mapPropertyToStays(restUp, 1).find((stay) => stay.roomKind === 'dorm');
 		expect(dorm?.pricePerNight).toEqual({ minorUnits: 1907, currency: 'EUR' });
 	});
 
 	it('emits one Stay per priced room kind at the property', () => {
-		expect(mapPropertyToStays(backpackers).map((stay) => stay.roomKind).sort()).toEqual([
+		expect(mapPropertyToStays(backpackers, 1).map((stay) => stay.roomKind).sort()).toEqual([
 			'dorm',
 			'female-dorm',
 			'private'
 		]);
 		// A property with no female dorm gets two, not a third priced from nothing.
-		expect(mapPropertyToStays(restUp).map((stay) => stay.roomKind).sort()).toEqual([
+		expect(mapPropertyToStays(restUp, 1).map((stay) => stay.roomKind).sort()).toEqual([
 			'dorm',
 			'private'
 		]);
 	});
 
 	it('takes the female-dorm price from the room list, the only place one exists', () => {
-		const stays = mapPropertyToStays(backpackers);
+		const stays = mapPropertyToStays(backpackers, 1);
 		const female = stays.find((stay) => stay.roomKind === 'female-dorm');
 		// The cheaper of the two Female Dorms in `rooms.dorms`, 21.33 against 25.60.
 		expect(female?.pricePerNight).toEqual({ minorUnits: 2133, currency: 'EUR' });
@@ -174,7 +168,7 @@ describe('mapPropertyToStays', () => {
 		// cheapest female bed. That is safe in one direction only: too high loses to a mixed
 		// dorm during ranking, too low would make a total look cheaper than it is.
 		for (const property of londonProperties) {
-			const stays = mapPropertyToStays(property);
+			const stays = mapPropertyToStays(property, 1);
 			const female = stays.find((stay) => stay.roomKind === 'female-dorm');
 			const dorm = stays.find((stay) => stay.roomKind === 'dorm');
 			if (!female || !dorm) continue;
@@ -183,7 +177,7 @@ describe('mapPropertyToStays', () => {
 	});
 
 	it('joins the two halves of an image URL and keeps the rating on its own scale', () => {
-		const stays = mapPropertyToStays(backpackers);
+		const stays = mapPropertyToStays(backpackers, 1);
 		expect(stays[0].property.images[0]).toMatch(
 			/^https:\/\/a\.hwstatic\.com\/propertyimages\/.+\.jpg$/
 		);
@@ -194,7 +188,7 @@ describe('mapPropertyToStays', () => {
 	it('returns nothing for a hole in the properties array rather than throwing', () => {
 		// Nothing here is a contract anyone owes us, so a null element is a missing property,
 		// not a crash that takes a search down.
-		expect(mapPropertyToStays(undefined)).toEqual([]);
+		expect(mapPropertyToStays(undefined, 1)).toEqual([]);
 	});
 
 	it('drops a property with no usable coordinates rather than placing it at 0,0', () => {
@@ -204,18 +198,48 @@ describe('mapPropertyToStays', () => {
 			longitude: 0,
 			lowestAverageDormPricePerNight: { value: '10.00', currency: 'EUR' }
 		};
-		expect(mapPropertyToStays(nowhere)).toEqual([]);
+		expect(mapPropertyToStays(nowhere, 1)).toEqual([]);
 	});
 
 	it('drops a property with no price rather than inventing one', () => {
 		const unpriced: HostelworldProperty = { name: 'Sold Out', latitude: 51.5, longitude: -0.1 };
-		expect(mapPropertyToStays(unpriced)).toEqual([]);
+		expect(mapPropertyToStays(unpriced, 1)).toEqual([]);
+	});
+
+	it('charges a party of three for three dorm beds, and for one private room', () => {
+		// Measured 2026-09-04, London 9-12 October: at `guests=1` and `guests=3` every price
+		// in the response was identical while `totalNumberOfItems` fell 74 to 71. So `guests`
+		// filters availability and never scales a number, and the figure that comes back is
+		// the rate for one unit of inventory — one bed in a dorm, one room in a private.
+		// `search/resources.ts` needs "one flat per-night figure for the whole party", so
+		// the dorm one is multiplied here and the private one is not.
+		const kind = (stays: ReturnType<typeof mapPropertyToStays>, k: string) =>
+			stays.find((stay) => stay.roomKind === k)?.pricePerNight.minorUnits;
+
+		const alone = mapPropertyToStays(backpackers, 1);
+		const party = mapPropertyToStays(backpackers, 3);
+
+		expect(kind(alone, 'dorm')).toBe(2133);
+		expect(kind(party, 'dorm')).toBe(2133 * 3);
+		expect(kind(alone, 'female-dorm')).toBe(2133);
+		expect(kind(party, 'female-dorm')).toBe(2133 * 3);
+		// One room sleeps the party, so this is the same number for both.
+		expect(kind(party, 'private')).toBe(kind(alone, 'private'));
+	});
+
+	it('treats a party size that is not a whole number of people as one traveller', () => {
+		// A `NaN` or fractional multiplier would turn a real price into a fabricated one,
+		// and this app would rather quote a single bed than quote nonsense.
+		for (const bad of [0, -2, 1.5, Number.NaN]) {
+			const stays = mapPropertyToStays(restUp, bad);
+			expect(stays.find((stay) => stay.roomKind === 'dorm')?.pricePerNight.minorUnits).toBe(1907);
+		}
 	});
 });
 
 describe('mapPropertiesToStays', () => {
 	it('keeps London hostels within 100km of Gatwick', () => {
-		const stays = mapPropertiesToStays(londonProperties, GATWICK, 100);
+		const stays = mapPropertiesToStays(londonProperties, GATWICK, 100, 1);
 		expect(stays.length).toBeGreaterThan(0);
 		expect(new Set(stays.map((stay) => stay.property.name)).size).toBe(londonProperties.length);
 	});
@@ -223,18 +247,18 @@ describe('mapPropertiesToStays', () => {
 	it('enforces the radius itself, because the endpoint is keyed by city and never saw it', () => {
 		// Central London is roughly 40km from Gatwick, so a 10km radius must return nothing
 		// even though Hostelworld happily answered for the city.
-		expect(mapPropertiesToStays(londonProperties, GATWICK, 10)).toEqual([]);
+		expect(mapPropertiesToStays(londonProperties, GATWICK, 10, 1)).toEqual([]);
 	});
 
 	it('is what makes picking the wrong same-named city safe', () => {
 		// London, Ontario. Nothing Hostelworld returns for it is within 100km of Gatwick, so
 		// a mis-ranked candidate produces no stays instead of somebody else s continent.
 		const ontario = { latitude: 42.9849, longitude: -81.2453 };
-		expect(mapPropertiesToStays(londonProperties, ontario, 100)).toEqual([]);
+		expect(mapPropertiesToStays(londonProperties, ontario, 100, 1)).toEqual([]);
 	});
 
 	it('handles a missing properties array', () => {
-		expect(mapPropertiesToStays(undefined, GATWICK, 100)).toEqual([]);
+		expect(mapPropertiesToStays(undefined, GATWICK, 100, 1)).toEqual([]);
 	});
 });
 

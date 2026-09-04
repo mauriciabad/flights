@@ -215,15 +215,26 @@ function estimateSizeBytes(value: unknown): number {
 	}
 }
 
-async function writeCache<T>(store: CacheStore, key: CacheKey, value: T): Promise<void> {
-	const now = Date.now();
+/**
+ * `storedAt` is passed in rather than read here so a caller can stamp the cache entry and
+ * its own `ProviderSource.fetchedAt` with the SAME instant. Two `Date.now()` calls a few
+ * statements apart straddle a millisecond boundary often enough to matter: the fresh result
+ * then claimed one instant, its own cached replay claimed another, and issue #151's rule
+ * that both report when the data came off the wire quietly stopped holding.
+ */
+async function writeCache<T>(
+	store: CacheStore,
+	key: CacheKey,
+	value: T,
+	storedAt: number
+): Promise<void> {
 	await store.set({
 		key: key.raw,
 		providerId: HOSTELWORLD_PROVIDER_ID,
 		value,
-		storedAt: now,
+		storedAt,
 		ttlMs: key.ttlMs,
-		lastAccessedAt: now,
+		lastAccessedAt: storedAt,
 		sizeBytes: estimateSizeBytes(value)
 	});
 }
@@ -283,7 +294,7 @@ function createHostelworldStayProvider(options: HostelworldProviderOptions = {})
 			return { cities: [], requestsUsed: 1, error: toProviderError(response.error) };
 		}
 		const cities = flattenGeoCities(response.data);
-		await writeCache(store, key, cities);
+		await writeCache(store, key, cities, Date.now());
 		return { cities, requestsUsed: 1 };
 	}
 
@@ -385,7 +396,8 @@ function createHostelworldStayProvider(options: HostelworldProviderOptions = {})
 				const stays = mapPropertiesToStays(
 					cached.value.properties as Parameters<typeof mapPropertiesToStays>[0],
 					query.near,
-					query.radiusKm
+					query.radiusKm,
+					guests
 				);
 				if (stays.length > 0) return ok(stays, requestsUsed, cached.storedAt);
 				continue;
@@ -412,9 +424,17 @@ function createHostelworldStayProvider(options: HostelworldProviderOptions = {})
 				continue;
 			}
 
-			await writeCache(store, key, response.data);
-			const stays = mapPropertiesToStays(response.data.properties, query.near, query.radiusKm);
-			if (stays.length > 0) return ok(stays, requestsUsed);
+			// One instant for both, so this result and its own cached replay agree to the
+			// millisecond about when Hostelworld answered — see `writeCache`.
+			const fetchedAt = Date.now();
+			await writeCache(store, key, response.data, fetchedAt);
+			const stays = mapPropertiesToStays(
+				response.data.properties,
+				query.near,
+				query.radiusKm,
+				guests
+			);
+			if (stays.length > 0) return ok(stays, requestsUsed, fetchedAt);
 		}
 
 		if (lastError) return fail(lastError, requestsUsed);

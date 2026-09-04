@@ -25,6 +25,7 @@ import type { ProviderId } from '../../../src/lib/providers/types';
 import {
 	AGODA_HOST,
 	BOOKING_HOST,
+	HOSTELWORLD_HOST,
 	KIWI_PUBLIC_HOST,
 	NOMINATIM_HOST,
 	OSRM_HOST,
@@ -229,6 +230,12 @@ export class Bench {
 		if (host === BOOKING_HOST && pathname.includes('getRoomList')) return recorded.bookingRooms(url);
 		if (host === BOOKING_HOST) return recorded.bookingSearch(url);
 		if (host === KIWI_PUBLIC_HOST) return recorded.kiwiPublicGraphQl(url);
+		// The city index has to be answered as well as the prices: without it the adapter
+		// never learns a city id and never makes the price call at all.
+		if (host === HOSTELWORLD_HOST && pathname.includes('/continents/')) {
+			return recorded.hostelworldContinent(url);
+		}
+		if (host === HOSTELWORLD_HOST) return recorded.hostelworldProperties(url);
 		if (host === NOMINATIM_HOST) return recorded.nominatimReverse();
 		// A map style, not a provider answer. Served empty so the detail view's map mounts
 		// without reaching a tile CDN, which is neither metered nor interesting here.

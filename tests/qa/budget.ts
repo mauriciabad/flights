@@ -58,6 +58,14 @@ export const REQUESTS_PER_SEARCH: Readonly<Record<ProviderId, number>> = {
 	// was rather than being raised to meet the old number.
 	'kiwi-public': 30,
 
+	// Keyless and unmetered, and the only bed source a visitor with no key has. Its cost is
+	// two things added together: six requests to build the world city index, once, cached a
+	// month, plus one price call per stopover candidate. The ceiling allows a second and
+	// third city for a candidate whose first choice is sold out — `MAX_CITY_CANDIDATES` in
+	// `hostelworld.ts` — which is the bounded worst case rather than the measured typical
+	// one. A warm index makes a whole search cost one request per candidate.
+	hostelworld: 15,
+
 	// Keyless, so no money at stake, but not free either: Ryanair rate-limits, and one
 	// search issuing 96 requests to it (issue #121, measured) is how a keyless provider
 	// starts returning 429s mid-search. A ceiling here is a politeness limit, set at what

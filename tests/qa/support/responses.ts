@@ -363,6 +363,90 @@ export function nominatimReverse(): unknown {
 	return stamp(nominatimBody);
 }
 
+// ---------------------------------------------------------------------------
+// Hostelworld (keyless): two endpoints, and the first one exists only to make the second
+// answerable.
+//
+// `/cities/{id}/properties/` is keyed by a city id, while the app only ever knows a
+// coordinate. The adapter bridges that with `/continents/{id}/countries/`, so the bench has
+// to answer both or the price call is never made at all — the failure would read as
+// "Hostelworld found no beds" rather than as a missing recording.
+// ---------------------------------------------------------------------------
+
+const hostelworldPropertiesBody = readJson('src/lib/providers/stays/fixtures/hostelworld-properties-london.json');
+
+/** Hostelworld's own id for Europe (`hostelworld-client.ts`). Every airport the scenario
+ * names is European, so this is the only continent that carries cities. */
+const HOSTELWORLD_EUROPE_ID = 3;
+
+/**
+ * A bench city id per scenario airport, and the way back.
+ *
+ * Offset into a band no real Hostelworld id occupies (its London is 3, its largest here is
+ * five digits) so a leaked id is recognisable rather than plausible, and derived from the
+ * airport order so the properties handler can turn one back into the coordinate it must
+ * answer beside.
+ */
+const HOSTELWORLD_BENCH_CITY_ID_BASE = 990_000;
+const benchCityAirports: readonly string[] = Object.keys(AIRPORT_TIME_ZONES);
+
+function benchCityIdFor(index: number): number {
+	return HOSTELWORLD_BENCH_CITY_ID_BASE + index;
+}
+
+function airportForBenchCityId(cityId: number): string | undefined {
+	return benchCityAirports[cityId - HOSTELWORLD_BENCH_CITY_ID_BASE];
+}
+
+/**
+ * `/2.2/continents/{id}/countries/`: every country with its city list and real coordinates.
+ *
+ * The cities are the scenario's own airports, at their own coordinates. Answering with
+ * Hostelworld's real geography instead would put every scenario airport hundreds of
+ * kilometres from the nearest listed city, `mapPropertiesToStays` would correctly reject
+ * every property as out of radius, and the result on screen would be indistinguishable from
+ * a broken adapter — the same trap `relocate` exists to avoid for Agoda and Booking.
+ *
+ * The five non-European continents answer with an empty country list. That is a real shape:
+ * the adapter flattens all six and filters by distance, so a continent with nothing in it
+ * contributes nothing either way.
+ */
+export function hostelworldContinent(url: URL): unknown {
+	const continentId = Number(/\/continents\/(\d+)\/countries\//.exec(url.pathname)?.[1]);
+	if (continentId !== HOSTELWORLD_EUROPE_ID) return { countries: [] };
+	return stamp({
+		countries: [
+			{
+				id: 237,
+				name: 'Benchland',
+				cities: benchCityAirports.map((code, index) => ({
+					id: benchCityIdFor(index),
+					name: code,
+					latitude: airportCoordinates.get(code)?.latitude ?? 0,
+					longitude: airportCoordinates.get(code)?.longitude ?? 0
+				}))
+			}
+		]
+	});
+}
+
+/**
+ * `/2.2/cities/{id}/properties/`: priced properties for one city.
+ *
+ * Quotes in the currency it was asked for, and in EUR when asked for nothing — measured
+ * 2026-09-04 against the real host, where omitting `currency` returned `200` with every
+ * price in EUR. Same reason Agoda's handler branches on `currency_id`: a bench that always
+ * answered in the search's currency could not catch a pipeline that never asked for one.
+ */
+export function hostelworldProperties(url: URL): unknown {
+	const cityId = Number(/\/cities\/(\d+)\/properties\//.exec(url.pathname)?.[1]);
+	const code = airportForBenchCityId(cityId);
+	const currency = url.searchParams.get('currency') ?? 'EUR';
+	return stamp(
+		relocate(inCurrency(hostelworldPropertiesBody, currency), code ? airportCoordinates.get(code) : undefined)
+	);
+}
+
 /**
  * Kiwi's keyless GraphQL endpoint (issue #157). Answered as a valid, empty result rather
  * than with invented itineraries: "this aggregator found nothing for this route" is a real

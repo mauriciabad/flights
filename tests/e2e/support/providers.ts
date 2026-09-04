@@ -254,6 +254,30 @@ export async function mockKiwiPublic(
 	);
 }
 
+/**
+ * Hostelworld's own backend, the keyless bed source. Needs no key.
+ *
+ * Two routes, because the adapter cannot price anything until it has resolved a city id:
+ * `/continents/{1..6}/countries/` builds that index and `/cities/{id}/properties/` prices
+ * it. Registering only the second leaves the first blocked by the network guard, which
+ * fails every results spec on an unmocked host rather than on anything they test.
+ *
+ * Both defaults are deliberately EMPTY, the same call `mockKiwiPublic` above makes and for
+ * the same reason: every existing spec asserts against Ryanair-shaped results with no bed
+ * priced, and answering with real hostels would change their totals for reasons unrelated
+ * to what they check. An empty country list is a real shape — it is what a continent the
+ * adapter has no inventory in looks like. A spec that wants a bed priced passes the real
+ * captured fixtures instead, as `keyless-bed.spec.ts` does.
+ */
+export async function mockHostelworld(
+	target: Routable,
+	continentsFixture = 'hostelworld/continents-empty.json',
+	propertiesFixture = 'hostelworld/properties-empty.json'
+) {
+	await mockJson(target, 'https://api.m.hostelworld.com/2.2/continents/**', continentsFixture);
+	await mockJson(target, 'https://api.m.hostelworld.com/2.2/cities/**', propertiesFixture);
+}
+
 /** Transitous/MOTIS public transport timetables. Needs no key. */
 export async function mockTransitous(target: Routable, fixture = 'transitous/plan.json') {
 	await mockJson(target, 'https://api.transitous.org/**', fixture);
@@ -270,13 +294,14 @@ export async function mockOsrm(target: Routable, fixture = 'osrm/route.json') {
 }
 
 /** Registers every keyless provider (Ryanair — the fare-finder and active-airports, both
- * real endpoints the adapter calls — Transitous, OSRM). This is the state a first-time
- * visitor with an empty key store is in — see issue #18's "first run with no keys"
- * scenario and issue #3 (the key store). */
+ * real endpoints the adapter calls — Kiwi's public endpoint, Hostelworld, Transitous,
+ * OSRM). This is the state a first-time visitor with an empty key store is in — see issue
+ * #18's "first run with no keys" scenario and issue #3 (the key store). */
 export async function mockAllKeylessProviders(target: Routable) {
 	await mockRyanair(target);
 	await mockRyanairActiveAirports(target);
 	await mockKiwiPublic(target);
+	await mockHostelworld(target);
 	await mockTransitous(target);
 	await mockOsrm(target);
 }

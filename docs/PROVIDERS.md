@@ -625,8 +625,15 @@ someone who had paid: Agoda and Booking both come through RapidAPI, both are
 `needsKey: true`, so a visitor with no key got "No bed priced for this stopover" on every
 result. Adapter in `providers/stays/hostelworld.ts`.
 
-Everything below was measured on 2026-09-04 with `tools/probe-cors.mjs`, from a real
-`http://` page origin, not from curl.
+Everything below was measured on 2026-09-04 with `tools/probe-cors.mjs`, from a real page
+origin, not from curl.
+
+Measured twice, from both schemes, because the site it has to work on is https and every
+earlier measurement was not. From `http://127.0.0.1:8801` and again from a document at
+`https://example.com`, all three routes resolved `type: "cors"`, `status: 200`, with
+`Access-Control-Allow-Origin: *` on the wire and a readable body. No `OPTIONS` appears in
+either request log: the calls carry no headers, so they are simple requests and there is no
+preflight to pass.
 
 ### The two hosts do not have the same access rules, and the obvious one is worse
 
@@ -649,17 +656,35 @@ GET https://api.m.hostelworld.com/2.2/cities/{cityId}/properties/
 
 Three parameters are load-bearing, each settled by measurement rather than by reading:
 
-- **`show-rooms=1` is mandatory.** `show-rooms=0` answers `200` with an 84-byte body and no
-  `properties` array at all. It is also the only place a female-dorm price exists.
+- **`show-rooms=1` is mandatory.** `show-rooms=0` is rejected with `400` and
+  `{"description":[{"code":"90597","message":"show-rooms should be positive integer"}]}`.
+  It is also the only place a female-dorm price exists.
 - **`sort=price` is honoured; `order-by=price` is silently ignored.** Both were sent and
   only one changed the order. It matters because `per-page` truncates: default ranking put
   a 39.68 dorm first while the city's cheapest was 19.07.
 - **`per-page=30` is about 53 KB gzipped** (533 KB uncompressed). Omitting it returns the
   whole city, 74 properties for London.
 
-Currency: EUR, USD and GBP confirmed honoured. An unsupported code returns `400` with
-Hostelworld's own `{"description":[{"code":"90593","message":"please pass valid currency
-three letter code"}]}`, which the adapter surfaces verbatim.
+Currency: EUR, USD and GBP confirmed honoured, and EUR is what an omitted `currency`
+returns. An unsupported code returns `400` with Hostelworld's own
+`{"description":[{"code":"90593","message":"please pass valid currency three letter
+code"}]}`, which the adapter surfaces verbatim.
+
+### `guests` filters availability and never scales a price
+
+Asked for London 9-12 October 2026 at `guests=1` and again at `guests=3`, every price in
+the response was byte-identical while `totalNumberOfItems` fell from 74 to 71. So what
+comes back is the rate for one unit of inventory, and `guests` only decides which
+properties can host the party.
+
+That is not what `search/resources.ts` consumes: "`Stay` is priced as one flat per-night
+figure for the whole party." Agoda and Booking satisfy it for free, since both send
+`adults` and are quoted for that many people. Hostelworld does not, so
+`hostelworld-mapper.ts` multiplies the dorm and female-dorm figures by the party size — a
+unit of dorm inventory is one bed and three travellers need three. A private is one room
+and is taken as it comes. Left unmultiplied, a party of three would have been quoted a
+third of what the stopover costs them, and the acceptance trip could never have shown it
+because that trip is one traveller.
 
 ### The price field that is a trap
 
@@ -701,6 +726,22 @@ Hostelworld has never heard of that name. Checked against all three of the accep
 search's own stopovers: LGW picks London (3), MAN picks Manchester (171), BHX picks
 Birmingham (718), PFO picks Paphos (21908).
 
+**That preference is wrong for an airport stopover, and issue #204 is the owner saying so.**
+He found hostels in Horley, thirty minutes on foot from Gatwick, where the app showed him
+beds 40 km up the line in London. The endpoint is not what stops us reaching them:
+Hostelworld's own city 3671, named "Gatwick", has region `Horley` and holds The Gatwick
+White House Hotel on Church Road and The Lawn Guest House on Massetts Road, both 2.8 km from
+the terminal, with Crawley (2582) adding Little Foxes Hotel at 2.9 km. Our ranking puts
+London first and `searchStays` returns on the first candidate that yields anything, so
+Gatwick is never asked.
+
+There is no purely geographic search to switch to. `/2.2/properties/?latitude=&longitude=`
+answers `400` `invalid property-group-id`, and `/2.2/search/` and `/2.2/cities/{id}/nearby/`
+both `404`. What does work is `latitude`/`longitude` plus `sort=distance` **on the
+city-scoped route**: city 3 sorted from Gatwick returned 34.5, 36.3, 37.8, 37.9, 38.0 km
+ascending against 38.9, 39.4, 48.3, 44.2, 38.3 unsorted. So the fix is ours to make in
+ranking, not a missing endpoint.
+
 ### The autocomplete route, tried and rejected — do not reach for it again
 
 The first version of this adapter resolved cities through
@@ -723,22 +764,31 @@ find anything that matches your search term" because Hostelworld files it under 
 
 ### What was rejected before this, and why
 
-Re-measured 2026-09-04, from a browser page origin. A `curl` success proves nothing here.
+Measured from a browser page origin, never from curl. The **Confirmed** column says who
+saw it: `browser` means a `tools/probe-cors.mjs` run on this branch, on the date given.
+Everything else is a single agent's note carried forward and **not independently checked**,
+which is marked rather than dropped because knowing where a claim came from is the point of
+this table. One claim from that unchecked set has already turned out wrong: it reported
+`per-page` and `sort` as ignored, and both are honoured.
 
-| Source | Observed | Verdict |
-|---|---|---|
-| `engine.hotellook.com/api/v2/cache.json` | `404` from curl, and "No 'Access-Control-Allow-Origin' header is present" from a page | Dead twice over. Travelpayouts closed Hostellook in October 2025 |
-| `engine.hotellook.com/api/v2/lookup.json`, `yasen.hotellook.com` | `TypeError: Failed to fetch`, no ACAO | Same shutdown |
-| `www.booking.com/dml/graphql` | preflight blocked, "No 'Access-Control-Allow-Origin' header" | Origin allowlist, not a reflector. A browser cannot spoof Origin |
-| `www.agoda.com` GraphQL | POST reflects the origin but the preflight returns `204` with zero CORS headers | Dead end |
-| `data.xotelo.com/api/rates` | keyless, real OTA rates, **no ACAO header at all** | The painful near-miss. Perfect but for CORS |
-| Trip.com `soa2/…/fetchHotelList` | preflight passes, then `430` from their anti-bot | Dead end |
-| ZenHotels / Ostrovok `hotel/search/v2/site/serp` | no ACAO, preflight `400` | Server-side only |
-| Expedia, Hotels.com, Trivago, MakeMyTrip | no CORS, plus Akamai `403`/`429` | Dead end |
-| Amadeus self-service | host is NXDOMAIN | Decommissioned 17 July 2026 |
-| Numbeo | `ACAO: *` but a paid key | Key-gated, and cost-of-living rather than bookable prices |
-| `overpass-api.de` | `ACAO: *`, keyless | Hostel *locations* only; `charge`/`fee` tags are free text. Rate-limits after two concurrent queries |
-| Eurostat `prc_ppp_ind` | `ACAO: *`, keyless | A country-level price index. An honest labelled estimate at best, never a bookable price |
+| Source | Observed | Confirmed | Verdict |
+|---|---|---|---|
+| `engine.hotellook.com/api/v2/cache.json` | `TypeError: Failed to fetch`, "No 'Access-Control-Allow-Origin' header is present" | browser, 2026-09-04 | Dead. Travelpayouts closed Hostellook in October 2025 |
+| `engine.hotellook.com/api/v2/lookup.json` | `TypeError: Failed to fetch`, no ACAO | browser, 2026-09-04 | Same shutdown |
+| `data.xotelo.com/api/rates` | keyless, real OTA rates, **no ACAO header at all** | browser, 2026-09-04 | The painful near-miss. Perfect but for CORS |
+| ZenHotels / Ostrovok `hotel/search/v2/site/serp` | no ACAO | browser, 2026-09-04 | Server-side only |
+| `www.booking.com/dml/graphql` | preflight blocked, "No 'Access-Control-Allow-Origin' header" | unverified | Origin allowlist, not a reflector. A browser cannot spoof Origin |
+| `www.agoda.com` GraphQL | POST reflects the origin but the preflight returns `204` with zero CORS headers | unverified | Dead end |
+| Trip.com `soa2/…/fetchHotelList` | preflight passes, then `430` from their anti-bot | unverified | Dead end |
+| Expedia, Hotels.com, Trivago, MakeMyTrip | no CORS, plus Akamai `403`/`429` | unverified | Dead end |
+| Amadeus self-service | host is NXDOMAIN | unverified | Reported decommissioned 17 July 2026 |
+| Numbeo | `ACAO: *` but a paid key | unverified | Key-gated, and cost-of-living rather than bookable prices |
+| `overpass-api.de` | `ACAO: *`, keyless | unverified | Hostel *locations* only; `charge`/`fee` tags are free text |
+| Eurostat `prc_ppp_ind` | `ACAO: *`, keyless | unverified | A country-level price index. An honest labelled estimate at best, never a bookable price |
+
+None of the unverified rows is load-bearing: the adapter that shipped does not depend on
+any of them being dead, only on `api.m.hostelworld.com` being alive, which is the one row
+measured hardest.
 
 ### Limits, stated plainly
 

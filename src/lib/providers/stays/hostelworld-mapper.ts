@@ -9,7 +9,8 @@
  * is.
  */
 
-import type { Coordinates, IsoCurrencyCode, Money, RoomKind, Stay } from '../../domain';
+import { moneyFromDecimalString } from '../../domain';
+import type { Coordinates, Money, RoomKind, Stay } from '../../domain';
 import { haversineDistanceKm } from './agoda-geo';
 import type {
 	HostelworldContinentCountriesResponse,
@@ -44,56 +45,15 @@ export function nightsBetweenDates(checkIn: string, checkOut: string): number | 
 }
 
 /**
- * Currencies whose smallest unit is the whole unit (ISO 4217 minor-unit count 0) — the same
- * short exception list flights-sky-money.ts and skyscanner-money.ts keep, for the same
- * reason. Everything else is assumed to have two, which covers the EUR/USD/GBP this
- * endpoint was confirmed to honour.
- */
-const ZERO_DECIMAL_CURRENCIES: ReadonlySet<string> = new Set([
-	'JPY',
-	'KRW',
-	'VND',
-	'CLP',
-	'ISK',
-	'HUF'
-]);
-
-function minorUnitDigits(currency: string): number {
-	return ZERO_DECIMAL_CURRENCIES.has(currency.toUpperCase()) ? 0 : 2;
-}
-
-/**
- * Shifts a decimal string's point by `digits` places, entirely in string arithmetic.
- *
- * Hostelworld sends money as a decimal STRING ("26.44"), not a number, which means the
- * usual `Number(value) * 100` round trip is avoidable rather than merely survivable —
- * `19.99 * 100` is `1998.9999999999998` in JavaScript, and every provider in this repo has
- * a comment about `Math.round` compensating for it. Reading the digits directly skips the
- * binary representation altogether, so no rounding rule has to be trusted for the ordinary
- * two-decimal case at all. The half-up step below only ever runs on a value carrying MORE
- * decimals than its currency has, which this endpoint has not been observed to send.
- *
- * Rejects anything that is not plain digits with at most one point: no signs (a negative
- * room rate is not a discount, it is a parse error), no exponents, no thousands separators,
- * no currency symbols.
- */
-export function decimalStringToMinorUnits(value: string, digits: number): number | undefined {
-	const match = /^\s*(\d+)(?:\.(\d*))?\s*$/.exec(value);
-	if (!match) return undefined;
-
-	const whole = match[1];
-	const fraction = match[2] ?? '';
-	const kept = fraction.slice(0, digits).padEnd(digits, '0');
-	const discarded = fraction.slice(digits);
-
-	const minorUnits = Number(`${whole}${kept}`);
-	if (!Number.isSafeInteger(minorUnits)) return undefined;
-	return discarded.length > 0 && Number(discarded[0]) >= 5 ? minorUnits + 1 : minorUnits;
-}
-
-/**
  * One of Hostelworld's `{value, currency}` pairs as `Money`, or `undefined` when it is not
  * a real price.
+ *
+ * `moneyFromDecimalString` rather than anything local, because Hostelworld sends money as a
+ * decimal STRING ("26.44") and that function reads the digits without ever building a
+ * float — `19.99 * 100` is `1998.9999999999998` in JavaScript. It also owns the one
+ * currency-exponent table in the app (#179, #193). An earlier draft of this file carried
+ * its own copy of that table and listed HUF as zero-decimal, which is the exact factor-of-
+ * 100 error #179 was opened about; deleting the copy is the only way it stays deleted.
  *
  * The currency comes from the response, never from what this adapter asked for: a request
  * parameter is a request, not a promise. `search/resources.ts` drops any stay not quoted in
@@ -101,14 +61,7 @@ export function decimalStringToMinorUnits(value: string, digits: number): number
  * labelled honestly to be caught there rather than totalled as if it were EUR.
  */
 export function toMoney(price: HostelworldPrice | undefined): Money | undefined {
-	const value = price?.value;
-	const currency = price?.currency;
-	if (typeof value !== 'string' || typeof currency !== 'string' || currency.length === 0) {
-		return undefined;
-	}
-	const minorUnits = decimalStringToMinorUnits(value, minorUnitDigits(currency));
-	if (minorUnits === undefined) return undefined;
-	return { minorUnits, currency: currency.toUpperCase() as IsoCurrencyCode };
+	return moneyFromDecimalString(price?.value, price?.currency);
 }
 
 /**
@@ -204,8 +157,31 @@ function coordinatesOf(property: HostelworldProperty | undefined): Coordinates |
  * too HIGH only ever loses to a mixed dorm; it can never make a total look cheaper than it
  * is. Deriving a female price from the property-level average instead would be the
  * dangerous direction, and inventing one is not on the table.
+ *
+ * ## A dorm figure is per bed, so `guests` multiplies it. Measured, because it decides a price
+ *
+ * `search/resources.ts`: "`Stay` is priced as one flat per-night figure for the whole
+ * party." Agoda and Booking satisfy that for free — both send `adults` and get a quote for
+ * that many people back. Hostelworld does not. Asked for London, 9-12 October 2026, at
+ * `guests=1` and again at `guests=3`, every price in the response was byte-identical while
+ * `totalNumberOfItems` fell from 74 to 71. So `guests` filters which properties can host
+ * the party and changes no number: what comes back is the rate for ONE unit of inventory.
+ *
+ * A unit of dorm inventory is a bed, and three travellers need three of them, so the
+ * whole-party nightly figure is the quoted rate times `guests`. Left unmultiplied, a party
+ * of three would have been quoted a third of what a London stopover costs them — the same
+ * class of error as the `lowest*` teaser above, and invisible on the acceptance trip
+ * because that is one traveller, where every multiplier is 1.
+ *
+ * A private is one room, not one bed, and `guests` has already excluded properties that
+ * cannot sleep the party, so that one is taken at face value. That half is inference from
+ * how the inventory is shaped rather than a second measurement: nothing in the response
+ * distinguishes a per-room figure from a per-person one that happens not to vary.
  */
-export function mapPropertyToStays(property: HostelworldProperty | undefined): Stay[] {
+export function mapPropertyToStays(
+	property: HostelworldProperty | undefined,
+	guests: number
+): Stay[] {
 	const coordinates = coordinatesOf(property);
 	const name = property?.name;
 	if (!property || !coordinates || typeof name !== 'string' || name.length === 0) return [];
@@ -218,10 +194,16 @@ export function mapPropertyToStays(property: HostelworldProperty | undefined): S
 		...(typeof rating === 'number' && Number.isFinite(rating) ? { rating } : {})
 	};
 
+	// A fractional or absent party size would scale a real price into a fake one, so it
+	// falls back to a single traveller rather than to `NaN` minor units.
+	const beds = Number.isInteger(guests) && guests > 0 ? guests : 1;
+	const perBed = (price: Money | undefined): Money | undefined =>
+		price && { minorUnits: price.minorUnits * beds, currency: price.currency };
+
 	const priced: [RoomKind, Money | undefined][] = [
-		['dorm', toMoney(property.lowestAverageDormPricePerNight)],
+		['dorm', perBed(toMoney(property.lowestAverageDormPricePerNight))],
 		['private', toMoney(property.lowestAveragePrivatePricePerNight)],
-		['female-dorm', cheapestRoomPriceOfKind(property.rooms?.dorms, 'female-dorm')]
+		['female-dorm', perBed(cheapestRoomPriceOfKind(property.rooms?.dorms, 'female-dorm'))]
 	];
 
 	return priced
@@ -244,10 +226,11 @@ export function mapPropertyToStays(property: HostelworldProperty | undefined): S
 export function mapPropertiesToStays(
 	properties: readonly HostelworldProperty[] | undefined,
 	near: Coordinates,
-	radiusKm: number
+	radiusKm: number,
+	guests: number
 ): Stay[] {
 	return (properties ?? [])
-		.flatMap((property) => mapPropertyToStays(property))
+		.flatMap((property) => mapPropertyToStays(property, guests))
 		.filter((stay) => haversineDistanceKm(near, stay.property.coordinates) <= radiusKm);
 }
 
