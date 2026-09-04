@@ -134,7 +134,7 @@
 	}
 </script>
 
-<Card class="provider-card">
+<Card class="provider-card" id={provider.id}>
 	{#snippet header()}
 		<div class="provider-card-heading">
 			<div>
