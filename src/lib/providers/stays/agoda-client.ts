@@ -129,6 +129,27 @@ async function getJson<T>(
 		return { ok: false, error: { code: 'malformed-response', message: 'Response was not valid JSON', cause } };
 	}
 
+	// Agoda's own wrapper answers a bad request with HTTP 200 and `{"status":false,...}`
+	// rather than a 4xx (seen live for a bad `languagecode`-style typo on the sibling
+	// Booking API, and for `get-prices` with an unknown `currency_id`) — checked here,
+	// before `isShapeValid`, same pattern booking-client.ts uses for the same documented
+	// failure shape. This is also this codebase's own worked example of the exact risk
+	// issue #68 was opened over (Sky Scrapper's dead `searchFlightEverywhere` endpoint
+	// answers `{"status":false,"message":"Deprecated version."}`): without this check, a
+	// `status:false` error body has `data` simply absent, which `isShapeValid` alone would
+	// accept and downstream code would then read as "zero properties found" rather than
+	// "this call failed."
+	if (typeof body === 'object' && body !== null && (body as { status?: unknown }).status === false) {
+		const message = (body as { message?: unknown }).message;
+		return {
+			ok: false,
+			error: {
+				code: 'malformed-response',
+				message: `Agoda rejected the request: ${typeof message === 'string' ? message : JSON.stringify(message)}`
+			}
+		};
+	}
+
 	if (!isShapeValid(body)) {
 		return {
 			ok: false,
@@ -138,12 +159,14 @@ async function getJson<T>(
 	return { ok: true, data: body };
 }
 
-// Agoda's own wrapper answers a bad request with HTTP 200 and `{"status":false,...}`
-// rather than a 4xx (seen live for a bad `languagecode`-style typo on the sibling Booking
-// API, and for `get-prices` with an unknown `currency_id`) — this adapter therefore checks
-// `status`/`data` shape rather than trusting the HTTP status code alone for these two
-// endpoints. Both response shapes are permissive (every field optional) precisely because
-// a validation failure comes back with `data` absent rather than an HTTP error.
+// Both response shapes below stay permissive (every field optional) precisely because a
+// validation failure comes back with `data` absent rather than an HTTP error, and that
+// specific failure is now caught above before this predicate ever runs — see this
+// function's own header comment. What remains here is a minimal "is this even an object"
+// check; the real per-field validation (numbers that are actually numbers, strings that
+// are actually strings) happens in agoda-mapper.ts, at the point each field is read,
+// following this codebase's Skyscanner/Flights Sky convention rather than duplicating it
+// against a raw, pre-mapping shape here.
 function isAgodaSearchResponse(value: unknown): value is AgodaSearchResponse {
 	return typeof value === 'object' && value !== null;
 }

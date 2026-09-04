@@ -134,6 +134,16 @@ function isAbortError(error: unknown): boolean {
 	return error instanceof Error && error.name === 'AbortError';
 }
 
+/** Issue #68: OSRM's own numeric fields (`routes[].duration`/`.distance`,
+ * `durations[][]`) get read straight off the parsed JSON body with no runtime check today.
+ * OSRM is a stable, self-hosted FOSS project rather than the RapidAPI scraper listings this
+ * issue was mainly opened over, but the same failure shape still applies: a non-numeric
+ * value here would silently become `NaN` (`Math.round(NaN / 60)` is `NaN`, not a thrown
+ * error) and propagate into a `Transfer.duration` an itinerary then does arithmetic on. */
+function isFiniteNumber(value: unknown): value is number {
+	return typeof value === 'number' && Number.isFinite(value);
+}
+
 function toProviderError(error: unknown): ProviderError {
 	if (isAbortError(error)) {
 		return { code: 'cancelled', message: 'the request was aborted' };
@@ -233,12 +243,18 @@ async function requestOsrm<T extends OsrmResponseBase>(
 		throw new OsrmNetworkError(`request to ${url.pathname} returned HTTP ${response.status}`);
 	}
 
-	let body: T;
+	let rawBody: unknown;
 	try {
-		body = (await response.json()) as T;
+		rawBody = await response.json();
 	} catch {
 		throw new OsrmMalformedResponseError(`response from ${url.pathname} was not valid JSON`);
 	}
+	if (typeof rawBody !== 'object' || rawBody === null || typeof (rawBody as { code?: unknown }).code !== 'string') {
+		throw new OsrmMalformedResponseError(
+			`response from ${url.pathname} did not have the expected OSRM response shape (missing a string "code")`
+		);
+	}
+	const body = rawBody as T;
 
 	if (body.code === 'NoRoute' || body.code === 'NoTable' || body.code === 'NoSegment') {
 		throw new OsrmNoRouteError(body.message ?? `OSRM returned ${body.code}`);
@@ -334,8 +350,14 @@ async function fetchRoute(
 		options,
 		signal
 	);
+	if (!Array.isArray(body.routes)) {
+		throw new OsrmMalformedResponseError('OSRM route response did not have a routes array');
+	}
 	const route = body.routes[0];
 	if (!route) throw new OsrmNoRouteError('OSRM returned no route for this pair');
+	if (!isFiniteNumber(route.duration) || !isFiniteNumber(route.distance)) {
+		throw new OsrmMalformedResponseError('OSRM route had a non-numeric duration or distance');
+	}
 	return { durationSeconds: route.duration, distanceMeters: route.distance };
 }
 
@@ -366,9 +388,18 @@ async function fetchTableDurations(
 		options,
 		signal
 	);
+	if (!Array.isArray(body.durations)) {
+		throw new OsrmMalformedResponseError('OSRM table response did not have a durations array');
+	}
 	const row = body.durations[0];
 	if (!row) throw new OsrmNoRouteError('OSRM table response had no row for the origin');
-	return row.map((duration) => (duration === null ? undefined : duration));
+	return row.map((duration) => {
+		if (duration === null) return undefined;
+		if (!isFiniteNumber(duration)) {
+			throw new OsrmMalformedResponseError('OSRM table response had a non-numeric duration entry');
+		}
+		return duration;
+	});
 }
 
 type CachedRouteOutcome =

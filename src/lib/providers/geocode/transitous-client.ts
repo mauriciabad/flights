@@ -95,15 +95,23 @@ async function fetchPlaces(url: URL, options: TransitousGeocodeFetchOptions): Pr
 }
 
 function isGeocodeResponseShape(value: unknown): value is TransitousGeocodeResponse {
-	return (
-		Array.isArray(value) &&
-		value.every(
-			(row) =>
-				typeof row === 'object' &&
-				row !== null &&
-				typeof (row as { name?: unknown }).name === 'string' &&
-				typeof (row as { lat?: unknown }).lat === 'number' &&
-				typeof (row as { lon?: unknown }).lon === 'number'
-		)
-	);
+	return Array.isArray(value) && value.every(isValidGeocodePlace);
+}
+
+/** Validates every field `transitous-mapper.ts`'s `mapPlace` actually reads: `name`/`lat`/
+ * `lon` required, `country`/`tz`/`areas` optional but type-checked when present (issue #68
+ * — a wrong-typed `tz` would otherwise flow straight through `place.tz` into
+ * `GeocodeCandidate.timeZone`, since `??` only catches `null`/`undefined`, not a value of
+ * the wrong type). `type` is deliberately not checked here: nothing in this adapter reads
+ * it (transitous-types.ts's own header). */
+function isValidGeocodePlace(row: unknown): boolean {
+	if (typeof row !== 'object' || row === null) return false;
+	const place = row as Record<string, unknown>;
+	if (typeof place.name !== 'string' || typeof place.lat !== 'number' || typeof place.lon !== 'number') {
+		return false;
+	}
+	if (place.country !== undefined && typeof place.country !== 'string') return false;
+	if (place.tz !== undefined && typeof place.tz !== 'string') return false;
+	if (place.areas !== undefined && !Array.isArray(place.areas)) return false;
+	return true;
 }

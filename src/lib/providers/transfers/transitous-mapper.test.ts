@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { mapPlanResponseToTransfer } from './transitous-mapper';
+import { mapPlanResponseToTransfer, TransitousMapMalformedResponseError } from './transitous-mapper';
 import type { TransitousPlanResponse } from './transitous-types';
 
 /**
@@ -327,5 +327,133 @@ describe('mapPlanResponseToTransfer', () => {
 		};
 		const transfer = mapPlanResponseToTransfer(response);
 		expect(transfer?.transitSchedule?.intended.timeZone).toBe('UTC');
+	});
+});
+
+/**
+ * Issue #68: `transitous-client.ts`'s own shape check only confirms `itineraries` is an
+ * array — nothing validates a leg's `startTime`/`duration`/coordinates before this file
+ * feeds them to `utcInstantToLocalDateTime`, which throws on an Invalid Date. These cases
+ * corrupt one field of the real DAYTIME_BARCELONA_RESPONSE fixture per case, following the
+ * "drop the bad item, keep the rest" rule this adapter can follow because a real captured
+ * fixture exists here — unlike Kiwi's.
+ */
+describe('runtime validation of an unverified field type (corrupted fixture)', () => {
+	it('drops one corrupted itinerary and falls through to the next good one', () => {
+		const response: TransitousPlanResponse = {
+			itineraries: [
+				{
+					duration: 3120,
+					startTime: 'not-a-real-instant',
+					endTime: '2026-09-10T09:53:00Z',
+					transfers: 1,
+					legs: [
+						{
+							mode: 'BUS',
+							duration: 3120,
+							startTime: 'not-a-real-instant',
+							endTime: '2026-09-10T09:53:00Z',
+							from: { name: 'A', lat: 41.38, lon: 2.16, tz: 'Europe/Madrid' },
+							to: { name: 'B', lat: 41.3, lon: 2.07, tz: 'Europe/Madrid' }
+						}
+					]
+				},
+				{
+					duration: 600,
+					startTime: '2026-09-10T10:00:00Z',
+					endTime: '2026-09-10T10:10:00Z',
+					transfers: 0,
+					legs: [
+						{
+							mode: 'BUS',
+							duration: 600,
+							startTime: '2026-09-10T10:00:00Z',
+							endTime: '2026-09-10T10:10:00Z',
+							from: { name: 'A', lat: 41.38, lon: 2.16, tz: 'Europe/Madrid' },
+							to: { name: 'B', lat: 41.3, lon: 2.07, tz: 'Europe/Madrid' }
+						}
+					]
+				}
+			]
+		};
+		expect(() => mapPlanResponseToTransfer(response)).not.toThrow();
+		const transfer = mapPlanResponseToTransfer(response);
+		expect(transfer?.transitSchedule?.intended.local).toBe('2026-09-10T12:00:00');
+	});
+
+	it('throws TransitousMapMalformedResponseError when every itinerary is unreadable, not "no route"', () => {
+		const response: TransitousPlanResponse = {
+			itineraries: [
+				{
+					duration: 3120,
+					startTime: 'garbage',
+					endTime: 'garbage',
+					transfers: 1,
+					legs: [
+						{
+							mode: 'BUS',
+							duration: 3120,
+							startTime: 'garbage',
+							endTime: 'garbage',
+							from: { name: 'A', lat: 41.38, lon: 2.16 },
+							to: { name: 'B', lat: 41.3, lon: 2.07 }
+						}
+					]
+				}
+			]
+		};
+		expect(() => mapPlanResponseToTransfer(response)).toThrow(TransitousMapMalformedResponseError);
+	});
+
+	it('returns undefined (not malformed) for a genuinely empty itineraries array — the ordinary no-service case', () => {
+		expect(mapPlanResponseToTransfer({ itineraries: [] })).toBeUndefined();
+	});
+
+	it('drops a leg whose duration is a non-numeric string, failing that itinerary rather than producing NaN', () => {
+		const response: TransitousPlanResponse = {
+			itineraries: [
+				{
+					duration: 600,
+					startTime: '2026-09-10T09:00:00Z',
+					endTime: '2026-09-10T09:10:00Z',
+					transfers: 0,
+					legs: [
+						{
+							mode: 'BUS',
+							duration: 'ten minutes' as unknown as number,
+							startTime: '2026-09-10T09:00:00Z',
+							endTime: '2026-09-10T09:10:00Z',
+							from: { name: 'A', lat: 0, lon: 0 },
+							to: { name: 'B', lat: 0, lon: 0 }
+						}
+					]
+				}
+			]
+		};
+		expect(() => mapPlanResponseToTransfer(response)).toThrow(TransitousMapMalformedResponseError);
+	});
+
+	it('drops a leg whose place has a non-numeric latitude rather than corrupting timezone maths', () => {
+		const response: TransitousPlanResponse = {
+			itineraries: [
+				{
+					duration: 600,
+					startTime: '2026-09-10T09:00:00Z',
+					endTime: '2026-09-10T09:10:00Z',
+					transfers: 0,
+					legs: [
+						{
+							mode: 'BUS',
+							duration: 600,
+							startTime: '2026-09-10T09:00:00Z',
+							endTime: '2026-09-10T09:10:00Z',
+							from: { name: 'A', lat: '0' as unknown as number, lon: 0 },
+							to: { name: 'B', lat: 0, lon: 0 }
+						}
+					]
+				}
+			]
+		};
+		expect(() => mapPlanResponseToTransfer(response)).toThrow(TransitousMapMalformedResponseError);
 	});
 });

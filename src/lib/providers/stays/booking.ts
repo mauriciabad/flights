@@ -212,9 +212,9 @@ function createBookingStayProvider(options: BookingProviderOptions = {}): StayPr
 			if (!searchResult.ok) {
 				return { ok: false, error: searchResult.error, source: source(), requestsUsed };
 			}
-			const results = searchResult.data.data?.result ?? [];
+			const results = searchResult.data.data?.result;
 			candidates = [];
-			for (const result of results) {
+			for (const result of Array.isArray(results) ? results : []) {
 				const candidate = mapSearchResultToCandidate(result);
 				if (candidate) candidates.push(candidate);
 			}

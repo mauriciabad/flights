@@ -60,6 +60,29 @@ describe('fetchTransitousGeocode', () => {
 		).rejects.toBeInstanceOf(TransitousMalformedResponseError);
 	});
 
+	it('throws TransitousMalformedResponseError on a row with a non-numeric lat (issue #68)', async () => {
+		// transitous-mapper.ts reads `place.lat`/`place.lon` directly into `GeocodeCandidate`
+		// coordinates — a string here would silently become part of a "coordinate" nothing
+		// downstream expects to validate.
+		const fetchImpl = vi
+			.fn()
+			.mockResolvedValue(jsonResponse([{ type: 'STOP', name: 'Sagrada Família', lat: '41.4', lon: 2.17 }]));
+
+		await expect(
+			fetchTransitousGeocode('Sagrada Familia Barcelona', { signal: new AbortController().signal, fetchImpl })
+		).rejects.toBeInstanceOf(TransitousMalformedResponseError);
+	});
+
+	it('throws TransitousMalformedResponseError on a row with a non-string country when present', async () => {
+		const fetchImpl = vi
+			.fn()
+			.mockResolvedValue(jsonResponse([{ type: 'STOP', name: 'Sagrada Família', lat: 41.4, lon: 2.17, country: 34 }]));
+
+		await expect(
+			fetchTransitousGeocode('Sagrada Familia Barcelona', { signal: new AbortController().signal, fetchImpl })
+		).rejects.toBeInstanceOf(TransitousMalformedResponseError);
+	});
+
 	it('lets an AbortError propagate unchanged rather than wrapping it', async () => {
 		const abortError = new DOMException('aborted', 'AbortError');
 		const fetchImpl = vi.fn().mockRejectedValue(abortError);

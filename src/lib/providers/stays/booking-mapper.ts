@@ -16,10 +16,21 @@ import type { BookingMoneyAmount, BookingRoomBlock, BookingRoomListResponse, Boo
  * the 50-request/month budget did not stretch to confirming one from `getCurrency`
  * (untouched — see the PR body for the full list of endpoints this budget did reach).
  * Zero-decimal ISO 4217 currencies (JPY, KRW, VND, and a handful of others) would be
- * reported 100x too large until this gets a real per-currency table. */
+ * reported 100x too large until this gets a real per-currency table.
+ *
+ * Issue #68: checks `typeof value === 'number'`, not just `value === undefined`, and
+ * requires it to be finite — `booking-types.ts` declares `value` a plain `number`, but that
+ * is a compile-time hint about the shape this adapter expects, not a runtime guarantee
+ * about what a live scraper response actually sends (this file's header links the same
+ * risk in agoda-mapper.ts). Without this, a `null` or non-numeric `value` would silently
+ * become `NaN` or, worse, `0` (`null * 100 === 0` in JavaScript) minor units — a real,
+ * wrong price — rather than being dropped. */
 export function toMoney(amount: BookingMoneyAmount): Money | undefined {
-	if (amount.value === undefined || !amount.currency) return undefined;
-	return { minorUnits: Math.round(amount.value * 100), currency: amount.currency };
+	const { value, currency } = amount;
+	if (typeof value !== 'number' || !Number.isFinite(value) || typeof currency !== 'string' || !currency) {
+		return undefined;
+	}
+	return { minorUnits: Math.round(value * 100), currency };
 }
 
 /**
@@ -61,17 +72,34 @@ export interface BookingCandidate {
  * already filters by the requested coordinate and radius server-side (unlike Agoda's), so
  * there is no separate client-side radius filter here. */
 export function mapSearchResultToCandidate(result: BookingSearchResult): BookingCandidate | undefined {
-	const { hotel_name: name, latitude, longitude } = result;
+	const { hotel_name: name, latitude, longitude, hotel_id: hotelId } = result;
 	const headlinePrice = toMoney(result.composite_price_breakdown?.gross_amount_per_night ?? {});
-	if (!name || latitude === undefined || longitude === undefined || !headlinePrice) return undefined;
+	// `typeof` checks, not just truthiness/`undefined` checks (issue #68): `booking-types.ts`
+	// declares these fields' types as a compile-time hint, not a runtime guarantee — a
+	// scraper response that re-types `hotel_id` as a string, say, must drop this candidate
+	// rather than carry a wrongly-typed id into the cache keys and dedupe logic that assume
+	// a real number (booking.ts).
+	if (
+		typeof name !== 'string' ||
+		!name ||
+		typeof latitude !== 'number' ||
+		!Number.isFinite(latitude) ||
+		typeof longitude !== 'number' ||
+		!Number.isFinite(longitude) ||
+		typeof hotelId !== 'number' ||
+		!headlinePrice
+	) {
+		return undefined;
+	}
+	const rating = result.review_score;
 
 	return {
-		hotelId: result.hotel_id,
+		hotelId,
 		property: {
 			name,
 			coordinates: { latitude, longitude },
-			images: result.main_photo_url ? [result.main_photo_url] : [],
-			rating: result.review_score ?? undefined
+			images: typeof result.main_photo_url === 'string' && result.main_photo_url ? [result.main_photo_url] : [],
+			rating: typeof rating === 'number' && Number.isFinite(rating) ? rating : undefined
 		},
 		headlinePrice
 	};
@@ -84,10 +112,11 @@ export function mapSearchResultToCandidate(result: BookingSearchResult): Booking
 export function mapRoomBlocksToStays(property: Property, blocks: readonly BookingRoomBlock[]): Stay[] {
 	const cheapestByKind = new Map<RoomKind, Money>();
 	for (const block of blocks) {
-		if (!block.room_name) continue;
+		if (typeof block.room_name !== 'string' || !block.room_name) continue;
 		const price = toMoney(block.product_price_breakdown?.gross_amount_per_night ?? {});
 		if (!price) continue;
-		const kind = classifyBookingRoomKind(block.room_name, block.is_dormitory);
+		const isDormitory = block.is_dormitory === 0 || block.is_dormitory === 1 ? block.is_dormitory : undefined;
+		const kind = classifyBookingRoomKind(block.room_name, isDormitory);
 		const existing = cheapestByKind.get(kind);
 		if (!existing || price.minorUnits < existing.minorUnits) cheapestByKind.set(kind, price);
 	}
@@ -99,5 +128,9 @@ export function mapRoomBlocksToStays(property: Property, blocks: readonly Bookin
 }
 
 export function mapRoomListToStays(property: Property, response: BookingRoomListResponse): Stay[] {
-	return mapRoomBlocksToStays(property, response.data?.block ?? []);
+	const blocks = response.data?.block;
+	// Same reasoning as agoda-mapper.ts's mapGetPricesToStays: a present-but-wrong-shaped
+	// `block` (not an array) must not reach the `for...of` above, which would throw on
+	// anything that isn't iterable.
+	return mapRoomBlocksToStays(property, Array.isArray(blocks) ? blocks : []);
 }

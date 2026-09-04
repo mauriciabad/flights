@@ -3,7 +3,13 @@ import type { Property } from '../../domain';
 import bookingRoomListIbis from './fixtures/booking-room-list-ibis.json';
 import bookingSearchVienna from './fixtures/booking-search-vienna.json';
 import type { BookingRoomListResponse, BookingSearchResponse } from './booking-types';
-import { classifyBookingRoomKind, mapRoomListToStays, mapSearchResultToCandidate, toMoney } from './booking-mapper';
+import {
+	classifyBookingRoomKind,
+	mapRoomBlocksToStays,
+	mapRoomListToStays,
+	mapSearchResultToCandidate,
+	toMoney
+} from './booking-mapper';
 
 const searchFixture = bookingSearchVienna as BookingSearchResponse;
 const ibisRoomListFixture = bookingRoomListIbis as BookingRoomListResponse;
@@ -21,6 +27,14 @@ describe('toMoney', () => {
 	it('returns undefined when value or currency is missing', () => {
 		expect(toMoney({ currency: 'EUR' })).toBeUndefined();
 		expect(toMoney({ value: 10 })).toBeUndefined();
+	});
+
+	it('returns undefined rather than NaN/0 when value is not actually a number (issue #68)', () => {
+		// booking-types.ts declares `value` as `number`, but that is only a compile-time
+		// hint — a live scraper response is free to send anything. `null * 100 === 0` in
+		// JavaScript, so an unchecked null would silently become a real, wrong "free" price.
+		expect(toMoney({ value: null as unknown as number, currency: 'EUR' })).toBeUndefined();
+		expect(toMoney({ value: 'sixty-five' as unknown as number, currency: 'EUR' })).toBeUndefined();
 	});
 });
 
@@ -81,6 +95,51 @@ describe('mapSearchResultToCandidate (real fixture)', () => {
 		const candidate = mapSearchResultToCandidate(canvas!);
 		expect(candidate?.property.rating).toBeUndefined();
 	});
+
+	/**
+	 * Issue #68: corrupts one field of the same real, good fixture per case and asserts the
+	 * candidate is dropped rather than crashing or carrying a wrongly-typed value through.
+	 * No live evidence of Booking ever sending these, but the risk is the same one this
+	 * whole sweep is about, and `booking-types.ts`'s declared types are a compile-time hint,
+	 * not a runtime guarantee.
+	 */
+	describe('runtime validation of an unverified field type (corrupted fixture)', () => {
+		const results = searchFixture.data?.result ?? [];
+		const ibis = results.find((r) => r.hotel_id === 71662)!;
+
+		it('drops a candidate whose price value is null rather than reporting a free stay', () => {
+			const corrupted = {
+				...ibis,
+				composite_price_breakdown: { gross_amount_per_night: { value: null as unknown as number, currency: 'EUR' } }
+			};
+			expect(mapSearchResultToCandidate(corrupted)).toBeUndefined();
+		});
+
+		it('drops a candidate whose price value is a non-numeric string rather than reporting NaN', () => {
+			const corrupted = {
+				...ibis,
+				composite_price_breakdown: {
+					gross_amount_per_night: { value: 'sixty-five' as unknown as number, currency: 'EUR' }
+				}
+			};
+			expect(mapSearchResultToCandidate(corrupted)).toBeUndefined();
+		});
+
+		it('drops a candidate whose latitude is a string instead of coercing or crashing', () => {
+			const corrupted = { ...ibis, latitude: '48.12' as unknown as number };
+			expect(mapSearchResultToCandidate(corrupted)).toBeUndefined();
+		});
+
+		it('drops a candidate whose hotel_name is a number rather than carrying it through wrongly typed', () => {
+			const corrupted = { ...ibis, hotel_name: 12345 as unknown as string };
+			expect(mapSearchResultToCandidate(corrupted)).toBeUndefined();
+		});
+
+		it('drops a candidate whose hotel_id is a string rather than carrying a wrongly-typed id', () => {
+			const corrupted = { ...ibis, hotel_id: '71662' as unknown as number };
+			expect(mapSearchResultToCandidate(corrupted)).toBeUndefined();
+		});
+	});
 });
 
 describe('mapRoomListToStays (real fixture)', () => {
@@ -98,5 +157,32 @@ describe('mapRoomListToStays (real fixture)', () => {
 		// no dorm inventory to report, which is itself the honest, expected outcome for a
 		// non-hostel property.
 		expect(stays).toEqual([{ property, roomKind: 'private', pricePerNight: { minorUnits: 7527, currency: 'EUR' } }]);
+	});
+
+	it('treats a non-array block as no rooms rather than throwing on for...of (issue #68)', () => {
+		const property: Property = {
+			name: 'Ibis Vienna Airport',
+			coordinates: { latitude: 48.1229461354855, longitude: 16.4396694302559 },
+			images: []
+		};
+		const corrupted = { data: { block: { not: 'an array' } as never } };
+		expect(() => mapRoomListToStays(property, corrupted)).not.toThrow();
+		expect(mapRoomListToStays(property, corrupted)).toEqual([]);
+	});
+
+	it('drops a room block whose price is a non-numeric string rather than reporting NaN', () => {
+		const property: Property = {
+			name: 'Ibis Vienna Airport',
+			coordinates: { latitude: 48.1229461354855, longitude: 16.4396694302559 },
+			images: []
+		};
+		const corruptedBlock = {
+			room_name: 'Standard Twin Room',
+			is_dormitory: 0 as const,
+			product_price_breakdown: {
+				gross_amount_per_night: { value: 'bad-data' as unknown as number, currency: 'EUR' }
+			}
+		};
+		expect(mapRoomBlocksToStays(property, [corruptedBlock])).toEqual([]);
 	});
 });

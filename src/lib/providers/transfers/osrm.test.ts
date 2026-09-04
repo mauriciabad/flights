@@ -172,6 +172,48 @@ describe('createOsrmTransferProvider / searchTransfers', () => {
 		expect(result.error.code).toBe('malformed-response');
 	});
 
+	/**
+	 * Issue #68: OSRM's response is stable, self-hosted FOSS rather than a RapidAPI scraper
+	 * listing, so there is no captured evidence of it ever sending these shapes — but the
+	 * same "a schema drift becomes NaN in a Duration, not a thrown error" risk this whole
+	 * sweep is about applies just the same, and a corrupted response must fail closed rather
+	 * than produce a wrong duration.
+	 */
+	it('maps a response missing a "code" field to malformed-response', async () => {
+		const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ routes: [{ duration: 600, distance: 800 }] }));
+		const provider = createOsrmTransferProvider({ store: new MemoryCacheStore(), fetchImpl });
+
+		const result = await provider.searchTransfers({ from: AIRPORT, to: HOTEL, modes: ['walk'] }, ctxFor());
+
+		expect(result.ok).toBe(false);
+		if (result.ok) return;
+		expect(result.error.code).toBe('malformed-response');
+	});
+
+	it('maps a route response with a non-numeric duration to malformed-response, not NaN', async () => {
+		const fetchImpl = vi
+			.fn()
+			.mockResolvedValue(jsonResponse({ code: 'Ok', routes: [{ duration: 'soon', distance: 800 }] }));
+		const provider = createOsrmTransferProvider({ store: new MemoryCacheStore(), fetchImpl });
+
+		const result = await provider.searchTransfers({ from: AIRPORT, to: HOTEL, modes: ['walk'] }, ctxFor());
+
+		expect(result.ok).toBe(false);
+		if (result.ok) return;
+		expect(result.error.code).toBe('malformed-response');
+	});
+
+	it('maps a route response with a missing routes array to malformed-response', async () => {
+		const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ code: 'Ok' }));
+		const provider = createOsrmTransferProvider({ store: new MemoryCacheStore(), fetchImpl });
+
+		const result = await provider.searchTransfers({ from: AIRPORT, to: HOTEL, modes: ['walk'] }, ctxFor());
+
+		expect(result.ok).toBe(false);
+		if (result.ok) return;
+		expect(result.error.code).toBe('malformed-response');
+	});
+
 	it('rejects coordinates outside a valid lat/lon range rather than querying OSRM with them', async () => {
 		const fetchImpl = vi.fn();
 		const provider = createOsrmTransferProvider({ store: new MemoryCacheStore(), fetchImpl });
@@ -270,6 +312,19 @@ describe('findTransfersToMany', () => {
 		expect(result.data[0]?.duration).toBe(10);
 		expect(result.data[1]).toBeUndefined();
 		expect(result.data[2]?.duration).toBe(20);
+	});
+
+	it('maps a table response with a non-numeric duration entry to malformed-response, not NaN (issue #68)', async () => {
+		const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ code: 'Ok', durations: [[600, 'soon', 1200]] }));
+
+		const result = await findTransfersToMany('walk', AIRPORT, destinations, ctxFor(), {
+			store: new MemoryCacheStore(),
+			fetchImpl
+		});
+
+		expect(result.ok).toBe(false);
+		if (result.ok) return;
+		expect(result.error.code).toBe('malformed-response');
 	});
 
 	it('only asks the table service for destinations not already cached', async () => {

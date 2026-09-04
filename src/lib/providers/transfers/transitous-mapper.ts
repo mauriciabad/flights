@@ -7,13 +7,75 @@
 
 import type { Duration, Transfer, TransferLeg, TransferMode } from '../../domain';
 import { utcInstantToLocalDateTime } from './transitous-datetime';
-import type { TransitousItinerary, TransitousLeg, TransitousPlanResponse } from './transitous-types';
+import type { TransitousItinerary, TransitousLeg, TransitousPlace, TransitousPlanResponse } from './transitous-types';
 
 /** How many of Transitous's own itineraries this adapter asks for per call: the intended
  * one plus a handful of following departures, per the brief's "the actual departures,
  * plus the next few after it." Exported so transitous-client.ts's request and this
  * mapper's "how many can `following` ever hold" agree without repeating the number. */
 export const TRANSITOUS_NUM_ITINERARIES = 6;
+
+/**
+ * Issue #68: `transitous-client.ts`'s own shape check only confirms `itineraries` is an
+ * array — nothing below that validates a single leg's `startTime`/`endTime` are parseable
+ * instants or that `duration` is a real number. A schema drift on any of those would reach
+ * `utcInstantToLocalDateTime` as `undefined` or a garbage string, producing an Invalid
+ * Date that throws once `Intl.DateTimeFormat.formatToParts` touches it — this issue's
+ * "Times" case, and one severe enough to crash the whole lookup rather than just mistime
+ * it. `isValidItinerary` below is what lets this file drop one corrupted itinerary and try
+ * the next, the "prefer dropping the bad item" rule issue #68 asks for given a real
+ * captured-fixture baseline exists here (transitous-mapper.test.ts), unlike Kiwi's.
+ */
+export class TransitousMapMalformedResponseError extends Error {}
+
+function isFiniteNumber(value: unknown): value is number {
+	return typeof value === 'number' && Number.isFinite(value);
+}
+
+/** `Date.parse` returns `NaN` for a string it cannot parse — this is the one guard standing
+ * between a renamed/reformatted `startTime` and an Invalid Date reaching
+ * `utcInstantToLocalDateTime`, which does not itself validate its input. */
+function isParsableInstant(value: unknown): value is string {
+	return typeof value === 'string' && Number.isFinite(Date.parse(value));
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === 'object' && value !== null;
+}
+
+function isValidPlace(value: unknown): value is TransitousPlace {
+	if (!isRecord(value)) return false;
+	if (!isFiniteNumber(value.lat) || !isFiniteNumber(value.lon)) return false;
+	if (value.tz !== undefined && typeof value.tz !== 'string') return false;
+	return true;
+}
+
+function isValidLeg(value: unknown): value is TransitousLeg {
+	if (!isRecord(value)) return false;
+	return (
+		typeof value.mode === 'string' &&
+		isFiniteNumber(value.duration) &&
+		isParsableInstant(value.startTime) &&
+		isParsableInstant(value.endTime) &&
+		isValidPlace(value.from) &&
+		isValidPlace(value.to)
+	);
+}
+
+/** An itinerary this file can map honestly end to end: a real duration, and at least one
+ * leg, every one of which validates. One bad leg fails the whole itinerary (not just that
+ * leg) because `mapPlanResponseToTransfer` maps every leg of the chosen itinerary into the
+ * `Transfer` it returns — a `Transfer` missing one leg's timing is a shorter, wrong
+ * itinerary, not a partial-but-honest one. */
+function isValidItinerary(value: unknown): value is TransitousItinerary {
+	if (!isRecord(value)) return false;
+	return (
+		isFiniteNumber(value.duration) &&
+		Array.isArray(value.legs) &&
+		value.legs.length > 0 &&
+		value.legs.every(isValidLeg)
+	);
+}
 
 const TRANSIT_MODE_LABELS: Record<string, string> = {
 	BUS: 'Bus',
@@ -51,8 +113,20 @@ const TRANSIT_MODE_LABELS: Record<string, string> = {
  * call about what counts as "a gap."
  */
 export function mapPlanResponseToTransfer(response: TransitousPlanResponse): Transfer | undefined {
-	const itineraries = response.itineraries ?? [];
-	if (itineraries.length === 0) return undefined;
+	const rawItineraries = response.itineraries ?? [];
+	if (rawItineraries.length === 0) return undefined;
+
+	const itineraries = rawItineraries.filter(isValidItinerary);
+	if (itineraries.length === 0) {
+		// Distinct from the `rawItineraries.length === 0` case above: Transitous DID answer
+		// with itineraries, but not one of them had fields this file recognises — evidence
+		// the schema drifted, not evidence there is simply no service. transitous.ts catches
+		// this and reports `malformed-response` rather than the silent, wrong "no transfer
+		// found" a traveller would otherwise see.
+		throw new TransitousMapMalformedResponseError(
+			'Transitous /plan returned itineraries, but none had the fields this adapter reads'
+		);
+	}
 
 	const [chosen, ...rest] = itineraries;
 	const chosenTransitLeg = firstTransitLeg(chosen);
