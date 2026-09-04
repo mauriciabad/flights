@@ -150,6 +150,46 @@ describe('createTransitousTransferProvider', () => {
 		if (second.ok) expect(second.data).toEqual(first.ok ? first.data : undefined);
 	});
 
+	it('maps a well-formed 200 whose itineraries have no readable fields to malformed-response, not ok:true empty (issue #68)', async () => {
+		// Distinct from the "no route" test above: the client-level shape check
+		// (transitous-client.ts) passes — `itineraries` really is an array — but nothing
+		// inside a single itinerary has fields this adapter can read. Reporting this as
+		// ok:true/[] would look identical to a genuine "no service" result to a caller.
+		const fetchImpl = vi.fn().mockResolvedValue(
+			jsonResponse({
+				itineraries: [
+					{
+						duration: 600,
+						startTime: 'not-a-real-instant',
+						endTime: 'not-a-real-instant',
+						transfers: 0,
+						legs: [
+							{
+								mode: 'BUS',
+								duration: 600,
+								startTime: 'not-a-real-instant',
+								endTime: 'not-a-real-instant',
+								from: { name: 'A', lat: 0, lon: 0 },
+								to: { name: 'B', lat: 0, lon: 0 }
+							}
+						]
+					}
+				]
+			})
+		);
+		const provider = createTransitousTransferProvider({
+			fetchImpl,
+			resolveStore: async () => new MemoryCacheStore()
+		});
+
+		const result = await provider.searchTransfers(
+			{ from: { latitude: 41, longitude: 2 }, to: { latitude: 41.1, longitude: 2.1 } },
+			ctx()
+		);
+
+		expect(result).toMatchObject({ ok: false, error: { code: 'malformed-response' }, requestsUsed: 1 });
+	});
+
 	it('maps a 429 to quota-exceeded and still reports the request as spent', async () => {
 		const fetchImpl = vi
 			.fn()

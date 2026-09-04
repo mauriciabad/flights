@@ -10,6 +10,34 @@ import { haversineDistanceKm } from './agoda-geo';
 import type { AgodaGetPricesResponse, AgodaMasterRoom, AgodaSearchProperty } from './agoda-types';
 
 /**
+ * Issue #68: `agoda-types.ts`'s interfaces declare every field this adapter reads as a
+ * plain `number`/`string`, but that is a compile-time hint about the shape this adapter
+ * was BUILT against, not a runtime guarantee about the shape a live response actually
+ * HAS — the whole reason this issue exists. A scraper API that renames or re-types a field
+ * still parses as valid JSON; `property.propertyId` typed `number` can still hold a string,
+ * `null`, or nothing at all once the wire format drifts. The functions below therefore
+ * treat every leaf value as `unknown` at the point it is read, the same discipline
+ * kiwi-mapper.ts and skyscanner-map-offers.ts already apply, rather than trusting the
+ * declared type. Money is the sharpest case: `null * 100` is `0` in JavaScript, not
+ * `NaN` and not a thrown error — an unchecked `null` price would silently become a real,
+ * wrong "free" price rather than something visibly broken.
+ */
+function isFiniteNumber(value: unknown): value is number {
+	return typeof value === 'number' && Number.isFinite(value);
+}
+
+/** Trims and rejects anything that isn't a non-empty string — matches the trim this file
+ * already needed for `mapSearchPropertyToCandidate`'s real fixture (a trailing U+00A0 on
+ * Wombat's City Hostel Vienna Naschmarkt), and, unlike a bare `?.trim()`, never throws when
+ * the raw value isn't a string at all (a number, `null`, an object) — see this function's
+ * use in `mapSearchPropertyToCandidate` below for the exact crash that guarded against. */
+function asNonEmptyString(value: unknown): string | undefined {
+	if (typeof value !== 'string') return undefined;
+	const trimmed = value.trim();
+	return trimmed.length > 0 ? trimmed : undefined;
+}
+
+/**
  * Agoda's own currency ids, captured 2026-09-04 from a live `GET /currencies` call (see
  * the PR body for the full 50-currency response). Hardcoded rather than fetched-and-cached
  * like ryanair.ts's airport-timezone table: currency ids are a closed, essentially static
@@ -56,8 +84,16 @@ export function agodaCurrencyId(currencyCode: string | undefined): number | unde
  * currency Agoda's response actually says it is in — never the currency this adapter
  * asked for, since a caller must not assume a request parameter was honoured — into
  * `Money`'s integer minor units. Multiplying by `10 ** digits` rather than always `* 100`
- * is what keeps a 0-decimal currency like JPY from being reported 100x too large. */
-export function toMoney(display: number, currencyCode: string): Money {
+ * is what keeps a 0-decimal currency like JPY from being reported 100x too large.
+ *
+ * Both parameters are `unknown`, not `number`/`string`, because both come straight off an
+ * unverified response body (see this file's header) — `undefined`, `null`, a boolean or an
+ * object here must become "no price," never a fabricated one. `null * 100 === 0` in
+ * JavaScript, so without this check a `null` display price would silently become a real
+ * `Money` of zero minor units rather than being dropped, which is a worse outcome than
+ * either a thrown error or a visibly missing price. */
+export function toMoney(display: unknown, currencyCode: unknown): Money | undefined {
+	if (!isFiniteNumber(display) || typeof currencyCode !== 'string' || !currencyCode) return undefined;
 	const digits = AGODA_CURRENCY_INFO[currencyCode]?.minorUnitDigits ?? 2;
 	return { minorUnits: Math.round(display * 10 ** digits), currency: currencyCode };
 }
@@ -93,11 +129,17 @@ function toHttpsUrl(protocolRelativeUrl: string): string {
 }
 
 function mapImages(property: AgodaSearchProperty): string[] {
-	const images = property.content?.images?.hotelImages ?? [];
+	const images = property.content?.images?.hotelImages;
+	if (!Array.isArray(images)) return [];
 	const urls: string[] = [];
 	for (const image of images) {
 		const original = image.urls?.find((u) => u.key === 'original')?.value;
-		if (original) urls.push(toHttpsUrl(original));
+		// `typeof original === 'string'` guards a real crash, not just a wrong value:
+		// `toHttpsUrl` calls `.startsWith` on it, which throws on anything that isn't a
+		// string — a truthy non-string value here would have taken down the whole search
+		// (types.ts: adapters must resolve, never throw) rather than just dropping one image.
+		const url = typeof original === 'string' ? asNonEmptyString(original) : undefined;
+		if (url) urls.push(toHttpsUrl(url));
 	}
 	return urls;
 }
@@ -113,9 +155,9 @@ function mapImages(property: AgodaSearchProperty): string[] {
 export function extractHeadlinePrice(property: AgodaSearchProperty): Money | undefined {
 	if (property.soldOut) return undefined;
 	const summary = property.pricing?.offers?.[0]?.roomOffers?.[0]?.room?.mseRoomSummaries?.[0]?.pricingSummaries?.[0];
-	const display = summary?.price?.perRoomPerNight?.inclusive?.display;
-	if (display === undefined || !summary?.currency) return undefined;
-	return toMoney(display, summary.currency);
+	// `toMoney` itself now validates both arguments (see its own comment) — no need to
+	// re-check `display`/`currency` here before calling it.
+	return toMoney(summary?.price?.perRoomPerNight?.inclusive?.display, summary?.currency);
 }
 
 export interface AgodaCandidate {
@@ -136,9 +178,16 @@ export function mapSearchPropertyToCandidate(property: AgodaSearchProperty): Ago
 	// Trimmed because at least one real property name comes back with a trailing
 	// non-breaking space (Wombat's City Hostel Vienna Naschmarkt, captured live
 	// 2026-09-04) — a display-layer nuisance, not a meaningful part of the name.
-	const name = info?.displayName?.trim();
+	// `asNonEmptyString`, not a bare `?.trim()`: `displayName` is declared a `string` in
+	// agoda-types.ts, but that is a compile-time hint, not a runtime guarantee (this file's
+	// header) — calling `.trim()` on a value that turned out to be a number or an object
+	// would throw and take the whole search down with it, rather than just dropping this
+	// one candidate.
+	const name = asNonEmptyString(info?.displayName);
 	const headlinePrice = extractHeadlinePrice(property);
-	if (latitude === undefined || longitude === undefined || !name || !headlinePrice) return undefined;
+	if (!isFiniteNumber(latitude) || !isFiniteNumber(longitude) || !name || !headlinePrice) return undefined;
+	if (!isFiniteNumber(property.propertyId)) return undefined;
+	const rating = info?.rating;
 
 	return {
 		propertyId: property.propertyId,
@@ -146,7 +195,7 @@ export function mapSearchPropertyToCandidate(property: AgodaSearchProperty): Ago
 			name,
 			coordinates: { latitude, longitude },
 			images: mapImages(property),
-			rating: info?.rating ?? undefined
+			rating: isFiniteNumber(rating) ? rating : undefined
 		},
 		headlinePrice
 	};
@@ -166,11 +215,13 @@ export function filterWithinRadius(
  * same "Double Room" once for 1 adult and once for 2), and StayProvider wants one Stay per
  * room *kind* at a property, not one per occupancy variant. */
 function cheapestOfferPrice(masterRoom: AgodaMasterRoom): Money | undefined {
+	const rooms = masterRoom.rooms;
+	if (!Array.isArray(rooms)) return undefined;
 	let cheapest: Money | undefined;
-	for (const offer of masterRoom.rooms ?? []) {
+	for (const offer of rooms) {
 		const display = offer.inclusivePricePerNightWithoutExtraBed?.display ?? offer.inclusivePrice?.display;
-		if (display === undefined || !offer.currency) continue;
 		const money = toMoney(display, offer.currency);
+		if (!money) continue;
 		if (!cheapest || money.minorUnits < cheapest.minorUnits) cheapest = money;
 	}
 	return cheapest;
@@ -188,10 +239,11 @@ function cheapestOfferPrice(masterRoom: AgodaMasterRoom): Money | undefined {
 export function mapMasterRoomsToStays(property: Property, masterRooms: readonly AgodaMasterRoom[]): Stay[] {
 	const cheapestByKind = new Map<RoomKind, Money>();
 	for (const masterRoom of masterRooms) {
-		if (!masterRoom.name) continue;
+		const name = asNonEmptyString(masterRoom.name);
+		if (!name) continue;
 		const price = cheapestOfferPrice(masterRoom);
 		if (!price) continue;
-		const kind = classifyAgodaRoomKind(masterRoom.name);
+		const kind = classifyAgodaRoomKind(name);
 		const existing = cheapestByKind.get(kind);
 		if (!existing || price.minorUnits < existing.minorUnits) cheapestByKind.set(kind, price);
 	}
@@ -203,8 +255,12 @@ export function mapMasterRoomsToStays(property: Property, masterRooms: readonly 
 }
 
 export function mapGetPricesToStays(property: Property, response: AgodaGetPricesResponse): Stay[] {
-	const masterRooms = response.data?.roomGridData?.masterRooms ?? [];
-	return mapMasterRoomsToStays(property, masterRooms);
+	const masterRooms = response.data?.roomGridData?.masterRooms;
+	// `Array.isArray`, not `?? []`: a nullish-coalesce only catches `masterRooms` being
+	// absent, not it being present but the wrong shape (an object, say) — either way this
+	// adapter has no room list to read, but only the array check protects the `for...of`
+	// below from throwing on something that isn't iterable.
+	return mapMasterRoomsToStays(property, Array.isArray(masterRooms) ? masterRooms : []);
 }
 
 /**

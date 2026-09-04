@@ -268,9 +268,9 @@ function createAgodaStayProvider(options: AgodaProviderOptions = {}): StayProvid
 			if (!searchResult.ok) {
 				return { ok: false, error: searchResult.error, source: source(), requestsUsed };
 			}
-			const properties = searchResult.data.data?.properties ?? [];
+			const properties = searchResult.data.data?.properties;
 			candidates = [];
-			for (const property of properties) {
+			for (const property of Array.isArray(properties) ? properties : []) {
 				const candidate = mapSearchPropertyToCandidate(property);
 				if (candidate) candidates.push(candidate);
 			}

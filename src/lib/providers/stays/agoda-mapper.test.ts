@@ -11,6 +11,7 @@ import {
 	extractHeadlinePrice,
 	filterWithinRadius,
 	mapGetPricesToStays,
+	mapMasterRoomsToStays,
 	mapSearchPropertyToCandidate,
 	resolveLocationLabel,
 	toMoney
@@ -154,6 +155,144 @@ describe('extractHeadlinePrice / filterWithinRadius (synthetic)', () => {
 		};
 		const result = filterWithinRadius([near, far], { latitude: 48.2082, longitude: 16.3738 }, 25);
 		expect(result.map((c) => c.propertyId)).toEqual([1]);
+	});
+});
+
+/**
+ * Issue #68: this adapter has no captured evidence of Agoda ever sending a wrong-typed
+ * field, but the scraper-API risk applies here the same as it does everywhere else in this
+ * sweep. Each case below takes the same real, good fixture used above and corrupts exactly
+ * one field a mapper function actually reads, asserting the corrupted item is dropped
+ * (never a thrown error, never a fabricated price) — the "drop the bad item, keep the
+ * rest" rule this adapter follows since real captured fixtures exist for it, unlike Kiwi.
+ */
+describe('runtime validation of an unverified field type (corrupted fixture)', () => {
+	const properties = searchFixture.data?.properties ?? [];
+	const mercure = properties.find((p) => p.propertyId === 50373)!;
+	const wombatsMasterRoom = wombatsFixture.data?.roomGridData?.masterRooms?.[0]!;
+
+	it('drops a candidate whose price is null rather than reporting a free stay', () => {
+		// null * 100 === 0 in JavaScript — the exact "worst possible output" this issue
+		// warns about: a wrong price that looks real instead of an error or a gap.
+		const corrupted = {
+			...mercure,
+			pricing: {
+				offers: [
+					{
+						roomOffers: [
+							{
+								room: {
+									mseRoomSummaries: [
+										{
+											pricingSummaries: [
+												{ currency: 'USD', price: { perRoomPerNight: { inclusive: { display: null as unknown as number } } } }
+											]
+										}
+									]
+								}
+							}
+						]
+					}
+				]
+			}
+		};
+		expect(mapSearchPropertyToCandidate(corrupted)).toBeUndefined();
+	});
+
+	it('drops a candidate whose price is a non-numeric string rather than reporting NaN', () => {
+		const corrupted = {
+			...mercure,
+			pricing: {
+				offers: [
+					{
+						roomOffers: [
+							{
+								room: {
+									mseRoomSummaries: [
+										{
+											pricingSummaries: [
+												{ currency: 'USD', price: { perRoomPerNight: { inclusive: { display: 'N/A' as unknown as number } } } }
+											]
+										}
+									]
+								}
+							}
+						]
+					}
+				]
+			}
+		};
+		expect(mapSearchPropertyToCandidate(corrupted)).toBeUndefined();
+	});
+
+	it('drops a candidate whose latitude is a string instead of crashing or coercing it', () => {
+		const corrupted = {
+			...mercure,
+			content: {
+				...mercure.content,
+				informationSummary: {
+					...mercure.content?.informationSummary,
+					geoInfo: { latitude: '48.2' as unknown as number, longitude: 16.37 }
+				}
+			}
+		};
+		expect(mapSearchPropertyToCandidate(corrupted)).toBeUndefined();
+	});
+
+	it('drops a candidate whose displayName is a number instead of throwing on .trim()', () => {
+		// Before issue #68's fix, `info?.displayName?.trim()` would throw a TypeError here
+		// (numbers have no .trim method), taking the whole search down with it.
+		const corrupted = {
+			...mercure,
+			content: {
+				...mercure.content,
+				informationSummary: { ...mercure.content?.informationSummary, displayName: 12345 as unknown as string }
+			}
+		};
+		expect(() => mapSearchPropertyToCandidate(corrupted)).not.toThrow();
+		expect(mapSearchPropertyToCandidate(corrupted)).toBeUndefined();
+	});
+
+	it('drops a candidate whose propertyId is a string rather than carrying it through wrongly typed', () => {
+		const corrupted = { ...mercure, propertyId: '50373' as unknown as number };
+		expect(mapSearchPropertyToCandidate(corrupted)).toBeUndefined();
+	});
+
+	it('skips a non-string image URL instead of throwing on .startsWith()', () => {
+		const corrupted = {
+			...mercure,
+			content: {
+				...mercure.content,
+				images: { hotelImages: [{ urls: [{ key: 'original', value: 42 as unknown as string }] }] }
+			}
+		};
+		const candidate = mapSearchPropertyToCandidate(corrupted);
+		expect(candidate).toBeDefined();
+		expect(candidate?.property.images).toEqual([]);
+	});
+
+	it('treats a non-array masterRooms as no rooms rather than throwing on for...of', () => {
+		const property: Property = {
+			name: 'Test Property',
+			coordinates: { latitude: 48.2, longitude: 16.37 },
+			images: []
+		};
+		const corrupted = { data: { roomGridData: { masterRooms: { not: 'an array' } as never } } };
+		expect(() => mapGetPricesToStays(property, corrupted)).not.toThrow();
+		expect(mapGetPricesToStays(property, corrupted)).toEqual([]);
+	});
+
+	it('drops a room type whose price is a non-numeric string rather than reporting NaN', () => {
+		const corrupted = {
+			...wombatsMasterRoom,
+			rooms: [{ currency: 'EUR', inclusivePrice: { display: 'bad-data' as unknown as number } }]
+		};
+		const property: Property = {
+			name: "Wombat's City Hostel Vienna Naschmarkt",
+			coordinates: { latitude: 48.19685745239258, longitude: 16.36066246032715 },
+			images: []
+		};
+		expect(mapMasterRoomsToStays(property, [corrupted])).toEqual([]);
 	});
 });
 

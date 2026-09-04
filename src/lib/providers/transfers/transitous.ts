@@ -33,7 +33,7 @@ import {
 	TRANSITOUS_PROVIDER_ID
 } from './transitous-client';
 import { localDateTimeToUtcInstant } from './transitous-datetime';
-import { mapPlanResponseToTransfer } from './transitous-mapper';
+import { mapPlanResponseToTransfer, TransitousMapMalformedResponseError } from './transitous-mapper';
 
 /**
  * A schedule fetched for a specific instant doesn't need "stale-while-revalidate" — unlike
@@ -203,6 +203,20 @@ function mapThrownToResult<T>(cause: unknown, fetchedAt: string): ProviderResult
 		return {
 			ok: false,
 			error: { code: 'malformed-response', message: cause.message, cause: cause.cause },
+			source,
+			requestsUsed: 1
+		};
+	}
+
+	if (cause instanceof TransitousMapMalformedResponseError) {
+		// A request DID reach Transitous and come back as valid JSON with a real
+		// `itineraries` array — transitous-client.ts's own shape check passed — but
+		// transitous-mapper.ts couldn't read the fields inside it (issue #68). Same
+		// requestsUsed accounting as the client-level TransitousMalformedResponseError case
+		// just above: this counts as one real, already-spent request.
+		return {
+			ok: false,
+			error: { code: 'malformed-response', message: cause.message },
 			source,
 			requestsUsed: 1
 		};

@@ -174,6 +174,23 @@ describe('searchStays', () => {
 		});
 	});
 
+	it('maps Agoda’s own soft-error 200 (dead/rejected endpoint) to malformed-response, not zero results', async () => {
+		// Issue #68's worked example, generalised: a scraper-API endpoint answering
+		// `{"status":false,"message":"..."}` with HTTP 200 (docs/PROVIDERS.md documents this
+		// exact shape for Agoda, and Sky Scrapper's own dead searchFlightEverywhere endpoint
+		// for the same pattern elsewhere). Before this fix, agoda-client.ts's shape check
+		// accepted any object, so this would have silently become "0 properties found"
+		// rather than a reported failure.
+		const fetchImpl = fixtureFetch({
+			'https://agoda-com.p.rapidapi.com/hotels-homes/overnight-stays/search': () =>
+				new Response(JSON.stringify({ status: false, message: 'Deprecated version.' }), { status: 200 })
+		});
+		const provider = createAgodaStayProvider({ store: new MemoryCacheStore(), fetchImpl });
+		const result = await provider.searchStays(query, { signal: new AbortController().signal, keys: apiKeys });
+
+		expect(result).toMatchObject({ ok: false, error: { code: 'malformed-response' }, requestsUsed: 1 });
+	});
+
 	it('respects an already-cancelled signal without making any request', async () => {
 		const controller = new AbortController();
 		controller.abort();
