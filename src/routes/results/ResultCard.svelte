@@ -66,6 +66,19 @@
 	const showFreshness = $derived(freshness.tone !== 'neutral');
 
 	const connectionLabel = $derived(connectionAirport?.city.name ?? connectionCode);
+	// The owner, on a trip connecting through Gatwick: "london has multiple airports so the
+	// string LGW must be in there. and the other origin and end also should have city
+	// name." Both halves of that were true and they pulled opposite ways: the stopover
+	// named a city and dropped the code, on the one leg where the code decides whether the
+	// trip is even feasible (Gatwick and Heathrow are 76km and an hour and a half apart),
+	// while the endpoints printed a code with no place attached, unreadable to anyone who
+	// does not already know BVC is Boa Vista. Every leg now carries both.
+	const originCity = $derived(itinerary.originAirport.city.name);
+	const destinationCity = $derived(itinerary.destinationAirport.city.name);
+	// Only when it says something the city does not. "Pafos PFO" earns both; a city whose
+	// name the code already repeats does not, and neither does an airport whose city we
+	// could not resolve, where `connectionLabel` is already the bare code.
+	const showConnectionCode = $derived(connectionLabel !== connectionCode);
 	// The owner's report was one line reading "Velika Gorica ZAG": the wrong city name
 	// (fixed in data/airport-city-names.ts) and no country at all. A stopover is a place
 	// he has to decide about, and "Zagreb" alone still leaves him working out which
@@ -111,27 +124,34 @@
 		<div class="route">
 			<span class="route-leg">
 				<Flag country={itinerary.originAirport.country} />
-				<span class="iata font-mono tabular-nums">{itinerary.originAirport.iataCode}</span>
+				<span class="place"
+					><span class="city">{originCity}</span><span class="iata font-mono tabular-nums"
+						>{itinerary.originAirport.iataCode}</span
+					></span
+				>
 			</span>
 			<span class="route-arrow" aria-hidden="true">→</span>
 			<span class="route-leg route-leg-stopover">
 				<!-- Decorative here alone: this leg spells the country out beside the flag,
 				     so announcing it twice only slows a screen reader down. -->
 				<Flag country={connectionAirport?.country} decorative />
-				<!-- City and country share one flex item on purpose: they are one place
-				     name, and separate items would put the row's gap in front of the
-				     comma. The stopover's IATA code is not repeated here: the trip strip
-				     right below prints it on the boundary it actually names. -->
+				<!-- City, code and country share one flex item on purpose: they are one
+				     place name, and separate items would put the row's gap in front of the
+				     comma. -->
 				<span class="place"
-					><span class="city">{connectionLabel}</span>{#if connectionCountry}<span class="country"
-							>, {connectionCountry}</span
-						>{/if}</span
+					><span class="city">{connectionLabel}</span>{#if showConnectionCode}<span
+							class="iata font-mono tabular-nums">{connectionCode}</span
+						>{/if}{#if connectionCountry}<span class="country">, {connectionCountry}</span>{/if}</span
 				>
 			</span>
 			<span class="route-arrow" aria-hidden="true">→</span>
 			<span class="route-leg">
 				<Flag country={itinerary.destinationAirport.country} />
-				<span class="iata font-mono tabular-nums">{itinerary.destinationAirport.iataCode}</span>
+				<span class="place"
+					><span class="city">{destinationCity}</span><span class="iata font-mono tabular-nums"
+						>{itinerary.destinationAirport.iataCode}</span
+					></span
+				>
 			</span>
 			{#if isDeprioritized || showFreshness}
 				<span class="header-badges">
@@ -234,6 +254,42 @@
 		display: inline-flex;
 		align-items: baseline;
 		gap: var(--space-1);
+		/* Three place names on one row is more than a 375px phone holds, so a leg wraps
+		   whole rather than splitting a city from its code. */
+		min-width: 0;
+	}
+
+	.place {
+		display: inline-flex;
+		align-items: baseline;
+		min-width: 0;
+	}
+
+	/* Spaced by margin, not by the flex gap: a gap would also sit between the code and
+	   the country's leading comma, printing "London LGW , United Kingdom". */
+	.place .iata {
+		margin-left: var(--space-1);
+	}
+
+	.place .city {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	/* Three cities and three codes already wrap to three lines on a 375px phone, and the
+	   flag beside the stopover says the country without spending one of them. Measured:
+	   the route block is 89px tall with the country and 50px without, against a card
+	   #197 had just brought down to 462px. The name comes back as soon as there is room
+	   for it, and the flag carries it meanwhile. */
+	.country {
+		display: none;
+	}
+
+	@media (min-width: 30rem) {
+		.country {
+			display: inline;
+		}
 	}
 
 	.route-leg-stopover .city {
