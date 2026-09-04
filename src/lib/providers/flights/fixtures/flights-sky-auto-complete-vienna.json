@@ -1,0 +1,31 @@
+{
+  "data": [
+    {
+      "presentation": {
+        "title": "Vienna",
+        "suggestionTitle": "Vienna (VIE)",
+        "subtitle": "Austria",
+        "id": "eyJlIjoiOTU2NzM0NDQiLCJzIjoiVklFIiwiaCI6IjI3NTQ3Mzk1IiwidCI6IkFJUlBPUlQifQ==",
+        "skyId": "VIE"
+      },
+      "navigation": {
+        "entityId": "95673444",
+        "entityType": "AIRPORT",
+        "localizedName": "Vienna",
+        "relevantFlightParams": {
+          "skyId": "VIE",
+          "entityId": "95673444",
+          "flightPlaceType": "AIRPORT",
+          "localizedName": "Vienna"
+        },
+        "relevantHotelParams": {
+          "entityId": "27547395",
+          "entityType": "CITY",
+          "localizedName": "Vienna"
+        }
+      }
+    }
+  ],
+  "status": true,
+  "message": "Successful"
+}

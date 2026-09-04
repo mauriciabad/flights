@@ -1,0 +1,1461 @@
+{
+  "data": {
+    "context": {
+      "status": "incomplete",
+      "sessionId": "KLUv_SCN1QMA0ogdHbDrLJ2Q5EN7qp1IWrFguy6ElDIpts3OUkV8A1gczhMgy_c7KB31M25PnutQ-kbZvG9Wh8w4qaospQAMv7Qtw4iJeu8mlct3r3wLXKaiL236-82yOn9yBARsfyo6r7HWdXe5dbJvdJWXn843MTEZmgEqACEaAgA=",
+      "totalResults": 10
+    },
+    "itineraries": [
+      {
+        "id": "9772-2609190810--31915-0-17517-2609191035",
+        "price": {
+          "raw": 60.99,
+          "formatted": "61 \u20ac",
+          "pricingOptionId": "Qy47xmsp4nwx"
+        },
+        "legs": [
+          {
+            "id": "9772-2609190810--31915-0-17517-2609191035",
+            "origin": {
+              "id": "BCN",
+              "entityId": "95565085",
+              "name": "Barcelona",
+              "displayCode": "BCN",
+              "city": "Barcelona",
+              "country": "Spain",
+              "isHighlighted": false
+            },
+            "destination": {
+              "id": "VIE",
+              "entityId": "95673444",
+              "name": "Vienna",
+              "displayCode": "VIE",
+              "city": "Vienna",
+              "country": "Austria",
+              "isHighlighted": false
+            },
+            "durationInMinutes": 145,
+            "stopCount": 0,
+            "isSmallestStops": false,
+            "departure": "2026-09-19T08:10:00",
+            "arrival": "2026-09-19T10:35:00",
+            "timeDeltaInDays": 0,
+            "carriers": {
+              "marketing": [
+                {
+                  "id": -31915,
+                  "alternateId": "FR",
+                  "logoUrl": "https://logos.skyscnr.com/images/airlines/favicon/FR.png",
+                  "name": "Ryanair",
+                  "allianceId": 0
+                }
+              ],
+              "operationType": "fully_operated"
+            },
+            "segments": [
+              {
+                "id": "9772-17517-2609190810-2609191035--31915",
+                "origin": {
+                  "flightPlaceId": "BCN",
+                  "displayCode": "BCN",
+                  "parent": {
+                    "flightPlaceId": "BARC",
+                    "displayCode": "BCN",
+                    "name": "Barcelona",
+                    "type": "City"
+                  },
+                  "name": "Barcelona",
+                  "type": "Airport",
+                  "country": "Spain"
+                },
+                "destination": {
+                  "flightPlaceId": "VIE",
+                  "displayCode": "VIE",
+                  "parent": {
+                    "flightPlaceId": "VIEN",
+                    "displayCode": "VIE",
+                    "name": "Vienna",
+                    "type": "City"
+                  },
+                  "name": "Vienna",
+                  "type": "Airport",
+                  "country": "Austria"
+                },
+                "departure": "2026-09-19T08:10:00",
+                "arrival": "2026-09-19T10:35:00",
+                "durationInMinutes": 145,
+                "flightNumber": "12",
+                "marketingCarrier": {
+                  "id": -31915,
+                  "name": "Ryanair",
+                  "alternateId": "FR",
+                  "allianceId": 0,
+                  "displayCode": "FR"
+                },
+                "operatingCarrier": {
+                  "id": -31915,
+                  "name": "Ryanair",
+                  "alternateId": "FR",
+                  "allianceId": 0,
+                  "displayCode": "FR"
+                }
+              }
+            ]
+          }
+        ],
+        "isSelfTransfer": false,
+        "isProtectedSelfTransfer": false,
+        "farePolicy": {
+          "isChangeAllowed": false,
+          "isPartiallyChangeable": false,
+          "isCancellationAllowed": false,
+          "isPartiallyRefundable": false
+        },
+        "fareAttributes": {},
+        "isMashUp": false,
+        "hasFlexibleOptions": false,
+        "score": 0.999
+      },
+      {
+        "id": "9772-2609191145--31685-0-17517-2609191415",
+        "price": {
+          "raw": 90.34,
+          "formatted": "91 \u20ac",
+          "pricingOptionId": "vu3s1NJ-_jHD"
+        },
+        "legs": [
+          {
+            "id": "9772-2609191145--31685-0-17517-2609191415",
+            "origin": {
+              "id": "BCN",
+              "entityId": "95565085",
+              "name": "Barcelona",
+              "displayCode": "BCN",
+              "city": "Barcelona",
+              "country": "Spain",
+              "isHighlighted": false
+            },
+            "destination": {
+              "id": "VIE",
+              "entityId": "95673444",
+              "name": "Vienna",
+              "displayCode": "VIE",
+              "city": "Vienna",
+              "country": "Austria",
+              "isHighlighted": false
+            },
+            "durationInMinutes": 150,
+            "stopCount": 0,
+            "isSmallestStops": false,
+            "departure": "2026-09-19T11:45:00",
+            "arrival": "2026-09-19T14:15:00",
+            "timeDeltaInDays": 0,
+            "carriers": {
+              "marketing": [
+                {
+                  "id": -31685,
+                  "alternateId": "07",
+                  "logoUrl": "https://logos.skyscnr.com/images/airlines/favicon/07.png",
+                  "name": "Vueling Airlines",
+                  "allianceId": 0
+                }
+              ],
+              "operationType": "fully_operated"
+            },
+            "segments": [
+              {
+                "id": "9772-17517-2609191145-2609191415--31685",
+                "origin": {
+                  "flightPlaceId": "BCN",
+                  "displayCode": "BCN",
+                  "parent": {
+                    "flightPlaceId": "BARC",
+                    "displayCode": "BCN",
+                    "name": "Barcelona",
+                    "type": "City"
+                  },
+                  "name": "Barcelona",
+                  "type": "Airport",
+                  "country": "Spain"
+                },
+                "destination": {
+                  "flightPlaceId": "VIE",
+                  "displayCode": "VIE",
+                  "parent": {
+                    "flightPlaceId": "VIEN",
+                    "displayCode": "VIE",
+                    "name": "Vienna",
+                    "type": "City"
+                  },
+                  "name": "Vienna",
+                  "type": "Airport",
+                  "country": "Austria"
+                },
+                "departure": "2026-09-19T11:45:00",
+                "arrival": "2026-09-19T14:15:00",
+                "durationInMinutes": 150,
+                "flightNumber": "8714",
+                "marketingCarrier": {
+                  "id": -31685,
+                  "name": "Vueling Airlines",
+                  "alternateId": "07",
+                  "allianceId": 0,
+                  "displayCode": "VY"
+                },
+                "operatingCarrier": {
+                  "id": -31685,
+                  "name": "Vueling Airlines",
+                  "alternateId": "07",
+                  "allianceId": 0,
+                  "displayCode": "VY"
+                }
+              }
+            ]
+          }
+        ],
+        "isSelfTransfer": false,
+        "isProtectedSelfTransfer": false,
+        "farePolicy": {
+          "isChangeAllowed": false,
+          "isPartiallyChangeable": false,
+          "isCancellationAllowed": false,
+          "isPartiallyRefundable": false
+        },
+        "fareAttributes": {},
+        "isMashUp": false,
+        "hasFlexibleOptions": false,
+        "score": 0.560126
+      },
+      {
+        "id": "9772-2609191410--31685,-31915-1-17517-2609191925",
+        "price": {
+          "raw": 36.0,
+          "formatted": "36 \u20ac",
+          "pricingOptionId": "xnRXlzRn_A6G"
+        },
+        "legs": [
+          {
+            "id": "9772-2609191410--31685,-31915-1-17517-2609191925",
+            "origin": {
+              "id": "BCN",
+              "entityId": "95565085",
+              "name": "Barcelona",
+              "displayCode": "BCN",
+              "city": "Barcelona",
+              "country": "Spain",
+              "isHighlighted": false
+            },
+            "destination": {
+              "id": "VIE",
+              "entityId": "95673444",
+              "name": "Vienna",
+              "displayCode": "VIE",
+              "city": "Vienna",
+              "country": "Austria",
+              "isHighlighted": false
+            },
+            "durationInMinutes": 315,
+            "stopCount": 1,
+            "isSmallestStops": false,
+            "departure": "2026-09-19T14:10:00",
+            "arrival": "2026-09-19T19:25:00",
+            "timeDeltaInDays": 0,
+            "carriers": {
+              "marketing": [
+                {
+                  "id": -31685,
+                  "alternateId": "07",
+                  "logoUrl": "https://logos.skyscnr.com/images/airlines/favicon/07.png",
+                  "name": "Vueling Airlines",
+                  "allianceId": 0
+                },
+                {
+                  "id": -31915,
+                  "alternateId": "FR",
+                  "logoUrl": "https://logos.skyscnr.com/images/airlines/favicon/FR.png",
+                  "name": "Ryanair",
+                  "allianceId": 0
+                }
+              ],
+              "operating": [
+                {
+                  "id": -30823,
+                  "alternateId": "7A",
+                  "logoUrl": "https://logos.skyscnr.com/images/airlines/favicon/7A.png",
+                  "name": "Malta Air",
+                  "allianceId": 0
+                }
+              ],
+              "operationType": "partially_operated"
+            },
+            "segments": [
+              {
+                "id": "9772-14476-2609191410-2609191555--31685",
+                "origin": {
+                  "flightPlaceId": "BCN",
+                  "displayCode": "BCN",
+                  "parent": {
+                    "flightPlaceId": "BARC",
+                    "displayCode": "BCN",
+                    "name": "Barcelona",
+                    "type": "City"
+                  },
+                  "name": "Barcelona",
+                  "type": "Airport",
+                  "country": "Spain"
+                },
+                "destination": {
+                  "flightPlaceId": "MXP",
+                  "displayCode": "MXP",
+                  "parent": {
+                    "flightPlaceId": "MILA",
+                    "displayCode": "MIL",
+                    "name": "Milan",
+                    "type": "City"
+                  },
+                  "name": "Milan Malpensa",
+                  "type": "Airport",
+                  "country": "Italy"
+                },
+                "departure": "2026-09-19T14:10:00",
+                "arrival": "2026-09-19T15:55:00",
+                "durationInMinutes": 105,
+                "flightNumber": "6332",
+                "marketingCarrier": {
+                  "id": -31685,
+                  "name": "Vueling Airlines",
+                  "alternateId": "07",
+                  "allianceId": 0,
+                  "displayCode": "VY"
+                },
+                "operatingCarrier": {
+                  "id": -31685,
+                  "name": "Vueling Airlines",
+                  "alternateId": "07",
+                  "allianceId": 0,
+                  "displayCode": "VY"
+                }
+              },
+              {
+                "id": "14476-17517-2609191755-2609191925--31915",
+                "origin": {
+                  "flightPlaceId": "MXP",
+                  "displayCode": "MXP",
+                  "parent": {
+                    "flightPlaceId": "MILA",
+                    "displayCode": "MIL",
+                    "name": "Milan",
+                    "type": "City"
+                  },
+                  "name": "Milan Malpensa",
+                  "type": "Airport",
+                  "country": "Italy"
+                },
+                "destination": {
+                  "flightPlaceId": "VIE",
+                  "displayCode": "VIE",
+                  "parent": {
+                    "flightPlaceId": "VIEN",
+                    "displayCode": "VIE",
+                    "name": "Vienna",
+                    "type": "City"
+                  },
+                  "name": "Vienna",
+                  "type": "Airport",
+                  "country": "Austria"
+                },
+                "departure": "2026-09-19T17:55:00",
+                "arrival": "2026-09-19T19:25:00",
+                "durationInMinutes": 90,
+                "flightNumber": "215",
+                "marketingCarrier": {
+                  "id": -31915,
+                  "name": "Ryanair",
+                  "alternateId": "FR",
+                  "allianceId": 0,
+                  "displayCode": "FR"
+                },
+                "operatingCarrier": {
+                  "id": -30823,
+                  "name": "Malta Air",
+                  "alternateId": "7A",
+                  "allianceId": 0,
+                  "displayCode": "MW"
+                }
+              }
+            ]
+          }
+        ],
+        "isSelfTransfer": false,
+        "isProtectedSelfTransfer": true,
+        "farePolicy": {
+          "isChangeAllowed": false,
+          "isPartiallyChangeable": false,
+          "isCancellationAllowed": false,
+          "isPartiallyRefundable": false
+        },
+        "fareAttributes": {},
+        "tags": [
+          "third_cheapest"
+        ],
+        "isMashUp": false,
+        "hasFlexibleOptions": false,
+        "score": 0.548784
+      },
+      {
+        "id": "9772-2609191255--31685,-31915-1-17517-2609191925",
+        "price": {
+          "raw": 35.0,
+          "formatted": "35 \u20ac",
+          "pricingOptionId": "VC3knZ2C0nsU"
+        },
+        "legs": [
+          {
+            "id": "9772-2609191255--31685,-31915-1-17517-2609191925",
+            "origin": {
+              "id": "BCN",
+              "entityId": "95565085",
+              "name": "Barcelona",
+              "displayCode": "BCN",
+              "city": "Barcelona",
+              "country": "Spain",
+              "isHighlighted": false
+            },
+            "destination": {
+              "id": "VIE",
+              "entityId": "95673444",
+              "name": "Vienna",
+              "displayCode": "VIE",
+              "city": "Vienna",
+              "country": "Austria",
+              "isHighlighted": false
+            },
+            "durationInMinutes": 390,
+            "stopCount": 1,
+            "isSmallestStops": false,
+            "departure": "2026-09-19T12:55:00",
+            "arrival": "2026-09-19T19:25:00",
+            "timeDeltaInDays": 0,
+            "carriers": {
+              "marketing": [
+                {
+                  "id": -31685,
+                  "alternateId": "07",
+                  "logoUrl": "https://logos.skyscnr.com/images/airlines/favicon/07.png",
+                  "name": "Vueling Airlines",
+                  "allianceId": 0
+                },
+                {
+                  "id": -31915,
+                  "alternateId": "FR",
+                  "logoUrl": "https://logos.skyscnr.com/images/airlines/favicon/FR.png",
+                  "name": "Ryanair",
+                  "allianceId": 0
+                }
+              ],
+              "operating": [
+                {
+                  "id": -30823,
+                  "alternateId": "7A",
+                  "logoUrl": "https://logos.skyscnr.com/images/airlines/favicon/7A.png",
+                  "name": "Malta Air",
+                  "allianceId": 0
+                }
+              ],
+              "operationType": "partially_operated"
+            },
+            "segments": [
+              {
+                "id": "9772-14476-2609191255-2609191440--31685",
+                "origin": {
+                  "flightPlaceId": "BCN",
+                  "displayCode": "BCN",
+                  "parent": {
+                    "flightPlaceId": "BARC",
+                    "displayCode": "BCN",
+                    "name": "Barcelona",
+                    "type": "City"
+                  },
+                  "name": "Barcelona",
+                  "type": "Airport",
+                  "country": "Spain"
+                },
+                "destination": {
+                  "flightPlaceId": "MXP",
+                  "displayCode": "MXP",
+                  "parent": {
+                    "flightPlaceId": "MILA",
+                    "displayCode": "MIL",
+                    "name": "Milan",
+                    "type": "City"
+                  },
+                  "name": "Milan Malpensa",
+                  "type": "Airport",
+                  "country": "Italy"
+                },
+                "departure": "2026-09-19T12:55:00",
+                "arrival": "2026-09-19T14:40:00",
+                "durationInMinutes": 105,
+                "flightNumber": "6340",
+                "marketingCarrier": {
+                  "id": -31685,
+                  "name": "Vueling Airlines",
+                  "alternateId": "07",
+                  "allianceId": 0,
+                  "displayCode": "VY"
+                },
+                "operatingCarrier": {
+                  "id": -31685,
+                  "name": "Vueling Airlines",
+                  "alternateId": "07",
+                  "allianceId": 0,
+                  "displayCode": "VY"
+                }
+              },
+              {
+                "id": "14476-17517-2609191755-2609191925--31915",
+                "origin": {
+                  "flightPlaceId": "MXP",
+                  "displayCode": "MXP",
+                  "parent": {
+                    "flightPlaceId": "MILA",
+                    "displayCode": "MIL",
+                    "name": "Milan",
+                    "type": "City"
+                  },
+                  "name": "Milan Malpensa",
+                  "type": "Airport",
+                  "country": "Italy"
+                },
+                "destination": {
+                  "flightPlaceId": "VIE",
+                  "displayCode": "VIE",
+                  "parent": {
+                    "flightPlaceId": "VIEN",
+                    "displayCode": "VIE",
+                    "name": "Vienna",
+                    "type": "City"
+                  },
+                  "name": "Vienna",
+                  "type": "Airport",
+                  "country": "Austria"
+                },
+                "departure": "2026-09-19T17:55:00",
+                "arrival": "2026-09-19T19:25:00",
+                "durationInMinutes": 90,
+                "flightNumber": "215",
+                "marketingCarrier": {
+                  "id": -31915,
+                  "name": "Ryanair",
+                  "alternateId": "FR",
+                  "allianceId": 0,
+                  "displayCode": "FR"
+                },
+                "operatingCarrier": {
+                  "id": -30823,
+                  "name": "Malta Air",
+                  "alternateId": "7A",
+                  "allianceId": 0,
+                  "displayCode": "MW"
+                }
+              }
+            ]
+          }
+        ],
+        "isSelfTransfer": false,
+        "isProtectedSelfTransfer": true,
+        "farePolicy": {
+          "isChangeAllowed": false,
+          "isPartiallyChangeable": false,
+          "isCancellationAllowed": false,
+          "isPartiallyRefundable": false
+        },
+        "fareAttributes": {},
+        "tags": [
+          "cheapest"
+        ],
+        "isMashUp": false,
+        "hasFlexibleOptions": false,
+        "score": 0.51382
+      },
+      {
+        "id": "9772-2609191745--31915-0-17517-2609192010",
+        "price": {
+          "raw": 102.0,
+          "formatted": "102 \u20ac",
+          "pricingOptionId": "DXHDnJzJFruh"
+        },
+        "legs": [
+          {
+            "id": "9772-2609191745--31915-0-17517-2609192010",
+            "origin": {
+              "id": "BCN",
+              "entityId": "95565085",
+              "name": "Barcelona",
+              "displayCode": "BCN",
+              "city": "Barcelona",
+              "country": "Spain",
+              "isHighlighted": false
+            },
+            "destination": {
+              "id": "VIE",
+              "entityId": "95673444",
+              "name": "Vienna",
+              "displayCode": "VIE",
+              "city": "Vienna",
+              "country": "Austria",
+              "isHighlighted": false
+            },
+            "durationInMinutes": 145,
+            "stopCount": 0,
+            "isSmallestStops": false,
+            "departure": "2026-09-19T17:45:00",
+            "arrival": "2026-09-19T20:10:00",
+            "timeDeltaInDays": 0,
+            "carriers": {
+              "marketing": [
+                {
+                  "id": -31915,
+                  "alternateId": "FR",
+                  "logoUrl": "https://logos.skyscnr.com/images/airlines/favicon/FR.png",
+                  "name": "Ryanair",
+                  "allianceId": 0
+                }
+              ],
+              "operationType": "fully_operated"
+            },
+            "segments": [
+              {
+                "id": "9772-17517-2609191745-2609192010--31915",
+                "origin": {
+                  "flightPlaceId": "BCN",
+                  "displayCode": "BCN",
+                  "parent": {
+                    "flightPlaceId": "BARC",
+                    "displayCode": "BCN",
+                    "name": "Barcelona",
+                    "type": "City"
+                  },
+                  "name": "Barcelona",
+                  "type": "Airport",
+                  "country": "Spain"
+                },
+                "destination": {
+                  "flightPlaceId": "VIE",
+                  "displayCode": "VIE",
+                  "parent": {
+                    "flightPlaceId": "VIEN",
+                    "displayCode": "VIE",
+                    "name": "Vienna",
+                    "type": "City"
+                  },
+                  "name": "Vienna",
+                  "type": "Airport",
+                  "country": "Austria"
+                },
+                "departure": "2026-09-19T17:45:00",
+                "arrival": "2026-09-19T20:10:00",
+                "durationInMinutes": 145,
+                "flightNumber": "7351",
+                "marketingCarrier": {
+                  "id": -31915,
+                  "name": "Ryanair",
+                  "alternateId": "FR",
+                  "allianceId": 0,
+                  "displayCode": "FR"
+                },
+                "operatingCarrier": {
+                  "id": -31915,
+                  "name": "Ryanair",
+                  "alternateId": "FR",
+                  "allianceId": 0,
+                  "displayCode": "FR"
+                }
+              }
+            ]
+          }
+        ],
+        "isSelfTransfer": false,
+        "isProtectedSelfTransfer": false,
+        "farePolicy": {
+          "isChangeAllowed": false,
+          "isPartiallyChangeable": false,
+          "isCancellationAllowed": false,
+          "isPartiallyRefundable": false
+        },
+        "fareAttributes": {},
+        "isMashUp": false,
+        "hasFlexibleOptions": false,
+        "score": 0.504496
+      },
+      {
+        "id": "9772-2609191000--32544-0-17517-2609191215",
+        "price": {
+          "raw": 117.6,
+          "formatted": "118 \u20ac",
+          "pricingOptionId": "oQcb5zY3cO5c"
+        },
+        "legs": [
+          {
+            "id": "9772-2609191000--32544-0-17517-2609191215",
+            "origin": {
+              "id": "BCN",
+              "entityId": "95565085",
+              "name": "Barcelona",
+              "displayCode": "BCN",
+              "city": "Barcelona",
+              "country": "Spain",
+              "isHighlighted": false
+            },
+            "destination": {
+              "id": "VIE",
+              "entityId": "95673444",
+              "name": "Vienna",
+              "displayCode": "VIE",
+              "city": "Vienna",
+              "country": "Austria",
+              "isHighlighted": false
+            },
+            "durationInMinutes": 135,
+            "stopCount": 0,
+            "isSmallestStops": false,
+            "departure": "2026-09-19T10:00:00",
+            "arrival": "2026-09-19T12:15:00",
+            "timeDeltaInDays": 0,
+            "carriers": {
+              "marketing": [
+                {
+                  "id": -32544,
+                  "alternateId": "OS",
+                  "logoUrl": "https://logos.skyscnr.com/images/airlines/favicon/OS.png",
+                  "name": "Austrian Airlines",
+                  "allianceId": 0
+                }
+              ],
+              "operationType": "fully_operated"
+            },
+            "segments": [
+              {
+                "id": "9772-17517-2609191000-2609191215--32544",
+                "origin": {
+                  "flightPlaceId": "BCN",
+                  "displayCode": "BCN",
+                  "parent": {
+                    "flightPlaceId": "BARC",
+                    "displayCode": "BCN",
+                    "name": "Barcelona",
+                    "type": "City"
+                  },
+                  "name": "Barcelona",
+                  "type": "Airport",
+                  "country": "Spain"
+                },
+                "destination": {
+                  "flightPlaceId": "VIE",
+                  "displayCode": "VIE",
+                  "parent": {
+                    "flightPlaceId": "VIEN",
+                    "displayCode": "VIE",
+                    "name": "Vienna",
+                    "type": "City"
+                  },
+                  "name": "Vienna",
+                  "type": "Airport",
+                  "country": "Austria"
+                },
+                "departure": "2026-09-19T10:00:00",
+                "arrival": "2026-09-19T12:15:00",
+                "durationInMinutes": 135,
+                "flightNumber": "402",
+                "marketingCarrier": {
+                  "id": -32544,
+                  "name": "Austrian Airlines",
+                  "alternateId": "OS",
+                  "allianceId": -31999,
+                  "displayCode": "OS"
+                },
+                "operatingCarrier": {
+                  "id": -32544,
+                  "name": "Austrian Airlines",
+                  "alternateId": "OS",
+                  "allianceId": -31999,
+                  "displayCode": "OS"
+                }
+              }
+            ]
+          }
+        ],
+        "isSelfTransfer": false,
+        "isProtectedSelfTransfer": false,
+        "farePolicy": {
+          "isChangeAllowed": false,
+          "isPartiallyChangeable": false,
+          "isCancellationAllowed": false,
+          "isPartiallyRefundable": false
+        },
+        "fareAttributes": {},
+        "tags": [
+          "shortest"
+        ],
+        "isMashUp": false,
+        "hasFlexibleOptions": false,
+        "score": 0.502813
+      },
+      {
+        "id": "9772-2609191850--32544-0-17517-2609192110",
+        "price": {
+          "raw": 119.6,
+          "formatted": "120 \u20ac",
+          "pricingOptionId": "zqI0fJap4ZdI"
+        },
+        "legs": [
+          {
+            "id": "9772-2609191850--32544-0-17517-2609192110",
+            "origin": {
+              "id": "BCN",
+              "entityId": "95565085",
+              "name": "Barcelona",
+              "displayCode": "BCN",
+              "city": "Barcelona",
+              "country": "Spain",
+              "isHighlighted": false
+            },
+            "destination": {
+              "id": "VIE",
+              "entityId": "95673444",
+              "name": "Vienna",
+              "displayCode": "VIE",
+              "city": "Vienna",
+              "country": "Austria",
+              "isHighlighted": false
+            },
+            "durationInMinutes": 140,
+            "stopCount": 0,
+            "isSmallestStops": false,
+            "departure": "2026-09-19T18:50:00",
+            "arrival": "2026-09-19T21:10:00",
+            "timeDeltaInDays": 0,
+            "carriers": {
+              "marketing": [
+                {
+                  "id": -32544,
+                  "alternateId": "OS",
+                  "logoUrl": "https://logos.skyscnr.com/images/airlines/favicon/OS.png",
+                  "name": "Austrian Airlines",
+                  "allianceId": 0
+                }
+              ],
+              "operationType": "fully_operated"
+            },
+            "segments": [
+              {
+                "id": "9772-17517-2609191850-2609192110--32544",
+                "origin": {
+                  "flightPlaceId": "BCN",
+                  "displayCode": "BCN",
+                  "parent": {
+                    "flightPlaceId": "BARC",
+                    "displayCode": "BCN",
+                    "name": "Barcelona",
+                    "type": "City"
+                  },
+                  "name": "Barcelona",
+                  "type": "Airport",
+                  "country": "Spain"
+                },
+                "destination": {
+                  "flightPlaceId": "VIE",
+                  "displayCode": "VIE",
+                  "parent": {
+                    "flightPlaceId": "VIEN",
+                    "displayCode": "VIE",
+                    "name": "Vienna",
+                    "type": "City"
+                  },
+                  "name": "Vienna",
+                  "type": "Airport",
+                  "country": "Austria"
+                },
+                "departure": "2026-09-19T18:50:00",
+                "arrival": "2026-09-19T21:10:00",
+                "durationInMinutes": 140,
+                "flightNumber": "404",
+                "marketingCarrier": {
+                  "id": -32544,
+                  "name": "Austrian Airlines",
+                  "alternateId": "OS",
+                  "allianceId": -31999,
+                  "displayCode": "OS"
+                },
+                "operatingCarrier": {
+                  "id": -32544,
+                  "name": "Austrian Airlines",
+                  "alternateId": "OS",
+                  "allianceId": -31999,
+                  "displayCode": "OS"
+                }
+              }
+            ]
+          }
+        ],
+        "isSelfTransfer": false,
+        "isProtectedSelfTransfer": false,
+        "farePolicy": {
+          "isChangeAllowed": false,
+          "isPartiallyChangeable": false,
+          "isCancellationAllowed": false,
+          "isPartiallyRefundable": false
+        },
+        "fareAttributes": {},
+        "tags": [
+          "third_shortest"
+        ],
+        "isMashUp": false,
+        "hasFlexibleOptions": false,
+        "score": 0.495372
+      },
+      {
+        "id": "9772-2609192040--32544-0-17517-2609192255",
+        "price": {
+          "raw": 119.6,
+          "formatted": "120 \u20ac",
+          "pricingOptionId": "M5MzfepEYt__"
+        },
+        "legs": [
+          {
+            "id": "9772-2609192040--32544-0-17517-2609192255",
+            "origin": {
+              "id": "BCN",
+              "entityId": "95565085",
+              "name": "Barcelona",
+              "displayCode": "BCN",
+              "city": "Barcelona",
+              "country": "Spain",
+              "isHighlighted": false
+            },
+            "destination": {
+              "id": "VIE",
+              "entityId": "95673444",
+              "name": "Vienna",
+              "displayCode": "VIE",
+              "city": "Vienna",
+              "country": "Austria",
+              "isHighlighted": false
+            },
+            "durationInMinutes": 135,
+            "stopCount": 0,
+            "isSmallestStops": false,
+            "departure": "2026-09-19T20:40:00",
+            "arrival": "2026-09-19T22:55:00",
+            "timeDeltaInDays": 0,
+            "carriers": {
+              "marketing": [
+                {
+                  "id": -32544,
+                  "alternateId": "OS",
+                  "logoUrl": "https://logos.skyscnr.com/images/airlines/favicon/OS.png",
+                  "name": "Austrian Airlines",
+                  "allianceId": 0
+                }
+              ],
+              "operationType": "fully_operated"
+            },
+            "segments": [
+              {
+                "id": "9772-17517-2609192040-2609192255--32544",
+                "origin": {
+                  "flightPlaceId": "BCN",
+                  "displayCode": "BCN",
+                  "parent": {
+                    "flightPlaceId": "BARC",
+                    "displayCode": "BCN",
+                    "name": "Barcelona",
+                    "type": "City"
+                  },
+                  "name": "Barcelona",
+                  "type": "Airport",
+                  "country": "Spain"
+                },
+                "destination": {
+                  "flightPlaceId": "VIE",
+                  "displayCode": "VIE",
+                  "parent": {
+                    "flightPlaceId": "VIEN",
+                    "displayCode": "VIE",
+                    "name": "Vienna",
+                    "type": "City"
+                  },
+                  "name": "Vienna",
+                  "type": "Airport",
+                  "country": "Austria"
+                },
+                "departure": "2026-09-19T20:40:00",
+                "arrival": "2026-09-19T22:55:00",
+                "durationInMinutes": 135,
+                "flightNumber": "406",
+                "marketingCarrier": {
+                  "id": -32544,
+                  "name": "Austrian Airlines",
+                  "alternateId": "OS",
+                  "allianceId": -31999,
+                  "displayCode": "OS"
+                },
+                "operatingCarrier": {
+                  "id": -32544,
+                  "name": "Austrian Airlines",
+                  "alternateId": "OS",
+                  "allianceId": -31999,
+                  "displayCode": "OS"
+                }
+              }
+            ]
+          }
+        ],
+        "isSelfTransfer": false,
+        "isProtectedSelfTransfer": false,
+        "farePolicy": {
+          "isChangeAllowed": false,
+          "isPartiallyChangeable": false,
+          "isCancellationAllowed": false,
+          "isPartiallyRefundable": false
+        },
+        "fareAttributes": {},
+        "tags": [
+          "second_shortest"
+        ],
+        "isMashUp": false,
+        "hasFlexibleOptions": false,
+        "score": 0.475973
+      },
+      {
+        "id": "9772-2609191120--31685,-31915-1-17517-2609191925",
+        "price": {
+          "raw": 35.0,
+          "formatted": "35 \u20ac",
+          "pricingOptionId": "Mu3vyo47fc1w"
+        },
+        "legs": [
+          {
+            "id": "9772-2609191120--31685,-31915-1-17517-2609191925",
+            "origin": {
+              "id": "BCN",
+              "entityId": "95565085",
+              "name": "Barcelona",
+              "displayCode": "BCN",
+              "city": "Barcelona",
+              "country": "Spain",
+              "isHighlighted": false
+            },
+            "destination": {
+              "id": "VIE",
+              "entityId": "95673444",
+              "name": "Vienna",
+              "displayCode": "VIE",
+              "city": "Vienna",
+              "country": "Austria",
+              "isHighlighted": false
+            },
+            "durationInMinutes": 485,
+            "stopCount": 1,
+            "isSmallestStops": false,
+            "departure": "2026-09-19T11:20:00",
+            "arrival": "2026-09-19T19:25:00",
+            "timeDeltaInDays": 0,
+            "carriers": {
+              "marketing": [
+                {
+                  "id": -31685,
+                  "alternateId": "07",
+                  "logoUrl": "https://logos.skyscnr.com/images/airlines/favicon/07.png",
+                  "name": "Vueling Airlines",
+                  "allianceId": 0
+                },
+                {
+                  "id": -31915,
+                  "alternateId": "FR",
+                  "logoUrl": "https://logos.skyscnr.com/images/airlines/favicon/FR.png",
+                  "name": "Ryanair",
+                  "allianceId": 0
+                }
+              ],
+              "operating": [
+                {
+                  "id": -30823,
+                  "alternateId": "7A",
+                  "logoUrl": "https://logos.skyscnr.com/images/airlines/favicon/7A.png",
+                  "name": "Malta Air",
+                  "allianceId": 0
+                }
+              ],
+              "operationType": "partially_operated"
+            },
+            "segments": [
+              {
+                "id": "9772-14476-2609191120-2609191305--31685",
+                "origin": {
+                  "flightPlaceId": "BCN",
+                  "displayCode": "BCN",
+                  "parent": {
+                    "flightPlaceId": "BARC",
+                    "displayCode": "BCN",
+                    "name": "Barcelona",
+                    "type": "City"
+                  },
+                  "name": "Barcelona",
+                  "type": "Airport",
+                  "country": "Spain"
+                },
+                "destination": {
+                  "flightPlaceId": "MXP",
+                  "displayCode": "MXP",
+                  "parent": {
+                    "flightPlaceId": "MILA",
+                    "displayCode": "MIL",
+                    "name": "Milan",
+                    "type": "City"
+                  },
+                  "name": "Milan Malpensa",
+                  "type": "Airport",
+                  "country": "Italy"
+                },
+                "departure": "2026-09-19T11:20:00",
+                "arrival": "2026-09-19T13:05:00",
+                "durationInMinutes": 105,
+                "flightNumber": "6342",
+                "marketingCarrier": {
+                  "id": -31685,
+                  "name": "Vueling Airlines",
+                  "alternateId": "07",
+                  "allianceId": 0,
+                  "displayCode": "VY"
+                },
+                "operatingCarrier": {
+                  "id": -31685,
+                  "name": "Vueling Airlines",
+                  "alternateId": "07",
+                  "allianceId": 0,
+                  "displayCode": "VY"
+                }
+              },
+              {
+                "id": "14476-17517-2609191755-2609191925--31915",
+                "origin": {
+                  "flightPlaceId": "MXP",
+                  "displayCode": "MXP",
+                  "parent": {
+                    "flightPlaceId": "MILA",
+                    "displayCode": "MIL",
+                    "name": "Milan",
+                    "type": "City"
+                  },
+                  "name": "Milan Malpensa",
+                  "type": "Airport",
+                  "country": "Italy"
+                },
+                "destination": {
+                  "flightPlaceId": "VIE",
+                  "displayCode": "VIE",
+                  "parent": {
+                    "flightPlaceId": "VIEN",
+                    "displayCode": "VIE",
+                    "name": "Vienna",
+                    "type": "City"
+                  },
+                  "name": "Vienna",
+                  "type": "Airport",
+                  "country": "Austria"
+                },
+                "departure": "2026-09-19T17:55:00",
+                "arrival": "2026-09-19T19:25:00",
+                "durationInMinutes": 90,
+                "flightNumber": "215",
+                "marketingCarrier": {
+                  "id": -31915,
+                  "name": "Ryanair",
+                  "alternateId": "FR",
+                  "allianceId": 0,
+                  "displayCode": "FR"
+                },
+                "operatingCarrier": {
+                  "id": -30823,
+                  "name": "Malta Air",
+                  "alternateId": "7A",
+                  "allianceId": 0,
+                  "displayCode": "MW"
+                }
+              }
+            ]
+          }
+        ],
+        "isSelfTransfer": false,
+        "isProtectedSelfTransfer": true,
+        "farePolicy": {
+          "isChangeAllowed": false,
+          "isPartiallyChangeable": false,
+          "isCancellationAllowed": false,
+          "isPartiallyRefundable": false
+        },
+        "fareAttributes": {},
+        "tags": [
+          "second_cheapest"
+        ],
+        "isMashUp": false,
+        "hasFlexibleOptions": false,
+        "score": 0.438391
+      },
+      {
+        "id": "9772-2609191310--30596,-31915-1-17517-2609191925",
+        "price": {
+          "raw": 49.0,
+          "formatted": "49 \u20ac",
+          "pricingOptionId": "_YOmAUrgQKyO"
+        },
+        "legs": [
+          {
+            "id": "9772-2609191310--30596,-31915-1-17517-2609191925",
+            "origin": {
+              "id": "BCN",
+              "entityId": "95565085",
+              "name": "Barcelona",
+              "displayCode": "BCN",
+              "city": "Barcelona",
+              "country": "Spain",
+              "isHighlighted": false
+            },
+            "destination": {
+              "id": "VIE",
+              "entityId": "95673444",
+              "name": "Vienna",
+              "displayCode": "VIE",
+              "city": "Vienna",
+              "country": "Austria",
+              "isHighlighted": false
+            },
+            "durationInMinutes": 375,
+            "stopCount": 1,
+            "isSmallestStops": false,
+            "departure": "2026-09-19T13:10:00",
+            "arrival": "2026-09-19T19:25:00",
+            "timeDeltaInDays": 0,
+            "carriers": {
+              "marketing": [
+                {
+                  "id": -30596,
+                  "alternateId": "I*",
+                  "logoUrl": "https://logos.skyscnr.com/images/airlines/favicon/I*.png",
+                  "name": "Wizz Air Malta",
+                  "allianceId": 0
+                },
+                {
+                  "id": -31915,
+                  "alternateId": "FR",
+                  "logoUrl": "https://logos.skyscnr.com/images/airlines/favicon/FR.png",
+                  "name": "Ryanair",
+                  "allianceId": 0
+                }
+              ],
+              "operating": [
+                {
+                  "id": -30823,
+                  "alternateId": "7A",
+                  "logoUrl": "https://logos.skyscnr.com/images/airlines/favicon/7A.png",
+                  "name": "Malta Air",
+                  "allianceId": 0
+                }
+              ],
+              "operationType": "partially_operated"
+            },
+            "segments": [
+              {
+                "id": "9772-14476-2609191310-2609191500--30596",
+                "origin": {
+                  "flightPlaceId": "BCN",
+                  "displayCode": "BCN",
+                  "parent": {
+                    "flightPlaceId": "BARC",
+                    "displayCode": "BCN",
+                    "name": "Barcelona",
+                    "type": "City"
+                  },
+                  "name": "Barcelona",
+                  "type": "Airport",
+                  "country": "Spain"
+                },
+                "destination": {
+                  "flightPlaceId": "MXP",
+                  "displayCode": "MXP",
+                  "parent": {
+                    "flightPlaceId": "MILA",
+                    "displayCode": "MIL",
+                    "name": "Milan",
+                    "type": "City"
+                  },
+                  "name": "Milan Malpensa",
+                  "type": "Airport",
+                  "country": "Italy"
+                },
+                "departure": "2026-09-19T13:10:00",
+                "arrival": "2026-09-19T15:00:00",
+                "durationInMinutes": 110,
+                "flightNumber": "6316",
+                "marketingCarrier": {
+                  "id": -30596,
+                  "name": "Wizz Air Malta",
+                  "alternateId": "I*",
+                  "allianceId": 0,
+                  "displayCode": "W4"
+                },
+                "operatingCarrier": {
+                  "id": -30596,
+                  "name": "Wizz Air Malta",
+                  "alternateId": "I*",
+                  "allianceId": 0,
+                  "displayCode": "W4"
+                }
+              },
+              {
+                "id": "14476-17517-2609191755-2609191925--31915",
+                "origin": {
+                  "flightPlaceId": "MXP",
+                  "displayCode": "MXP",
+                  "parent": {
+                    "flightPlaceId": "MILA",
+                    "displayCode": "MIL",
+                    "name": "Milan",
+                    "type": "City"
+                  },
+                  "name": "Milan Malpensa",
+                  "type": "Airport",
+                  "country": "Italy"
+                },
+                "destination": {
+                  "flightPlaceId": "VIE",
+                  "displayCode": "VIE",
+                  "parent": {
+                    "flightPlaceId": "VIEN",
+                    "displayCode": "VIE",
+                    "name": "Vienna",
+                    "type": "City"
+                  },
+                  "name": "Vienna",
+                  "type": "Airport",
+                  "country": "Austria"
+                },
+                "departure": "2026-09-19T17:55:00",
+                "arrival": "2026-09-19T19:25:00",
+                "durationInMinutes": 90,
+                "flightNumber": "215",
+                "marketingCarrier": {
+                  "id": -31915,
+                  "name": "Ryanair",
+                  "alternateId": "FR",
+                  "allianceId": 0,
+                  "displayCode": "FR"
+                },
+                "operatingCarrier": {
+                  "id": -30823,
+                  "name": "Malta Air",
+                  "alternateId": "7A",
+                  "allianceId": 0,
+                  "displayCode": "MW"
+                }
+              }
+            ]
+          }
+        ],
+        "isSelfTransfer": false,
+        "isProtectedSelfTransfer": true,
+        "farePolicy": {
+          "isChangeAllowed": false,
+          "isPartiallyChangeable": false,
+          "isCancellationAllowed": false,
+          "isPartiallyRefundable": false
+        },
+        "fareAttributes": {},
+        "isMashUp": false,
+        "hasFlexibleOptions": false,
+        "score": 0.364813
+      }
+    ],
+    "messages": [],
+    "filterStats": {
+      "duration": {
+        "min": 135,
+        "max": 485,
+        "multiCityMin": 135,
+        "multiCityMax": 485
+      },
+      "airports": [
+        {
+          "city": "Barcelona",
+          "airports": [
+            {
+              "id": "BCN",
+              "entityId": "95565085",
+              "name": "Barcelona"
+            }
+          ]
+        },
+        {
+          "city": "Vienna",
+          "airports": [
+            {
+              "id": "VIE",
+              "entityId": "95673444",
+              "name": "Vienna"
+            }
+          ]
+        }
+      ],
+      "carriers": [
+        {
+          "id": -32544,
+          "alternateId": "OS",
+          "logoUrl": "https://logos.skyscnr.com/images/airlines/favicon/OS.png",
+          "name": "Austrian Airlines",
+          "allianceId": -31999
+        },
+        {
+          "id": -31915,
+          "alternateId": "FR",
+          "logoUrl": "https://logos.skyscnr.com/images/airlines/favicon/FR.png",
+          "name": "Ryanair",
+          "allianceId": 0
+        },
+        {
+          "id": -31685,
+          "alternateId": "07",
+          "logoUrl": "https://logos.skyscnr.com/images/airlines/favicon/07.png",
+          "name": "Vueling Airlines",
+          "allianceId": 0
+        }
+      ],
+      "stopPrices": {
+        "direct": {
+          "isPresent": true,
+          "formattedPrice": "61 \u20ac",
+          "rawPrice": 61.0
+        },
+        "one": {
+          "isPresent": true,
+          "formattedPrice": "35 \u20ac",
+          "rawPrice": 35.0
+        },
+        "twoOrMore": {
+          "isPresent": false
+        }
+      },
+      "alliances": [
+        {
+          "id": -31999,
+          "name": "Star Alliance"
+        }
+      ]
+    },
+    "flightsSessionId": "93c7bd60-0e59-40be-a444-ee9e459f6418",
+    "destinationImageUrl": "https://content.skyscnr.com/m/3719e8f4a5daf43d/original/Flights-Placeholder.jpg",
+    "token": "eyJhIjoxLCJjIjowLCJpIjowLCJjYyI6ImVjb25vbXkiLCJvIjoiQkNOIiwiZCI6IlZJRSIsImQxIjoiMjAyNi0wOS0xOSJ9"
+  },
+  "status": true,
+  "message": "Successful"
+}
