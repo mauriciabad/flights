@@ -55,6 +55,13 @@
 	let providerStatuses = $state<Record<string, ProviderStatus>>({});
 	let widenOptions = $state<WidenOption[]>([]);
 	let calendarSummaries = $state<string[]>([]);
+	/** Issue #107: set from the primary search's final snapshot only (never a widen's, same
+	 * gating `trackWidenOptions` already uses for `widenOptions` below), and only meaningful
+	 * once `results.length === 0 && !stillSearching`, the one place the empty-results copy
+	 * needs to tell "no stopover beats a direct flight" apart from "found nothing at all."
+	 * See `types.ts`'s `SearchSnapshot.hasDirectRoute` doc comment for why it's `false` on
+	 * every other snapshot, not only an absent one. */
+	let directRouteKnown = $state(false);
 	let sortMode = $state<SortMode>('score');
 	let filters = $state<ResultFilters>(emptyFilters());
 	let connectionAirports = $state<Record<string, Airport>>({});
@@ -104,7 +111,10 @@
 		try {
 			for await (const snapshot of stream) {
 				providerStatuses = { ...providerStatuses, ...snapshot.providers };
-				if (options.trackWidenOptions) widenOptions = snapshot.widenOptions;
+				if (options.trackWidenOptions) {
+					widenOptions = snapshot.widenOptions;
+					directRouteKnown = snapshot.hasDirectRoute;
+				}
 				const compare = untrack(() => compareResults(sortMode));
 				for (const group of snapshot.itineraryGroups) {
 					const scored = deriveScoredResult(group, snapshot, sequenceFor(group.connectionAirportCode));
@@ -124,6 +134,7 @@
 		providerStatuses = {};
 		widenOptions = [];
 		calendarSummaries = [];
+		directRouteKnown = false;
 		sequenceByConnection.clear();
 		nextSequence = 1;
 		if (!activeQuery) return;
@@ -301,10 +312,23 @@
 				{/if}
 
 				{#if results.length === 0 && !stillSearching}
-					<EmptyState
-						title="No itineraries found"
-						description="None of the free providers above found a workable connection for this search. Widen the search above, or try a different destination."
-					/>
+					{#if directRouteKnown}
+						<!-- Issue #107: this app only ever searches for a stopover, so an empty result
+						     here just as often means "the direct flight is the better answer" as it
+						     means "nothing works." For a well-served route like BCN to CDG, it's almost
+						     always the former. Saying so plainly is the whole point; dressing a good
+						     outcome up as a failure ("try a different destination") is exactly what
+						     issue #107 reported. -->
+						<EmptyState
+							title="Well served direct"
+							description={`${query.originAirport} to ${query.destinationAirport} is well served direct, so there's no stopover here worth turning into a trip. That's not a claim no flights exist, just that a stopover isn't the better answer this time.`}
+						/>
+					{:else}
+						<EmptyState
+							title="No itineraries found"
+							description="None of the free providers above found a workable connection for this search. Widen the search above, or try a different destination."
+						/>
+					{/if}
 				{/if}
 
 				<!-- Keyed on result.id (the connection airport code, stable for the whole

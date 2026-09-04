@@ -235,6 +235,18 @@ export interface SearchSnapshot {
 	 * produced no stay resources at all.
 	 */
 	stayCandidatesByConnection: Record<IataAirportCode, Stay[]>;
+	/**
+	 * Issue #107: `true` once `runSearch` has confirmed, via a free keyless source
+	 * (`algorithm/connections.ts`'s `hasKnownDirectRoute`), that the query's origin and
+	 * destination already have a direct route between them. Only ever computed on the final
+	 * `done` snapshot, and only when this search's own `itineraryGroups` came back empty.
+	 * Checking it any earlier would mean spending a free-but-real network call on every
+	 * search, most of which never need the answer. `false` on every other snapshot; a
+	 * results UI should read it only once `done` is `true` and there is nothing to show,
+	 * to tell "no stopover beats a direct flight" apart from "this search genuinely found
+	 * nothing" (see `+page.svelte`'s empty state).
+	 */
+	hasDirectRoute: boolean;
 }
 
 /** One connection candidate the caller wants confirmed with a metered provider, for a

@@ -702,6 +702,82 @@ describe('runSearch: quota-aware stay pricing (issue #94)', () => {
 	});
 });
 
+describe('runSearch: hasDirectRoute on the final snapshot (issue #107)', () => {
+	it('is true when the only free source has no stopover route but does list ORIGIN -> DEST directly', async () => {
+		// No candidate at all: the only edge this provider knows from ORIGIN is DEST itself,
+		// which findConnectionCandidates always excludes (`code !== destination`) since
+		// connecting through the destination isn't a stopover. That's exactly the shape a
+		// well-served direct route produces in practice: no candidate survives detour
+		// filtering either, for the same "any stopover would be a big detour" reason.
+		const free = createFakeFlightProvider({ id: 'free-flights', routes: { [ORIGIN]: [DEST] } });
+		const registry = new ProviderRegistry([
+			free.provider,
+			createFakeStayProvider({ id: 'stays' }),
+			createFakeTransferProvider()
+		]);
+		const deps: SearchDependencies = { registry, keys: {}, resolveAirport, currency: 'EUR' };
+
+		const snapshots = await drain(runSearch(BASE_QUERY, deps));
+		const final = snapshots.at(-1)!;
+
+		expect(final.done).toBe(true);
+		expect(final.candidates).toHaveLength(0);
+		expect(final.itineraryGroups).toHaveLength(0);
+		expect(final.hasDirectRoute).toBe(true);
+	});
+
+	it('is false when no free source lists any route at all, not just no stopover', async () => {
+		const free = createFakeFlightProvider({ id: 'free-flights', routes: {} });
+		const registry = new ProviderRegistry([
+			free.provider,
+			createFakeStayProvider({ id: 'stays' }),
+			createFakeTransferProvider()
+		]);
+		const deps: SearchDependencies = { registry, keys: {}, resolveAirport, currency: 'EUR' };
+
+		const snapshots = await drain(runSearch(BASE_QUERY, deps));
+		const final = snapshots.at(-1)!;
+
+		expect(final.candidates).toHaveLength(0);
+		expect(final.itineraryGroups).toHaveLength(0);
+		expect(final.hasDirectRoute).toBe(false);
+	});
+
+	it('is false on every non-final snapshot, even the one true case, so a UI can only trust it once done', async () => {
+		const free = createFakeFlightProvider({ id: 'free-flights', routes: { [ORIGIN]: [DEST] } });
+		const registry = new ProviderRegistry([
+			free.provider,
+			createFakeStayProvider({ id: 'stays' }),
+			createFakeTransferProvider()
+		]);
+		const deps: SearchDependencies = { registry, keys: {}, resolveAirport, currency: 'EUR' };
+
+		const snapshots = await drain(runSearch(BASE_QUERY, deps));
+		for (const snapshot of snapshots.slice(0, -1)) expect(snapshot.hasDirectRoute).toBe(false);
+	});
+
+	it('does not spend a metered request just to answer hasDirectRoute: a metered provider stays untouched', async () => {
+		const metered = createFakeFlightProvider({
+			id: 'metered-flights',
+			needsKey: true,
+			costPerQuery: 1,
+			routes: { [ORIGIN]: [DEST] }
+		});
+		const registry = new ProviderRegistry([
+			metered.provider,
+			createFakeStayProvider({ id: 'stays' }),
+			createFakeTransferProvider()
+		]);
+		const deps: SearchDependencies = { registry, keys: {}, resolveAirport, currency: 'EUR' };
+
+		const snapshots = await drain(runSearch(BASE_QUERY, deps));
+		const final = snapshots.at(-1)!;
+
+		expect(final.hasDirectRoute).toBe(false); // no key configured, so this provider was never free
+		expect(metered.listDirectDestinations).not.toHaveBeenCalled();
+	});
+});
+
 describe('widenSearch', () => {
 	it('spends metered requests only for the targeted candidate, capped at the confirmed budget', async () => {
 		const free = createFakeFlightProvider({

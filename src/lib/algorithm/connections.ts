@@ -633,6 +633,86 @@ export async function findConnectionCandidates(
 	return candidates.slice(0, Math.max(0, maxCandidates));
 }
 
+/**
+ * Issue #107: a cheap, keyless answer to "does a direct A -> B flight exist at all".
+ * Meant to be asked only once `findConnectionCandidates` has already come back with
+ * nothing worth a stopover for the same origin and destination, which is the moment
+ * the empty-results UI needs to say which of two different things happened: no
+ * stopover beats a direct flight (often because the route is well served direct), or
+ * the search genuinely found nothing. Reuses exactly the free sources this module
+ * already queries for its own outbound-edge lookup (a keyless `FlightProvider` such
+ * as Ryanair's route graph or the Travelpayouts cheap-routes dataset, plus the
+ * bundled fallback table). Never a new source, and never a metered one, matching
+ * this module's own "spends nothing metered unless the caller explicitly opts in"
+ * rule for candidate discovery.
+ *
+ * A `false` covers two different real situations this can't tell apart: "no free
+ * source lists a direct route" and "one exists but none of these sources happens to
+ * know about it." That is the same honesty limit the rest of this module already
+ * lives with for stopover candidates, so `false` here means "not confirmed," never
+ * "confirmed absent" (AGENTS.md: "say what you do not know rather than guessing").
+ * A caller must word its copy that way rather than asserting no flights exist.
+ */
+/**
+ * IATA *city* codes that cover more than one airport, mapped to their member airports.
+ * `hasKnownDirectRoute` needs this because a free source can name a destination by its
+ * city rather than a specific airport: the Travelpayouts cheap-routes dataset reports a
+ * Paris fare as "PAR", never which of CDG/ORY/BVA it actually flew into (the same
+ * aliasing `findConnectionCandidates` already has to filter out for a stopover
+ * candidate, this file's own comment above on "an IATA *metropolitan* code"). Without
+ * this table, checking BCN -> CDG specifically would miss a real cached direct fare
+ * that exists under the alias "BCN -> PAR" and wrongly report "not confirmed" for
+ * issue #107's own named example.
+ *
+ * Deliberately small and hand-curated, the same trade-off `connections-fallback-data.ts`
+ * makes for its bundled route table: this app carries no general IATA city-code
+ * dataset, so it covers only the handful of cities common enough for this check to
+ * plausibly matter, not every multi-airport city on earth. A city missing from this
+ * table degrades to the same "not confirmed" answer as any other unlisted route,
+ * never a wrong one.
+ */
+const METRO_CODE_MEMBERS: Readonly<Record<string, readonly IataAirportCode[]>> = {
+	PAR: ['CDG', 'ORY', 'BVA'],
+	LON: ['LHR', 'LGW', 'STN', 'LTN', 'LCY', 'SEN'],
+	ROM: ['FCO', 'CIA'],
+	MIL: ['MXP', 'LIN', 'BGY'],
+	MOW: ['SVO', 'DME', 'VKO'],
+	STO: ['ARN', 'BMA', 'NYO', 'VST'],
+	NYC: ['JFK', 'LGA', 'EWR'],
+	TYO: ['HND', 'NRT'],
+	OSA: ['ITM', 'KIX'],
+	CHI: ['ORD', 'MDW'],
+	WAS: ['IAD', 'DCA', 'BWI']
+};
+
+export async function hasKnownDirectRoute(
+	query: Pick<ConnectionQuery, 'originAirport' | 'destinationAirport' | 'soonestDeparture'>,
+	options: Pick<ConnectionGraphOptions, 'flightProviders' | 'providerKeys' | 'signal'> = {}
+): Promise<boolean> {
+	const { originAirport: origin, destinationAirport: destination } = query;
+	if (origin === destination) return false;
+
+	const { flightProviders = [], providerKeys = {}, signal } = options;
+	const effectiveSignal = signal ?? new AbortController().signal;
+	const freeSources: DirectDestinationSource[] = [
+		...flightProviders
+			.filter((provider) => isFreeProvider(provider, query))
+			.map((provider) => sourceFromProvider(provider, providerKeys, effectiveSignal)),
+		fallbackRouteSource()
+	];
+
+	const outboundEdges = await unionDirectDestinations(freeSources, origin);
+	if (outboundEdges.has(destination)) return true;
+
+	// A free source may have reported the destination's city rather than the specific
+	// airport the caller asked about (see METRO_CODE_MEMBERS above) — check every metro
+	// code that counts `destination` as a member before giving up.
+	for (const [metroCode, members] of Object.entries(METRO_CODE_MEMBERS)) {
+		if (members.includes(destination) && outboundEdges.has(metroCode)) return true;
+	}
+	return false;
+}
+
 /*
  * Follow-up (out of this issue's scope, per AGENTS.md "work only on your issue"):
  *   - A real Ryanair `FlightProvider` now exists (issue #6, `../providers/flights/ryanair`
