@@ -240,9 +240,23 @@ function createKiwiPublicFlightProvider(options: KiwiPublicProviderOptions = {})
 
 		const currency = query.currency ?? DEFAULT_CURRENCY;
 		const store = await resolveStore(options);
+		// Keyed on the four things that actually change the response, not on the whole
+		// `query`. `travellers` is the one that matters: this adapter always asks Kiwi to
+		// price a single adult (kiwi-public-queries.ts explains why), so a party of one and
+		// a party of four produce byte-identical requests. Spreading `...query` into the key
+		// would make changing the traveller count re-fetch every leg for an answer already
+		// on disk — the "loading takes a lot of time every time i reload" complaint issue
+		// #147 is about, arriving by a different route.
 		const cacheKey = defineCacheKey(
 			KIWI_PUBLIC_PROVIDER_ID,
-			{ op: 'searchOffers', ...query, currency },
+			{
+				op: 'searchOffers',
+				origin: query.origin,
+				destination: query.destination,
+				earliestDeparture: query.earliestDeparture,
+				latestDeparture: query.latestDeparture,
+				currency
+			},
 			OFFERS_TTL_MS
 		);
 

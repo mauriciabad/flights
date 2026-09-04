@@ -117,6 +117,22 @@ describe('searchOffers', () => {
 		expect(second.ok && second.requestsUsed).toBe(0);
 	});
 
+	it('reuses the cached answer when only the traveller count changed', async () => {
+		// This adapter always prices one adult, so a party of four is the same request. A
+		// cache key built from the whole query would re-fetch every leg for an answer
+		// already on disk.
+		const store = new MemoryCacheStore();
+		const fetchImpl = fixtureFetch();
+		await makeProvider(fetchImpl, store).searchOffers({ ...query, travellers: 1 }, ctx());
+		const second = await makeProvider(fetchImpl, store).searchOffers(
+			{ ...query, travellers: 4 },
+			ctx()
+		);
+
+		expect(requests).toHaveLength(1);
+		expect(second.ok && second.data).toHaveLength(1);
+	});
+
 	it('does not serve a different currency from the cached one', async () => {
 		const store = new MemoryCacheStore();
 		const fetchImpl = fixtureFetch();
