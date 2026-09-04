@@ -622,9 +622,13 @@ export async function findConnectionCandidates(
 
 /*
  * Follow-up (out of this issue's scope, per AGENTS.md "work only on your issue"):
- *   - Wire a real Ryanair-conforming `FlightProvider` into `flightProviders` once one
- *     exists — issue #2's interface and registry are merged, but no adapter
- *     implementation is, as of this writing.
+ *   - A real Ryanair `FlightProvider` now exists (issue #6, `../providers/flights/ryanair`
+ *     — `createRyanairFlightProvider()`) and is proven to interoperate with this module in
+ *     `connections.test.ts`. Actually passing it into `flightProviders` for a live search
+ *     is the search pipeline's job (issue #22), not this file's — this module stays
+ *     injectable rather than importing and instantiating a network-calling adapter itself,
+ *     the same way build.ts and score.ts stay pure and take data in rather than fetching
+ *     it.
  *   - Wire a metered aggregator's `FlightProvider` in as another `flightProviders` entry
  *     with a caller-chosen `meteredRequestBudget`, once such an adapter exists.
  */

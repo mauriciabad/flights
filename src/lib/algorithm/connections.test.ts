@@ -6,7 +6,10 @@ import {
 	type ConnectionQuery
 } from './connections';
 import type { IataAirportCode } from '../domain';
+import { MemoryCacheStore } from '../cache';
 import type { FlightProvider, ProviderResult } from '../providers/types';
+import { createRyanairFlightProvider } from '../providers/flights/ryanair';
+import routesBcnFixture from '../providers/flights/fixtures/routes-bcn.json';
 
 /** Every `ConnectionQuery` needs a `soonestDeparture` (used only to build the probe query
  * `isFreeProvider` classifies a provider with — see connections.ts), never to actually
@@ -362,5 +365,35 @@ describe('findConnectionCandidates', () => {
 		});
 		const vie = candidates.find((c) => c.airportCode === 'VIE');
 		expect(vie?.breakdown.detour).not.toBeNull();
+	});
+
+	it('interoperates with the real Ryanair FlightProvider adapter (issue #6): classified free from estimateSearchOffersCost and actually queried', async () => {
+		// Same fixture-`fetch` pattern `../providers/flights/ryanair.test.ts` itself uses:
+		// no real network call, no real IndexedDB — just this adapter's own public
+		// test-injection points (`store`, `fetchImpl`).
+		const requestedUrls: string[] = [];
+		const fetchImpl = (async (input: RequestInfo | URL) => {
+			const url = input.toString();
+			requestedUrls.push(url);
+			if (url.startsWith('https://www.ryanair.com/api/views/locate/searchWidget/routes/en/airport/')) {
+				return new Response(JSON.stringify(routesBcnFixture), { status: 200 });
+			}
+			throw new Error(`no fixture stubbed for ${url}`);
+		}) as typeof fetch;
+
+		const ryanair = createRyanairFlightProvider({ store: new MemoryCacheStore(), fetchImpl });
+
+		// No meteredRequestBudget at all (defaults to 0). If Ryanair's cost-0
+		// `estimateSearchOffersCost` were somehow not enough to classify it as free, it
+		// would never be queried under a zero budget and this would return nothing.
+		const candidates = await findConnectionCandidates(
+			{ originAirport: 'BCN', destinationAirport: 'AGP', soonestDeparture: SOONEST_DEPARTURE },
+			{ flightProviders: [ryanair] }
+		);
+
+		expect(requestedUrls.some((url) => url.includes('/routes/en/airport/'))).toBe(true);
+		expect(
+			candidates.some((c) => c.confirmedBy.outbound === 'ryanair' || c.confirmedBy.inbound === 'ryanair')
+		).toBe(true);
 	});
 });
