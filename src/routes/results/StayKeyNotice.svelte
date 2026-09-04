@@ -1,11 +1,21 @@
 <script lang="ts">
 	/**
 	 * Issue #117: the owner's own words, "'No bed priced for this stopover — total excludes
-	 * a stay.' ... it is not acceptable that is not avilable." Both stay adapters (Agoda,
-	 * Booking.com) are `needsKey: true`, so with no key ever pasted in, `resources.ts`'s
-	 * `fetchCheapestStay` filters them out before a single request goes out
-	 * (`isProviderUsable`) and every stopover on this page is silently missing a bed price.
-	 * Nothing before this notice said why, or what fixes it.
+	 * a stay.' ... it is not acceptable that is not avilable." Both stay adapters of the day
+	 * (Agoda, Booking.com) were `needsKey: true`, so with no key ever pasted in,
+	 * `resources.ts`'s `fetchCheapestStay` filtered them out before a single request went
+	 * out (`isProviderUsable`) and every stopover on this page was silently missing a bed
+	 * price. Nothing before this notice said why, or what fixed it.
+	 *
+	 * **That gap is closed, so this notice is now dormant rather than dead.**
+	 * `providers/stays/hostelworld.ts` is a keyless stay adapter registered as the baseline,
+	 * so `hasUsableStayProvider` is true for a visitor who has configured nothing and this
+	 * renders nothing — which is the outcome issue #117 asked for, reached by removing the
+	 * cause rather than by explaining it better. It is deliberately kept, and kept keyed on
+	 * the same one expression, because the condition it describes is still the true one: if
+	 * the keyless baseline is ever unregistered or Hostelworld stops answering for good,
+	 * "add a key" becomes the real fix again and this says so without anyone having to
+	 * remember to put it back.
 	 *
 	 * Rendered once per page (`+page.svelte`), not per card: `ResultCard`'s
 	 * own "No bed priced" line stays a plain per-itinerary fact, this is the one place that

@@ -25,6 +25,10 @@ export const KIWI_HOST = 'kiwi-com-cheap-flights.p.rapidapi.com';
 export const NOMINATIM_HOST = 'nominatim.openstreetmap.org';
 /** Kiwi's own keyless GraphQL endpoint (issue #157), not the dead RapidAPI listing above. */
 export const KIWI_PUBLIC_HOST = 'api.skypicker.com';
+/** Hostelworld's own keyless mobile backend, the bed equivalent of the line above.
+ * Hostelworld has no RapidAPI listing at all, so there is no metered twin to confuse it
+ * with. */
+export const HOSTELWORLD_HOST = 'api.m.hostelworld.com';
 export const OSRM_HOST = new URL(OSRM_BASE_URL).host;
 export const TRANSITOUS_HOST = new URL(TRANSITOUS_BASE_URL).host;
 
@@ -41,6 +45,7 @@ const HOST_TO_PROVIDER: Readonly<Record<string, ProviderId>> = {
 	[SKYSCANNER_HOST]: 'skyscanner',
 	[KIWI_HOST]: 'kiwi',
 	[KIWI_PUBLIC_HOST]: 'kiwi-public',
+	[HOSTELWORLD_HOST]: 'hostelworld',
 	[FLIGHTS_SKY_HOST]: 'flights-sky',
 	[OSRM_HOST]: 'osrm',
 	[TRANSITOUS_HOST]: 'transitous'

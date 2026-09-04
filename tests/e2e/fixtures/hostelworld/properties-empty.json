@@ -1,0 +1,7 @@
+{
+	"properties": [],
+	"location": {
+		"city": { "id": 0, "name": "FIXTURE Nowhere", "idCountry": 0, "country": "FIXTURE Nowhere" }
+	},
+	"pagination": { "next": "", "prev": "", "numberOfPages": 0, "totalNumberOfItems": 0 }
+}

@@ -54,6 +54,7 @@ import { flightsSkyFlightProvider } from '$lib/providers/flights/flights-sky';
 import { kiwiPublicFlightProvider } from '$lib/providers/flights/kiwi-public';
 import { agodaStayProvider } from '$lib/providers/stays/agoda';
 import { bookingStayProvider } from '$lib/providers/stays/booking';
+import { hostelworldStayProvider } from '$lib/providers/stays/hostelworld';
 import { osrmTransferProvider } from '$lib/providers/transfers/osrm';
 import { transitousTransferProvider } from '$lib/providers/transfers/transitous';
 import { ProviderRegistry } from '$lib/providers/registry';
@@ -79,6 +80,11 @@ export function getProviderRegistry(): ProviderRegistry {
 		kiwiPublicFlightProvider,
 		createSkyscannerFlightProvider(),
 		flightsSkyFlightProvider,
+		// The keyless baseline for beds, registered first for the same reason Ryanair and
+		// kiwi-public lead the flight adapters: it is the one that answers before anything is
+		// configured. `docs/ACCEPTANCE.md` condition 3, "a bed is priced into the total,"
+		// could only pass for someone who had paid until this was here.
+		hostelworldStayProvider,
 		agodaStayProvider,
 		bookingStayProvider,
 		osrmTransferProvider,

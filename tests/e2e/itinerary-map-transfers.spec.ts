@@ -1,7 +1,7 @@
 import { test, expect } from './support/fixtures';
 import { routeRyanairFlights } from './support/providers';
 import { FIXTURE_FLIGHT_NUMBERS, FIXTURE_NAMES, FIXTURE_PRICES } from './support/fixture-markers';
-import { mockKiwiPublic } from './support/providers';
+import { mockHostelworld, mockKiwiPublic } from './support/providers';
 
 /**
  * Issue #118: the owner's own complaint, verified against a real search end to end
@@ -192,6 +192,16 @@ test.describe('itinerary map: every transfer leg, distinct markers, honest geome
 		//     thing Kiwi returns, and it keeps this test measuring what it is about.
 		// -----------------------------------------------------------------
 		await mockKiwiPublic(page.context());
+
+		// -----------------------------------------------------------------
+		// 2c. Hostelworld's keyless bed source, answering with no cities. Same reasoning as
+		//     Kiwi directly above: this spec asserts the geometry of an itinerary it built
+		//     by hand, and a priced bed would add a hotel marker to the very map it is
+		//     counting markers on. It is registered rather than omitted because the adapter
+		//     is keyless and therefore always runs — an unanswered host is a blocked request,
+		//     not a quiet skip.
+		// -----------------------------------------------------------------
+		await mockHostelworld(page.context());
 
 		// -----------------------------------------------------------------
 		// 3. Transitous: no transit anywhere, so OSRM's walking route always wins

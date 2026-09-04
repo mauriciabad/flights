@@ -1,0 +1,16 @@
+{
+	"countries": [
+		{
+			"id": 15,
+			"name": "FIXTURELAND",
+			"cities": [
+				{
+					"id": 991001,
+					"name": "FIXTURELAND",
+					"latitude": 48.110298,
+					"longitude": 16.5697
+				}
+			]
+		}
+	]
+}

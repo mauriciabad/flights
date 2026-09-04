@@ -1,0 +1,358 @@
+{
+	"countries": [
+		{
+			"id": 237,
+			"name": "England",
+			"cities": [
+				{
+					"id": 12664,
+					"name": "Barrow-In-Furness",
+					"latitude": 54.1107417,
+					"longitude": -3.233757
+				},
+				{
+					"id": 242,
+					"name": "Bath",
+					"latitude": 51.3823346,
+					"longitude": -2.359271
+				},
+				{
+					"id": 14746,
+					"name": "Berwick-Upon-Tweed",
+					"latitude": 55.7669172,
+					"longitude": -2.0153046
+				},
+				{
+					"id": 718,
+					"name": "Birmingham",
+					"latitude": 52.4666667,
+					"longitude": -1.9166667
+				},
+				{
+					"id": 1812,
+					"name": "Blackpool",
+					"latitude": 53.8166667,
+					"longitude": -3.05
+				},
+				{
+					"id": 463,
+					"name": "Brighton",
+					"latitude": 50.8333333,
+					"longitude": -0.15
+				},
+				{
+					"id": 2829,
+					"name": "Bristol",
+					"latitude": 51.45,
+					"longitude": -2.5833333
+				},
+				{
+					"id": 18995,
+					"name": "Burley",
+					"latitude": 50.8251688,
+					"longitude": -1.6999909
+				},
+				{
+					"id": 3019,
+					"name": "Cambridge",
+					"latitude": 52.2,
+					"longitude": 0.1166667
+				},
+				{
+					"id": 114,
+					"name": "Canterbury",
+					"latitude": 51.2666667,
+					"longitude": 1.0833333
+				},
+				{
+					"id": 1984,
+					"name": "Cheltenham",
+					"latitude": 51.9,
+					"longitude": -2.0833333
+				},
+				{
+					"id": 15094,
+					"name": "Cirencester",
+					"latitude": 51.7154369,
+					"longitude": -1.9656944
+				},
+				{
+					"id": 1052,
+					"name": "Cornwall",
+					"latitude": 50.7851017,
+					"longitude": -4.284668
+				},
+				{
+					"id": 2582,
+					"name": "Crawley",
+					"latitude": 51.1166667,
+					"longitude": -0.1833333
+				},
+				{
+					"id": 3886,
+					"name": "Derby",
+					"latitude": 52.9333333,
+					"longitude": -1.5
+				},
+				{
+					"id": 3023,
+					"name": "Dover",
+					"latitude": 51.1279248,
+					"longitude": 1.3133595
+				},
+				{
+					"id": 16665,
+					"name": "Dulverton",
+					"latitude": 51.0367886,
+					"longitude": -3.5491333
+				},
+				{
+					"id": 5383,
+					"name": "Exeter",
+					"latitude": 50.7,
+					"longitude": -3.5333333
+				},
+				{
+					"id": 3671,
+					"name": "Gatwick",
+					"latitude": 51.1666667,
+					"longitude": -0.1833333
+				},
+				{
+					"id": 13136,
+					"name": "Gloucester",
+					"latitude": 51.864938,
+					"longitude": -2.2465324
+				},
+				{
+					"id": 8675,
+					"name": "Goole",
+					"latitude": 53.7028146,
+					"longitude": -0.8752584
+				},
+				{
+					"id": 14280,
+					"name": "Guildford",
+					"latitude": 51.2356971,
+					"longitude": -0.5719757
+				},
+				{
+					"id": 2181,
+					"name": "Harlow",
+					"latitude": 51.7737885,
+					"longitude": 0.10849
+				},
+				{
+					"id": 21045,
+					"name": "Hebden Bridge",
+					"latitude": 53.7435865,
+					"longitude": -2.0133823
+				},
+				{
+					"id": 8364,
+					"name": "High Wycombe",
+					"latitude": 51.6299525,
+					"longitude": -0.7525635
+				},
+				{
+					"id": 7602,
+					"name": "Huddersfield",
+					"latitude": 53.6447396,
+					"longitude": -1.78545
+				},
+				{
+					"id": 3902,
+					"name": "Hull",
+					"latitude": 53.7166667,
+					"longitude": -0.3333333
+				},
+				{
+					"id": 7623,
+					"name": "Ilfracombe",
+					"latitude": 51.2008603,
+					"longitude": -4.1281128
+				},
+				{
+					"id": 3479,
+					"name": "Keswick",
+					"latitude": 54.6,
+					"longitude": -3.1166667
+				},
+				{
+					"id": 11860,
+					"name": "Kirkby Stephen",
+					"latitude": 54.4739049,
+					"longitude": -2.3483299
+				},
+				{
+					"id": 3046,
+					"name": "Lake District",
+					"latitude": 54.4744267,
+					"longitude": -3.0754852
+				},
+				{
+					"id": 2989,
+					"name": "Leeds",
+					"latitude": 53.8,
+					"longitude": -1.5833333
+				},
+				{
+					"id": 13645,
+					"name": "Lewes",
+					"latitude": 50.8737352,
+					"longitude": 0.0090981
+				},
+				{
+					"id": 687,
+					"name": "Liverpool",
+					"latitude": 53.4083372,
+					"longitude": -2.9916072
+				},
+				{
+					"id": 3,
+					"name": "London",
+					"latitude": 51.5,
+					"longitude": -0.117
+				},
+				{
+					"id": 12820,
+					"name": "Macclesfield",
+					"latitude": 53.2652129,
+					"longitude": -2.1258545
+				},
+				{
+					"id": 171,
+					"name": "Manchester",
+					"latitude": 53.5,
+					"longitude": -2.2166667
+				},
+				{
+					"id": 3062,
+					"name": "Newcastle upon Tyne",
+					"latitude": 54.9750043,
+					"longitude": -1.6066146
+				},
+				{
+					"id": 2035,
+					"name": "Newquay",
+					"latitude": 50.4166667,
+					"longitude": -5.0833333
+				},
+				{
+					"id": 2237,
+					"name": "Nottingham",
+					"latitude": 52.9666667,
+					"longitude": -1.1666667
+				},
+				{
+					"id": 164,
+					"name": "Oxford",
+					"latitude": 51.75,
+					"longitude": -1.25
+				},
+				{
+					"id": 10950,
+					"name": "Peak District",
+					"latitude": 53.2882054,
+					"longitude": -1.7523193
+				},
+				{
+					"id": 22273,
+					"name": "Perranporth",
+					"latitude": 50.344434,
+					"longitude": -5.154444
+				},
+				{
+					"id": 2139,
+					"name": "Plymouth",
+					"latitude": 50.4,
+					"longitude": -4.1166667
+				},
+				{
+					"id": 2060,
+					"name": "Reading",
+					"latitude": 51.4333333,
+					"longitude": -1
+				},
+				{
+					"id": 3498,
+					"name": "Skipton",
+					"latitude": 53.9666667,
+					"longitude": -2.0166667
+				},
+				{
+					"id": 21961,
+					"name": "Somerset",
+					"latitude": 51.0634565,
+					"longitude": -2.7546704
+				},
+				{
+					"id": 3669,
+					"name": "Southampton",
+					"latitude": 50.9,
+					"longitude": -1.4
+				},
+				{
+					"id": 3035,
+					"name": "Stratford-upon-Avon",
+					"latitude": 52.1833333,
+					"longitude": -1.7
+				},
+				{
+					"id": 7391,
+					"name": "Whitby",
+					"latitude": 54.2483776,
+					"longitude": -0.5328369
+				},
+				{
+					"id": 172,
+					"name": "York",
+					"latitude": 53.9602064,
+					"longitude": -1.0814667
+				}
+			]
+		},
+		{
+			"id": 55,
+			"name": "Cyprus",
+			"cities": [
+				{
+					"id": 1319,
+					"name": "Ayia Napa",
+					"latitude": 34.9892487,
+					"longitude": 33.9994133
+				},
+				{
+					"id": 927,
+					"name": "Kyrenia",
+					"latitude": 35.3416667,
+					"longitude": 33.3166667
+				},
+				{
+					"id": 1278,
+					"name": "Larnaca",
+					"latitude": 34.916759,
+					"longitude": 33.636219
+				},
+				{
+					"id": 775,
+					"name": "Limassol",
+					"latitude": 34.675,
+					"longitude": 33.0333333
+				},
+				{
+					"id": 923,
+					"name": "Nicosia",
+					"latitude": 35.1666667,
+					"longitude": 33.3666667
+				},
+				{
+					"id": 21908,
+					"name": "Paphos",
+					"latitude": 34.7753949,
+					"longitude": 32.4217786
+				}
+			]
+		}
+	]
+}

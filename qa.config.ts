@@ -6,10 +6,16 @@ import { defineConfig, devices } from '@playwright/test';
  * and why it sits alongside `pnpm test` and `pnpm test:e2e` rather than replacing either.
  *
  * Its own port (4174, not e2e's 4173) so `pnpm test:e2e` and `pnpm qa` can run at once
- * without one killing the other's server.
+ * without one killing the other's server, and `QA_PORT` to override that when another
+ * worktree already holds it.
  */
 
-const PORT = 4174;
+// Overridable for the reason playwright.config.ts's `E2E_PORT` is, and it bit this suite
+// the first time somebody had to run it as a gate: `reuseExistingServer` is on for local
+// runs, a dozen worktrees share one machine, and 4174 was already held by another agent's
+// QA server. Without an override the choice is measuring their build or not running the
+// gate. `QA_PORT=41974 pnpm qa` gets your own. CI sets nothing and keeps 4174.
+const PORT = Number(process.env.QA_PORT ?? 4174);
 const baseURL = `http://127.0.0.1:${PORT}`;
 
 export default defineConfig({

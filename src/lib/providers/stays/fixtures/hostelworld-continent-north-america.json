@@ -1,0 +1,34 @@
+{
+	"countries": [
+		{
+			"id": 38,
+			"name": "Canada",
+			"cities": [
+				{
+					"id": 11750,
+					"name": "Algonquin Park",
+					"latitude": 45.5624294,
+					"longitude": -78.537735
+				},
+				{
+					"id": 18798,
+					"name": "Baie-Saint-Paul",
+					"latitude": 47.4440409,
+					"longitude": -70.5050641
+				},
+				{
+					"id": 4674,
+					"name": "Banff",
+					"latitude": 51.1666667,
+					"longitude": -115.5666667
+				},
+				{
+					"id": 21128,
+					"name": "Belfast",
+					"latitude": 46.0788766,
+					"longitude": -62.879113
+				}
+			]
+		}
+	]
+}

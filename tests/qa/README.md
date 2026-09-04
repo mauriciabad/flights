@@ -24,6 +24,7 @@ duplicates one.
 ```bash
 pnpm qa          # the whole suite. ~35 seconds after the build.
 pnpm qa currency # one file
+CI=1 QA_PORT=41974 pnpm qa   # your own server, when a sibling worktree holds 4174
 QA_UNPIN=1 pnpm qa   # run the known-broken checks as ordinary checks, to read their evidence
 pnpm qa:live     # keyless providers answer for real; metered ones never do
 ```

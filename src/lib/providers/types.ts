@@ -50,6 +50,7 @@ export const PROVIDER_IDS = [
 	'ryanair',
 	'agoda',
 	'booking',
+	'hostelworld',
 	'transitous',
 	'transitous-geocode',
 	'travelpayouts-cheap-routes',
