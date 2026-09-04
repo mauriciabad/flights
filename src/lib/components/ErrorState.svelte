@@ -44,6 +44,13 @@
 		/** A retry button, an "Add API key" link — whatever the owning
 		    feature can actually do about it. */
 		action?: Snippet;
+		/** The exact status and message text a real response carried, shown verbatim below
+		    `message`/`action` rather than instead of them (issue #122: a classification like
+		    "not subscribed" must sit alongside the evidence for it, never replace it — the
+		    one thing that let a working key get misdiagnosed was substituting our own
+		    sentence for what the provider actually said). Omit when no response exists to
+		    show, e.g. a network failure or a local pre-flight refusal. */
+		providerResponse?: { status: number; message: string };
 		class?: string;
 	}
 
@@ -55,6 +62,7 @@
 		provider,
 		icon,
 		action,
+		providerResponse,
 		class: className
 	}: Props = $props();
 
@@ -104,6 +112,11 @@
 		{/if}
 		{#if action}
 			<div class="error-state-action">{@render action()}</div>
+		{/if}
+		{#if providerResponse}
+			<p class="error-state-evidence font-mono">
+				{provider ?? 'Provider'} responded HTTP {providerResponse.status}: {providerResponse.message}
+			</p>
 		{/if}
 	</div>
 </div>
@@ -156,6 +169,17 @@
 
 	.error-state-action {
 		margin-top: var(--space-2);
+	}
+
+	/* Deliberately below the action button, not above it: our own headline and the fix
+	   for it come first, this is the receipt for anyone who wants to check our work. */
+	.error-state-evidence {
+		margin: var(--space-2) 0 0;
+		padding-top: var(--space-2);
+		border-top: 1px dashed var(--color-border);
+		font-size: var(--font-size-xs);
+		color: var(--color-text-faint);
+		word-break: break-word;
 	}
 
 	.error-state-error {

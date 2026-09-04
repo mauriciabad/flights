@@ -56,6 +56,91 @@ describe('checkProviderKey', () => {
 		expect(outcome.ok).toBe(true);
 	});
 
+	/**
+	 * Issue #122: Agoda's own RapidAPI wrapper answers a malformed request with HTTP 200
+	 * and `{"status":false,"message":"..."}` rather than a 4xx (confirmed live against
+	 * this exact host). A blanket `response.ok` check reads that as success; nothing here
+	 * ever fabricated "not subscribed" from it, but both failure modes are real and this
+	 * is the regression test for the one this codebase actually had.
+	 */
+	it('never reports success for a 200 with an application-level status:false body', async () => {
+		const fetchImpl = vi
+			.fn()
+			.mockResolvedValue(jsonResponse(200, { status: false, message: 'The location cannot be empty' }));
+		const outcome = await checkProviderKey(agoda, 'sk-real-but-malformed-request', new AbortController().signal, fetchImpl);
+		expect(outcome.ok).toBe(false);
+	});
+
+	it('never classifies a 200 with status:false as not-subscribed, even one that talks about subscriptions', async () => {
+		// Deliberately phrased to look like the real RapidAPI wording — proving the
+		// classifier keys off the HTTP status, never the message text alone.
+		const fetchImpl = vi
+			.fn()
+			.mockResolvedValue(jsonResponse(200, { status: false, message: 'This account is not subscribed to that feature.' }));
+		const outcome = await checkProviderKey(agoda, 'sk-real-but-malformed-request', new AbortController().signal, fetchImpl);
+		expect(outcome).toMatchObject({ ok: false, reason: 'unknown' });
+	});
+
+	it("gives a 200 with status:false its own outcome, showing the provider's exact message and status verbatim", async () => {
+		const fetchImpl = vi
+			.fn()
+			.mockResolvedValue(jsonResponse(200, { status: false, message: 'The location cannot be empty' }));
+		const outcome = await checkProviderKey(agoda, 'sk-real-but-malformed-request', new AbortController().signal, fetchImpl);
+		if (outcome.ok) throw new Error('unreachable');
+		expect(outcome.reason).toBe('unknown');
+		expect(outcome.message).toBe('The location cannot be empty');
+		expect(outcome.providerResponse).toEqual({ status: 200, message: 'The location cannot be empty' });
+	});
+
+	it('classifies not-subscribed only from a 403 carrying RapidAPI\'s literal message, never a 200', async () => {
+		const notSubscribed403 = await checkProviderKey(
+			skyscanner,
+			'sk-real-but-unsubscribed',
+			new AbortController().signal,
+			vi.fn().mockResolvedValue(jsonResponse(403, { message: 'You are not subscribed to this API.' }))
+		);
+		expect(notSubscribed403).toMatchObject({ ok: false, reason: 'not-subscribed' });
+
+		const sameWording200 = await checkProviderKey(
+			agoda,
+			'sk-real-but-unsubscribed',
+			new AbortController().signal,
+			vi.fn().mockResolvedValue(jsonResponse(200, { status: false, message: 'You are not subscribed to this API.' }))
+		);
+		expect(sameWording200).toMatchObject({ ok: false, reason: 'unknown' });
+	});
+
+	it('attaches the raw HTTP status and message to a not-subscribed outcome alongside its own headline', async () => {
+		const outcome = await checkProviderKey(
+			skyscanner,
+			'sk-real-but-unsubscribed',
+			new AbortController().signal,
+			vi.fn().mockResolvedValue(jsonResponse(403, { message: 'You are not subscribed to this API.' }))
+		);
+		if (outcome.ok) throw new Error('unreachable');
+		// Our own headline still leads, and still names the real fix.
+		expect(outcome.message.toLowerCase()).toContain('subscribed');
+		// The evidence underneath it is the provider's own words, not a paraphrase.
+		expect(outcome.providerResponse).toEqual({ status: 403, message: 'You are not subscribed to this API.' });
+	});
+
+	it('carries no providerResponse when no request was ever sent (missing key, or the local quota cap)', async () => {
+		const missingKey = await checkProviderKey(skyscanner, '', new AbortController().signal, vi.fn());
+		if (missingKey.ok) throw new Error('unreachable');
+		expect(missingKey.providerResponse).toBeUndefined();
+
+		setProviderCapOverride('flights-sky', 0);
+		const capped = await checkProviderKey(
+			SETTINGS_PROVIDERS.find((p) => p.id === 'flights-sky')!,
+			'sk-1',
+			new AbortController().signal,
+			vi.fn()
+		);
+		if (capped.ok) throw new Error('unreachable');
+		expect(capped.reason).toBe('quota-exceeded');
+		expect(capped.providerResponse).toBeUndefined();
+	});
+
 	it('classifies "You are not subscribed to this API." as not-subscribed', async () => {
 		const fetchImpl = vi
 			.fn()

@@ -7,11 +7,34 @@
  * #61) exporting a ready singleton or a zero-argument factory, so this file registers them
  * and nothing else, no adapter logic lives here.
  *
- * Kiwi is registered even though its backend is currently down (docs/PROVIDERS.md) and its
- * settings-page key field doesn't exist yet (issue #29's own catalog omits it): a key
- * nobody can enter yet just means `registry.usable('flight', keys)` never selects it, which
- * is indistinguishable from any other unconfigured provider, and this file does not have to
- * change again once that gap closes elsewhere.
+ * Kiwi (issue #51) is deliberately NOT registered here, even though the adapter module
+ * itself exists, is tested, and stays importable for whenever this changes. It used to be:
+ * the reasoning was "a key nobody can enter yet just means `registry.usable` never selects
+ * it, indistinguishable from any other unconfigured provider" — true for every code path
+ * that skips non-usable providers, but issue #128 found one that does not. The results
+ * page's "widen this search" panel exists specifically to offer an UNCONFIGURED-but-
+ * configurable provider with an "Add a key to use this" link (`estimatePriceCalendarWidenCost`,
+ * `$lib/search/price-calendar.ts`), and it iterates every REGISTERED provider of the right
+ * kind to build that list — it has no way to tell "not configured yet" apart from "cannot
+ * ever be configured," so a registered-but-uncatalogued adapter reads as the former and
+ * gets offered with a link to a settings row that does not exist. `settings/
+ * provider-catalog.ts`'s own `SETTINGS_PROVIDER_IDS` is this app's one list of providers a
+ * traveller can actually configure; being missing from it is not an oversight to route
+ * around; it should mean "do not offer this at all."
+ *
+ * And Kiwi specifically should never be offered regardless: docs/PROVIDERS.md records a
+ * real subscribed key hitting `HTTP 402 {"error":{"message":"Payment required"}}` on both
+ * of its endpoints, alongside `x-vercel-error: DEPLOYMENT_DISABLED` and a genuine
+ * `x-rapidapi-request-id` — RapidAPI's gateway really did forward the request, to a
+ * third-party backend its own owner has taken offline. No key any user could paste in
+ * fixes that. Adding a settings card would let someone spend real effort finding and
+ * subscribing to a listing that can never answer, which is worse than the dead link this
+ * fixes: a subscription with no working feature behind it, discovered only after paying
+ * the "$0/month plan" the same attention a working one gets. Un-registering, rather than
+ * only filtering it out of the widen panel, keeps this the one place a future feature has
+ * to get right instead of a rule every new call site must separately remember. `caps.ts`'s
+ * tuned entry for `kiwi` is left in place; it costs nothing to keep and saves a re-measure
+ * if the backend ever comes back and this decision is revisited.
  *
  * A module-level singleton (not rebuilt per search) because every adapter's own internal
  * state (Skyscanner's per-key "not subscribed" memo, each one's cache-store handle) is
@@ -22,7 +45,6 @@
 import { ryanairFlightProvider } from '$lib/providers/flights/ryanair';
 import { createSkyscannerFlightProvider } from '$lib/providers/flights/skyscanner';
 import { flightsSkyFlightProvider } from '$lib/providers/flights/flights-sky';
-import { kiwiFlightProvider } from '$lib/providers/flights/kiwi';
 import { agodaStayProvider } from '$lib/providers/stays/agoda';
 import { bookingStayProvider } from '$lib/providers/stays/booking';
 import { osrmTransferProvider } from '$lib/providers/transfers/osrm';
@@ -31,16 +53,17 @@ import { ProviderRegistry } from '$lib/providers/registry';
 
 let registry: ProviderRegistry | undefined;
 
-/** Every adapter this app has, registered once. Safe to call during SvelteKit's
- * prerender: every adapter here only touches the network or a browser-only store (cache,
- * IndexedDB) from inside its async methods, never at construction time, same convention
- * `keyStore`'s own "hydrated" flag exists to work around for `localStorage`. */
+/** Every adapter this app is willing to offer a traveller, registered once. Safe to call
+ * during SvelteKit's prerender: every adapter here only touches the network or a
+ * browser-only store (cache, IndexedDB) from inside its async methods, never at
+ * construction time, same convention `keyStore`'s own "hydrated" flag exists to work
+ * around for `localStorage`. See this module's own header for why Kiwi is not among
+ * these despite its adapter module existing and being fully tested. */
 export function getProviderRegistry(): ProviderRegistry {
 	registry ??= new ProviderRegistry([
 		ryanairFlightProvider,
 		createSkyscannerFlightProvider(),
 		flightsSkyFlightProvider,
-		kiwiFlightProvider,
 		agodaStayProvider,
 		bookingStayProvider,
 		osrmTransferProvider,
