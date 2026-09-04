@@ -228,6 +228,27 @@ So:
 If your work genuinely cannot proceed without spending, say so and stop. Being blocked and
 saying it is better than quietly emptying his month.
 
+## Check which branch you are on before you commit
+
+Agents share one clone plus a worktree each, and worktrees have been switched and reaped
+underneath running agents. Both have already happened today: a commit meant for `main` landed
+on another agent's PR branch, and one agent found its worktree deleted mid-session with its
+shell fallen back to the shared checkout, which held someone else's staged changes.
+
+So, every time, before `git add`:
+
+```sh
+git branch --show-current
+```
+
+Confirm it is the branch you think it is. If it is not, do not "fix it quickly" by committing
+anyway. Save your work as a patch (`git format-patch`, or `git diff > /tmp/...`), reset the
+branch back to its remote so you leave no trace on someone else's work, and re-apply on a
+worktree you created yourself.
+
+Never commit into a tree you did not create, and never resolve a surprise by force-pushing a
+branch that is not yours.
+
 ## Definition of done
 
 - `pnpm check` passes. No new type errors, no `any` smuggled in to silence one.
