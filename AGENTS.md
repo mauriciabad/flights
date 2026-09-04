@@ -88,6 +88,24 @@ git fetch origin main && git log --oneline HEAD..origin/main
 If something landed that your issue depends on, rebase and use the real thing. Deleting your
 placeholder is cheaper now than reconciling two designs later.
 
+## The Svelte trap that cost us a working search
+
+An `$effect` that calls an async function **without awaiting it** runs that function's
+synchronous prefix on the effect's own call stack. Svelte tracks effect dependencies by call
+stack, not lexical scope, so any `$state` that prefix reads and writes counts as the effect
+reading and writing its own dependency. The effect retriggers itself forever and Svelte aborts
+with `effect_update_depth_exceeded`.
+
+That is what broke every search in production (#87). The page froze before a single result
+rendered, and the offending line was `searchesInFlight += 1` at the top of an unawaited call.
+
+It survived 849 passing unit tests and a fully green deploy, because nothing exercised the page
+in a real browser.
+
+Wrap such a call in `untrack()`, or restructure so the async work is started outside the
+reactive graph. And when you touch anything reactive, verify it in a real browser against a
+real build. `pnpm check` and a jsdom test cannot see this class of bug at all.
+
 ## Definition of done
 
 - `pnpm check` passes. No new type errors, no `any` smuggled in to silence one.
