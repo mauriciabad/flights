@@ -15,6 +15,12 @@ real app, and a live search returns itineraries. A plateau is not a stop.
 | 6 | Key store merged (#3), BYOK with JSON import/export | yes | 72 tests passing together |
 | 7 | Real home page replaces the SvelteKit scaffold | yes | production no longer says "Welcome to SvelteKit" |
 
+| 8 | Provider interface merged (#2), the chokepoint six adapters build on | yes | 84 tests |
+| 9 | Airport dataset merged (#11): 12 MB CSV to 165 KB gzipped, lazy-loaded | yes | bundle measured |
+| 10 | Connection graph merged (#12), ranks stopovers before spending a request | yes | 15 tests |
+| 11 | Design system merged (#15), replacing the scaffold look | yes | assets fetched individually, tokens confirmed live |
+| 12 | Custom domain closed (#21) after fetching a hashed asset, not just the page | yes | CSS 200, HTTP 301 to HTTPS |
+
 ## Decisions worth auditing
 
 **Amadeus was abandoned before any code was written.** It was the intended source for both
@@ -44,3 +50,28 @@ third-party script can read `localStorage`.
 **The first UI was rejected by the owner as "boring and ugly", and he was right.** It was
 the stock scaffold. `AGENTS.md` now requires UI agents to load the design skills before
 writing CSS.
+
+**Travelpayouts was chosen by the owner, then failed a gate.** It sends no CORS headers, so
+the browser cannot call it and there is no backend. Proven with real 200 responses carrying
+fare data and no `Access-Control-Allow-Origin`, then a live `fetch()` from the deployed site
+throwing in Chrome. The agent stopped rather than reaching for a public CORS proxy, which
+would have routed the owner's token through a stranger's server. Split into #51 (Kiwi.com,
+which does pass CORS and invented virtual interlining) and #52 (Travelpayouts fetched in CI
+at build time, which the no-backend rule permits since it bans a runtime server, not a build
+step).
+
+**Rome2Rio turned out to be unbuyable.** Its gateway answers 403 not-subscribed rather than
+404, so a listing exists, but it returns zero results in RapidAPI search site-wide while
+other terms work. Issue #7 now tracks an optional Google Maps transit adapter instead, with
+Transitous as the primary. Arguably the better outcome: Rome2Rio returns typical durations
+and would claim a bus runs at 02:00 when the last one left at 23:40.
+
+**A silent wrongness was caught before it shipped.** `router.project-osrm.org`, named in the
+issue and in our own docs, ignores its own profile segment and returns car speeds for walking
+requests. Every "walk to the hotel" estimate would have been roughly ten times too fast, and
+nothing would have looked broken. Switched to `routing.openstreetmap.de`.
+
+**History was deliberately not rewritten.** Twelve screenshots totalling 1.8MB were committed
+by two of my own `git add -A` calls. The whole `.git` is 6.3MB and six PR branches were open,
+so a force-push would have invalidated every one of them for a saving nobody would notice.
+Fixed by ignore rules instead, which addresses the recurrence rather than the artefact.
