@@ -6,7 +6,9 @@
  */
 
 import { beforeEach, describe, expect, it } from 'vitest';
-import { MemoryCacheStore } from '../../cache';
+import { MemoryCacheStore, defineCacheKey } from '../../cache';
+import type { CacheKey } from '../../cache';
+import type { IataAirportCode } from '../../domain';
 import bvcToLgw from './fixtures/kiwi-public-oneway-bvc-lgw.json';
 import onePerCityBvc from './fixtures/kiwi-public-oneper-city-bvc.json';
 import { createKiwiPublicFlightProvider } from './kiwi-public';
@@ -294,6 +296,24 @@ describe('listDirectDestinations', () => {
 		expect(requests).toHaveLength(2);
 	});
 
+	it('ships a default ceiling of 20, not one that costs a whole page load (#165)', async () => {
+		// The shipped constant, not an injected one. It was 40, and a measured BCN to TLL
+		// search spent all 40 on one page load and another 40 on the reload, because the
+		// counter resets with the page while the candidate order does not. Asserting the
+		// real default is what stops that number drifting back up unnoticed.
+		const provider = createKiwiPublicFlightProvider({
+			store: new MemoryCacheStore(),
+			fetchImpl: fixtureFetch(),
+			now: () => Date.parse('2026-09-04T00:00:00Z')
+		});
+
+		// 25 distinct airports, so the ceiling is crossed by a margin no off-by-one hides.
+		const codes = Array.from({ length: 25 }, (_, i) => `X${String(i).padStart(2, '0')}`);
+		for (const code of codes) await provider.listDirectDestinations(code as IataAirportCode, ctx());
+
+		expect(requests).toHaveLength(20);
+	});
+
 	it('does not spend the ceiling on airports it can answer from cache', async () => {
 		const provider = createKiwiPublicFlightProvider({
 			store: new MemoryCacheStore(),
@@ -473,5 +493,127 @@ describe('how old a cached answer says it is', () => {
 		const before = Date.now();
 		const result = await makeProvider(fixtureFetch()).searchOffers(query, ctx());
 		expect(new Date(result.source.fetchedAt).getTime()).toBeGreaterThanOrEqual(before);
+	});
+});
+
+describe('expired entries are served, not discarded (#165)', () => {
+	/** Rewrites an entry's `storedAt` so it is past its TTL without waiting out a real TTL. */
+	async function ageEntry(store: MemoryCacheStore, key: CacheKey, ageMs: number): Promise<void> {
+		const entry = await store.get(key.raw);
+		if (!entry) throw new Error(`nothing cached under ${key.raw}`);
+		await store.set({ ...entry, storedAt: Date.now() - ageMs, lastAccessedAt: Date.now() });
+	}
+
+	const offersKey = () =>
+		defineCacheKey(
+			'kiwi-public',
+			{
+				op: 'searchOffers',
+				origin: query.origin,
+				destination: query.destination,
+				earliestDeparture: query.earliestDeparture,
+				latestDeparture: query.latestDeparture,
+				currency: 'EUR'
+			},
+			15 * 60_000
+		);
+
+	// The window `listDirectDestinations` derives from the frozen `now` above: 14 days out,
+	// 30 days long.
+	const destinationsKey = () =>
+		defineCacheKey(
+			'kiwi-public',
+			{
+				op: 'listDirectDestinations',
+				origin: 'BVC',
+				earliestDeparture: '2026-09-18',
+				latestDeparture: '2026-10-18'
+			},
+			24 * 60 * 60_000
+		);
+
+	it('answers a reload from an expired fare entry instead of going back to the network', async () => {
+		// This is the regression: #155 took a reload from 48 requests to 0 by serving an
+		// expired fare and refreshing behind it. Discarding on expiry here put the wait back
+		// for every page holding a Kiwi result, because the candidate graph waits on Kiwi.
+		const store = new MemoryCacheStore();
+		await makeProvider(fixtureFetch(), store).searchOffers(query, ctx());
+		await ageEntry(store, offersKey(), 2 * 60 * 60_000);
+		requests = [];
+
+		const provider = makeProvider(fixtureFetch(), store);
+		const result = await provider.searchOffers(query, ctx());
+
+		expect(result.ok).toBe(true);
+		if (!result.ok) return;
+		// The answer is already there. The refresh is behind it, not in front of it.
+		expect(result.data).toHaveLength(1);
+	});
+
+	it('says how old an expired fare really is, rather than claiming it just arrived', async () => {
+		const store = new MemoryCacheStore();
+		await makeProvider(fixtureFetch(), store).searchOffers(query, ctx());
+		const twoHours = 2 * 60 * 60_000;
+		await ageEntry(store, offersKey(), twoHours);
+
+		const result = await makeProvider(fixtureFetch(), store).searchOffers(query, ctx());
+
+		// ResultCard renders this as "fetched 2 hours ago". Stamping `new Date()` here would
+		// make it say "just now" about a two-hour-old price.
+		const age = Date.now() - Date.parse(result.source.fetchedAt);
+		expect(age).toBeGreaterThanOrEqual(twoHours - 5_000);
+	});
+
+	it('refreshes the expired fare behind the answer, so the entry does not stay stale forever', async () => {
+		const store = new MemoryCacheStore();
+		await makeProvider(fixtureFetch(), store).searchOffers(query, ctx());
+		await ageEntry(store, offersKey(), 2 * 60 * 60_000);
+		requests = [];
+
+		const provider = makeProvider(fixtureFetch(), store);
+		const result = await provider.searchOffers(query, ctx());
+		// The revalidation is deliberately not awaited by the caller, so wait for the task
+		// queue rather than for the answer.
+		await new Promise((resolve) => setTimeout(resolve, 0));
+
+		expect(requests).toHaveLength(1);
+		// Counted against the caller's budget even though the caller did not wait for it.
+		expect(result.requestsUsed).toBe(1);
+		const refreshed = await store.get(offersKey().raw);
+		expect(Date.now() - (refreshed?.storedAt ?? 0)).toBeLessThan(5_000);
+	});
+
+	it('serves an expired route graph without waiting for the network', async () => {
+		const store = new MemoryCacheStore();
+		await makeProvider(fixtureFetch(), store).listDirectDestinations('BVC', ctx());
+		const before = (await store.get(destinationsKey().raw))?.value as string[];
+		await ageEntry(store, destinationsKey(), 48 * 60 * 60_000);
+
+		// A fetch that never settles. If this call waited on the refresh rather than
+		// answering from the expired entry, the test hangs instead of failing an assertion
+		// — which is exactly the user-visible symptom: a page that paints nothing.
+		const hangingFetch = (() => new Promise<Response>(() => {})) as typeof fetch;
+		const result = await makeProvider(hangingFetch, store).listDirectDestinations('BVC', ctx());
+
+		expect(result.ok).toBe(true);
+		if (!result.ok) return;
+		expect(result.data).toEqual(before);
+	});
+
+	it('does not overwrite a real route graph with an empty one when the refresh fails', async () => {
+		// Losing the route graph is losing every candidate stopover, which is the search.
+		const store = new MemoryCacheStore();
+		await makeProvider(fixtureFetch(), store).listDirectDestinations('BVC', ctx());
+		const before = (await store.get(destinationsKey().raw))?.value as string[];
+		await ageEntry(store, destinationsKey(), 48 * 60 * 60_000);
+
+		const failing = makeProvider(
+			fixtureFetch(() => new Response('nope', { status: 503 })),
+			store
+		);
+		await failing.listDirectDestinations('BVC', ctx());
+		await new Promise((resolve) => setTimeout(resolve, 0));
+
+		expect((await store.get(destinationsKey().raw))?.value).toEqual(before);
 	});
 });

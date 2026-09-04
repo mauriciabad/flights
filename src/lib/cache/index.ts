@@ -8,6 +8,8 @@ export type { IndexedDbCacheStoreOptions } from './indexeddb-store';
 export { defineCacheKey } from './key';
 export type { CacheKey } from './key';
 export { MemoryCacheStore } from './memory-store';
+export { readCachedEntry } from './read-entry';
+export type { CachedEntry } from './read-entry';
 export type { MemoryCacheStoreOptions } from './memory-store';
 export { clearAllCaches, clearProviderCache, staleWhileRevalidate } from './stale-while-revalidate';
 export type {

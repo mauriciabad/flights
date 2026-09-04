@@ -44,7 +44,7 @@
  *    describe a flight nobody sells. See kiwi-public-queries.ts.
  */
 
-import { defineCacheKey, getDefaultStore } from '../../cache';
+import { defineCacheKey, getDefaultStore, readCachedEntry } from '../../cache';
 import type { CacheKey, CacheStore } from '../../cache';
 import type { FlightOffer, IataAirportCode, IsoCalendarDate, IsoCurrencyCode } from '../../domain';
 import type {
@@ -115,30 +115,38 @@ const DESTINATIONS_WINDOW_LENGTH_DAYS = 30;
  * lets cheaper sources carry the rest of a search.
  *
  * Measured, not guessed. `algorithm/connections.ts` asks `listDirectDestinations` once for
- * the origin and then once per candidate it found, and it caps the candidate list only
- * AFTER that loop. So the cost is one request per outbound edge across every free source
- * unioned together, which for a hub is a lot of edges: a real BCN→OTP search on a cold
- * cache spent **120 requests** against this endpoint, while BVC→PFO — an origin with a
- * small network, the case this adapter exists for — spent 19.
+ * the origin and then once per candidate it found, and it caps the candidate list at six
+ * only AFTER that loop. So the cost is one request per outbound edge across every free
+ * source unioned together, which for a hub is hundreds of edges to keep six candidates.
  *
- * That 120 is the exact shape issue #121 measured for Ryanair (80 requests for the same
- * route) and issue #145 then fixed by shipping its whole network as one snapshot. Kiwi has
- * no equivalent "entire network in one response" endpoint, so the fix here is a ceiling
- * instead: past it, this source answers "I don't know" rather than continuing to hammer an
- * undocumented endpoint that belongs to someone else and can start refusing traffic at any
- * time. Getting blocked would cost every user the feature; a slightly shorter candidate
- * list costs one search a few options it very likely had covered anyway.
+ * That is the exact shape issue #121 measured for Ryanair (80 requests for one route) and
+ * issue #145 then fixed by shipping its whole network as one snapshot. Kiwi has no
+ * "entire network in one response" endpoint, so the fix here is a ceiling instead: past
+ * it, this source answers "I do not know" rather than continuing to hammer an undocumented
+ * endpoint that belongs to someone else and can start refusing traffic at any time.
  *
- * 40 sits above what a thin-network origin needs — BVC's whole search fits in 19 — so the
- * searches this adapter was built for never reach it. A hub search does, and for a hub the
- * cheaper sources (Ryanair's bundled snapshot, the build-time dataset, the fallback table)
- * are exactly where coverage is already good.
+ * The number was 40, and 40 turned out to be the whole per-load cost rather than a rare
+ * limit. Issue #165 measured one BCN to TLL search at 46 requests; on `origin/main` at
+ * 49bd622 the same search measured 52, of which 40 were this endpoint. A reload cost
+ * another 40, because the ceiling resets with the page while the candidate order does not,
+ * so load two simply asks about airports 41 to 80. Every load pays the ceiling in full
+ * until a hub's entire candidate set is cached, which is not what a ceiling is for.
+ *
+ * 20 is where it sits now, and both halves of that were measured against a real build:
+ *
+ * - BVC to PFO, the thin-network route this adapter exists for, uses 19 route lookups for
+ *   its whole search, so it never reaches the ceiling and its itinerary is unchanged.
+ * - BCN to TLL returns the same 6 of 6 itineraries at 20 as it did at 40. Three loads of
+ *   that search on `origin/main` spent 40, 40 and 27 route lookups against three different
+ *   sets of airports and returned the same six itineraries every time, because Ryanair's
+ *   bundled snapshot and the build-time dataset already cover a hub like BCN. Kiwi's route
+ *   graph is what makes a thin origin work, and a thin origin fits well inside 20.
  *
  * Counted per provider instance, which is per app session (`kiwiPublicFlightProvider` is a
- * module singleton), and cache hits do not count against it — only real requests do, so a
+ * module singleton), and cache hits do not count against it, only real requests do. A
  * second search over the same airports is free and unaffected.
  */
-const MAX_ROUTE_LOOKUPS_PER_SESSION = 40;
+const MAX_ROUTE_LOOKUPS_PER_SESSION = 20;
 
 export interface KiwiPublicProviderOptions {
 	/** Overrides the shared IndexedDB-or-memory store. Tests inject a `MemoryCacheStore`. */
@@ -210,26 +218,6 @@ async function resolveStore(options: KiwiPublicProviderOptions): Promise<CacheSt
 	return options.store ?? (await getDefaultStore());
 }
 
-/** One cached value and the instant it came off the wire, which `source()` needs and the
- * old `readCache` threw away by returning `entry.value` alone (issue #151). */
-interface FreshCacheEntry<T> {
-	value: T;
-	storedAt: number;
-}
-
-/** Cache-aside against `CacheStore` directly, for the reason ryanair.ts's own `readCache`
- * spells out: `staleWhileRevalidate` always calls its fetcher, which is the wrong shape for
- * a method resolving one `ProviderResult` with no consumer able to see a provisional yield.
- *
- * Returns the entry rather than `entry.value` alone: `storedAt` is `source()`'s input, and
- * dropping it is what made a cache hit claim it had just been fetched (issue #151). */
-async function readCache<T>(store: CacheStore, key: CacheKey): Promise<FreshCacheEntry<T> | undefined> {
-	const entry = await store.get(key.raw);
-	if (entry === undefined) return undefined;
-	if (Date.now() - entry.storedAt >= entry.ttlMs) return undefined;
-	return { value: entry.value as T, storedAt: entry.storedAt };
-}
-
 // Mirrors cache/size.ts's internal `estimateByteSize`, which that module deliberately does
 // not export — every `CacheStore.set` caller needs some number here, and this is the same
 // approach the store implementations use internally.
@@ -259,6 +247,9 @@ function createKiwiPublicFlightProvider(options: KiwiPublicProviderOptions = {})
 	const maxRouteLookups = options.maxRouteLookups ?? MAX_ROUTE_LOOKUPS_PER_SESSION;
 	/** Real route requests spent by this instance. See `MAX_ROUTE_LOOKUPS_PER_SESSION`. */
 	let routeLookupsSpent = 0;
+	/** Cache keys with a background refresh already running, so two callers a second apart
+	 * do not each issue their own without either noticing the other. */
+	const revalidating = new Set<string>();
 
 	async function searchOffers(
 		query: FlightSearchQuery,
@@ -290,8 +281,31 @@ function createKiwiPublicFlightProvider(options: KiwiPublicProviderOptions = {})
 			OFFERS_TTL_MS
 		);
 
-		const cached = await readCache<FlightOffer[]>(store, cacheKey);
-		if (cached) return ok(cached.value, 0, cached.storedAt);
+		const cached = await readCachedEntry<FlightOffer[]>(store, cacheKey);
+		if (cached) {
+			// Served at any age, never discarded for being past its TTL. This is what #155
+			// established for Ryanair and what this adapter was throwing away: the owner's
+			// "loading takes a lot of time every time i reload" is an expired entry being
+			// dropped and the user made to wait on the network for prices the app already
+			// holds. One provider doing that is enough to leave the whole page blank, since
+			// the candidate graph waits on this source. `source(cached.storedAt)` is what
+			// keeps it honest — the card says how old the price is.
+			const canRevalidate = ctx.maxRequests === undefined || ctx.maxRequests >= 1;
+			const revalidated = !cached.fresh && canRevalidate;
+			if (revalidated) {
+				// Not awaited on purpose: the awaiting is the wait being removed. The fresher
+				// fares land in the cache for the next search or reload.
+				void revalidateOffers(query, currency, ctx, store, cacheKey);
+			}
+			return {
+				ok: true,
+				data: cached.value,
+				source: source(cached.storedAt),
+				// A request WAS issued on this call's behalf even though this call did not
+				// wait for it. Reporting 0 would under-count against `ctx.maxRequests`.
+				requestsUsed: revalidated ? 1 : 0
+			};
+		}
 
 		if (ctx.maxRequests !== undefined && ctx.maxRequests < 1) {
 			// Out of budget before spending anything. An empty ok result, never an error —
@@ -300,6 +314,22 @@ function createKiwiPublicFlightProvider(options: KiwiPublicProviderOptions = {})
 			return ok([], 0);
 		}
 
+		const fetched = await fetchOffers(query, currency, ctx);
+		if (fetched.error !== undefined) return fail(fetched.error, 1);
+
+		await writeCache(store, cacheKey, fetched.offers);
+		return ok(fetched.offers, 1);
+	}
+
+	/**
+	 * One fare lookup, shared by the cold path and the background refresh so a stale entry
+	 * is always replaced by something built exactly the way the entry it replaces was.
+	 */
+	async function fetchOffers(
+		query: FlightSearchQuery,
+		currency: IsoCurrencyCode,
+		ctx: ProviderContext
+	): Promise<{ offers: FlightOffer[]; error?: ProviderError }> {
 		const response = await fetchOneWayDirect(
 			ONE_WAY_DIRECT_QUERY,
 			buildOneWayVariables({
@@ -312,19 +342,49 @@ function createKiwiPublicFlightProvider(options: KiwiPublicProviderOptions = {})
 			}),
 			{ signal: ctx.signal, fetchImpl: options.fetchImpl }
 		);
-		if (!response.ok) return fail(toProviderError(response.error), 1);
+		if (!response.ok) return { offers: [], error: toProviderError(response.error) };
 
 		const result = response.data.onewayItineraries;
 		const appError = appErrorOf(result);
 		if (appError !== undefined) {
 			// Kiwi's own words, verbatim, per AGENTS.md — never replaced by a guess at what
 			// it must have meant.
-			return fail({ code: 'unknown', message: `Kiwi returned an error: ${appError}` }, 1);
+			return {
+				offers: [],
+				error: { code: 'unknown', message: `Kiwi returned an error: ${appError}` }
+			};
 		}
 
-		const offers = mapOneWayResultToOffers(result);
-		await writeCache(store, cacheKey, offers);
-		return ok(offers, 1);
+		return { offers: mapOneWayResultToOffers(result) };
+	}
+
+	/**
+	 * Refetches one route's fares behind an answer already given. Returns nothing and
+	 * rejects never: nobody is awaiting it, so a rejection would be unhandled, and a failed
+	 * refresh is not a failure of the call that started it. The user keeps the price they
+	 * were shown, with its real age still on the card.
+	 */
+	async function revalidateOffers(
+		query: FlightSearchQuery,
+		currency: IsoCurrencyCode,
+		ctx: ProviderContext,
+		store: CacheStore,
+		cacheKey: CacheKey
+	): Promise<void> {
+		if (revalidating.has(cacheKey.raw)) return;
+		revalidating.add(cacheKey.raw);
+		try {
+			const { offers, error } = await fetchOffers(query, currency, ctx);
+			// Never replace real prices with nothing. An empty result paired with an error
+			// means the request failed, not that the route stopped selling, and overwriting
+			// would turn a background refresh into a silent loss of what is on screen.
+			if (error && offers.length === 0) return;
+			await writeCache(store, cacheKey, offers);
+		} catch {
+			// Changes nothing the user can see; the next search tries again.
+		} finally {
+			revalidating.delete(cacheKey.raw);
+		}
 	}
 
 	async function listDirectDestinations(
@@ -355,8 +415,28 @@ function createKiwiPublicFlightProvider(options: KiwiPublicProviderOptions = {})
 			DESTINATIONS_TTL_MS
 		);
 
-		const cached = await readCache<IataAirportCode[]>(store, cacheKey);
-		if (cached) return ok(cached.value, 0, cached.storedAt);
+		const cached = await readCachedEntry<IataAirportCode[]>(store, cacheKey);
+		if (cached) {
+			// The route-graph half of this adapter, and the half issue #145 solved for
+			// Ryanair by shipping a snapshot. Kiwi has no whole-network endpoint to snapshot,
+			// so the equivalent is to hold each airport's answer for a day and keep serving
+			// it past that day while a refresh runs behind. A route network changes when a
+			// season turns; making a reload wait on it is the expensive mistake.
+			const canRevalidate =
+				(ctx.maxRequests === undefined || ctx.maxRequests >= 1) &&
+				routeLookupsSpent < maxRouteLookups;
+			const revalidated = !cached.fresh && canRevalidate;
+			if (revalidated) {
+				routeLookupsSpent += 1;
+				void revalidateDestinations(origin, earliestDeparture, latestDeparture, ctx, store, cacheKey);
+			}
+			return {
+				ok: true,
+				data: cached.value,
+				source: source(cached.storedAt),
+				requestsUsed: revalidated ? 1 : 0
+			};
+		}
 
 		if (ctx.maxRequests !== undefined && ctx.maxRequests < 1) return ok([], 0);
 
@@ -371,6 +451,27 @@ function createKiwiPublicFlightProvider(options: KiwiPublicProviderOptions = {})
 		}
 		routeLookupsSpent += 1;
 
+		const { destinations, error } = await fetchDestinations(
+			origin,
+			earliestDeparture,
+			latestDeparture,
+			ctx
+		);
+		if (error !== undefined) return fail(error, 1);
+		// An airport Kiwi sells nothing from returns an empty list, not an error — measured:
+		// a nonexistent code answers `{"itineraries":[]}` with HTTP 200. Cached like any
+		// other answer so a dead-end origin is not re-asked on every search.
+		await writeCache(store, cacheKey, destinations);
+		return ok(destinations, 1);
+	}
+
+	/** One route-graph lookup, shared by the cold path and the background refresh. */
+	async function fetchDestinations(
+		origin: IataAirportCode,
+		earliestDeparture: IsoCalendarDate,
+		latestDeparture: IsoCalendarDate,
+		ctx: ProviderContext
+	): Promise<{ destinations: IataAirportCode[]; error?: ProviderError }> {
 		const response = await fetchOnePerCityDirect(
 			ONE_PER_CITY_DIRECT_QUERY,
 			buildOnePerCityVariables({
@@ -382,20 +483,51 @@ function createKiwiPublicFlightProvider(options: KiwiPublicProviderOptions = {})
 			}),
 			{ signal: ctx.signal, fetchImpl: options.fetchImpl }
 		);
-		if (!response.ok) return fail(toProviderError(response.error), 1);
+		if (!response.ok) return { destinations: [], error: toProviderError(response.error) };
 
 		const result = response.data.onewayOnePerCityItineraries;
 		const appError = appErrorOf(result);
 		if (appError !== undefined) {
-			return fail({ code: 'unknown', message: `Kiwi returned an error: ${appError}` }, 1);
+			return {
+				destinations: [],
+				error: { code: 'unknown', message: `Kiwi returned an error: ${appError}` }
+			};
 		}
 
-		const destinations = mapOnePerCityResultToDestinations(result);
-		// An airport Kiwi sells nothing from returns an empty list, not an error — measured:
-		// a nonexistent code answers `{"itineraries":[]}` with HTTP 200. Cached like any
-		// other answer so a dead-end origin is not re-asked on every search.
-		await writeCache(store, cacheKey, destinations);
-		return ok(destinations, 1);
+		return { destinations: mapOnePerCityResultToDestinations(result) };
+	}
+
+	/**
+	 * Refreshes one airport's route graph behind an answer already served from an expired
+	 * entry. Rejects never, for the same reason `revalidateOffers` does.
+	 *
+	 * An empty answer paired with an error never overwrites a real route list: losing the
+	 * graph is losing every candidate stopover, which is the whole search.
+	 */
+	async function revalidateDestinations(
+		origin: IataAirportCode,
+		earliestDeparture: IsoCalendarDate,
+		latestDeparture: IsoCalendarDate,
+		ctx: ProviderContext,
+		store: CacheStore,
+		cacheKey: CacheKey
+	): Promise<void> {
+		if (revalidating.has(cacheKey.raw)) return;
+		revalidating.add(cacheKey.raw);
+		try {
+			const { destinations, error } = await fetchDestinations(
+				origin,
+				earliestDeparture,
+				latestDeparture,
+				ctx
+			);
+			if (error && destinations.length === 0) return;
+			await writeCache(store, cacheKey, destinations);
+		} catch {
+			// The expired graph stays exactly as it was; the next search tries again.
+		} finally {
+			revalidating.delete(cacheKey.raw);
+		}
 	}
 
 	async function healthCheck(ctx: ProviderContext): Promise<ProviderHealth> {
