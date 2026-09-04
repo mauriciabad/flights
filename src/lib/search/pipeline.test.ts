@@ -779,6 +779,131 @@ describe('runSearch: hasDirectRoute on the final snapshot (issue #107)', () => {
 	});
 });
 
+describe('runSearch: falls back to more candidates when the top-ranked ones find nothing (issue #115)', () => {
+	/** A backwards-looking outbound leg: arrives well AFTER `backwardsOnwardOffer`'s onward
+	 * leg below departs, the same "cheapest fare per leg happened to land in the wrong
+	 * order" shape issue #115 measured live for BCN -> OTP (e.g. Bergamo: outbound arriving
+	 * 2026-10-16, onward departing 2026-10-01 — the onward flight leaves before the outbound
+	 * one lands). `build.ts`'s layover filter rejects this outright (negative layover), so a
+	 * candidate given these two offers produces zero itineraries regardless of stay/transfer
+	 * data. */
+	function backwardsOutboundOffer(departureAirport: string, arrivalAirport: string): FlightOffer {
+		return flightOffer(
+			'FA',
+			departureAirport,
+			arrivalAirport,
+			localDateTime('2026-10-04T08:00:00', 'Europe/Vienna', 120),
+			localDateTime('2026-10-04T10:30:00', 'Europe/Vienna', 120),
+			150
+		);
+	}
+	function backwardsOnwardOffer(departureAirport: string, arrivalAirport: string): FlightOffer {
+		return flightOffer(
+			'FA',
+			departureAirport,
+			arrivalAirport,
+			localDateTime('2026-10-02T09:00:00', 'Europe/Vienna', 120),
+			localDateTime('2026-10-02T11:00:00', 'Europe/Sofia', 180),
+			120
+		);
+	}
+
+	/** Six fictional "decoy" candidates, all placed at `SLOW`'s real coordinates (this file's
+	 * own verified detour ratio ~1.10 — better than `FAST`'s ~1.23) so every one of them
+	 * outranks `FAST` on `connections.ts`'s own scoring (connectivity and sizeClass are
+	 * identical for every candidate here — one onward destination each, all `medium` —
+	 * leaving detour as the only differentiator). That pushes `FAST` to rank 7, past
+	 * `DEFAULT_MAX_CANDIDATES` (6), even though `FAST` is the only one of the seven whose
+	 * offers actually pair up into a valid itinerary. */
+	const DECOY_CODES = ['ZD1', 'ZD2', 'ZD3', 'ZD4', 'ZD5', 'ZD6'];
+
+	function offerBuilderWithBackwardsDecoys(query: FlightSearchQuery): FlightOffer[] {
+		if (query.origin === ORIGIN) {
+			const candidate = query.destination;
+			return DECOY_CODES.includes(candidate)
+				? [backwardsOutboundOffer(query.origin, candidate)]
+				: [outboundOffer(query.origin, candidate)];
+		}
+		if (query.destination === DEST) {
+			const candidate = query.origin;
+			return DECOY_CODES.includes(candidate)
+				? [backwardsOnwardOffer(candidate, query.destination)]
+				: [onwardOffer(candidate, query.destination)];
+		}
+		return [];
+	}
+
+	function airportsWithDecoys(): Record<string, Airport> {
+		const decoyAirports = Object.fromEntries(
+			DECOY_CODES.map((code) => [code, airport(code, AIRPORTS[SLOW].coordinates.latitude, AIRPORTS[SLOW].coordinates.longitude, 'IT', 'Decoy City')])
+		);
+		return { ...AIRPORTS, ...decoyAirports };
+	}
+
+	it('tries candidates beyond the default cap and still finds the one that actually works', async () => {
+		const airports = airportsWithDecoys();
+		const free = createFakeFlightProvider({
+			id: 'free-flights',
+			routes: { [ORIGIN]: [...DECOY_CODES, FAST], ...Object.fromEntries([...DECOY_CODES, FAST].map((code) => [code, [DEST]])) },
+			offerBuilder: offerBuilderWithBackwardsDecoys
+		});
+		const registry = new ProviderRegistry([free.provider, createFakeStayProvider({ id: 'stays' }), createFakeTransferProvider()]);
+		const deps: SearchDependencies = {
+			registry,
+			keys: {},
+			resolveAirport: (code) => airports[code],
+			currency: 'EUR'
+		};
+
+		const snapshots = await drain(runSearch(BASE_QUERY, deps));
+		const final = snapshots.at(-1)!;
+
+		// The default top 6 are all decoys — none of them can produce an itinerary — so
+		// without the issue #115 fallback this search would end empty.
+		const primarySnapshot = snapshots[0];
+		expect(primarySnapshot.candidates.map((c) => c.airportCode).sort()).toEqual([...DECOY_CODES].sort());
+
+		expect(final.done).toBe(true);
+		expect(final.itineraryGroups).toHaveLength(1);
+		expect(final.itineraryGroups[0]!.connectionAirportCode).toBe(FAST);
+		// The fallback candidate is surfaced on the final snapshot too, not hidden from the UI.
+		expect(final.candidates.map((c) => c.airportCode)).toContain(FAST);
+
+		// Both legs were fetched for every surviving candidate, decoys and the fallback pick
+		// alike — the exact guarantee issue #115's acceptance criteria asks for.
+		for (const code of [...DECOY_CODES, FAST]) {
+			expect(free.searchOffers).toHaveBeenCalledWith(
+				expect.objectContaining({ origin: ORIGIN, destination: code }),
+				expect.anything()
+			);
+			expect(free.searchOffers).toHaveBeenCalledWith(
+				expect.objectContaining({ origin: code, destination: DEST }),
+				expect.anything()
+			);
+		}
+	});
+
+	it('never expands past the cap when the primary batch already found something', async () => {
+		const free = createFakeFlightProvider({
+			id: 'free-flights',
+			routes: { [ORIGIN]: [FAST], [FAST]: [DEST] },
+			offerBuilder: standardOfferBuilder
+		});
+		const registry = new ProviderRegistry([free.provider, createFakeStayProvider({ id: 'stays' }), createFakeTransferProvider()]);
+		const deps: SearchDependencies = { registry, keys: {}, resolveAirport, currency: 'EUR' };
+
+		const snapshots = await drain(runSearch(BASE_QUERY, deps));
+		const final = snapshots.at(-1)!;
+
+		expect(final.itineraryGroups).toHaveLength(1);
+		expect(final.candidates.map((c) => c.airportCode)).toEqual([FAST]);
+		// listDirectDestinations ran once for ranking; a second, wider re-derivation would
+		// have called it again for every candidate code — confirming the fallback path never
+		// even queries when the happy path already worked.
+		expect(free.listDirectDestinations).toHaveBeenCalledTimes(2); // ORIGIN, then FAST (for its own onward edge)
+	});
+});
+
 describe('widenSearch', () => {
 	it('spends metered requests only for the targeted candidate, capped at the confirmed budget', async () => {
 		const free = createFakeFlightProvider({

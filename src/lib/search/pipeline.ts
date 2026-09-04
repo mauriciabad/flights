@@ -22,7 +22,7 @@
  * calls abort quickly, and nothing new gets queued behind them.
  */
 
-import { findConnectionCandidates, hasKnownDirectRoute } from '../algorithm/connections';
+import { DEFAULT_MAX_CANDIDATES, findConnectionCandidates, hasKnownDirectRoute } from '../algorithm/connections';
 import type { ConnectionAirportInfo } from '../algorithm/connections';
 import { buildItineraries } from '../algorithm/build';
 import { DEFAULT_SCORING_WEIGHTS, rankItineraries } from '../algorithm/score';
@@ -275,6 +275,41 @@ interface ProcessCandidateInput {
 	record: RecordProviderCall;
 }
 
+/**
+ * Issue #115: how many candidates `runSearch` will try in its fallback sweep when the
+ * geography-ranked primary batch (`findConnectionCandidates`'s own `DEFAULT_MAX_CANDIDATES`,
+ * or whatever `options.maxCandidates` overrides it to) produces zero itineraries.
+ *
+ * `DEFAULT_MAX_CANDIDATES` (6) was sized around a *metered* flight provider's monthly quota
+ * ("each survivor costs two metered fare searches downstream" — that constant's own doc
+ * comment). That threat model doesn't apply here: `fetchLegs` below never has a `widenTo`,
+ * so `runSearch` never spends a metered flight request no matter how many candidates it
+ * tries. What it does cost is real, but free — a keyless Ryanair round trip per leg — and
+ * that cost buys something specific: Ryanair's `farfnd/v4/oneWayFares` returns only the
+ * single cheapest fare in a date range per leg, not a timetable (`ryanair.ts`'s own doc
+ * comment), so whether a candidate's two independently-cheapest dates land in the right
+ * order is close to a coin flip. A route can have plenty of genuinely workable stopovers
+ * and still have its top 6 by geography all lose that coin flip on a given day — measured
+ * for BCN -> OTP (issue #115): 8 of 25 real candidates had a workable fare order, and none
+ * of the 8 were in the default top 6 (the nearest was #9).
+ *
+ * Only spent when the free primary batch already came back empty, the same "expensive only
+ * on the rare nothing-found path" rule `checkDirectRoute` below already follows for the
+ * same reason — an ordinary search that already found something never triggers this.
+ */
+export const FALLBACK_MAX_CANDIDATES = 24;
+
+/** Builds one `processCandidate` task per candidate, sharing everything about this search
+ * except which candidate it's for — the shared shape `runSearch`'s primary batch and its
+ * issue #115 fallback sweep both build tasks from, so the fallback never has to repeat the
+ * long list of fields the primary batch already assembled. */
+function buildCandidateTasks(
+	candidatesToProcess: readonly ConnectionCandidate[],
+	base: Omit<ProcessCandidateInput, 'candidate'>
+): Promise<CandidateOutcome>[] {
+	return candidatesToProcess.map((candidate) => processCandidate({ ...base, candidate }));
+}
+
 interface CandidateOutcome {
 	candidate: ConnectionCandidate;
 	itineraries: ItineraryResult[];
@@ -513,6 +548,10 @@ function widenOptionsForCandidates(
  * Yields a `SearchSnapshot` whose `stage` moves through `'candidates'` once ranking is done,
  * then `'stage1'` again for each candidate as its data finishes arriving (in completion
  * order — `race.ts`), then a final one with `done: true`.
+ *
+ * Issue #115: if this batch produces zero itineraries, `runSearch` tries more of the same
+ * free candidates (up to `FALLBACK_MAX_CANDIDATES`) before giving up — see that constant's
+ * own doc comment for why a route with real stopovers can still lose on its top-ranked few.
  */
 export async function* runSearch(
 	query: SearchQuery,
@@ -629,44 +668,98 @@ export async function* runSearch(
 		return { outboundOffers: flattenOk(outboundResult), onwardOffers: flattenOk(onwardResult) };
 	};
 
-	const tasks = candidates.map((candidate) =>
-		processCandidate({
-			candidate,
-			query,
-			originAirport,
-			destinationAirport,
-			resolveAirport,
-			fetchLegs,
-			stayProviders: allStayProviders,
-			transferProviders: allTransferProviders,
-			keys: deps.keys,
-			signal,
-			stayRadiusKm,
-			landingToTransportRules,
-			weights: DEFAULT_SCORING_WEIGHTS,
-			airlinesToAvoid: query.airlinesToAvoid ?? [],
-			currency,
-			transferToOriginAirport,
-			transferToDestinationLocation,
-			sources,
-			record
-		})
-	);
+	const candidateInputBase: Omit<ProcessCandidateInput, 'candidate'> = {
+		query,
+		originAirport,
+		destinationAirport,
+		resolveAirport,
+		fetchLegs,
+		stayProviders: allStayProviders,
+		transferProviders: allTransferProviders,
+		keys: deps.keys,
+		signal,
+		stayRadiusKm,
+		landingToTransportRules,
+		weights: DEFAULT_SCORING_WEIGHTS,
+		airlinesToAvoid: query.airlinesToAvoid ?? [],
+		currency,
+		transferToOriginAirport,
+		transferToDestinationLocation,
+		sources,
+		record
+	};
 
-	for await (const outcome of raceToCompletion(tasks)) {
+	for await (const outcome of raceToCompletion(buildCandidateTasks(candidates, candidateInputBase))) {
 		if (signal.aborted) break;
 		results.push(...outcome.itineraries);
 		stayCandidatesByConnection.set(outcome.candidate.airportCode, outcome.stayCandidates);
 		yield snapshot('stage1', candidates, false, widenOptions);
 	}
 
+	// Issue #115: the geography-ranked primary batch produced nothing buildable. Before
+	// giving up, try more of the same free sources — see `FALLBACK_MAX_CANDIDATES`'s own
+	// doc comment for why this is safe (no metered flight spend either way) and only
+	// attempted here, never on a search that already found something.
+	//
+	// Deliberately NOT gated on "did the primary batch already return fewer than its own
+	// cap" (which would read as "nothing more to find"): `findConnectionCandidates` treats
+	// a failed `listDirectDestinations` call exactly like a true "this airport has no such
+	// route" (this file's own module doc comment on `ProviderResult`, and `AGENTS.md`'s
+	// "say what you do not know"), so a route graph thinned by ordinary network flakiness
+	// looks identical to one that's genuinely small. Re-querying is cheap regardless —
+	// route-graph lookups are 24h-cached, so a repeat call mostly replays cache — so it
+	// costs little to find out rather than trust a count that might just be bad luck.
+	let finalCandidates = candidates;
+	let finalWidenOptions = widenOptions;
+	const primaryCap = options.maxCandidates ?? DEFAULT_MAX_CANDIDATES;
+	const worthExpanding = FALLBACK_MAX_CANDIDATES > primaryCap;
+
+	if (!signal.aborted && results.length === 0 && worthExpanding) {
+		const expandedCandidates = await findConnectionCandidates(
+			{
+				originAirport: query.originAirport,
+				destinationAirport: query.destinationAirport,
+				forbiddenConnectionCountries: query.forbiddenConnectionCountries,
+				forbiddenConnectionAirports: query.forbiddenConnectionAirports,
+				allowedConnectionAirports: query.allowedConnectionAirports,
+				soonestDeparture: query.soonestDeparture
+			},
+			{
+				flightProviders: allFlightProviders,
+				providerKeys: deps.keys,
+				airportLookup: airportLookupFrom(resolveAirport),
+				maxCandidates: FALLBACK_MAX_CANDIDATES,
+				signal
+				// meteredRequestBudget intentionally omitted (default 0), same as the primary
+				// call above — re-deriving a larger slice of the same free ranking spends
+				// nothing metered no matter how many candidates it returns.
+			}
+		);
+		const alreadyTried = new Set(candidates.map((candidate) => candidate.airportCode));
+		const fallbackCandidates = expandedCandidates.filter((candidate) => !alreadyTried.has(candidate.airportCode));
+
+		if (!signal.aborted && fallbackCandidates.length > 0) {
+			finalCandidates = [...candidates, ...fallbackCandidates];
+			finalWidenOptions = widenOptionsForCandidates(finalCandidates, query, allFlightProviders, deps.keys, currency);
+			yield snapshot('stage1', finalCandidates, false, finalWidenOptions);
+
+			for await (const outcome of raceToCompletion(buildCandidateTasks(fallbackCandidates, candidateInputBase))) {
+				if (signal.aborted) break;
+				results.push(...outcome.itineraries);
+				stayCandidatesByConnection.set(outcome.candidate.airportCode, outcome.stayCandidates);
+				yield snapshot('stage1', finalCandidates, false, finalWidenOptions);
+			}
+		}
+	}
+
 	// Candidates existed (the branch above only skips this point when there were none at
-	// all), but none of them produced a single itinerary. A real find-nothing result, not
-	// the well-served-direct-route shape the early exit above targets, but still worth the
-	// same free check: nothing rules out the destination also having a direct option that
-	// happens to have priced out every candidate this search tried.
+	// all), but none of them produced a single itinerary, even after the issue #115 fallback
+	// sweep above. A real find-nothing result, not the well-served-direct-route shape the
+	// early exit above targets, but still worth the same free check: nothing rules out the
+	// destination also having a direct option that happens to have priced out every
+	// candidate this search tried.
 	const hasDirectRoute = !signal.aborted && results.length === 0 ? await checkDirectRoute() : false;
-	yield snapshot('done', candidates, true, widenOptions, hasDirectRoute);
+	yield snapshot('done', finalCandidates, true, finalWidenOptions, hasDirectRoute);
 	return;
 }
 
@@ -736,7 +829,12 @@ export async function* widenSearch(
 			flightProviders: allFlightProviders,
 			providerKeys: deps.keys,
 			airportLookup: airportLookupFrom(resolveAirport),
-			maxCandidates: options.maxCandidates,
+			// Issue #115: defaults to the same generous cap `runSearch`'s own fallback sweep
+			// can surface (`FALLBACK_MAX_CANDIDATES`'s own doc comment), not the smaller
+			// `DEFAULT_MAX_CANDIDATES` — a traveller can only pick a `request.target` from
+			// what a `runSearch` snapshot showed them, so this re-derivation has to be able to
+			// find that candidate again even when it only appeared via that fallback sweep.
+			maxCandidates: options.maxCandidates ?? FALLBACK_MAX_CANDIDATES,
 			signal
 			// meteredRequestBudget intentionally omitted (default 0): re-deriving the
 			// candidate ranking here must stay free too, even though widenSearch itself goes
