@@ -78,6 +78,7 @@ function alwaysReachableTransferProvider(): TransferProvider {
 		kind: 'transfer',
 		id,
 		label: 'Fixture transfers',
+		modes: ['transit'],
 		needsKey: false,
 		keyFields: [],
 		async healthCheck() {
