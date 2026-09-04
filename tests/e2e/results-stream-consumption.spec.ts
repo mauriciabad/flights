@@ -53,9 +53,16 @@ test.describe('results: issue #87 regression (search stream must be consumed)', 
 		// never clears "still searching", no matter how long this waits.
 		await expect(page.getByText('still searching')).toHaveCount(0, { timeout: 15_000 });
 
-		// Ryanair is free and keyless — its chip appearing at all proves the stream was
+		// Ryanair is free and keyless — its plate appearing at all proves the stream was
 		// genuinely drained into `providerStatuses`, not merely started and abandoned.
-		await expect(page.getByText(/Ryanair.*answered/i)).toBeVisible();
+		//
+		// Addressed by id and state rather than by its visible sentence (issue #130): the
+		// prose used to be the only thing to match on, it now appears in two legitimate
+		// places (the strip and the empty-results board), and this issue's whole subject is
+		// rewording it. A test that breaks on every copy change is a test nobody trusts.
+		const ryanair = page.locator('[data-testid="provider-status"][data-provider="ryanair"]');
+		await expect(ryanair).toBeVisible();
+		await expect(ryanair).toHaveAttribute('data-answer', 'answered');
 
 		expect(pageErrors, `page errors: ${pageErrors.join('; ')}`).toEqual([]);
 		expect(consoleErrors, `console errors: ${consoleErrors.join('; ')}`).toEqual([]);

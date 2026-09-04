@@ -45,7 +45,7 @@ import type {
 	SearchQuery
 } from '../domain';
 import { getAirport } from '../data/airports';
-import type { AvailableKeys, FlightProvider, FlightSearchQuery } from '../providers/types';
+import type { AvailableKeys, FlightProvider, FlightSearchQuery, ProviderResult } from '../providers/types';
 import { contextFor } from '../providers/registry';
 import { FALLBACK_AIRPORTS, FALLBACK_ROUTES } from './connections-fallback-data';
 
@@ -155,6 +155,23 @@ export interface ConnectionGraphOptions {
 	 * that order. Mainly useful for tests; a normal caller can omit this entirely and get
 	 * real-world geography for free. */
 	airportLookup?: AirportLookup;
+	/**
+	 * Issue #130: called once per `listDirectDestinations` this module makes, with the exact
+	 * `ProviderResult` the adapter returned, before this file collapses it into a route list.
+	 * That collapse (`sourceFromProvider`, "a `{ ok: false }` result becomes an empty
+	 * destination list") is deliberate for the algorithm and was silently fatal for the UI:
+	 * candidate discovery is often every provider call a search makes — a route no free
+	 * source connects never reaches the fare-fetching stage that reports its own calls — so
+	 * with nothing reported here the results page showed "Nothing has answered yet" after
+	 * Ryanair had answered twice.
+	 *
+	 * Reporting only. This module's own behaviour does not depend on it, and it never sees a
+	 * key or anything derived from one, so a caller can leave it out entirely (tests do).
+	 */
+	onProviderResult?: (
+		provider: Pick<FlightProvider, 'id' | 'kind' | 'label'>,
+		result: ProviderResult<IataAirportCode[]>
+	) => void;
 	/** How many ranked candidates to return. Default `DEFAULT_MAX_CANDIDATES`. */
 	maxCandidates?: number;
 	/** Candidates whose detour ratio — `(dist(A,C) + dist(C,B)) / dist(A,B)` — exceeds
@@ -274,13 +291,17 @@ function fallbackRouteSource(): DirectDestinationSource {
 function sourceFromProvider(
 	provider: FlightProvider,
 	providerKeys: AvailableKeys,
-	signal: AbortSignal
+	signal: AbortSignal,
+	onProviderResult?: ConnectionGraphOptions['onProviderResult']
 ): DirectDestinationSource {
 	return {
 		id: provider.id,
 		async getDirectDestinations(iataCode) {
 			const ctx = contextFor(provider.id, providerKeys, signal);
 			const result = await provider.listDirectDestinations(iataCode, ctx);
+			// Reported before the collapse below, so the caller sees "answered with an empty
+			// list" as its own fact rather than inferring it from a shorter route graph.
+			onProviderResult?.(provider, result);
 			return result.ok ? result.data : [];
 		}
 	};
@@ -379,13 +400,15 @@ async function queryMeteredProviders(
 	iataCode: IataAirportCode,
 	providerKeys: AvailableKeys,
 	signal: AbortSignal,
-	budget: number
+	budget: number,
+	onProviderResult?: ConnectionGraphOptions['onProviderResult']
 ): Promise<MeteredQueryResult> {
 	let spent = 0;
 	for (const provider of providers) {
 		if (spent >= budget) break;
 		const ctx = contextFor(provider.id, providerKeys, signal);
 		const result = await provider.listDirectDestinations(iataCode, ctx);
+		onProviderResult?.(provider, result);
 		spent += result.requestsUsed;
 		if (result.ok) return { destinations: result.data, sourceId: provider.id, spent };
 	}
@@ -472,6 +495,7 @@ export async function findConnectionCandidates(
 		providerKeys = {},
 		meteredRequestBudget = 0,
 		airportLookup,
+		onProviderResult,
 		maxCandidates = DEFAULT_MAX_CANDIDATES,
 		maxDetourRatio = DEFAULT_MAX_DETOUR_RATIO,
 		weights = DEFAULT_WEIGHTS,
@@ -492,7 +516,7 @@ export async function findConnectionCandidates(
 	// answer, but it always contributes something — this is what "first paint and
 	// offline both work" (issue #12) actually means in code.
 	const freeSources: DirectDestinationSource[] = [
-		...freeProviders.map((p) => sourceFromProvider(p, providerKeys, effectiveSignal)),
+		...freeProviders.map((p) => sourceFromProvider(p, providerKeys, effectiveSignal, onProviderResult)),
 		fallbackRouteSource()
 	];
 
@@ -523,7 +547,8 @@ export async function findConnectionCandidates(
 			origin,
 			providerKeys,
 			effectiveSignal,
-			remainingMeteredBudget
+			remainingMeteredBudget,
+			onProviderResult
 		);
 		remainingMeteredBudget -= result.spent;
 		if (result.sourceId) {
@@ -596,7 +621,8 @@ export async function findConnectionCandidates(
 				code,
 				providerKeys,
 				effectiveSignal,
-				remainingMeteredBudget
+				remainingMeteredBudget,
+				onProviderResult
 			);
 			remainingMeteredBudget -= result.spent;
 			meteredRequestSpent = result.spent > 0;
@@ -687,17 +713,17 @@ const METRO_CODE_MEMBERS: Readonly<Record<string, readonly IataAirportCode[]>> =
 
 export async function hasKnownDirectRoute(
 	query: Pick<ConnectionQuery, 'originAirport' | 'destinationAirport' | 'soonestDeparture'>,
-	options: Pick<ConnectionGraphOptions, 'flightProviders' | 'providerKeys' | 'signal'> = {}
+	options: Pick<ConnectionGraphOptions, 'flightProviders' | 'providerKeys' | 'signal' | 'onProviderResult'> = {}
 ): Promise<boolean> {
 	const { originAirport: origin, destinationAirport: destination } = query;
 	if (origin === destination) return false;
 
-	const { flightProviders = [], providerKeys = {}, signal } = options;
+	const { flightProviders = [], providerKeys = {}, signal, onProviderResult } = options;
 	const effectiveSignal = signal ?? new AbortController().signal;
 	const freeSources: DirectDestinationSource[] = [
 		...flightProviders
 			.filter((provider) => isFreeProvider(provider, query))
-			.map((provider) => sourceFromProvider(provider, providerKeys, effectiveSignal)),
+			.map((provider) => sourceFromProvider(provider, providerKeys, effectiveSignal, onProviderResult)),
 		fallbackRouteSource()
 	];
 

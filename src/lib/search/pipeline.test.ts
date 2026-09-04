@@ -1215,3 +1215,49 @@ describe('widenWithPriceCalendar', () => {
 		expect(spy).not.toHaveBeenCalled();
 	});
 });
+
+describe('runSearch: a provider that answers with nothing is still a provider that answered (issue #130)', () => {
+	it('records the route-graph calls a search made before finding no candidates at all', async () => {
+		// The BVC -> PFO shape: the only free flight source has no route out of the origin, so
+		// candidate discovery is the entire search. Every provider call it makes used to be
+		// invisible, and the results page said "Nothing has answered yet."
+		const noNetwork = createFakeFlightProvider({ id: 'free-flights', routes: {} });
+		const registry = new ProviderRegistry([noNetwork.provider, createFakeTransferProvider()]);
+		const deps: SearchDependencies = { registry, keys: {}, resolveAirport, currency: 'EUR' };
+
+		const final = (await drain(runSearch(BASE_QUERY, deps))).at(-1)!;
+
+		expect(final.done).toBe(true);
+		expect(final.candidates).toEqual([]);
+		expect(final.itineraryGroups).toEqual([]);
+
+		const status = final.providers['free-flights' as ProviderId];
+		expect(status).toBeDefined();
+		expect(status?.lastError).toBeUndefined();
+		expect(status?.okCalls).toBeGreaterThan(0);
+		expect(status?.okCallsWithData).toBe(0);
+		expect(status?.requestsUsed).toBeGreaterThan(0);
+	});
+
+	it('separates a provider that knew routes from one that knew nothing', async () => {
+		const knowsRoutes = createFakeFlightProvider({
+			id: 'free-flights',
+			routes: { [ORIGIN]: [FAST], [FAST]: [DEST] },
+			offerBuilder: standardOfferBuilder
+		});
+		const knowsNothing = createFakeFlightProvider({ id: 'second-free-flights', routes: {} });
+		const registry = new ProviderRegistry([
+			knowsRoutes.provider,
+			knowsNothing.provider,
+			createFakeStayProvider({ id: 'stays' }),
+			createFakeTransferProvider()
+		]);
+		const deps: SearchDependencies = { registry, keys: {}, resolveAirport, currency: 'EUR' };
+
+		const final = (await drain(runSearch(BASE_QUERY, deps))).at(-1)!;
+
+		expect(final.providers['free-flights' as ProviderId]?.okCallsWithData).toBeGreaterThan(0);
+		expect(final.providers['second-free-flights' as ProviderId]).toMatchObject({ okCallsWithData: 0 });
+		expect(final.providers['second-free-flights' as ProviderId]?.okCalls).toBeGreaterThan(0);
+	});
+});

@@ -502,3 +502,64 @@ describe('hasKnownDirectRoute', () => {
 		).resolves.toBe(false);
 	});
 });
+
+describe('onProviderResult (issue #130)', () => {
+	it("reports a provider's empty answer, which the route graph itself discards", async () => {
+		// The BVC shape: an airport outside this provider's network. Ryanair's adapter turns
+		// its own 404 into exactly this ok-and-empty result, and `sourceFromProvider` folds it
+		// into "no edges", so without this hook a caller never learned a real request had been
+		// made and answered.
+		const provider = createFakeFlightProvider('empty-network-fixture', { routes: {} });
+		const seen: { id: string; ok: boolean; rows: number }[] = [];
+
+		await findConnectionCandidates(QUERY, {
+			flightProviders: [provider],
+			airportLookup: fixtureLookup,
+			onProviderResult: (called, result) => {
+				seen.push({ id: called.id, ok: result.ok, rows: result.ok ? result.data.length : -1 });
+			}
+		});
+
+		expect(seen).toEqual([{ id: 'empty-network-fixture', ok: true, rows: 0 }]);
+	});
+
+	it('reports a failure as a failure, not as an empty answer', async () => {
+		const provider = createFakeFlightProvider('failing-fixture', { fail: true });
+		const seen: boolean[] = [];
+
+		await findConnectionCandidates(QUERY, {
+			flightProviders: [provider],
+			airportLookup: fixtureLookup,
+			onProviderResult: (_provider, result) => seen.push(result.ok)
+		});
+
+		expect(seen).toEqual([false]);
+	});
+
+	it('reports one result per airport the graph asks about', async () => {
+		const provider = fixtureProvider();
+		const outcomes: string[] = [];
+
+		await findConnectionCandidates(QUERY, {
+			flightProviders: [provider],
+			airportLookup: fixtureLookup,
+			onProviderResult: (_provider, result) => outcomes.push(result.ok ? 'ok' : 'failed')
+		});
+
+		// The origin, then each surviving candidate's own inbound lookup.
+		expect(outcomes.length).toBeGreaterThan(1);
+		expect(outcomes.every((entry) => entry === 'ok')).toBe(true);
+	});
+
+	it('reports from hasKnownDirectRoute too, so an empty-results screen can name its sources', async () => {
+		const provider = createFakeFlightProvider('empty-network-fixture', { routes: {} });
+		const seen: string[] = [];
+
+		await hasKnownDirectRoute(
+			{ originAirport: ZBC, destinationAirport: ZSF, soonestDeparture: SOONEST_DEPARTURE },
+			{ flightProviders: [provider], onProviderResult: (called) => seen.push(called.id) }
+		);
+
+		expect(seen).toEqual(['empty-network-fixture']);
+	});
+});

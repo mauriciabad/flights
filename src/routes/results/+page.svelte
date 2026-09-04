@@ -35,6 +35,7 @@
 	} from '$lib/search';
 	import { applyFilters, deriveFilterOptions, emptyFilters } from '$lib/results/filters';
 	import type { ResultFilters } from '$lib/results/filters';
+	import { explainNoResults } from '$lib/results/no-results';
 	import { getProviderRegistry } from '$lib/results/provider-setup';
 	import { compareResults, sortResults } from '$lib/results/sort';
 	import type { SortMode } from '$lib/results/sort';
@@ -45,6 +46,7 @@
 	import { comparisonSelection } from '$lib/results/comparison-selection.svelte';
 	import { toComparedItinerary } from '$lib/results/to-compared-itinerary';
 	import FilterPanel from './FilterPanel.svelte';
+	import NoResultsBoard from './NoResultsBoard.svelte';
 	import ProviderStatusStrip from './ProviderStatusStrip.svelte';
 	import ResultCard from './ResultCard.svelte';
 	import ResultDetail from './ResultDetail.svelte';
@@ -76,9 +78,25 @@
 	 * See `types.ts`'s `SearchSnapshot.hasDirectRoute` doc comment for why it's `false` on
 	 * every other snapshot, not only an absent one. */
 	let directRouteKnown = $state(false);
+	/** Issue #130: how many stopover candidates the primary search ended up ranking. Zero
+	 * with an empty result means no free source could connect these two airports at all,
+	 * which is a different thing to say than "candidates existed and none priced out" — see
+	 * `results/no-results.ts`. Gated to the primary search for the same reason
+	 * `directRouteKnown` is. */
+	let candidateCount = $state(0);
+	/** True once the primary search has yielded its final snapshot. The empty-results board
+	 * explains what the providers answered, so it must not render in the frame between this
+	 * page mounting and the search starting, when nothing has been asked yet and
+	 * `searchesInFlight` is still zero. */
+	let primarySearchDone = $state(false);
 	let sortMode = $state<SortMode>('score');
 	let filters = $state<ResultFilters>(emptyFilters());
 	let connectionAirports = $state<Record<string, Airport>>({});
+	/** Issue #130: the origin and destination airports' own records, resolved the same lazy
+	 * way as the connection ones below, so the empty-results copy can name the city a route
+	 * is missing from. Separate from `connectionAirports` because neither endpoint is ever a
+	 * stopover, so nothing would put them in that map. */
+	let endpointAirports = $state<Record<string, Airport>>({});
 	/** How many searches (the primary one, plus any widen the traveller triggers) are
 	 * currently streaming, reserve-space skeleton and "still searching" copy key off
 	 * this being `> 0`, not off any single stream's own `done` flag. */
@@ -109,6 +127,7 @@
 	// Plain mutable bookkeeping, not `$state`: neither needs to trigger a render on its
 	// own, only the `$state` fields written from inside the functions below do that.
 	const requestedAirportCodes = new Set<string>();
+	const requestedEndpointCodes = new Set<string>();
 	const sequenceByConnection = new Map<string, number>();
 	let nextSequence = 1;
 
@@ -127,6 +146,40 @@
 	const filteredResults = $derived(applyFilters(results, filters));
 	const providerStatusList = $derived(Object.values(providerStatuses));
 	const stillSearching = $derived(searchesInFlight > 0);
+
+	/** Issue #130: the city name behind each endpoint code, so the empty-results copy can say
+	 * "Boa Vista (BVC)" instead of only "BVC". Undefined until the dataset resolves, and the
+	 * copy falls back to the bare code rather than waiting or guessing. */
+	const origin = $derived({ code: query?.originAirport ?? '', name: endpointAirports[query?.originAirport ?? '']?.city.name });
+	const destination = $derived({
+		code: query?.destinationAirport ?? '',
+		name: endpointAirports[query?.destinationAirport ?? '']?.city.name
+	});
+
+	/**
+	 * Issue #130: why this finished search has nothing to show, derived from what the
+	 * providers actually answered rather than asserted. `undefined` whenever there is
+	 * something on screen or something still running, which is what keeps this off every
+	 * ordinary search.
+	 */
+	const noResults = $derived.by(() => {
+		if (!query || !primarySearchDone || results.length > 0 || stillSearching) return undefined;
+		const registry = getProviderRegistry();
+		const usableIds = new Set(registry.usable('flight', keyStore.availableKeys).map((provider) => provider.id));
+		return explainNoResults({
+			origin,
+			destination,
+			providers: providerStatusList,
+			registeredFlightProviders: registry.ofKind('flight').map((provider) => ({
+				id: provider.id,
+				label: provider.label,
+				needsKey: provider.needsKey,
+				usable: usableIds.has(provider.id)
+			})),
+			candidateCount,
+			hasDirectRoute: directRouteKnown
+		});
+	});
 
 	function deps(): SearchDependencies {
 		return { registry: getProviderRegistry(), keys: keyStore.availableKeys };
@@ -149,6 +202,8 @@
 				if (options.trackWidenOptions) {
 					widenOptions = snapshot.widenOptions;
 					directRouteKnown = snapshot.hasDirectRoute;
+					candidateCount = snapshot.candidates.length;
+					if (snapshot.done) primarySearchDone = true;
 				}
 				const compare = untrack(() => compareResults(sortMode));
 				for (const group of snapshot.itineraryGroups) {
@@ -174,6 +229,8 @@
 		widenOptions = [];
 		calendarSummaries = [];
 		directRouteKnown = false;
+		candidateCount = 0;
+		primarySearchDone = false;
 		sequenceByConnection.clear();
 		nextSequence = 1;
 		// A new query is an unrelated search: yesterday's connection codes have no business
@@ -214,6 +271,21 @@
 		untrack(() => {
 			order = sortResults(slotsToResults(order), mode).map(toSlot);
 		});
+	});
+
+	/** Resolves the query's own two airports, once per code, for the empty-results copy
+	 * (issue #130). Same lazy `getAirport` pattern as the connection lookup below, and the
+	 * same reason it is safe inside an effect: nothing here reads the state it writes. */
+	$effect(() => {
+		const activeQuery = query;
+		if (!activeQuery) return;
+		for (const code of [activeQuery.originAirport, activeQuery.destinationAirport]) {
+			if (requestedEndpointCodes.has(code)) continue;
+			requestedEndpointCodes.add(code);
+			getAirport(code).then((airport) => {
+				if (airport) endpointAirports = { ...endpointAirports, [code]: airport };
+			});
+		}
 	});
 
 	/** Resolves each connection airport's full record (for its city name and flag) as
@@ -350,7 +422,7 @@
 
 		<StayKeyNotice />
 
-		<ProviderStatusStrip statuses={providerStatusList} />
+		<ProviderStatusStrip statuses={providerStatusList} searching={stillSearching} />
 
 		<div class="results-layout">
 			<aside class="results-filters" aria-label="Filters">
@@ -386,24 +458,14 @@
 					</EmptyState>
 				{/if}
 
-				{#if results.length === 0 && !stillSearching}
-					{#if directRouteKnown}
-						<!-- Issue #107: this app only ever searches for a stopover, so an empty result
-						     here just as often means "the direct flight is the better answer" as it
-						     means "nothing works." For a well-served route like BCN to CDG, it's almost
-						     always the former. Saying so plainly is the whole point; dressing a good
-						     outcome up as a failure ("try a different destination") is exactly what
-						     issue #107 reported. -->
-						<EmptyState
-							title="Well served direct"
-							description={`${query.originAirport} to ${query.destinationAirport} is well served direct, so there's no stopover here worth turning into a trip. That's not a claim no flights exist, just that a stopover isn't the better answer this time.`}
-						/>
-					{:else}
-						<EmptyState
-							title="No itineraries found"
-							description="None of the free providers above found a workable connection for this search. Widen the search above, or try a different destination."
-						/>
-					{/if}
+				{#if noResults}
+					<!-- Issue #130, and issue #107's "well served direct" ending folded into the
+					     same component: every sentence here is derived from what the providers
+					     answered (`results/no-results.ts`), never from what an empty list was
+					     assumed to mean. The copy this replaced blamed "no workable connection"
+					     on a search where the only keyless provider had said, twice, that it does
+					     not serve the origin airport at all. -->
+					<NoResultsBoard explanation={noResults} {origin} {destination} />
 				{/if}
 
 				<!-- Keyed on result.id (the connection airport code, stable for the whole

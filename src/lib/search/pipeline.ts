@@ -713,7 +713,7 @@ export async function* runSearch(
 						destinationAirport: query.destinationAirport,
 						soonestDeparture: query.soonestDeparture
 					},
-					{ flightProviders: allFlightProviders, providerKeys: deps.keys, signal }
+					{ flightProviders: allFlightProviders, providerKeys: deps.keys, signal, onProviderResult: record }
 				);
 
 	const candidates = await findConnectionCandidates(
@@ -729,6 +729,9 @@ export async function* runSearch(
 			flightProviders: allFlightProviders,
 			providerKeys: deps.keys,
 			airportLookup: airportLookupFrom(resolveAirport),
+			// Issue #130: candidate discovery is the only provider call many searches ever
+			// make, so without this the status panel had nothing to report at all.
+			onProviderResult: record,
 			maxCandidates: options.maxCandidates,
 			signal
 			// meteredRequestBudget intentionally omitted (default 0): this is the line that
@@ -849,6 +852,7 @@ export async function* runSearch(
 				flightProviders: allFlightProviders,
 				providerKeys: deps.keys,
 				airportLookup: airportLookupFrom(resolveAirport),
+				onProviderResult: record,
 				maxCandidates: FALLBACK_MAX_CANDIDATES,
 				signal
 				// meteredRequestBudget intentionally omitted (default 0), same as the primary
@@ -965,6 +969,7 @@ export async function* widenSearch(
 			// what a `runSearch` snapshot showed them, so this re-derivation has to be able to
 			// find that candidate again even when it only appeared via that fallback sweep.
 			maxCandidates: options.maxCandidates ?? FALLBACK_MAX_CANDIDATES,
+			onProviderResult: record,
 			signal
 			// meteredRequestBudget intentionally omitted (default 0): re-deriving the
 			// candidate ranking here must stay free too, even though widenSearch itself goes
