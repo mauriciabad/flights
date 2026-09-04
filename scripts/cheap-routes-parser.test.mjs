@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { CheapRoutesResponseError, parseCityDirectionsResponse } from './cheap-routes-parser.mjs';
+import {
+	buildCheapRoutesDataset,
+	CheapRoutesResponseError,
+	parseCityDirectionsResponse
+} from './cheap-routes-parser.mjs';
 
 // Shaped like a real `/v1/city-directions?origin=BCN&currency=eur` response
 // (docs/PROVIDERS.md's documented shape, with representative values -- field
@@ -116,5 +120,51 @@ describe('parseCityDirectionsResponse', () => {
 		});
 
 		expect(routes).toHaveLength(0);
+	});
+});
+
+describe('buildCheapRoutesDataset', () => {
+	const ROWS = [
+		{ origin: 'BCN', destination: 'STN', expiresAt: '2026-09-04T11:28:50Z' },
+		{ origin: 'AGP', destination: 'AMS', expiresAt: '2026-09-04T11:28:50Z' },
+		{ origin: 'BCN', destination: 'AHO', expiresAt: '2026-09-04T11:28:50Z' }
+	];
+
+	// Issue #169's whole point: the file the app ships has to be able to say when it was
+	// fetched, because the runtime shim used to answer that question with `new Date()`.
+	it('writes the fetch instant alongside the routes', () => {
+		const dataset = buildCheapRoutesDataset(ROWS, '2026-09-04T03:17:22.481Z');
+		expect(dataset.fetchedAt).toBe('2026-09-04T03:17:22.481Z');
+		expect(dataset.routes).toHaveLength(3);
+	});
+
+	it('sorts routes by origin then destination, so a nightly commit shows what moved', () => {
+		const dataset = buildCheapRoutesDataset(ROWS, '2026-09-04T03:17:22.481Z');
+		expect(dataset.routes.map((route) => `${route.origin}-${route.destination}`)).toEqual([
+			'AGP-AMS',
+			'BCN-AHO',
+			'BCN-STN'
+		]);
+	});
+
+	it('keeps each row’s own expiresAt, which is a different fact from fetchedAt', () => {
+		// Travelpayouts' expiry for its cached fare, ours for the retrieval. Deriving
+		// either from the other is the bug this issue is about.
+		const dataset = buildCheapRoutesDataset(ROWS, '2026-09-04T03:17:22.481Z');
+		for (const route of dataset.routes) {
+			expect(route.expiresAt).toBe('2026-09-04T11:28:50Z');
+		}
+	});
+
+	it('refuses to build a dataset with no usable timestamp rather than defaulting to now', () => {
+		for (const bad of [undefined, null, '', 'whenever']) {
+			expect(() => buildCheapRoutesDataset(ROWS, bad)).toThrow(CheapRoutesResponseError);
+		}
+	});
+
+	it('does not mutate the caller’s array while sorting', () => {
+		const input = [...ROWS];
+		buildCheapRoutesDataset(input, '2026-09-04T03:17:22.481Z');
+		expect(input).toEqual(ROWS);
 	});
 });

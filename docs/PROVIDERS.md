@@ -784,6 +784,48 @@ Every fare carries the instant it was really read, in `ProviderSource.fetchedAt`
 result card already renders as "fetched 40 minutes ago". A price that old, visibly that
 old, beats a spinner.
 
+#### Ryanair does not tell us when it last repriced a fare (issue #170)
+
+Two different instants, and only one of them is knowable here. `fetchedAt` is when *we*
+asked. When *Ryanair* last moved the price is a different number, and it is the one a
+traveller actually cares about: a fare retrieved ten seconds ago may have been set eight
+hours ago.
+
+The issue was filed against `RyanairFare.outbound.priceUpdated`, a typed-but-never-read
+field on the old fare finder. That endpoint and that field both left the codebase with
+issue #137. The current fare source carries nothing equivalent, and I checked rather than
+assumed. Measured live on 2026-09-04, the union of keys across all 31 rows of
+`farfnd/v4/oneWayFares/BCN/STN/cheapestPerDay`:
+
+```
+day, arrivalDate, departureDate, price, soldOut, unavailable
+```
+
+The committed fixture is a verbatim capture of that, not a trimmed one.
+
+Three ways it could have been recovered, all closed:
+
+- **Go back to `farfnd/v4/oneWayFares`.** It still carries `priceUpdated`, still past-dated
+  and plausible (re-checked 2026-09-04: it read 3.5 hours behind the clock). But pinned to
+  one route it answers `size: 1`, one fare for the whole month, which is exactly why #137
+  stopped using it. Its single timestamp could date one of the thirty-one offers the picker
+  shows, for a third request per route-month.
+- **Read the CDN's `Age` and `Date` headers.** They are on the wire, and a browser cannot
+  see them. Neither is CORS-safelisted, and Ryanair's `Access-Control-Expose-Headers` lists
+  only `Content-Type, Accept, X-Requested-With, X-File-Name, x-real-ip, Market-Code,
+  Market-BasePath, X-AUTH-TOKEN, X-Session-Token, fr-correlation-id`. Confirmed from a real
+  cross-origin `fetch()` in Chromium: the only readable headers are `cache-control` and
+  `content-type`, and `res.headers.get('age')` returns `null`. With no backend there is
+  nowhere else to read them from. This is the same measurement discipline #146 used on the
+  RapidAPI quota headers, and the answer here is the negative one.
+- **Infer it from `Cache-Control: max-age=60, s-maxage=300`.** That is the CDN's retention
+  policy, not a claim about when the price changed. Deriving one from the other invents the
+  number.
+
+So the app says what it knows. The result card's badge now reads "Checked 40 minutes ago"
+instead of "Priced 40 minutes ago": the first is a fact about us, the second was a claim
+about the fare built from a clock that never knew it.
+
 **Transitous / MOTIS** answers the question ordinary flight search cannot: is there
 actually a bus at the hour this flight lands, and if not, when is the next one.
 
@@ -908,6 +950,32 @@ Response shape from `/v1/city-directions`:
 ```
 
 `expires_at` is the cache-freshness marker and should survive into the domain model.
+
+#### The dataset carries its own fetch instant (issue #169)
+
+`expires_at` answers a different question from the one provenance asks. It is
+Travelpayouts' claim about its cached fare. "When did we retrieve this file" was not
+recorded anywhere, so `search/providers-adapter.ts` filled the gap with
+`new Date().toISOString()` at read time, and a dataset compiled into the bundle weeks
+earlier reported itself as seconds old.
+
+The generator now writes the instant it actually fetched, and the file is an object rather
+than a bare array:
+
+```json
+{ "fetchedAt": "2026-09-04T03:17:22.481Z", "routes": [ ... ] }
+```
+
+Deriving `fetchedAt` from a row's `expires_at` was rejected. An expiry is not a retrieval,
+and turning one into the other is the same invention in a different disguise.
+
+One consequence, taken deliberately: the nightly job now commits on every run, because the
+stamp advances even when no price moved. The alternatives were to bump the stamp only when
+the data changed, which makes it mean "when this data was last different" and would have to
+be renamed to say so, or to leave it stale between changes, which is simply false. The
+`routes` array is still sorted, so `git show` on one of those commits still says at a glance
+whether a price moved or only the stamp did. `.github/workflows/ryanair-network.yml` already
+made the same trade for the same reason.
 
 ### What the build-time dataset actually holds, and why it did not save the reference trip
 

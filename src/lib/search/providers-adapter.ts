@@ -15,14 +15,34 @@
  * everywhere else in this pipeline treats providers by tier (`cost-aware.ts`).
  */
 
-import { getCheapRoutesFrom } from '../data/cheap-routes';
+import { getCheapRoutesFrom, loadCheapRoutesDataset } from '../data/cheap-routes';
 import type { FlightOffer, IataAirportCode } from '../domain';
 import type { FlightProvider, ProviderHealth, ProviderResult, ProviderSource } from '../providers/types';
 
 export const CHEAP_ROUTES_PROVIDER_ID = 'travelpayouts-cheap-routes';
 
-function source(): ProviderSource {
-	return { providerId: CHEAP_ROUTES_PROVIDER_ID, fetchedAt: new Date().toISOString() };
+/**
+ * Issue #169: the dataset's own fetch instant, never `new Date()`.
+ *
+ * This used to stamp every answer with the clock at the moment of the call, which made a
+ * build artefact compiled into the bundle weeks ago report itself as seconds old. The
+ * other nine adapters #151 fixed were stamping a *cache read* as a fetch; this one had
+ * nothing underneath it to read a real instant from at all, because the generator wrote
+ * none. It writes one now (scripts/fetch-cheap-routes.mjs), and this is where it lands.
+ *
+ * `ProviderSource.fetchedAt` means "the instant the adapter finished fetching this", and
+ * for a build-time dataset the fetch happened in CI, not in this browser. CI's clock is
+ * still the right answer to "when did we retrieve this": it is *our* retrieval, just not
+ * this device's. What it is not, and must never be quietly replaced by, is Travelpayouts'
+ * own `expiresAt` on each row -- that is the provider's claim about its cached fare, a
+ * different fact with a different meaning.
+ *
+ * Awaiting the dataset costs nothing after the first call: `loadCheapRoutesDataset`
+ * memoizes, and every method here already had to await it for the rows anyway.
+ */
+async function source(): Promise<ProviderSource> {
+	const { fetchedAt } = await loadCheapRoutesDataset();
+	return { providerId: CHEAP_ROUTES_PROVIDER_ID, fetchedAt };
 }
 
 export function createCheapRoutesFlightProvider(): FlightProvider {
@@ -37,19 +57,29 @@ export function createCheapRoutesFlightProvider(): FlightProvider {
 			// No network call this adapter could make even if asked to — the dataset it
 			// reads is a static build artefact (data/cheap-routes.generated.json), never
 			// fetched at runtime, so "is this provider reachable" is trivially always yes.
-			return { ok: true, data: { message: 'Static build-time dataset, always available' }, source: source(), requestsUsed: 0 };
+			return {
+				ok: true,
+				data: { message: 'Static build-time dataset, always available' },
+				source: await source(),
+				requestsUsed: 0
+			};
 		},
 
 		// Always free: this wrapper does no network I/O at all.
 		estimateSearchOffersCost: () => 0,
 
 		async searchOffers(): Promise<ProviderResult<FlightOffer[]>> {
-			return { ok: true, data: [], source: source(), requestsUsed: 0 };
+			return { ok: true, data: [], source: await source(), requestsUsed: 0 };
 		},
 
 		async listDirectDestinations(iataCode: IataAirportCode): Promise<ProviderResult<IataAirportCode[]>> {
 			const routes = await getCheapRoutesFrom(iataCode);
-			return { ok: true, data: routes.map((route) => route.destination), source: source(), requestsUsed: 0 };
+			return {
+				ok: true,
+				data: routes.map((route) => route.destination),
+				source: await source(),
+				requestsUsed: 0
+			};
 		}
 	};
 }

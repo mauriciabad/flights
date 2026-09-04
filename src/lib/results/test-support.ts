@@ -149,7 +149,7 @@ export function makeScoredResult(
 					fetchedAt: '2026-10-14T00:00:00.000Z'
 				}
 			],
-			freshness: { tier: 'fresh', ageMs: 0 }
+			freshness: { tier: 'fresh', retrievedAgeMs: 0 }
 		}
 	};
 }

@@ -25,7 +25,7 @@ function providerStatus(overrides: Partial<ProviderStatus> = {}): ProviderStatus
 
 // A fetch timestamp is when a real network call actually happened, which is always
 // close to "now" (whenever the test runs), never the fictional flight date the itinerary
-// itself describes. A fixed past offset keeps `ageMs` meaningfully positive regardless of
+// itself describes. A fixed past offset keeps `retrievedAgeMs` meaningfully positive regardless of
 // when this test suite runs.
 const ONE_HOUR_AGO = new Date(Date.now() - 60 * 60_000).toISOString();
 const FIVE_MINUTES_AGO = new Date(Date.now() - 5 * 60_000).toISOString();
@@ -93,7 +93,7 @@ describe('deriveScoredResult', () => {
 		// finished, and `view-model.ts` needs that number to stop calling it "Current".
 		const g = group();
 		const result = deriveScoredResult(g, { providers: {}, done: true }, 1);
-		expect(result.price.freshness.ageMs).toBeGreaterThanOrEqual(59 * 60_000);
+		expect(result.price.freshness.retrievedAgeMs).toBeGreaterThanOrEqual(59 * 60_000);
 	});
 
 	it('is stale while the search is still running, even with no error', () => {
@@ -120,7 +120,7 @@ describe('deriveScoredResult', () => {
 			expect(result.price.freshness.message).toBe('Quota used up.');
 			// Age is measured from the OLDEST part (the outbound flight, fetched an hour
 			// ago), the more conservative reading, not the freshest (5 minutes ago).
-			expect(result.price.freshness.ageMs).toBeGreaterThanOrEqual(59 * 60_000);
+			expect(result.price.freshness.retrievedAgeMs).toBeGreaterThanOrEqual(59 * 60_000);
 		}
 	});
 

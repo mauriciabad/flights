@@ -48,6 +48,36 @@ interface CheapRouteDatasetRow {
 }
 
 /**
+ * The generated file as a whole, issue #169. Two instants live in it and they
+ * answer different questions:
+ *
+ * - `fetchedAt` is when WE asked Travelpayouts. Our clock, written by
+ *   scripts/fetch-cheap-routes.mjs at the moment of the fetch.
+ * - each row's `expiresAt` is what TRAVELPAYOUTS says about its own cached fare.
+ *   Their clock, their claim, carried verbatim.
+ *
+ * Before #169 only the second existed, so `search/providers-adapter.ts` answered
+ * "when was this fetched" with `new Date()` -- a dataset compiled into the bundle
+ * weeks earlier reporting itself as seconds old. Neither instant substitutes for
+ * the other, and deriving one from the other (an expiry is not a fetch) would be
+ * the same invention in a different disguise.
+ */
+interface CheapRoutesDatasetFile {
+	fetchedAt: string;
+	routes: CheapRouteDatasetRow[];
+}
+
+/** The loaded dataset: every route, plus the instant the build actually retrieved
+ * them. Callers that only want the rows can keep using `loadCheapRoutes`. */
+export interface CheapRoutesDataset {
+	/** ISO instant scripts/fetch-cheap-routes.mjs read these rows from
+	 * Travelpayouts. Not "now", and not when a caller reads this module -- see
+	 * `CheapRoutesDatasetFile` above. */
+	fetchedAt: string;
+	routes: CheapRoute[];
+}
+
+/**
  * A single cached Travelpayouts fare. Never a bookable quote: it is hours old
  * by the time it ships (the free tier serves recently cached prices, not live
  * search -- docs/PROVIDERS.md), which is exactly why `expiresAt` sits on the
@@ -97,7 +127,7 @@ function toCheapRoute(row: CheapRouteDatasetRow): CheapRoute {
 	};
 }
 
-let cheapRoutesPromise: Promise<CheapRoute[]> | null = null;
+let cheapRoutesPromise: Promise<CheapRoutesDataset> | null = null;
 
 /**
  * Loads the generated dataset on first call and memoizes it for the lifetime of
@@ -106,12 +136,23 @@ let cheapRoutesPromise: Promise<CheapRoute[]> | null = null;
  * lazy-load `loadAirports` in airports.ts uses, and for the same reason: it
  * stays testable directly under Node (no `fetch`, no dev server) since it is
  * still a module import rather than a network request.
+ *
+ * Cast rather than validated, matching `loadBundledRyanairNetwork` next door:
+ * this file is written by our own generator, not by a provider, so the guard
+ * that belongs on it is a test over the committed artefact
+ * (cheap-routes.test.ts) rather than a runtime branch on every read.
  */
-export function loadCheapRoutes(): Promise<CheapRoute[]> {
-	cheapRoutesPromise ??= import('./cheap-routes.generated.json').then((mod) =>
-		(mod.default as CheapRouteDatasetRow[]).map(toCheapRoute)
-	);
+export function loadCheapRoutesDataset(): Promise<CheapRoutesDataset> {
+	cheapRoutesPromise ??= import('./cheap-routes.generated.json').then((mod) => {
+		const file = mod.default as unknown as CheapRoutesDatasetFile;
+		return { fetchedAt: file.fetchedAt, routes: file.routes.map(toCheapRoute) };
+	});
 	return cheapRoutesPromise;
+}
+
+/** Just the rows, for callers with no use for the dataset's fetch instant. */
+export async function loadCheapRoutes(): Promise<CheapRoute[]> {
+	return (await loadCheapRoutesDataset()).routes;
 }
 
 /** Every cached route from a given origin, or `[]` if this dataset was never
