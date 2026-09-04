@@ -64,6 +64,17 @@ function source(): ProviderSource {
 	return { providerId: RYANAIR_PROVIDER_ID, fetchedAt: new Date().toISOString() };
 }
 
+/**
+ * Ryanair 404s the routes endpoint for any airport it doesn't fly from at all — true for
+ * most of Europe's airports, since Ryanair is one airline with a finite network (issue
+ * #89). That is this airline's normal answer to "does this airport connect anywhere on
+ * your network", not a failure, so it's handled as its own case in `listDirectDestinations`
+ * rather than falling into `toProviderError` below and coming back as `{ok: false}`.
+ */
+function isRouteNotFound(error: RyanairFetchError): boolean {
+	return error.code === 'http-error' && error.status === 404;
+}
+
 function toProviderError(error: RyanairFetchError): ProviderError {
 	switch (error.code) {
 		case 'cancelled':
@@ -266,6 +277,14 @@ function createRyanairFlightProvider(options: RyanairProviderOptions = {}): Flig
 
 		const response = await fetchDirectDestinations(origin, { signal: ctx.signal, fetchImpl: options.fetchImpl });
 		if (!response.ok) {
+			if (isRouteNotFound(response.error)) {
+				// Not an error (see isRouteNotFound above): cache and return the same empty
+				// list a 200-with-no-routes response would have produced, and never surface
+				// this to a caller as a failure worth logging.
+				const noRoutes: IataAirportCode[] = [];
+				await writeCache(store, cacheKey, noRoutes);
+				return { ok: true, data: noRoutes, source: source(), requestsUsed: 1 };
+			}
 			return { ok: false, error: toProviderError(response.error), source: source(), requestsUsed: 1 };
 		}
 

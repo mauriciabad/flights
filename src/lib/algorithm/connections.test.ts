@@ -217,6 +217,31 @@ describe('findConnectionCandidates', () => {
 		expect(candidates.some((c) => c.airportCode === 'ZZZ')).toBe(false);
 	});
 
+	it('drops an unresolvable code unconditionally and never queries it (issue #89: metropolitan codes)', async () => {
+		// 'ZZZ' stands in here for an IATA *metropolitan* code (ROM, PAR, MIL, ...): a
+		// real route-graph source can list it as if it were a destination, but no
+		// geography tier resolves it because it isn't a single real airport. Unlike the
+		// forbidden-country test above, this must be dropped even with no forbidden list
+		// in effect at all — the point of issue #89's fix is that a code like this is
+		// never usable, not just risky.
+		const provider = createFakeFlightProvider('fixture-with-metro-code', {
+			routes: { [ZBC]: [ZVI, 'ZZZ'], [ZVI]: [ZSF], ZZZ: [ZSF] }
+		});
+		const candidates = await findConnectionCandidates(QUERY, {
+			flightProviders: [provider],
+			airportLookup: fixtureLookup
+		});
+
+		expect(candidates.some((c) => c.airportCode === 'ZZZ')).toBe(false);
+
+		// The measured bug (issue #89): 13 failing requests, one per unresolvable
+		// candidate, each probing "what does this code itself fly to". Proving 'ZZZ'
+		// is never passed to listDirectDestinations is proving that request never fires.
+		const queriedCodes = vi.mocked(provider.listDirectDestinations).mock.calls.map((call) => call[0]);
+		expect(queriedCodes).not.toContain('ZZZ');
+		expect(queriedCodes).toContain(ZVI); // sanity: a real candidate is still queried
+	});
+
 	it('respects an explicit allow-list, excluding an otherwise-valid candidate not on it', async () => {
 		const candidates = await findConnectionCandidates(
 			{ ...QUERY, allowedConnectionAirports: [ZVI] },

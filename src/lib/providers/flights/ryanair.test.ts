@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryCacheStore } from '../../cache';
 import activeAirportsFixture from './fixtures/active-airports.json';
 import oneWayFaresSingleFixture from './fixtures/one-way-fares-single-route.json';
@@ -165,6 +165,44 @@ describe('listDirectDestinations', () => {
 		const second = await provider.listDirectDestinations('BCN', { signal: new AbortController().signal });
 
 		expect(second.requestsUsed).toBe(0);
+		expect(fetchCallCount).toBe(callsAfterFirst);
+	});
+
+	it('maps a 404 to an empty result, not an error, and logs nothing (issue #89)', async () => {
+		// Ryanair 404s this endpoint for any airport it doesn't fly from at all — DUS here
+		// stands in for the real airports (DUS, ZRH, CDG, ...) issue #89 measured this
+		// against. That is a normal "no routes" answer, never worth a console error.
+		const fetchImpl = fixtureFetch({
+			'https://www.ryanair.com/api/views/locate/searchWidget/routes/en/airport/':
+				() => new Response(null, { status: 404 })
+		});
+		const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+		const consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+		const provider = createRyanairFlightProvider({ store: new MemoryCacheStore(), fetchImpl });
+		const result = await provider.listDirectDestinations('DUS', { signal: new AbortController().signal });
+
+		expect(result).toMatchObject({ ok: true, data: [], requestsUsed: 1 });
+		expect(consoleError).not.toHaveBeenCalled();
+		expect(consoleWarn).not.toHaveBeenCalled();
+
+		consoleError.mockRestore();
+		consoleWarn.mockRestore();
+	});
+
+	it('caches the empty result of a 404, spending nothing on a repeat call for the same airport', async () => {
+		const store = new MemoryCacheStore();
+		const fetchImpl = fixtureFetch({
+			'https://www.ryanair.com/api/views/locate/searchWidget/routes/en/airport/':
+				() => new Response(null, { status: 404 })
+		});
+		const provider = createRyanairFlightProvider({ store, fetchImpl });
+
+		await provider.listDirectDestinations('DUS', { signal: new AbortController().signal });
+		const callsAfterFirst = fetchCallCount;
+		const second = await provider.listDirectDestinations('DUS', { signal: new AbortController().signal });
+
+		expect(second).toMatchObject({ ok: true, data: [], requestsUsed: 0 });
 		expect(fetchCallCount).toBe(callsAfterFirst);
 	});
 
