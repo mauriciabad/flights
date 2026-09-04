@@ -54,6 +54,7 @@ export function formatClockTime(dateTime: LocalDateTime): string {
 }
 
 const WEEKDAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const WEEKDAY_LONG_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 const MONTH_NAMES = [
 	'Jan',
 	'Feb',
@@ -81,6 +82,19 @@ const MONTH_NAMES = [
 export function formatCalendarDate(dateTime: LocalDateTime): string {
 	const date = asWallClockDate(dateTime);
 	return `${WEEKDAY_NAMES[date.getUTCDay()]}, ${date.getUTCDate()} ${MONTH_NAMES[date.getUTCMonth()]}`;
+}
+
+/** "Fri": the weekday a traveller standing at that airport would read off the departure
+ * board, from the same name table and for the same reason as `formatCalendarDate`. The
+ * trip strip stamps it on each free-time day so a stopover reads as "Friday evening, all
+ * Saturday, Sunday morning" rather than as a duration (issue #209). */
+export function formatWeekday(dateTime: LocalDateTime): string {
+	return WEEKDAY_NAMES[asWallClockDate(dateTime).getUTCDay()]!;
+}
+
+/** "Friday": the long form of `formatWeekday`, for a sentence rather than a stamp. */
+export function formatWeekdayLong(dateTime: LocalDateTime): string {
+	return WEEKDAY_LONG_NAMES[asWallClockDate(dateTime).getUTCDay()]!;
 }
 
 /** "UTC+2", "UTC-3:30": the numeric offset stored on the LocalDateTime itself, never

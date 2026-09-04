@@ -16,7 +16,7 @@ export { default as PriceLine } from './PriceLine.svelte';
 export { ALL_METRIC_IDS, CARD_METRIC_IDS, itineraryMetrics, priceBreakdown } from './itinerary-metrics';
 export type { ItineraryMetric, ItineraryMetricId, PriceBreakdown, PricePart } from './itinerary-metrics';
 export { tripStrip } from './trip-strip';
-export type { TripStrip as TripStripModel, TripStripSpan } from './trip-strip';
+export type { TripStrip as TripStripModel, TripStripSegment } from './trip-strip';
 export { default as ItineraryMap } from './ItineraryMap.svelte';
 export { default as Skeleton } from './Skeleton.svelte';
 export { default as EmptyState } from './EmptyState.svelte';
