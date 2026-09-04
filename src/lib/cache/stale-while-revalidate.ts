@@ -1,25 +1,67 @@
 import { getDefaultStore } from './default-store';
+import { classifyExpiredFallbackReason } from './expired-fallback-reason';
 import { estimateByteSize } from './size';
+import type { ExpiredFallbackReason } from './expired-fallback-reason';
 import type { CacheKey } from './key';
 import type { CacheStore } from './types';
 
-export interface StaleWhileRevalidateResult<T> {
+export type { ExpiredFallbackReason } from './expired-fallback-reason';
+
+/** `value` just arrived from the fetcher, or came from an entry still within its TTL
+ * with no refetch outcome to report yet. Good enough to show as current, no caveat. */
+export interface FreshResult<T> {
 	value: T;
-	/**
-	 * `'stale'`: `value` came from the cache. `'fresh'`: `value` just arrived
-	 * from the fetcher. A UI can badge the two differently, e.g. a faded price
-	 * with a small spinner while stale, solid once fresh.
-	 */
-	state: 'stale' | 'fresh';
+	state: 'fresh';
+	isRevalidating: false;
+}
+
+/** `value` came from the cache, painted before or instead of waiting on the fetcher.
+ * Covers both an entry still within its TTL (trustworthy on its own, refetching only
+ * to keep it that way) and one already past it (refetching because it has to, not
+ * because it wants to). A component reads `isRevalidating` and `revalidationError`
+ * the same way either way, since in both cases a background fetch is or was in
+ * flight and may still turn `value` into `'fresh'`. */
+export interface StaleResult<T> {
+	value: T;
+	state: 'stale';
 	/** True until the in-flight refetch for this key has settled, one way or the other. */
 	isRevalidating: boolean;
 	/**
-	 * Set when a refetch failed. `value` is still the last good stale value —
-	 * this event exists so a UI can stop a spinner and say "couldn't refresh"
-	 * without ever having to blank what it was already showing.
+	 * Set when a refetch failed while the entry was still within its TTL. `value` is
+	 * still the last good value, so this exists so a UI can stop a spinner and say
+	 * "couldn't refresh" without blanking what it was already showing. Contrast with
+	 * `ExpiredFallbackResult`, reached when the entry was past its TTL when the same
+	 * kind of failure happened: at that point the caveat is no longer optional colour,
+	 * it is the reason `value` is being shown at all.
 	 */
 	revalidationError?: unknown;
 }
+
+/**
+ * `value` is an entry that was already past its TTL, kept only because the refetch
+ * that would have replaced it FAILED. This is issue #35's tier: a Sky Scrapper
+ * account with its 20-requests-a-month quota spent has nothing else to offer, and a
+ * priced-yesterday fare beats a blank screen as long as it says so.
+ *
+ * A separate interface, not `StaleResult` with optional extra fields, because
+ * `ageMs` and `reason` are exactly the two facts a component needs to be honest
+ * about this value (AGENTS.md: never present an estimate as a fact), and making
+ * them required here means the compiler refuses code that reads `.value` after
+ * checking `state === 'expired-fallback'` without also having them in scope. A
+ * convention ("remember to show the age") would only catch that at review time,
+ * if at all.
+ */
+export interface ExpiredFallbackResult<T> {
+	value: T;
+	state: 'expired-fallback';
+	isRevalidating: false;
+	/** `Date.now() - storedAt` at the moment this was yielded, i.e. how old `value`
+	 * actually is, not just "older than its TTL". */
+	ageMs: number;
+	reason: ExpiredFallbackReason;
+}
+
+export type StaleWhileRevalidateResult<T> = FreshResult<T> | StaleResult<T> | ExpiredFallbackResult<T>;
 
 export interface StaleWhileRevalidateOptions {
 	/** Overrides the default IndexedDB-or-memory store. Mainly for tests. */
@@ -27,24 +69,24 @@ export interface StaleWhileRevalidateOptions {
 }
 
 /**
- * Shows the cached value for `key` at once if one is still within its TTL,
- * then always calls `fetcher` and reports what comes back — this is "refetch
- * always", not "refetch if stale": staleness only decides whether the cached
- * value is trustworthy enough to paint immediately, never whether to bother
- * checking for a fresh one.
+ * Shows the cached value for `key` at once whenever one exists, within its TTL or
+ * not, then always calls `fetcher` and reports what comes back. "Refetch always",
+ * not "refetch if stale": staleness only decides how the cached value gets labelled
+ * while painted, never whether to bother checking for a fresher one.
  *
- * Yields once (the fresh value) on a cold cache or an expired entry. Yields
- * twice on a warm one: the stale value first, then either the fresh value or,
- * if the refetch failed, the same stale value again with `revalidationError`
- * set. A cold cache whose fetch fails has nothing to show and rejects, same
- * as calling `fetcher()` directly would.
- *
- * An entry past its TTL is treated as a miss for the instant paint rather
- * than shown anyway: a five-minute-old fare presented as current is a wrong
- * price, not a fast one. That does mean a stale-but-expired entry is not used
- * as a last-resort fallback if the subsequent fetch then fails — an arguable
- * call biased towards not showing a number that turned out to be wrong over
- * always having a number to show.
+ * Yields once on a cold cache: the fresh value, or nothing at all if `fetcher`
+ * rejects, since there is genuinely nothing to fall back to and a caller awaiting
+ * this generator should see the same rejection calling `fetcher()` directly would
+ * give it. Yields twice on a warm one: the cached value first (`'stale'`), then
+ * either the fresh value, or, if the refetch failed:
+ * - the same cached value again as `'stale'` with `revalidationError` set, if it
+ *   was still within its TTL when this call started. It was trustworthy on its
+ *   own terms already, so the failed refetch is a footnote.
+ * - that value re-tagged `'expired-fallback'`, carrying its age and a classified
+ *   `reason`, if it was already past its TTL. This is issue #35: a Sky Scrapper
+ *   account with no quota left has nothing better to offer, and yesterday's fare
+ *   labelled as such beats a blank screen. `AGENTS.md`'s "never present an
+ *   estimate as a fact" is answered by that label, not by withholding the number.
  */
 export async function* staleWhileRevalidate<T>(
 	key: CacheKey,
@@ -56,7 +98,7 @@ export async function* staleWhileRevalidate<T>(
 	const existing = await store.get(key.raw);
 	const isWithinTtl = existing !== undefined && Date.now() - existing.storedAt < existing.ttlMs;
 
-	if (existing !== undefined && isWithinTtl) {
+	if (existing !== undefined) {
 		yield { value: existing.value as T, state: 'stale', isRevalidating: true };
 	}
 
@@ -79,6 +121,20 @@ export async function* staleWhileRevalidate<T>(
 				state: 'stale',
 				isRevalidating: false,
 				revalidationError: error
+			};
+			return;
+		}
+		if (existing !== undefined) {
+			// Past its TTL and the refetch that would have replaced it failed: the
+			// value is the only data the app has, so it is shown anyway, but as a
+			// clearly different, more cautious tier than plain `'stale'`. See
+			// ExpiredFallbackResult for why age and reason are required, not optional.
+			yield {
+				value: existing.value as T,
+				state: 'expired-fallback',
+				isRevalidating: false,
+				ageMs: Date.now() - existing.storedAt,
+				reason: classifyExpiredFallbackReason(error)
 			};
 			return;
 		}
