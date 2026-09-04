@@ -20,6 +20,8 @@
 	 */
 	import { untrack } from 'svelte';
 	import { browser } from '$app/environment';
+	import { goto } from '$app/navigation';
+	import { base } from '$app/paths';
 	import { page } from '$app/state';
 	import { Button, Card, EmptyState, ErrorState, Skeleton } from '$lib/components';
 	import { getAirport } from '$lib/data/airports';

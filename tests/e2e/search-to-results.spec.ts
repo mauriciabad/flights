@@ -11,7 +11,7 @@ import { mockAllKeylessProviders, routeRyanairFlights } from './support/provider
  *
  * Everything here is about that journey and about what the form refuses to send. The
  * search pipeline itself is covered by `results-stream-consumption.spec.ts` and
- * `select-and-compare.spec.ts`, so these tests deliberately do not assert on fares.
+ * `result-detail.spec.ts`, so these tests deliberately do not assert on fares.
  *
  * Dates are far enough out to stay in the future for years, since one of the rules under
  * test is "a date in the past is not a search worth spending".
@@ -20,7 +20,7 @@ import { mockAllKeylessProviders, routeRyanairFlights } from './support/provider
 const DEPARTURE = '2027-03-08';
 const ARRIVAL = '2027-03-27';
 
-/** BCN -> VIE -> TLL, the same chain `select-and-compare.spec.ts` uses, so a search run
+/** BCN -> VIE -> TLL, the same chain `result-detail.spec.ts` uses, so a search run
  * here really produces a card rather than an empty board. Fixture-marked values only. */
 async function mockConnectingFlights(page: import('@playwright/test').Page) {
 	await mockAllKeylessProviders(page.context());
