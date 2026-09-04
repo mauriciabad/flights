@@ -1,0 +1,69 @@
+{
+	"currency": "eur",
+	"data": [
+		{
+			"id": "itinerary-direct-bcn-vie",
+			"price": 45.5,
+			"booking_token": "token-direct-bcn-vie",
+			"deep_link": "https://www.kiwi.com/deep/direct-bcn-vie",
+			"route": [
+				{
+					"id": "segment-bcn-vie",
+					"flyFrom": "BCN",
+					"flyTo": "VIE",
+					"cityFrom": "Barcelona",
+					"cityTo": "Vienna",
+					"airline": "VY",
+					"flight_no": 8472,
+					"dTime": 1791882600,
+					"aTime": 1791890100,
+					"dTimeUTC": 1791875400,
+					"aTimeUTC": 1791882900,
+					"price": 45.5,
+					"return": 0,
+					"bags_recheck_required": false
+				}
+			]
+		},
+		{
+			"id": "itinerary-self-transfer-bcn-vie-otp",
+			"price": 78.25,
+			"booking_token": "token-self-transfer-bcn-vie-otp",
+			"deep_link": "https://www.kiwi.com/deep/self-transfer-bcn-vie-otp",
+			"route": [
+				{
+					"id": "segment-bcn-vie-leg1",
+					"flyFrom": "BCN",
+					"flyTo": "VIE",
+					"cityFrom": "Barcelona",
+					"cityTo": "Vienna",
+					"airline": "VY",
+					"flight_no": 8472,
+					"dTime": 1791882600,
+					"aTime": 1791890100,
+					"dTimeUTC": 1791875400,
+					"aTimeUTC": 1791882900,
+					"price": 45.5,
+					"return": 0,
+					"bags_recheck_required": true
+				},
+				{
+					"id": "segment-vie-otp-leg2",
+					"flyFrom": "VIE",
+					"flyTo": "OTP",
+					"cityFrom": "Vienna",
+					"cityTo": "Bucharest",
+					"airline": "W6",
+					"flight_no": 4322,
+					"dTime": 1792159500,
+					"aTime": 1792169700,
+					"dTimeUTC": 1792152300,
+					"aTimeUTC": 1792158900,
+					"price": 32.75,
+					"return": 0,
+					"bags_recheck_required": false
+				}
+			]
+		}
+	]
+}
