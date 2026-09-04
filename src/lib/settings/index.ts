@@ -1,3 +1,5 @@
+export { currencyOptions, findCurrency, SUPPORTED_CURRENCIES } from './currencies';
+export type { SearchCurrency } from './currencies';
 export { checkProviderKey } from './key-check';
 export type { KeyCheckOutcome } from './key-check';
 export { SETTINGS_PROVIDER_IDS, SETTINGS_PROVIDERS } from './provider-catalog';

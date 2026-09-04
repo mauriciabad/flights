@@ -15,7 +15,10 @@
 	let importOutcome = $state<ImportOutcome | undefined>(undefined);
 	let importing = $state(false);
 
-	const hasAnyKey = $derived(keyStore.providerIds.length > 0);
+	// Exporting is worth offering once there is anything to carry across, and the chosen
+	// currency counts: someone who has picked one and pasted no keys still has a setting
+	// worth moving to their other browser.
+	const hasAnythingToExport = $derived(keyStore.providerIds.length > 0 || keyStore.currency !== undefined);
 
 	function exportKeys() {
 		downloadKeysFile(keyStore.exportEnvelope());
@@ -57,15 +60,16 @@
 </script>
 
 <Card class="export-import-card">
-	<h2 class="export-import-heading">Export and import</h2>
+	<h3 class="export-import-heading">Export and import</h3>
 
 	<p class="export-import-blurb">
-		Move your keys to another device, or restore a saved set, as a plain JSON file — never sent
-		anywhere, only written and read in this browser.
+		Move your keys to another device, or restore a saved set, as a plain JSON file. Never sent
+		anywhere, only written and read in this browser. Your chosen currency rides along in the
+		same file, so a restored set searches the way it did before.
 	</p>
 
 	<div class="export-import-actions">
-		<Button type="button" variant="secondary" onclick={exportKeys} disabled={!hasAnyKey}>
+		<Button type="button" variant="secondary" onclick={exportKeys} disabled={!hasAnythingToExport}>
 			Export keys as JSON
 		</Button>
 		<Button type="button" variant="secondary" loading={importing} onclick={pickImportFile}>
@@ -81,8 +85,8 @@
 		/>
 	</div>
 
-	{#if !hasAnyKey}
-		<p class="export-import-hint">No keys saved yet, so there is nothing to export.</p>
+	{#if !hasAnythingToExport}
+		<p class="export-import-hint">Nothing saved yet, so there is nothing to export.</p>
 	{/if}
 
 	{#if importOutcome !== undefined}
@@ -91,7 +95,8 @@
 		{:else}
 			<p class="export-import-summary" role="status">
 				Added {importOutcome.added.length}, updated {importOutcome.updated.length}, left {importOutcome
-					.unchanged.length} unchanged.
+					.unchanged.length} unchanged.{#if importOutcome.currency}
+					Currency set to {importOutcome.currency}.{/if}
 			</p>
 			{#if importOutcome.warnings.length > 0}
 				<ul class="export-import-warnings">

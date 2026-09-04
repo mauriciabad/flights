@@ -188,7 +188,10 @@
 		<div class="provider-card-heading">
 			<div>
 				<span class="provider-card-category">{provider.category}</span>
-				<h2>{provider.label}</h2>
+				<!-- h3, not h2: the page now has an "API keys" h2 above this list (issue #19
+				     promoted it from h3 to h2 back when the page's h1 was the only thing above it,
+				     and the reason it gave was not skipping a level). -->
+				<h3>{provider.label}</h3>
 			</div>
 			<span class="provider-card-quota font-mono tabular-nums">{quota.remaining} left</span>
 		</div>
@@ -345,7 +348,7 @@
 		gap: var(--space-3);
 	}
 
-	.provider-card-heading h2 {
+	.provider-card-heading h3 {
 		margin: 0;
 		font-size: var(--font-size-lg);
 	}

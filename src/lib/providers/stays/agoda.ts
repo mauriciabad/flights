@@ -318,6 +318,16 @@ function createAgodaStayProvider(options: AgodaProviderOptions = {}): StayProvid
 		let oldestFetchedAt = searchEntry?.storedAt;
 
 		if (!candidates) {
+			// This endpoint takes no currency. Agoda's `/search` accepts a location and the two
+			// dates, nothing else, so `query.currency` cannot reach it and every `headlinePrice`
+			// below arrives in whatever Agoda decided (USD by default). Only the `get-prices`
+			// drill-down further down takes `currency_id`, so the prices a caller finally reads
+			// ARE in the requested currency; what happens in Agoda's own money is the
+			// cheapest-first sort that decides which candidates are worth drilling into. That
+			// ranking can therefore differ from a ranking in the requested currency whenever two
+			// properties are close and the exchange rate crosses them over. It is not fixable
+			// from this side, and it is why the settings screen says a provider can answer in
+			// something other than what it was asked for.
 			const searchResult = await budgetCall(
 				`${AGODA_PROVIDER_ID}:search:${locationLabel}:${query.checkIn}:${query.checkOut}`,
 				() =>

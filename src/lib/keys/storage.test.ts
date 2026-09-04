@@ -1,5 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { clearKeysFromStorage, loadKeysFromStorage, saveKeysToStorage } from './storage';
+import {
+	clearCurrencyFromStorage,
+	clearKeysFromStorage,
+	loadCurrencyFromStorage,
+	loadKeysFromStorage,
+	saveCurrencyToStorage,
+	saveKeysToStorage
+} from './storage';
 
 beforeEach(() => {
 	localStorage.clear();
@@ -91,5 +98,52 @@ describe('when localStorage throws', () => {
 			throw new DOMException('SecurityError');
 		});
 		expect(() => clearKeysFromStorage()).not.toThrow();
+	});
+});
+
+describe('loadCurrencyFromStorage / saveCurrencyToStorage', () => {
+	it('round-trips the chosen currency', () => {
+		expect(saveCurrencyToStorage('GBP')).toBe(true);
+		expect(loadCurrencyFromStorage()).toBe('GBP');
+	});
+
+	it('reads as undefined when nothing has been chosen', () => {
+		expect(loadCurrencyFromStorage()).toBeUndefined();
+	});
+
+	it('normalises on the way in, so a lowercase code is not stored as one', () => {
+		saveCurrencyToStorage(' chf ');
+		expect(localStorage.getItem('flights.searchCurrency.v1')).toBe('CHF');
+	});
+
+	it('refuses to store something that is not a currency code', () => {
+		saveCurrencyToStorage('EUR');
+		expect(saveCurrencyToStorage('not-a-currency')).toBe(false);
+		expect(loadCurrencyFromStorage()).toBe('EUR');
+	});
+
+	it('reads a corrupted value as nothing chosen rather than passing it to a provider', () => {
+		localStorage.setItem('flights.searchCurrency.v1', '{"currency":"EUR"}');
+		expect(loadCurrencyFromStorage()).toBeUndefined();
+	});
+
+	it('keeps the currency in its own entry, so corrupt keys cannot take it down', () => {
+		saveKeysToStorage({ skyscanner: { apiKey: 'sk-live-1234' } });
+		saveCurrencyToStorage('SEK');
+		localStorage.setItem('flights.byokKeys.v1', 'not json{{{');
+
+		expect(loadKeysFromStorage()).toEqual({});
+		expect(loadCurrencyFromStorage()).toBe('SEK');
+	});
+
+	it('clearing the keys leaves the currency alone', () => {
+		saveKeysToStorage({ skyscanner: { apiKey: 'sk-live-1234' } });
+		saveCurrencyToStorage('NOK');
+
+		clearKeysFromStorage();
+
+		expect(loadCurrencyFromStorage()).toBe('NOK');
+		clearCurrencyFromStorage();
+		expect(loadCurrencyFromStorage()).toBeUndefined();
 	});
 });
