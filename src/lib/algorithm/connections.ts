@@ -554,13 +554,26 @@ export async function findConnectionCandidates(
 
 		const candidateGeo = await resolveAirportInfo(code, airportLookup);
 
-		if (forbiddenCountries.size > 0) {
-			// Fail closed: a candidate whose country can't be determined can't be cleared
-			// against the forbidden list either, so it's dropped rather than risked. Only
-			// applies when a forbidden list was actually given, so a candidate with no
-			// geography isn't penalised for a filter that was never in effect.
-			if (!candidateGeo || forbiddenCountries.has(candidateGeo.countryCode)) continue;
-		}
+		// A code no geography tier resolves is not a single real airport at all — most
+		// often an IATA *metropolitan* code (ROM, PAR, MIL, MOW, TCI, ...), which a
+		// route-graph source can list as if it were a destination even though it covers
+		// several airports at once (issue #89: the Travelpayouts cheap-routes dataset does
+		// exactly this for Rome, Paris and Milan). Every airport-level provider this
+		// module talks to rejects a code like that outright, so it's dropped here, before
+		// any request is built for it, rather than surviving to be scored down or to burn
+		// a real network call downstream (the 13 failing Ryanair requests issue #89
+		// measured were each one of these being probed for its own onward routes). This
+		// also covers a genuinely unknown/typo'd code, which fails the exact same way for
+		// the exact same reason: neither is an airport this module can query.
+		if (!candidateGeo) continue;
+
+		// Fail closed: a candidate whose country can't be determined can't be cleared
+		// against the forbidden list either, so it's dropped rather than risked. Only
+		// applies when a forbidden list was actually given, so a candidate with no
+		// geography isn't penalised for a filter that was never in effect. (candidateGeo
+		// is always defined past the check above, but the list only matters when it's
+		// non-empty, so that's still worth its own guard.)
+		if (forbiddenCountries.size > 0 && forbiddenCountries.has(candidateGeo.countryCode)) continue;
 
 		const inboundEdges = await unionDirectDestinations(freeSources, code);
 		let inboundSourceId = inboundEdges.get(destination);
