@@ -107,3 +107,16 @@ e2e spec for the new copy, and `svelte-autofixer` over the two touched component
 It also fixed a bug nobody had filed: the mapper took `itineraries[0]`, but MOTIS returns that
 array unordered. A real response came back 02:16, 02:17, 02:40, 02:43, 02:31, 02:46, 03:08.
 That is where the "13:28 before 13:27" ordering in #135 came from.
+
+**#174, Kiwi's caching, is a draft with the fix written and nothing measured.** It removes the
+expired-entry discard, which was the exact line #155 had already deleted from `ryanair.ts`,
+and serves both Kiwi caches at any age while refreshing behind the answer. It also dedupes
+concurrent route lookups for the same airport.
+
+Its author states plainly that every request count in the PR is quoted from the issue rather
+than observed, because the stop came first. So before merging: run `tools/probe-results.mjs`
+and `tools/probe-reload.mjs` against production and that build, and record six numbers, cold
+requests, reload requests and itinerary count on each side. **The itinerary count must not
+drop** — Kiwi is the only reason BVC to PFO answers without keys. If cold requests are still
+near 40, the dedupe was not the fan-out's shape and a real ceiling is still owed; say so rather
+than closing #165 on the expiry fix alone.
