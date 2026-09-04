@@ -310,6 +310,15 @@ branch that is not yours.
 
 - `pnpm check` passes. No new type errors, no `any` smuggled in to silence one.
 - `pnpm build` passes.
+- `pnpm qa` passes. It drives the built app in a browser and asserts how the whole thing
+  behaves over a whole interaction: what one search costs per provider, that pricing a bed
+  never deletes the trip, that a reload paints from cache before the network answers, that
+  the quota on screen is the provider's number, and that no offer names an airline its
+  provider does not fly. Read `tests/qa/README.md` before adding to it. It never calls a
+  metered provider, in any mode.
+  - Four checks are pinned to open defects in `tests/qa/known-broken.ts` and fail on
+    purpose. If your change makes one PASS, the run goes red on purpose too: delete its
+    entry, say so in the PR, and close the issue. That is the only way a fix gets banked.
 - Tests for anything with logic in it. Pure functions especially, since the algorithm modules
   are where a wrong answer hides quietly.
 - No secrets, no keys, no personal data in the diff.

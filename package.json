@@ -18,7 +18,9 @@
 		"data:ryanair-network": "node scripts/fetch-ryanair-network.mjs",
 		"test:e2e": "playwright test --grep-invert @live",
 		"test:e2e:live": "ALLOW_LIVE_TESTS=1 playwright test --grep @live",
-		"test:e2e:report": "playwright show-report"
+		"test:e2e:report": "playwright show-report",
+		"qa": "playwright test --config qa.config.ts",
+		"qa:live": "QA_LIVE=1 playwright test --config qa.config.ts"
 	},
 	"devDependencies": {
 		"@playwright/test": "^1.62.1",
