@@ -87,6 +87,35 @@ export async function mockBookingCom(target: Routable, fixture = 'booking/hotels
 	await mockJson(target, 'https://booking-com15.p.rapidapi.com/**', fixture);
 }
 
+/**
+ * Kiwi.com's public GraphQL endpoint, the second keyless flight source. Needs no key.
+ *
+ * Both of its queries hit the same URL and are told apart by `?featureName=`, so this
+ * registers two routes rather than one. Both fixtures are deliberately EMPTY: every
+ * existing spec asserts against Ryanair-shaped results, and answering with real Kiwi
+ * itineraries would change their itinerary counts for reasons that have nothing to do with
+ * what they are testing. An empty-but-well-formed response is the honest "this provider
+ * answered and had nothing to add", which is a real thing Kiwi does (a nonexistent airport
+ * code returns exactly this shape). A spec that wants Kiwi to contribute results should
+ * register its own narrower route afterwards.
+ */
+export async function mockKiwiPublic(
+	target: Routable,
+	oneWayFixture = 'kiwi-public/one-way-empty.json',
+	onePerCityFixture = 'kiwi-public/one-per-city-empty.json'
+) {
+	await mockJson(
+		target,
+		'https://api.skypicker.com/umbrella/v2/graphql?featureName=SearchOneWayItinerariesQuery*',
+		oneWayFixture
+	);
+	await mockJson(
+		target,
+		'https://api.skypicker.com/umbrella/v2/graphql?featureName=OnePerCityItinerariesQuery*',
+		onePerCityFixture
+	);
+}
+
 /** Transitous/MOTIS public transport timetables. Needs no key. */
 export async function mockTransitous(target: Routable, fixture = 'transitous/plan.json') {
 	await mockJson(target, 'https://api.transitous.org/**', fixture);
@@ -109,6 +138,7 @@ export async function mockOsrm(target: Routable, fixture = 'osrm/route.json') {
 export async function mockAllKeylessProviders(target: Routable) {
 	await mockRyanair(target);
 	await mockRyanairActiveAirports(target);
+	await mockKiwiPublic(target);
 	await mockTransitous(target);
 	await mockOsrm(target);
 }

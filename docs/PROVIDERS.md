@@ -4,6 +4,11 @@ Measured on 2026-09-04. Every claim here came from an actual request, not docume
 Re-verify before trusting any of it, because two of the sources below died between the
 docs being written and this project starting.
 
+If you are reading this to answer "which aggregator should I use", the answer is
+[Kiwi.com's public API](#kiwicoms-public-api-keyless-cors-open-and-a-real-aggregator).
+Twelve others were measured and rejected; each one's reason is in "What died" so nobody has
+to find out twice.
+
 ## The constraint that shapes everything
 
 There is no backend. The owner ruled one out explicitly, so every call goes from the
@@ -21,16 +26,183 @@ That made CORS the first thing to check, before any code was written.
 | `api.transitous.org` | 200 | `*` |
 | `services-api.ryanair.com` | 200 | `*` |
 | `router.project-osrm.org` | 200 | `*` |
+| `api.skypicker.com` | 204 | `*` — see "Kiwi.com's public API" below |
 
 RapidAPI reflects the request `Origin` and lists `x-rapidapi-key` in
 `Access-Control-Allow-Headers`, which is what makes the whole no-backend design work.
 
+### Measure CORS from a browser, and not with a headless User-Agent
+
+`curl` cannot answer the only question that matters here. It never sends a preflight and
+never enforces the response, so it reports success for endpoints a browser refuses.
+`tools/probe-cors.mjs` exists for this: it serves a page from a real `http://` origin,
+navigates its own Chromium there, runs `fetch()` from that document, and prints both what
+the page saw and what the wire actually carried.
+
+There is a second trap underneath the first, and it cost real time on 2026-09-04.
+**Playwright's default headless User-Agent says `HeadlessChrome`, and at least one host
+treats that as a bot.** Measured against `api.skypicker.com` on the same day, same machine,
+minutes apart:
+
+```
+UA: ...HeadlessChrome/141.0.0.0...   ->  HTTP 403, no CORS headers at all
+UA: ...Chrome/141.0.0.0...           ->  HTTP 200, access-control-allow-origin: *
+```
+
+A headless probe therefore reports "this endpoint has no CORS" for an endpoint every real
+visitor can call perfectly well, and the wrong conclusion looks exactly like a correct one.
+`tools/probe-cors.mjs` and `tools/probe-results.mjs` both set an ordinary Chrome UA by
+default for this reason. Real users are never affected — a page cannot override its own
+User-Agent, and a browser sends a normal one.
+
+## Kiwi.com's public API: keyless, CORS-open, and a real aggregator
+
+**Measured 2026-09-04 from a real browser page origin, not from curl.**
+
+`https://api.skypicker.com/umbrella/v2/graphql?featureName=<name>` is the GraphQL backend
+kiwi.com's own website runs on. No key, no signup, no account, no quota, and:
+
+```
+POST .../umbrella/v2/graphql?featureName=SearchOneWayItinerariesQuery
+Origin: http://127.0.0.1:8788
+-> HTTP 200
+-> access-control-allow-origin: *
+-> access-control-allow-credentials: true
+```
+
+The OPTIONS preflight (a JSON content-type triggers one) answers `204` with the same
+`access-control-allow-origin: *` and a long `access-control-allow-headers` list. A plain
+`{query, variables}` POST body is enough; none of the `KW-*` headers its own site sends are
+required. Schema introspection also answers, which is how the two query documents in
+`providers/flights/kiwi-public-queries.ts` were written — Kiwi publishes no documentation
+for this endpoint.
+
+This is the only genuine aggregator this project has found that a browser can call with no
+key at all. It is also, by a distance, the most useful thing in this document, because of
+what it can answer that nothing else here can.
+
+### The capability that actually mattered: `listDirectDestinations`
+
+`algorithm/connections.ts` builds its candidate stopover list from `listDirectDestinations`.
+Before this endpoint, every adapter's answer to that question was some flavour of "I don't
+know":
+
+| Adapter | Answers "which airports does X fly to directly"? |
+|---|---|
+| Sky Scrapper | No. v1 `searchFlightEverywhere` is deprecated; v2 returns country-level results only |
+| Flights Sky | No. It has no such endpoint |
+| Kiwi (RapidAPI listing) | No. Its backend has been 402 since before it was written |
+| Ryanair | Only for Ryanair's own ~220 airports. `404` for everything else |
+| Travelpayouts cheap routes | Only for the origins in the build-time list, and thinly |
+
+So for an origin outside Ryanair's network the connection graph had nothing to rank, and
+the search reported "No itineraries found" **no matter which keys were configured**. That is
+the real reason the owner's own trip returned nothing. It was never a missing key.
+
+`onewayOnePerCityItineraries`, with `destination: { ids: ["anywhere"] }` and
+`maxStopsCount: 0`, answers it for any airport in one request. Measured live:
+
+```
+BVC ->  LIS OPO LUX ORY LGW BHX MAN MUC DUS STR ZRH FRA   (12 airports, with EUR prices)
+LGW ->  63 airports, PFO among them
+```
+
+Note what that is and is not. It is a *fare* search filtered to direct flights, so it lists
+destinations that have real, bookable, priced seats in the window asked about — not a route
+map. A route that only flies in another season will not appear. That is the honest answer
+for a search happening now, and it is strictly better than a stale route map that proposes
+edges a fare search then has to spend a request disproving.
+
+### What it returns for the reference route
+
+`docs/ACCEPTANCE.md`'s test is Boa Vista to Pafos, 6 October 2026. Captured live and kept as
+`providers/flights/fixtures/kiwi-public-oneway-*.json`:
+
+```
+BVC -> LGW   TUI Airways BY259   2026-10-06 12:40 -> 20:30   EUR 173
+LGW -> PFO   Jet2 LS3159         2026-10-08 15:15 -> 21:50   EUR  63
+```
+
+Every station carries its own IANA zone (`Atlantic/Cape_Verde`, `Europe/London`,
+`Asia/Nicosia`), which is why this adapter needs no Transitous timezone lookup at all —
+contrast `skyscanner-timezone.ts`, which exists purely because Sky Scrapper sends bare local
+strings.
+
+Run end to end against a real build with zero keys configured, the app went from
+**"0 of 0 itineraries shown — No itineraries found"** to **two itineraries, the cheapest
+EUR 229 via London Gatwick**. The owner's own hand-planned answer for the same trip was
+EUR 238 of flights via London Gatwick.
+
+### Limits, stated plainly
+
+- **It is undocumented and belongs to someone else's website.** It can change shape or start
+  refusing traffic with no notice. Every field is re-validated in
+  `kiwi-public-mapper.ts` and a failure degrades to "this source doesn't know".
+- **Direct flights only, deliberately.** Kiwi's speciality is stitching several carriers
+  into one self-transfer itinerary, and it does that for this very route (BVC→LIS easyJet,
+  LIS→STN Ryanair, STN→PFO Jet2, USD 267). But a domain `FlightOffer` is one flight with one
+  flight number, and this app builds the connection itself so it can put a night in the
+  middle. Flattening a three-leg journey into one offer would describe a flight nobody sells.
+- **A headless User-Agent gets a 403 with no CORS headers.** See the section above. This
+  affects probes, never real users.
+- **Whether its price scales with `passengers.adults` was not measured**, so the adapter
+  sends `adults: 1` always and declares `'per-person'` — true by construction rather than by
+  assumption (issue #109).
+
 ## What died
 
-**Amadeus Self-Service** was the obvious first choice: one free signup covering flights,
-hotels, airport routes and transfers. It is gone. `api.amadeus.com` and
-`test.api.amadeus.com` no longer resolve in DNS, and `developers.amadeus.com/self-service`
-redirects to the marketing homepage. Do not spend time on it again.
+Everything in this section was re-measured on 2026-09-04 rather than inherited. Each row is
+a real request or a real DNS lookup.
+
+**Amadeus Self-Service** is gone, and the earlier claim in this file is confirmed rather
+than merely repeated. `test.api.amadeus.com` and `api.amadeus.com` return `NOERROR` with
+zero answer records from both `8.8.8.8` and `1.1.1.1` — the DNS signature of a subdomain
+that no longer exists — while `developers.amadeus.com` and `www.amadeus.com` resolve fine,
+so this is not a wider `amadeus.com` outage. `developers.amadeus.com/self-service` 301s to
+the marketing homepage. Amadeus notified users it was decommissioning the Self-Service
+portal, with existing keys disabled on 17 July 2026
+([PhocusWire](https://www.phocuswire.com/amadeus-shut-down-self-service-apis-portal-developers)).
+There is nothing left to test CORS against. Do not spend time on it again.
+
+**Duffel** sends no CORS headers. Measured from a browser: the preflight to
+`api.duffel.com/air/offer_requests` fails with "No 'Access-Control-Allow-Origin' header is
+present", and a plain GET to `/air/airports` fails the same way. Their own help centre says
+this is deliberate and recommends a backend proxy, which this project cannot have. Test mode
+is free but its fares are simulated, not real.
+
+**Travelpayouts, all of it, including Hotellook.** Confirmed again from a browser:
+`api.travelpayouts.com` (`/v1/city-directions`, `/aviasales/v3/prices_for_dates`,
+`/v1/prices/calendar`), `engine.hotellook.com`, `yasen.hotellook.com`, `min-prices.aviasales.ru`,
+`hydra.aviasales.com`, `www.jetradar.com` and `tp.media/content` all throw
+`TypeError: Failed to fetch` with "No 'Access-Control-Allow-Origin' header is present".
+Two Travelpayouts hosts DO send `*` — `autocomplete.travelpayouts.com/places2` and
+`www.travelpayouts.com/widgets_suggest_params` — but the first returned `[]` for "Paphos"
+and the second `{}`, so neither carries usable data. **Hotellook is dead outright**, not
+merely CORS-blocked: every `engine.hotellook.com/api/v2/cache.json` variant returns `404`.
+Travelpayouts discontinued the Hotellook brand and closed its API and widgets in October
+2025. The build-time route (`scripts/fetch-cheap-routes.mjs`) remains the only way to use
+Travelpayouts at all.
+
+**Kiwi's Tequila programme** (`api.tequila.kiwi.com`) is alive but runs an origin
+allowlist, not RapidAPI-style reflection: `Origin: https://tequila.kiwi.com` gets a `200`
+with a matching `access-control-allow-origin`, while any other origin gets `400
+Disallowed CORS origin` and no header at all. A GitHub Pages origin would have to be added
+to Kiwi's list by hand. Reported to be invitation-only for new partners as well. Note this
+is a completely different service from the keyless umbrella endpoint above, despite the
+shared brand — do not confuse the two.
+
+**SerpApi** (`serpapi.com/search.json?engine=google_flights`) sends no CORS headers.
+
+**Wizz Air** (`be.wizzair.com`) sits behind Kasada: a GET reflects the origin but the
+OPTIONS preflight returns `401` with no CORS headers, so a browser POST never goes out.
+**easyJet**'s old `ejavailability` endpoint returns Akamai "Access Denied". **Aer Lingus**'s
+`fixedFlight` route no longer exists. **Kayak** redirects any API-shaped path to
+`/help/bots.html`. **Skyscanner's** own `conductor` endpoint sends `*` but answers `403`
+with a PerimeterX captcha. **Norwegian** and **SunExpress** show Cloudflare challenges.
+
+**OpenSky** and **Flightradar24** are keyless but pin `access-control-allow-origin` to their
+own site (`https://opensky-network.org`, `https://www.flightradar24.com`), which blocks every
+third-party origin. They also carry positions, not fares.
 
 **Skyscanner's own API** is partner-only, approved case by case, aimed at established
 travel businesses. The hackathon access you may have seen is granted through the event
@@ -38,6 +210,19 @@ organiser, not self-serve. Reaching Skyscanner data means going through RapidAPI
 
 **Hostelworld** has no RapidAPI listing at all (404 on the host). Hostel coverage has to
 come from Agoda and Booking instead.
+
+### Keyless and CORS-open, but not flight prices
+
+Worth knowing about, none of them a substitute for an aggregator:
+
+| Host | CORS | What it is |
+|---|---|---|
+| `en.wikipedia.org/w/api.php` (with `&origin=*`) | `*` | Airport articles carry a current "Airlines and destinations" table. A worldwide route graph, but it needs wikitext parsing plus an article-title-to-IATA index. `&origin=*` is required; without it no CORS header is sent |
+| `www.wikidata.org/w/api.php`, `query.wikidata.org/sparql` | `*` | Maps Wikipedia article titles to IATA codes (`P238`) in one batched call |
+| `raw.githubusercontent.com/.../openflights/.../routes.dat` | `*` | 67,663 routes. Free and fetchable, but frozen around 2014 |
+| `airlabs.co/api/v9/routes` | `*` | Real schedule/route data, free key, 1,000 requests/month. No fares |
+| `api.aviationstack.com` | `*` | Free key, 100 requests/month. Status and schedules, no fares |
+| `api.flightapi.io`, `app.goflightlabs.com` | `*` | Real fare search with CORS, but no usable free tier |
 
 ## RapidAPI, and the thing that will confuse you
 
@@ -70,6 +255,34 @@ All measured on the owner's account on 2026-09-04, after subscribing.
 
 Agoda's 500 is the outlier and worth exploiting. Stay lookups can be relatively generous
 while flight lookups must be hoarded, so do not apply one budget policy across all providers.
+
+#### Bigger free tiers exist on RapidAPI, if a metered provider is ever needed again
+
+Swept on 2026-09-04. 32 further flight and hotel listings were confirmed to exist at the
+gateway (an unsubscribed host returns `403 "You are not subscribed to this API."`; a
+nonexistent one returns `404 "API doesn't exists"`), and the 15 most promising had their
+pricing pages read in a real browser — RapidAPI's marketplace is client-rendered, so `curl`
+and plain fetching return an empty shell and tell you nothing.
+
+| Host | Free quota | What it is |
+|---|---|---|
+| `priceline-com-provider.p.rapidapi.com` | 500/mo | Real flight search, plus hotels and cars. The best all-round find |
+| `booking-com18.p.rapidapi.com` | 530/mo | Hotels — more than 10x the `booking-com15` listing this app uses |
+| `flight-fare-search.p.rapidapi.com` | ~300/mo (10/day) | Flight search v2, plus airport search |
+| `kiwi-com-flights-api.p.rapidapi.com` | 300/mo | The most complete Kiwi clone found: one-way, round-trip, multi-city, price calendar/graph/map, nomad |
+| `google-flights2.p.rapidapi.com` | 150/mo | Google Flights scraper |
+| `skyscanner-flights4.p.rapidapi.com` | 100/mo | Another Skyscanner scraper |
+
+Two caveats before acting on any of that. RapidAPI's own documentation says a card is
+required for freemium listings, to charge overages — which covers every listing above,
+since they all have paid tiers alongside the $0 one. And `kiwi10.p.rapidapi.com`, which
+advertises 500,000 requests/month and looks like the jackpot in a search result, has two
+generic endpoints named "test" and "getData" and is filed under Education. It is a
+placeholder, not a flight API.
+
+None of these were subscribed to or called, because Kiwi's own keyless endpoint made them
+unnecessary. They are recorded so the next person needing a metered flight source starts
+from a measured list rather than repeating the sweep.
 
 Provider slugs, since finding these cost real time:
 `rapidapi.com/apiheya/api/sky-scrapper`, `rapidapi.com/ntd119/api/flights-sky`,
@@ -285,6 +498,11 @@ other.
 
 ### Kiwi.com Cheap Flights is subscribed but its own backend is down
 
+**Not the same thing as "Kiwi.com's public API" near the top of this file.** That one is
+Kiwi's own keyless GraphQL backend and works; this one is a third party's RapidAPI listing
+that resells Kiwi data, and its implementation is offline. Same brand, unrelated fates.
+
+
 Subscribing worked exactly as documented above: BASIC is $0/month, 300 requests/month hard
 limit (the most generous flight quota of any provider in this table), 1000 requests/hour,
 no payment method demanded. That is not the problem.
@@ -338,12 +556,23 @@ and let the user decide when to spend the expensive ones.
 These work with no key, no signup and no quota, which means the app does something useful
 the first time it loads.
 
-**Ryanair** publishes fares directly. Real prices, flight numbers, local times, plus a
-route graph for direct destinations from any airport:
+**Kiwi.com's public GraphQL endpoint** is the aggregator of the set, and the one that makes
+an arbitrary route work at all. Full evidence in its own section near the top of this file;
+adapter in `providers/flights/kiwi-public.ts`.
+
+**Ryanair** publishes fares directly. Real prices, flight numbers, local times, plus a route
+graph — **for Ryanair's own network only**:
 
 ```
 https://services-api.ryanair.com/farfnd/v4/oneWayFares?departureAirportIataCode=BCN&outboundDepartureDateFrom=2026-10-01&outboundDepartureDateTo=2026-10-20
 ```
+
+An earlier version of this line said "direct destinations from any airport", which is wrong
+and cost real time — the route endpoint `404`s every airport Ryanair does not serve, which
+is most of them. A live search for Boa Vista on 2026-09-04 produced **7 such 404s in one
+run** (BVC itself, plus ORY, MUC, FRA, STR, DUS and one more probed as a candidate). Those
+404s are handled correctly as "no routes" rather than as errors (`ryanair.ts`
+`isRouteNotFound`), so nothing breaks — the search just quietly has nothing to work with.
 
 It is one airline, so it is not a substitute for an aggregator. Its real value is as
 ground truth: these fares come from the airline itself, so when an aggregator quotes a
@@ -567,6 +796,26 @@ Response shape from `/v1/city-directions`:
 ```
 
 `expires_at` is the cache-freshness marker and should survive into the domain model.
+
+### What the build-time dataset actually holds, and why it did not save the reference trip
+
+Counted from the committed `data/cheap-routes.generated.json` on 2026-09-04: **1,337 routes
+across 47 origins**, which averages a healthy 28 per origin. The average hides the problem.
+
+```
+BCN 29   LGW 30   VIE 30   ...   RAI 11   SID 9   BVC 1
+```
+
+`/v1/city-directions` returns the cheapest destination per city, and for a thin market it
+returns almost nothing. Boa Vista got **one** row — and that row is `BVC → RAI` attributed to
+airline `U2` (easyJet) with 2 transfers at EUR 780, which is cached junk rather than a real
+Cape Verde domestic flight. Nothing in the whole dataset reaches PFO at all, because the file
+is keyed by origin and Pafos is not one of the configured origins.
+
+So the build-time route is real and worth keeping, but it was never going to answer an
+arbitrary trip. It covers the origins someone thought to list, at whatever depth
+Travelpayouts' cache happens to have, and it carries no timezone, which is why
+`search/providers-adapter.ts` deliberately returns no offers from it at all.
 
 ## Travelpayouts, original notes
 
