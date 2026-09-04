@@ -46,6 +46,11 @@ provider does not fly is the highest-severity bug in the repo, ahead of every fe
 Against production, in your own browser context, the way a person would.
 
 - `node tools/probe-results.mjs '<url>'` prints the itinerary count beside the network log.
+  If the page it just measured was served fixture data it prints "MEASUREMENT INVALID",
+  names the markers it found, and exits non-zero instead of reporting a count. That check
+  exists because an agent reported "BVC → LGW → PFO, EUR 238" off route handlers a
+  different agent had left armed in the shared browser. See AGENTS.md, "Mocks belong to a
+  test and to nothing else".
 - `node tools/probe-search.mjs Paris` prints what the airport field really offers.
 - `node tools/probe-ryanair-requests.mjs` prints what one search costs Ryanair, split by
   endpoint, cold cache and warm.

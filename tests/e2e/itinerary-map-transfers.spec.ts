@@ -1,23 +1,34 @@
 import { test, expect } from './support/fixtures';
+import { FIXTURE_FLIGHT_NUMBERS, FIXTURE_NAMES, FIXTURE_PRICES } from './support/fixture-markers';
 
 /**
  * Issue #118: the owner's own complaint, verified against a real search end to end
  * rather than a hand-built fixture — "the map is wrong! i dont want just a map of the
  * flights i want also the transport from starting point to airport, in the conection
  * travel to and from hotel and to destination point, with markers for start hotel and
- * end". Uses his own reference route (docs/prompts/007-morning-review.md): BVC -> PFO,
- * connecting through LGW, 6-12 October 2026 — with an origin and destination location
- * added on top (the brief's own route never needed one) specifically so all four
- * transfer legs exist to check, not just the two connection-side ones.
+ * end". It needs a three-airport journey with an origin and a destination location on
+ * top, so that all four transfer legs exist to check rather than only the two
+ * connection-side ones.
+ *
+ * KEF -> OSL -> TBS, not the owner's BVC -> LGW -> PFO. This spec used to run on his
+ * reference route, at his dates, with two legs priced 149 and 89 to make his EUR 238 —
+ * and then an agent copied these mocks into the shared Playwright MCP browser to look at
+ * the map, left them armed, and a second agent measuring an unrelated page read them back
+ * as "1 itinerary, BVC -> LGW -> PFO, EUR 238.00, via Ryanair, with zero keys configured"
+ * and reported the app working. Ryanair does not serve BVC. A fixture built to look like
+ * the goal cannot be told apart from reaching the goal, so this one is built to look like
+ * nothing at all: figures from `support/fixture-markers.ts`, and three airports in three
+ * different timezones (UTC+0, UTC+1, UTC+4) so the overnight-connection arithmetic still
+ * gets the workout the Cape Verde -> London -> Cyprus route was chosen for.
  *
  * Ryanair stands in for Skyscanner here (keyless, no RapidAPI key needed) purely as a
- * source of matching flight offers for this fictional BVC-LGW-PFO pairing — the same
- * substitution `select-and-compare.spec.ts` already makes for its own route. Booking.com
- * gets a real (fake) key through the settings UI so a stay actually prices, which is what
- * makes `transferToHotel`/`transferToConnectionAirport` exist at all (issue #94's "all
- * three together or none").
+ * source of matching flight offers for this fictional pairing — the same substitution
+ * `select-and-compare.spec.ts` already makes for its own route. Booking.com gets a fake
+ * key through the settings UI so a stay actually prices, which is what makes
+ * `transferToHotel`/`transferToConnectionAirport` exist at all (issue #94's "all three
+ * together or none").
  *
- * One OSRM leg (origin location -> BVC) is deliberately mocked WITHOUT a `geometry`
+ * One OSRM leg (origin location -> KEF) is deliberately mocked WITHOUT a `geometry`
  * field, so this test proves both branches of the honest-geometry decision in one real
  * pipeline run: the three legs OSRM answers with a shape render as real routes (no
  * "(straight-line estimate)" caveat), and the one leg it doesn't render as the honest
@@ -39,13 +50,23 @@ function ryanairFare({ dep, arr, depDate, arrDate, price, flightNumber }: FareSp
 	const [whole, frac] = price.toFixed(2).split('.');
 	return {
 		outbound: {
-			departureAirport: { countryName: 'Test', iataCode: dep, name: dep, seoName: dep.toLowerCase() },
-			arrivalAirport: { countryName: 'Test', iataCode: arr, name: arr, seoName: arr.toLowerCase() },
+			departureAirport: {
+				countryName: FIXTURE_NAMES.country,
+				iataCode: dep,
+				name: FIXTURE_NAMES.airportA,
+				seoName: 'fixture-alpha'
+			},
+			arrivalAirport: {
+				countryName: FIXTURE_NAMES.country,
+				iataCode: arr,
+				name: FIXTURE_NAMES.airportB,
+				seoName: 'fixture-bravo'
+			},
 			departureDate: depDate,
 			arrivalDate: arrDate,
 			price: { value: price, valueMainUnit: whole, valueFractionalUnit: frac, currencySymbol: '€', currencyCode: 'EUR' },
 			flightNumber,
-			flightKey: `FR~${flightNumber}~~${dep}~${arr}~${depDate.slice(0, 10)}~${depDate.slice(0, 10)}~1`,
+			flightKey: `ZZ~${flightNumber}~~${dep}~${arr}~${depDate.slice(0, 10)}~${depDate.slice(0, 10)}~1`,
 			previousPrice: null
 		}
 	};
@@ -53,25 +74,28 @@ function ryanairFare({ dep, arr, depDate, arrDate, price, flightNumber }: FareSp
 
 // Real-ish, but fixed, coordinates so this test controls exactly which OSRM request
 // answers which leg rather than depending on the live demo server's actual road network.
-const BVC_APT = { lat: 16.1365, lon: -22.8889 }; // Aristides Pereira Intl, Boa Vista
-const BVC_LOC = { lat: 16.1797, lon: -22.9174 }; // Sal Rei, same island, ~7km away
-const LGW_APT = { lat: 51.1481, lon: -0.1903 }; // London Gatwick
-const LGW_HOTEL = { lat: 51.1235, lon: -0.169 }; // A stand-in for Gainsborough Lodge
-const PFO_APT = { lat: 34.718, lon: 32.4857 }; // Paphos Intl
-const PFO_LOC = { lat: 34.772, lon: 32.4297 }; // Paphos old town, ~8km away
+// The IATA codes are the one thing that has to stay real: the app resolves each one
+// against its own OurAirports dataset for coordinates, city and timezone, so a synthetic
+// code returns no itinerary and this test would stop exercising the pipeline.
+const KEF_APT = { lat: 63.985, lon: -22.6056 }; // Keflavík International
+const KEF_LOC = { lat: 64.0049, lon: -22.5646 }; // A point inland, ~3 km away
+const OSL_APT = { lat: 60.1939, lon: 11.1004 }; // Oslo Gardermoen
+const OSL_HOTEL = { lat: 60.1712, lon: 11.0669 }; // A stand-in for the connection hotel
+const TBS_APT = { lat: 41.6692, lon: 44.9547 }; // Tbilisi International
+const TBS_LOC = { lat: 41.6935, lon: 44.9021 }; // A point in town, ~5 km away
 
 function roughlyMatches(a: number, b: number): boolean {
 	return Math.abs(a - b) < 0.01;
 }
 
 /** `true` when the two endpoints an OSRM `/route/` request names are (in either order)
- *  the origin-location <-> BVC-airport pair — the one leg this test deliberately answers
+ *  the origin-location <-> KEF-airport pair — the one leg this test deliberately answers
  *  with no route shape, to prove the schematic fallback still works inside a real
  *  pipeline run. */
 function isOriginAirportLeg(a: { lat: number; lon: number }, b: { lat: number; lon: number }): boolean {
 	const matches = (p: { lat: number; lon: number }, q: { lat: number; lon: number }) =>
 		roughlyMatches(p.lat, q.lat) && roughlyMatches(p.lon, q.lon);
-	return (matches(a, BVC_LOC) && matches(b, BVC_APT)) || (matches(a, BVC_APT) && matches(b, BVC_LOC));
+	return (matches(a, KEF_LOC) && matches(b, KEF_APT)) || (matches(a, KEF_APT) && matches(b, KEF_LOC));
 }
 
 test.describe('itinerary map: every transfer leg, distinct markers, honest geometry (issue #118)', () => {
@@ -79,7 +103,7 @@ test.describe('itinerary map: every transfer leg, distinct markers, honest geome
 		page
 	}) => {
 		// -----------------------------------------------------------------
-		// 1. A (fake) Booking.com key, through the real settings UI — Booking's own
+		// 1. A fake Booking.com key, through the real settings UI — Booking's own
 		//    healthCheck reuses searchHotelsByCoordinates (booking.ts), so the same
 		//    handler registered below answers both the Save-triggered test and the real
 		//    search later.
@@ -95,9 +119,11 @@ test.describe('itinerary map: every transfer leg, distinct markers, honest geome
 						data: {
 							block: [
 								{
-									room_name: 'Private Double Room',
+									room_name: `${FIXTURE_NAMES.property} private double`,
 									is_dormitory: 0,
-									product_price_breakdown: { gross_amount_per_night: { value: 44, currency: 'EUR' } }
+									product_price_breakdown: {
+										gross_amount_per_night: { value: FIXTURE_PRICES.perNight, currency: 'EUR' }
+									}
 								}
 							]
 						}
@@ -114,10 +140,12 @@ test.describe('itinerary map: every transfer leg, distinct markers, honest geome
 						result: [
 							{
 								hotel_id: 918273,
-								hotel_name: 'Gainsborough Lodge',
-								latitude: LGW_HOTEL.lat,
-								longitude: LGW_HOTEL.lon,
-								composite_price_breakdown: { gross_amount_per_night: { value: 44, currency: 'EUR' } }
+								hotel_name: FIXTURE_NAMES.property,
+								latitude: OSL_HOTEL.lat,
+								longitude: OSL_HOTEL.lon,
+								composite_price_breakdown: {
+									gross_amount_per_night: { value: FIXTURE_PRICES.perNight, currency: 'EUR' }
+								}
 							}
 						]
 					}
@@ -133,26 +161,40 @@ test.describe('itinerary map: every transfer leg, distinct markers, honest geome
 
 		// -----------------------------------------------------------------
 		// 2. Ryanair standing in for a real flight source (keyless — see this file's
-		//    header) on the owner's own BVC -> LGW -> PFO pairing.
+		//    header) on the KEF -> OSL -> TBS pairing.
 		// -----------------------------------------------------------------
 		// One endpoint, not two: since issue #121 the adapter reads the route graph off
 		// the same active-airports response it reads timezones off, and no longer asks
 		// /views/locate/searchWidget/routes/en/airport/{IATA} anything. `routes` entries
-		// are prefixed by what they name, so `airport:LGW` is the BVC -> LGW edge.
+		// are prefixed by what they name, so `airport:OSL` is the KEF -> OSL edge.
 		//
-		// This mocked network is fictional and deliberately so: the real Ryanair serves
-		// none of BVC, RAI or SID (docs/ACCEPTANCE.md), and LGW's four Ryanair
-		// destinations do not include PFO. It stands in for "some keyless flight source
-		// covers this pairing" so the map has four transfer legs to draw, which is what
-		// this test is about.
+		// This mocked network is fictional and deliberately so: Ryanair flies none of
+		// these three airports. It stands in for "some keyless flight source covers this
+		// pairing" so the map has four transfer legs to draw, which is what this test is
+		// about, and the FIXTURE names say as much in the payload itself.
 		await page.context().route('https://www.ryanair.com/api/views/locate/3/airports/en/active', (route) =>
 			route.fulfill({
 				status: 200,
 				contentType: 'application/json',
 				body: JSON.stringify([
-					{ iataCode: 'BVC', timeZone: 'Atlantic/Cape_Verde', routes: ['airport:LGW'] },
-					{ iataCode: 'LGW', timeZone: 'Europe/London', routes: ['airport:PFO', 'airport:BVC'] },
-					{ iataCode: 'PFO', timeZone: 'Asia/Nicosia', routes: ['airport:LGW'] }
+					{
+						iataCode: 'KEF',
+						name: FIXTURE_NAMES.airportA,
+						timeZone: 'Atlantic/Reykjavik',
+						routes: ['airport:OSL']
+					},
+					{
+						iataCode: 'OSL',
+						name: FIXTURE_NAMES.airportB,
+						timeZone: 'Europe/Oslo',
+						routes: ['airport:TBS', 'airport:KEF']
+					},
+					{
+						iataCode: 'TBS',
+						name: FIXTURE_NAMES.airportC,
+						timeZone: 'Asia/Tbilisi',
+						routes: ['airport:OSL']
+					}
 				])
 			})
 		);
@@ -161,26 +203,26 @@ test.describe('itinerary map: every transfer leg, distinct markers, honest geome
 			const dep = url.searchParams.get('departureAirportIataCode');
 			const arr = url.searchParams.get('arrivalAirportIataCode');
 			let fares: unknown[] = [];
-			if (dep === 'BVC' && (arr === 'LGW' || !arr)) {
+			if (dep === 'KEF' && (arr === 'OSL' || !arr)) {
 				fares = [
 					ryanairFare({
-						dep: 'BVC',
-						arr: 'LGW',
-						depDate: '2026-10-06T12:40:00',
-						arrDate: '2026-10-06T20:30:00',
-						price: 149,
-						flightNumber: 'FR7001'
+						dep: 'KEF',
+						arr: 'OSL',
+						depDate: '2027-03-08T06:20:00',
+						arrDate: '2027-03-08T10:05:00',
+						price: FIXTURE_PRICES.first,
+						flightNumber: FIXTURE_FLIGHT_NUMBERS[5]
 					})
 				];
-			} else if (dep === 'LGW' && (arr === 'PFO' || !arr)) {
+			} else if (dep === 'OSL' && (arr === 'TBS' || !arr)) {
 				fares = [
 					ryanairFare({
-						dep: 'LGW',
-						arr: 'PFO',
-						depDate: '2026-10-07T15:20:00',
-						arrDate: '2026-10-07T22:00:00',
-						price: 89,
-						flightNumber: 'FR7002'
+						dep: 'OSL',
+						arr: 'TBS',
+						depDate: '2027-03-11T09:30:00',
+						arrDate: '2027-03-11T16:10:00',
+						price: FIXTURE_PRICES.second,
+						flightNumber: FIXTURE_FLIGHT_NUMBERS[6]
 					})
 				];
 			}
@@ -204,7 +246,7 @@ test.describe('itinerary map: every transfer leg, distinct markers, honest geome
 		// 4. OSRM (routing.openstreetmap.de — see osrm.ts's own header for why this
 		//    adapter uses this host, not router.project-osrm.org). Every `/route/`
 		//    request gets a real-shaped three-point GeoJSON LineString EXCEPT the
-		//    origin-location <-> BVC-airport leg, which gets no `geometry` field at all
+		//    origin-location <-> KEF-airport leg, which gets no `geometry` field at all
 		//    — the "OSRM couldn't produce a shape" case the schematic fallback exists
 		//    for.
 		// -----------------------------------------------------------------
@@ -212,7 +254,11 @@ test.describe('itinerary map: every transfer leg, distinct markers, honest geome
 		await page.context().route('https://routing.openstreetmap.de/**', async (route) => {
 			const url = new URL(route.request().url());
 			if (!url.pathname.includes('/route/')) {
-				await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ code: 'Ok', waypoints: [{}] }) });
+				await route.fulfill({
+					status: 200,
+					contentType: 'application/json',
+					body: JSON.stringify({ code: 'Ok', waypoints: [{ name: `${FIXTURE_NAMES.airportA} approach` }] })
+				});
 				return;
 			}
 			osrmRouteRequests.push(url.toString());
@@ -249,24 +295,24 @@ test.describe('itinerary map: every transfer leg, distinct markers, honest geome
 		);
 
 		// -----------------------------------------------------------------
-		// 6. The search itself: the owner's route and dates, plus an origin and
-		//    destination location so all four transfer legs have somewhere to go.
+		// 6. The search itself, plus an origin and a destination location so all four
+		//    transfer legs have somewhere to go.
 		// -----------------------------------------------------------------
 		const params = new URLSearchParams({
-			dep: '2026-10-06',
-			arr: '2026-10-12',
-			from: 'BVC',
-			to: 'PFO',
-			via: 'LGW',
-			fromLoc: `Sal Rei@${BVC_LOC.lat},${BVC_LOC.lon}`,
-			toLoc: `Paphos old town@${PFO_LOC.lat},${PFO_LOC.lon}`
+			dep: '2027-03-08',
+			arr: '2027-03-15',
+			from: 'KEF',
+			to: 'TBS',
+			via: 'OSL',
+			fromLoc: `FIXTURE start point@${KEF_LOC.lat},${KEF_LOC.lon}`,
+			toLoc: `FIXTURE end point@${TBS_LOC.lat},${TBS_LOC.lon}`
 		});
 		await page.goto(`/results/?${params}`);
 		await expect(page.getByText('still searching')).toHaveCount(0, { timeout: 20_000 });
 
 		const card = page.locator('.result-card').first();
 		await expect(card).toBeVisible();
-		await expect(card).toContainText('LGW');
+		await expect(card).toContainText('OSL');
 
 		await page.getByRole('button', { name: 'Show details' }).first().click();
 		const detail = page.locator('.result-detail');
@@ -320,11 +366,11 @@ test.describe('itinerary map: every transfer leg, distinct markers, honest geome
 		const announcement = detail.locator('[role="status"].visually-hidden');
 
 		await timeline.locator('[data-segment="transfer-to-hotel"]').click();
-		await expect(announcement).toContainText('Transfer to Gainsborough Lodge');
+		await expect(announcement).toContainText(`Transfer to ${FIXTURE_NAMES.property}`);
 		await expect(announcement).not.toContainText('straight-line estimate');
 
 		await timeline.locator('[data-segment="transfer-to-origin-airport"]').click();
-		await expect(announcement).toContainText('Transfer to BVC');
+		await expect(announcement).toContainText('Transfer to KEF');
 		await expect(announcement).toContainText('straight-line estimate');
 	});
 });

@@ -1,0 +1,31 @@
+{
+	"note": [
+		"Every mock provider payload this repo can put on the wire carries at least one of",
+		"these tokens, in a field a person reads on screen or in the raw response body.",
+		"The point is that a fixture which escapes its test is recognisable as fake at a",
+		"glance, by a person or by a script, instead of looking like a booking someone can",
+		"make. See docs/ACCEPTANCE.md, 'Never ship a flight that does not exist'.",
+		"",
+		"Consumers: tools/probe-results.mjs refuses to report an itinerary count when it",
+		"finds a token in the page or in a provider response, and tests/e2e/guard.spec.ts",
+		"fails the suite when a fixture file under tests/e2e/fixtures/ carries none.",
+		"",
+		"flightNumbers is the whole pool a mock may draw from. ZZ is not an assigned IATA",
+		"airline designator and no airline numbers a flight 0000, so every one of these is",
+		"impossible rather than merely unused. Reusing one across specs is fine: they are",
+		"markers, not identities. Add more if you run out."
+	],
+	"textToken": "FIXTURE",
+	"flightNumbers": [
+		"ZZ0000",
+		"ZZ0001",
+		"ZZ0002",
+		"ZZ0003",
+		"ZZ0004",
+		"ZZ0005",
+		"ZZ0006",
+		"ZZ0007",
+		"ZZ0008",
+		"ZZ0009"
+	]
+}

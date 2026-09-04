@@ -15,7 +15,16 @@ function loadFixture(relativePath: string): string {
 	return readFileSync(path.join(fixturesDir, relativePath), 'utf-8');
 }
 
-/** Anything that can register a route: a `BrowserContext`, or a single `Page`. */
+/**
+ * Anything that can register a route: a `BrowserContext`, or a single `Page`.
+ *
+ * Inside a spec both are safe, because Playwright closes the per-test context when the
+ * test ends and takes every handler with it. Outside one they are not the same at all: a
+ * context route survives the page, every navigation and every other tab, and a page route
+ * survives the call that made it. That difference is why these helpers must never be run
+ * against the shared Playwright MCP browser — see AGENTS.md, "Mocks belong to a test and
+ * to nothing else", for the morning it cost.
+ */
 type Routable = BrowserContext | Page;
 
 async function mockJson(target: Routable, urlPattern: string, fixture: string, status = 200) {

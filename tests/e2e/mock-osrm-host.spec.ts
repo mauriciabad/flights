@@ -1,4 +1,5 @@
 import { test, expect } from './support/fixtures';
+import { FIXTURE_FLIGHT_NUMBERS, FIXTURE_NAMES, FIXTURE_PRICES } from './support/fixture-markers';
 import { mockAllKeylessProviders, OSRM_BASE_URL } from './support/providers';
 
 /**
@@ -18,6 +19,10 @@ import { mockAllKeylessProviders, OSRM_BASE_URL } from './support/providers';
  * `query.destinationLocation`) — an airport code alone never does — so this search adds a
  * `fromLoc` on top of the exact BCN -> VIE -> TLL setup `select-and-compare.spec.ts`
  * already knows produces a real connecting itinerary.
+ *
+ * Its fare values come from `support/fixture-markers.ts` for the reason that file
+ * explains: realistic shape, worthless numbers, so a mock that escapes this spec cannot be
+ * read as a working search.
  */
 
 interface FareSpec {
@@ -33,13 +38,23 @@ function ryanairFare({ dep, arr, depDate, arrDate, price, flightNumber }: FareSp
 	const [whole, frac] = price.toFixed(2).split('.');
 	return {
 		outbound: {
-			departureAirport: { countryName: 'Test', iataCode: dep, name: dep, seoName: dep.toLowerCase() },
-			arrivalAirport: { countryName: 'Test', iataCode: arr, name: arr, seoName: arr.toLowerCase() },
+			departureAirport: {
+				countryName: FIXTURE_NAMES.country,
+				iataCode: dep,
+				name: FIXTURE_NAMES.airportA,
+				seoName: 'fixture-alpha'
+			},
+			arrivalAirport: {
+				countryName: FIXTURE_NAMES.country,
+				iataCode: arr,
+				name: FIXTURE_NAMES.airportB,
+				seoName: 'fixture-bravo'
+			},
 			departureDate: depDate,
 			arrivalDate: arrDate,
 			price: { value: price, valueMainUnit: whole, valueFractionalUnit: frac, currencySymbol: '€', currencyCode: 'EUR' },
 			flightNumber,
-			flightKey: `FR~${flightNumber}~~${dep}~${arr}~${depDate.slice(0, 10)}~${depDate.slice(0, 10)}~1`,
+			flightKey: `ZZ~${flightNumber}~~${dep}~${arr}~${depDate.slice(0, 10)}~${depDate.slice(0, 10)}~1`,
 			previousPrice: null
 		}
 	};
@@ -65,11 +80,25 @@ test.describe('mockOsrm intercepts the host the adapter really calls (issue #132
 			let fares: unknown[] = [];
 			if (dep === 'BCN' && (arr === 'VIE' || !arr)) {
 				fares = [
-					ryanairFare({ dep: 'BCN', arr: 'VIE', depDate: '2026-10-01T08:00:00', arrDate: '2026-10-01T10:15:00', price: 39.99, flightNumber: 'FR1001' })
+					ryanairFare({
+						dep: 'BCN',
+						arr: 'VIE',
+						depDate: '2027-03-08T08:00:00',
+						arrDate: '2027-03-08T10:15:00',
+						price: FIXTURE_PRICES.first,
+						flightNumber: FIXTURE_FLIGHT_NUMBERS[7]
+					})
 				];
 			} else if (dep === 'VIE' && (arr === 'TLL' || !arr)) {
 				fares = [
-					ryanairFare({ dep: 'VIE', arr: 'TLL', depDate: '2026-10-03T11:00:00', arrDate: '2026-10-03T13:20:00', price: 45, flightNumber: 'FR2001' })
+					ryanairFare({
+						dep: 'VIE',
+						arr: 'TLL',
+						depDate: '2027-03-10T11:00:00',
+						arrDate: '2027-03-10T13:20:00',
+						price: FIXTURE_PRICES.third,
+						flightNumber: FIXTURE_FLIGHT_NUMBERS[8]
+					})
 				];
 			}
 			await route.fulfill({
@@ -80,11 +109,11 @@ test.describe('mockOsrm intercepts the host the adapter really calls (issue #132
 		});
 
 		const params = new URLSearchParams({
-			dep: '2026-10-01',
-			arr: '2026-10-20',
+			dep: '2027-03-08',
+			arr: '2027-03-27',
 			from: 'BCN',
 			to: 'TLL',
-			fromLoc: 'Barcelona city centre@41.3851,2.1734'
+			fromLoc: 'FIXTURE start point@41.3851,2.1734'
 		});
 		await page.goto(`/results/?${params}`);
 		await expect(page.getByText('still searching')).toHaveCount(0, { timeout: 20_000 });

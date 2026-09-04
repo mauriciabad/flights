@@ -185,6 +185,63 @@ URL or the steps written in the issue body, against production, after the deploy
 PR merged" is not the same claim as "the acceptance test in the issue passes", and the gap
 between those two is where this project has lost the most time.
 
+## Mocks belong to a test and to nothing else
+
+On 2026-09-04 an agent reported the owner's own route working, in his own words back to
+him: "the owner's exact URL ... now returns 1 itinerary, BVC->LGW->PFO, EUR 238.00, via
+Ryanair, with ZERO keys configured." Ryanair does not serve BVC. The page was answering
+out of a Playwright route handler, and the agent was reading its own side of a mock.
+
+What the transcripts show, in order:
+
+- 10:41 an agent working issue #118 saved `tests/e2e/itinerary-map-transfers.spec.ts`.
+  Its mocks answered `services-api.ryanair.com` and `www.ryanair.com` with two fares
+  priced 149 and 89, on the owner's route, at his dates, adding up to his EUR 238.
+- 10:51 to 10:53 that same agent pasted the same handlers into the **shared Playwright MCP
+  browser** through `browser_run_code_unsafe`, to look at the rendered map:
+  `await page.context().route('https://services-api.ryanair.com/**', ...)`.
+- Nothing closed that browser. The last `browser_close` anywhere in the run was 08:03.
+- 11:00 a different agent, on a different issue, navigated the same browser to a results
+  URL and saw €238.00. At 11:18 it reported that as a live result.
+- 11:25 `node tools/probe-results.mjs`, which launches its own Chromium, printed
+  `0 of 0 itineraries` for the identical URL, with `www.ryanair.com` returning `404` for
+  BVC. The tell in the payload was `"countryName":"Test"`.
+
+**The spec did not leak.** Playwright disposes a test's context when the test ends, and no
+spec in `tests/e2e/` builds a browser of its own; `guard.spec.ts` now fails the suite if
+one tries. What crossed the boundary was a copy-paste into a browser that outlives
+everything: the MCP server runs `@playwright/mcp` with no `--isolated`, so a single
+persistent context serves every tool call from every agent on this project.
+
+So:
+
+- **Never register a route on the MCP browser.** A context route stays armed until someone
+  closes the browser, across tabs, across origins, across agents who have no idea you
+  exist. A page route outlives the tool call that made it too.
+- If you need mocked data in front of your eyes, launch your own Chromium the way
+  `tools/probe-*.mjs` do, and close it. A dead process leaks nothing.
+- If you catch yourself pasting a spec's fixture into a browser, run the spec instead.
+  `pnpm exec playwright test tests/e2e/<file> --headed` shows you the same page with the
+  same mocks, and throws them away afterwards.
+
+Two things now make this loud instead of silent. Every mock payload carries a marker from
+`tests/e2e/fixtures/markers.json`, so an escaped fixture reads as €9,111.11 on flight
+ZZ0000 out of FIXTURE Alpha rather than €238 on a Ryanair flight. And
+`tools/probe-results.mjs` refuses to print an itinerary count when it finds a marker in
+the page or in a provider response; it prints "MEASUREMENT INVALID" and exits non-zero.
+
+A fixture is a stand-in for an answer, so it has to be shaped like one. It must never be
+worth anything as one.
+
+**The same shape of mistake caught the branch that wrote this section, an hour later.**
+`playwright.config.ts` sets `reuseExistingServer: !process.env.CI`, and with a dozen
+worktrees on one machine port 4173 is often already held by somebody else's build. A
+`pnpm test:e2e` run silently attached to one and failed 22 tests against a branch nobody
+here had ever seen: the network guard blocked `pics.avs.io` airline logos, a feature that
+exists in neither that branch nor `origin/main`. So when the suite has to have measured
+*your* build, run `CI=1 pnpm test:e2e`. It starts its own server and fails loudly if the
+port is taken, instead of quietly testing someone else's work.
+
 ## If you merge other agents' PRs
 
 Green CI is not a review. It means the tests that exist passed, and the bug worth catching is
