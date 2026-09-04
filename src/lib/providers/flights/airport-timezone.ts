@@ -123,7 +123,15 @@ const SEED_TIME_ZONES: Readonly<Record<string, string>> = {
 
 	// South America
 	GRU: 'America/Sao_Paulo', GIG: 'America/Sao_Paulo', EZE: 'America/Argentina/Buenos_Aires',
-	SCL: 'America/Santiago', BOG: 'America/Bogota', LIM: 'America/Lima'
+	SCL: 'America/Santiago', BOG: 'America/Bogota', LIM: 'America/Lima',
+
+	// Issue #124's own route, added by hand rather than left to the live fallback: Transitous's
+	// reverse-geocode, confirmed live on 2026-09-04, currently answers BVC's real coordinates
+	// with `"tz":"IANA"` — a live data defect on their side, not a missing-coverage gap the
+	// fallback is meant to handle. Both zones below are single, unambiguous facts (Cabo Verde
+	// observes no DST at all; Cyprus's IANA entry is filed under "Asia" despite being in Europe
+	// culturally), not a guess, so seeding them is safe even though neither is a busy hub.
+	BVC: 'Atlantic/Cape_Verde', PFO: 'Asia/Nicosia'
 };
 
 /**
@@ -162,7 +170,35 @@ export async function resolveAirportTimeZone(
 	if (seeded !== undefined) return seeded;
 
 	const result = await lookupAirportTimeZone(iataCode, ctx, options);
-	return result.ok ? result.data : undefined;
+	if (!result.ok || result.data === undefined) return undefined;
+
+	// Issue #124: confirmed live against BVC (Boa Vista) on 2026-09-04 — Transitous's
+	// `/reverse-geocode` answered 200 with real place data but a literal `"tz":"IANA"` on
+	// every candidate, not an actual zone name. `geocode/transitous-mapper.ts` passes
+	// whatever string the response carries straight through with no validation of its own,
+	// and the alternative to checking it here was a `RangeError: Invalid time zone
+	// specified` thrown out of `Intl.DateTimeFormat` deep inside `utcOffsetMinutesAt` below
+	// — uncaught, because nothing between here and there expects a timezone lookup to hand
+	// back garbage instead of failing outright. `types.ts`'s whole contract is that one
+	// provider's bad answer degrades a single offer, never crashes the search that asked
+	// for it, so a value this function cannot actually pass to `Intl` gets the same
+	// "unresolved" treatment as no value at all, rather than becoming an uncaught throw
+	// three call frames later.
+	return isSupportedTimeZone(result.data) ? result.data : undefined;
+}
+
+/** Whether `Intl.DateTimeFormat` will actually accept `timeZone` as a zone identifier,
+ * rather than throwing when `offsetAtInstant` below first tries to use it. Delegates to the
+ * runtime's own validation (construction throws `RangeError` for anything it does not
+ * recognise) instead of pattern-matching IANA name syntax by hand, which would have its own
+ * gaps (aliases, legacy names) this project has no reason to maintain a list of. */
+function isSupportedTimeZone(timeZone: string): boolean {
+	try {
+		new Intl.DateTimeFormat('en-US', { timeZone });
+		return true;
+	} catch {
+		return false;
+	}
 }
 
 /**

@@ -74,6 +74,32 @@ describe('resolveAirportTimeZone', () => {
 		expect(result).toBeUndefined();
 	});
 
+	/**
+	 * Confirmed live for issue #124: Transitous's real `/reverse-geocode`, queried for BVC
+	 * (Boa Vista) on 2026-09-04, answered 200 with real place data but `"tz":"IANA"` on
+	 * every candidate — not an actual zone name. `geocode/transitous-mapper.ts` passes that
+	 * string straight through with no validation, and without this guard it reached
+	 * `Intl.DateTimeFormat` deep inside `utcOffsetMinutesAt`, which throws `RangeError:
+	 * Invalid time zone specified` for anything it does not recognise — uncaught, since
+	 * nothing between here and there expects a resolved zone to be unusable. One provider
+	 * answering with garbage must degrade to "unresolved", the same as answering with
+	 * nothing at all, never crash the caller.
+	 */
+	it('resolves undefined, not a crash, when the live lookup returns a string Intl cannot use as a zone', async () => {
+		const fetchImpl = vi
+			.fn()
+			.mockResolvedValue(
+				jsonResponse([{ type: 'STOP', name: 'Aeroporto Internacional Aristides Pereira', lat: 16.1365, lon: -22.8889, tz: 'IANA' }])
+			);
+
+		const result = await resolveAirportTimeZone('AHO', ctx(), {
+			fetchImpl,
+			resolveStore: async () => new MemoryCacheStore()
+		});
+
+		expect(result).toBeUndefined();
+	});
+
 	it('resolves undefined, not a guess, when the live lookup itself fails outright', async () => {
 		const fetchImpl = vi.fn().mockResolvedValue(new Response('bad gateway', { status: 502 }));
 
