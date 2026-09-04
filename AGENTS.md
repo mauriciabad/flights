@@ -242,6 +242,16 @@ exists in neither that branch nor `origin/main`. So when the suite has to have m
 *your* build, run `CI=1 E2E_PORT=<pick one> pnpm test:e2e`. It starts its own server and fails loudly if the
 port is taken, instead of quietly testing someone else's work.
 
+## Scratch files are shared, so name yours after yourself
+
+A dozen agents run at once and the scratchpad directory is one directory. An agent drafting
+a PR body in `pr-body.md` had it overwritten mid-session by another agent doing the same
+thing, and only noticed because it checked the posted PR against what it wrote.
+
+Put your agent id or branch name in any temporary file you write: `pr-body-<branch>.md`, not
+`pr-body.md`. The same goes for a port, a database name, or anything else two of you could
+pick independently and both believe you own.
+
 ## If you merge other agents' PRs
 
 Green CI is not a review. It means the tests that exist passed, and the bug worth catching is
