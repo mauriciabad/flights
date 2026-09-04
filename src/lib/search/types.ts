@@ -35,7 +35,7 @@
 
 import type { ConnectionCandidate as AlgorithmConnectionCandidate } from '../algorithm/connections';
 import type { ItineraryScore } from '../algorithm/score';
-import type { Airport, IataAirportCode, IsoCalendarDate, IsoCurrencyCode, SearchQuery } from '../domain';
+import type { Airport, IataAirportCode, IsoCalendarDate, IsoCurrencyCode, SearchQuery, Stay } from '../domain';
 import type { ProviderRegistry } from '../providers/registry';
 import type { AvailableKeys, ProviderError, ProviderId, ProviderKind, ProviderSource } from '../providers/types';
 
@@ -221,6 +221,18 @@ export interface SearchSnapshot {
 	 * query's full date range — see `WidenOption`. Narrows to a specific date only once the
 	 * caller invokes `widenSearch` with one. */
 	widenOptions: WidenOption[];
+	/**
+	 * Issue #80: every `Stay` `resources.ts` found near each connection candidate that has
+	 * finished processing, cheapest first and gender-eligibility NOT applied, keyed by
+	 * `ConnectionCandidate.airportCode`. `itineraryGroups` above only ever carries the one
+	 * `Stay` the pipeline picked for each built `Itinerary` (`resources.ts`'s own fitness
+	 * filter — never a `female-dorm` the party can't fully use); this field is what keeps
+	 * the rest of what was found alive so a results page has real alternatives to hand
+	 * issue #27's `StayPicker`, ineligible options included, instead of only the pipeline's
+	 * already-decided pick. A connection with no entry here either hasn't finished yet or
+	 * produced no stay resources at all.
+	 */
+	stayCandidatesByConnection: Record<IataAirportCode, Stay[]>;
 }
 
 /** One connection candidate the caller wants confirmed with a metered provider, for a

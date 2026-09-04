@@ -36,6 +36,7 @@ import {
 	type IataAirportCode,
 	type Itinerary,
 	type LandingToTransportRule,
+	type Stay,
 	type Transfer
 } from '../domain';
 import { runCostAwareSearch } from '../providers/budget';
@@ -277,6 +278,12 @@ interface ProcessCandidateInput {
 interface CandidateOutcome {
 	candidate: ConnectionCandidate;
 	itineraries: ItineraryResult[];
+	/** Every `Stay` `fetchConnectionResources` found near this candidate, cheapest first,
+	 * gender-eligibility not applied — issue #80's candidate list, carried through so a
+	 * `SearchSnapshot` can keep it rather than only the pipeline's already-decided pick.
+	 * Empty when the candidate produced no resources at all (nothing found, or every part
+	 * failed to resolve). */
+	stayCandidates: Stay[];
 }
 
 /**
@@ -290,7 +297,7 @@ interface CandidateOutcome {
  * provider.
  */
 async function processCandidate(input: ProcessCandidateInput): Promise<CandidateOutcome> {
-	const empty: CandidateOutcome = { candidate: input.candidate, itineraries: [] };
+	const empty: CandidateOutcome = { candidate: input.candidate, itineraries: [], stayCandidates: [] };
 	if (input.signal.aborted) return empty;
 
 	const connectionAirport = await input.resolveAirport(input.candidate.airportCode);
@@ -323,7 +330,9 @@ async function processCandidate(input: ProcessCandidateInput): Promise<Candidate
 			checkOut: input.query.latestArrival,
 			landingToTransportRules: input.landingToTransportRules,
 			sources: input.sources,
-			record: input.record
+			record: input.record,
+			travellers: input.query.travellers,
+			females: input.query.females
 		})
 	]);
 
@@ -349,7 +358,7 @@ async function processCandidate(input: ProcessCandidateInput): Promise<Candidate
 		const results = rankItineraries(itineraries, input.airlinesToAvoid, input.weights).map(
 			(score): ItineraryResult => ({ score, sources: sourcesForItinerary(score.itinerary, input.sources) })
 		);
-		return { candidate: input.candidate, itineraries: results };
+		return { candidate: input.candidate, itineraries: results, stayCandidates: resources.stayCandidates };
 	} catch {
 		// buildItineraries throws only for a currency mismatch across a candidate's own
 		// parts (its own doc comment) — SearchDependencies.currency asks every provider for
@@ -362,8 +371,14 @@ async function processCandidate(input: ProcessCandidateInput): Promise<Candidate
 
 /** Small closure factory shared by `runSearch` and `widenSearch` so both build a
  * `SearchSnapshot` the same way — bumping `sequence`, re-deriving `itineraryGroups` from
- * whatever has accumulated in `results` so far, and reading the live `providerStatus` map. */
-function makeSnapshotFn(results: ItineraryResult[], providerStatus: Map<ProviderId, ProviderStatus>) {
+ * whatever has accumulated in `results` so far, and reading the live `providerStatus` and
+ * `stayCandidatesByConnection` maps (issue #80: the latter is what keeps a connection's
+ * full stay candidate list alive into the snapshot instead of collapsing to one pick). */
+function makeSnapshotFn(
+	results: ItineraryResult[],
+	providerStatus: Map<ProviderId, ProviderStatus>,
+	stayCandidatesByConnection: Map<IataAirportCode, Stay[]>
+) {
 	let sequence = 0;
 	return function snapshot(stage: SearchStage, candidates: ConnectionCandidate[], done: boolean, widenOptions: WidenOption[] = []): SearchSnapshot {
 		return {
@@ -373,7 +388,8 @@ function makeSnapshotFn(results: ItineraryResult[], providerStatus: Map<Provider
 			candidates,
 			itineraryGroups: groupItineraryResults(results),
 			providers: Object.fromEntries(providerStatus),
-			widenOptions
+			widenOptions,
+			stayCandidatesByConnection: Object.fromEntries(stayCandidatesByConnection)
 		};
 	};
 }
@@ -492,7 +508,8 @@ export async function* runSearch(
 	const record: RecordProviderCall = (provider, result) => recordProviderResult(providerStatus, provider, result);
 	const sources = new SourceTracker();
 	const results: ItineraryResult[] = [];
-	const snapshot = makeSnapshotFn(results, providerStatus);
+	const stayCandidatesByConnection = new Map<IataAirportCode, Stay[]>();
+	const snapshot = makeSnapshotFn(results, providerStatus, stayCandidatesByConnection);
 
 	const { originAirport, destinationAirport } = await resolveOuterAirports(query, resolveAirport);
 	if (signal.aborted) {
@@ -596,6 +613,7 @@ export async function* runSearch(
 	for await (const outcome of raceToCompletion(tasks)) {
 		if (signal.aborted) break;
 		results.push(...outcome.itineraries);
+		stayCandidatesByConnection.set(outcome.candidate.airportCode, outcome.stayCandidates);
 		yield snapshot('stage1', candidates, false, widenOptions);
 	}
 
@@ -638,7 +656,8 @@ export async function* widenSearch(
 	const record: RecordProviderCall = (provider, result) => recordProviderResult(providerStatus, provider, result);
 	const sources = new SourceTracker();
 	const results: ItineraryResult[] = [];
-	const snapshot = makeSnapshotFn(results, providerStatus);
+	const stayCandidatesByConnection = new Map<IataAirportCode, Stay[]>();
+	const snapshot = makeSnapshotFn(results, providerStatus, stayCandidatesByConnection);
 
 	const { originAirport, destinationAirport } = await resolveOuterAirports(query, resolveAirport);
 	if (signal.aborted) {
@@ -766,6 +785,7 @@ export async function* widenSearch(
 		});
 
 		results.push(...outcome.itineraries);
+		stayCandidatesByConnection.set(outcome.candidate.airportCode, outcome.stayCandidates);
 		yield snapshot('stage2', candidates, false);
 	}
 
