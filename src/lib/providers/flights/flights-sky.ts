@@ -37,6 +37,7 @@ import type {
 	ProviderContext,
 	ProviderError,
 	ProviderHealth,
+	ProviderId,
 	ProviderResult,
 	ProviderSource
 } from '../types';
@@ -52,12 +53,11 @@ import type { FlightsSkyProvider } from './flights-sky-types';
 export { hasPriceCalendar } from './flights-sky-types';
 export type { FlightPriceCalendarProvider, FlightsSkyProvider, PriceCalendarDay, PriceCalendarQuery } from './flights-sky-types';
 
-/** Also the RapidAPI host slug (docs/PROVIDERS.md: `rapidapi.com/ntd119/api/flights-sky`)
- * and the key `../budget/caps.ts`'s `DEFAULT_PROVIDER_CAPS` already reserves for this
- * adapter (40, 20% held back from the measured 50/month) — this value has to match that key
- * exactly or the budget module falls back to `FALLBACK_PROVIDER_CAP` (10) for a provider id
- * it does not recognise. */
-export const FLIGHTS_SKY_PROVIDER_ID = 'flights-sky';
+/** Also the id `../budget/caps.ts`'s `DEFAULT_PROVIDER_CAPS` is keyed by (40, 20% held back
+ * from the measured 50/month, docs/PROVIDERS.md) — enforced at compile time by `ProviderId`
+ * (../types.ts, issue #69), not by convention, so a drifted id here would fail to compile
+ * rather than quietly fall back to `FALLBACK_PROVIDER_CAP` (10). */
+export const FLIGHTS_SKY_PROVIDER_ID: ProviderId = 'flights-sky';
 
 const DEFAULT_CURRENCY: IsoCurrencyCode = 'EUR';
 

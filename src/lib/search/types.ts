@@ -215,8 +215,10 @@ export interface SearchSnapshot {
 	 * group. Replaces the previous snapshot's value entirely (see module doc comment). */
 	itineraryGroups: ItineraryGroup[];
 	/** Per-provider status for every provider this search has called at least once, keyed
-	 * by `ProviderId`. */
-	providers: Record<ProviderId, ProviderStatus>;
+	 * by `ProviderId`. `Partial`, not total: most searches never call every registered
+	 * adapter (a widen the user never opted into, a kind the query doesn't need), so a
+	 * provider simply absent here has not been called yet, not called-and-empty. */
+	providers: Partial<Record<ProviderId, ProviderStatus>>;
 	/** What widening to a metered provider would cost, for the top-ranked candidates, at the
 	 * query's full date range — see `WidenOption`. Narrows to a specific date only once the
 	 * caller invokes `widenSearch` with one. */

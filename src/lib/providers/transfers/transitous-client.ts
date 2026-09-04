@@ -30,10 +30,14 @@
  */
 
 import type { Coordinates } from '../../domain';
+import type { ProviderId } from '../types';
 import { TRANSITOUS_NUM_ITINERARIES } from './transitous-mapper';
 import type { TransitousPlanResponse } from './transitous-types';
 
-export const TRANSITOUS_PROVIDER_ID = 'transitous';
+/** Keyless and unmetered — no `../budget` cap or wiring applies — but still a real
+ * registered adapter id, so it is checked against `ProviderId` (../types.ts, issue #69)
+ * like every other adapter's id. */
+export const TRANSITOUS_PROVIDER_ID: ProviderId = 'transitous';
 
 /** Exported so a second Transitous-backed adapter (geocode/transitous-client.ts, issue
  * #64) hits the same host through the same constant instead of re-typing the URL. */

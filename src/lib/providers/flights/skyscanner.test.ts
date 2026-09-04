@@ -1,5 +1,6 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryCacheStore } from '../../cache';
+import { clearInFlightForTests, clearProviderQuotaStateForTests, resetPermanentFailuresForTests } from '../budget';
 import searchAirportBcn from './fixtures/search-airport-bcn.json';
 import searchAirportVie from './fixtures/search-airport-vie.json';
 import searchFlightsBcnVie from './fixtures/search-flights-bcn-vie.json';
@@ -13,7 +14,21 @@ import { createSkyscannerFlightProvider } from './skyscanner';
  * reaches the network: that is the whole point of spending the request budget once, up
  * front, to build fixtures, rather than re-hitting Sky Scrapper's 20-requests-a-month free
  * tier from CI on every run.
+ *
+ * Issue #69: this adapter now routes every real request through `callProviderWithBudget`
+ * (../budget), which keeps module-level state (in-flight dedup, the permanently-
+ * unsubscribed set, and a `localStorage`-backed monthly counter) that must be reset between
+ * tests — same as flights-sky.test.ts does — or one test's "not-subscribed" or quota spend
+ * leaks into the next.
  */
+const instantSleep = async () => {};
+
+beforeEach(() => {
+	localStorage.clear();
+	clearInFlightForTests();
+	resetPermanentFailuresForTests();
+	clearProviderQuotaStateForTests();
+});
 
 function jsonResponse(status: number, body: unknown, headers: Record<string, string> = {}): Response {
 	return new Response(JSON.stringify(body), { status, headers });
@@ -147,6 +162,47 @@ describe('createSkyscannerFlightProvider', () => {
 			expect(fetchImpl).toHaveBeenCalledTimes(1);
 		});
 
+		it('refuses the call before firing any fetch once the monthly cap is already spent', async () => {
+			// Issue #69's own scenario: Sky Scrapper's real cap is 20/month and one careless
+			// search must not be able to spend it all. `cap: 0` simulates the month's budget
+			// already being gone — `callProviderWithBudget` (../budget) has to refuse before
+			// ever reaching `fetchImpl`, not after.
+			const cacheStore = new MemoryCacheStore();
+			await setCachedAirportEntity('BCN', { skyId: 'BCN', entityId: '95565085' }, cacheStore);
+			await setCachedAirportEntity('VIE', { skyId: 'VIE', entityId: '95673444' }, cacheStore);
+			const fetchImpl = fakeFetch({ searchFlights: () => jsonResponse(200, searchFlightsBcnVie) });
+			const provider = createSkyscannerFlightProvider({ fetchImpl, cacheStore, cap: 0 });
+			const result = await provider.searchOffers(baseQuery, contextWithKey());
+			expect(result).toMatchObject({ ok: false, error: { code: 'quota-exceeded' }, requestsUsed: 0 });
+			expect(fetchImpl).not.toHaveBeenCalled();
+		});
+
+		it('makes one network request for two concurrent identical searches, not two', async () => {
+			// A 20-request monthly budget cannot survive two components (or a fast double
+			// click) firing the same search before the first settles — see
+			// ../budget/dedupe.ts's own header for why this matters more here than it would
+			// for an unmetered provider.
+			const cacheStore = new MemoryCacheStore();
+			await setCachedAirportEntity('BCN', { skyId: 'BCN', entityId: '95565085' }, cacheStore);
+			await setCachedAirportEntity('VIE', { skyId: 'VIE', entityId: '95673444' }, cacheStore);
+			const fetchImpl = fakeFetch({ searchFlights: () => jsonResponse(200, searchFlightsBcnVie) });
+			const provider = createSkyscannerFlightProvider({ fetchImpl, cacheStore });
+
+			const [first, second] = await Promise.all([
+				provider.searchOffers(baseQuery, contextWithKey()),
+				provider.searchOffers(baseQuery, contextWithKey())
+			]);
+
+			expect(fetchImpl).toHaveBeenCalledTimes(1);
+			expect(first.ok).toBe(true);
+			expect(second.ok).toBe(true);
+			if (first.ok && second.ok) {
+				expect(first.requestsUsed).toBe(1);
+				expect(second.requestsUsed).toBe(1); // shares the first call's outcome, not a second reservation
+				expect(second.data).toEqual(first.data);
+			}
+		});
+
 		it('caches a resolved airport so a second search for the same route does not look it up again', async () => {
 			const cacheStore = new MemoryCacheStore();
 			const fetchImpl = happyPathFetch();
@@ -197,40 +253,19 @@ describe('createSkyscannerFlightProvider', () => {
 					jsonResponse(403, { message: 'You are not subscribed to this API.' })
 			});
 			const cacheStore = new MemoryCacheStore();
-			const provider = createSkyscannerFlightProvider({ fetchImpl, cacheStore });
+			const provider = createSkyscannerFlightProvider({ fetchImpl, cacheStore, sleep: instantSleep });
 			const first = await provider.searchOffers(baseQuery, contextWithKey());
-			expect(first).toMatchObject({ ok: false, error: { code: 'not-subscribed' }, requestsUsed: 0 });
+			expect(first).toMatchObject({ ok: false, error: { code: 'not-subscribed' } });
 			expect(fetchImpl).toHaveBeenCalledTimes(1);
 
 			fetchImpl.mockClear();
 			const second = await provider.searchOffers(baseQuery, contextWithKey());
-			expect(second).toMatchObject({ ok: false, error: { code: 'not-subscribed' }, requestsUsed: 0 });
+			expect(second).toMatchObject({ ok: false, requestsUsed: 0, error: { code: 'not-subscribed' } });
 			// Remembered for the session: the second call never touches the network at all.
+			// Issue #69: this is now tracked per `ProviderId` by the shared budget module
+			// (../budget/permanent-failures.ts), not per API key the way this adapter used to
+			// hand-roll it — one consistent rule across every adapter wired to the module.
 			expect(fetchImpl).not.toHaveBeenCalled();
-		});
-
-		it('does not let one key\'s not-subscribed status block a different, working key', async () => {
-			const fetchImpl = fakeFetch({
-				searchAirport: (query) => {
-					if (query.toUpperCase() === 'BCN') return jsonResponse(200, searchAirportBcn);
-					if (query.toUpperCase() === 'VIE') return jsonResponse(200, searchAirportVie);
-					return jsonResponse(200, { status: true, data: [] });
-				},
-				searchFlights: () => jsonResponse(200, searchFlightsBcnVie)
-			});
-			const cacheStore = new MemoryCacheStore();
-			const provider = createSkyscannerFlightProvider({ fetchImpl, cacheStore });
-			// A different provider instance would be a cleaner way to show this, but reusing
-			// the same one is the point: it is this instance's remembered-failure map that
-			// must be keyed by API key value, not just "have I ever seen a bad key."
-			const badKeyFetch = fakeFetch({
-				searchAirport: () => jsonResponse(403, { message: 'You are not subscribed to this API.' })
-			});
-			const badProvider = createSkyscannerFlightProvider({ fetchImpl: badKeyFetch, cacheStore });
-			await badProvider.searchOffers(baseQuery, contextWithKey({ keys: { apiKey: 'bad-key' } }));
-
-			const result = await provider.searchOffers(baseQuery, contextWithKey({ keys: { apiKey: 'good-key' } }));
-			expect(result.ok).toBe(true);
 		});
 
 		it('stops the date loop on quota-exceeded but keeps offers already collected', async () => {
@@ -245,7 +280,11 @@ describe('createSkyscannerFlightProvider', () => {
 					return jsonResponse(429, { message: 'Too Many Requests' }, { 'retry-after': '60' });
 				}
 			});
-			const provider = createSkyscannerFlightProvider({ fetchImpl, cacheStore });
+			// cap: 2 lets the first (successful) date through plus one attempt at the second
+			// (429) date, then refuses the budget module's own retry of that same date before
+			// it fires a second real fetch — a hard stop, not a guess at how many attempts
+			// `callProviderWithBudget`'s default backoff would otherwise make.
+			const provider = createSkyscannerFlightProvider({ fetchImpl, cacheStore, cap: 2, sleep: instantSleep });
 			const result = await provider.searchOffers(
 				{ ...baseQuery, earliestDeparture: '2026-10-15', latestDeparture: '2026-10-17' },
 				contextWithKey()
@@ -255,6 +294,7 @@ describe('createSkyscannerFlightProvider', () => {
 				expect(result.data).toHaveLength(2); // from the one successful date
 				expect(result.requestsUsed).toBe(2); // 1 successful + 1 that hit the 429
 			}
+			expect(fetchImpl).toHaveBeenCalledTimes(2);
 		});
 
 		it('surfaces quota-exceeded as an error when no offers were collected at all', async () => {
@@ -264,9 +304,12 @@ describe('createSkyscannerFlightProvider', () => {
 			const fetchImpl = fakeFetch({
 				searchFlights: () => jsonResponse(429, { message: 'Too Many Requests' })
 			});
-			const provider = createSkyscannerFlightProvider({ fetchImpl, cacheStore });
+			// cap: 1 lets the single attempt through and refuses the budget module's own
+			// retry before it fires a second real fetch — see the cap comment above.
+			const provider = createSkyscannerFlightProvider({ fetchImpl, cacheStore, cap: 1, sleep: instantSleep });
 			const result = await provider.searchOffers(baseQuery, contextWithKey());
 			expect(result).toMatchObject({ ok: false, error: { code: 'quota-exceeded' }, requestsUsed: 1 });
+			expect(fetchImpl).toHaveBeenCalledTimes(1);
 		});
 
 		it('skips a malformed date and still returns the offers other dates produced', async () => {
@@ -281,7 +324,7 @@ describe('createSkyscannerFlightProvider', () => {
 					return jsonResponse(200, searchFlightsBcnVie);
 				}
 			});
-			const provider = createSkyscannerFlightProvider({ fetchImpl, cacheStore });
+			const provider = createSkyscannerFlightProvider({ fetchImpl, cacheStore, sleep: instantSleep });
 			const result = await provider.searchOffers(
 				{ ...baseQuery, earliestDeparture: '2026-10-15', latestDeparture: '2026-10-16' },
 				contextWithKey()

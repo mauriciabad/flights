@@ -9,9 +9,17 @@
  * data" and "one provider's data," rather than defining a second, incompatible shape the
  * way it used to (issue #49 reconciled the two).
  */
-import type { AvailableKeys, ProviderId, ProviderKeyValues } from '../providers/types';
+import type { AvailableKeys, ProviderKeyValues } from '../providers/types';
 
-export type { ProviderId, ProviderKeyValues };
+export type { ProviderKeyValues };
+
+/** A provider id as the BYOK store sees it: any string, not the closed adapter-id union
+ * `../providers/types` exports under the same name (issue #69). Kept deliberately wider:
+ * `parseImportedKeysFile` below must round-trip an id this app version does not recognise
+ * (a newer build's adapter, or one this device no longer has registered) rather than drop
+ * it, so this module's own notion of "a provider id" stays open where the registry's is
+ * closed. */
+export type ProviderId = string;
 
 /** Every provider's key material, keyed by provider id. An alias for `AvailableKeys`
  * (providers/types.ts): same shape, named for how this module talks about it. */

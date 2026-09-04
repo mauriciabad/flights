@@ -27,12 +27,37 @@ import type {
 } from '../domain';
 
 /**
- * Stable identifier for a registered adapter, e.g. "skyscanner", "ryanair", "ourairports".
- * A plain string rather than a branded type, matching IataAirportCode/IsoCountryCode in
- * domain/codes.ts: adapters hardcode this as a literal, and branding would only add casts
- * at every one of those literals for no safety this file can actually check.
+ * Every adapter actually registered in this codebase, by id. Issue #69: three modules
+ * (adapters, the budget module's cap table, the settings catalog) each invented this
+ * vocabulary on their own and drifted apart — `getProviderCap('skyscanner')` was silently
+ * missing the cap table entirely because it was keyed `'sky-scrapper'`, RapidAPI's host
+ * slug, not the adapter's own id. This list is the fix: the one place a provider id is
+ * spelled out, so every other module below imports `ProviderId` instead of retyping the
+ * string.
+ *
+ * Unlike IataAirportCode/IsoCurrencyCode (domain/codes.ts), which stay plain strings
+ * because their real values come from data too large and too dynamic to enumerate at the
+ * type level, providers are exactly the opposite: a small, fixed set, wired up by hand in
+ * source, one new entry whenever an adapter is added. A closed union is what makes a typo
+ * or a drifted id a compile error at the point it's written, rather than a lookup miss
+ * that quietly falls through to a fallback.
  */
-export type ProviderId = string;
+export const PROVIDER_IDS = [
+	'skyscanner',
+	'flights-sky',
+	'kiwi',
+	'ryanair',
+	'agoda',
+	'booking',
+	'transitous',
+	'transitous-geocode',
+	'travelpayouts-cheap-routes',
+	'osrm'
+] as const;
+
+/** Stable identifier for a registered adapter. See `PROVIDER_IDS` above — this is its
+ * derived union, not a separately maintained list. */
+export type ProviderId = (typeof PROVIDER_IDS)[number];
 
 /**
  * One piece of credential material an adapter needs — one row in a settings-page form.
@@ -54,14 +79,21 @@ export interface ProviderKeyField {
  * as absent (a cleared-but-not-removed field) — see registry.ts `isProviderUsable`. */
 export type ProviderKeyValues = Readonly<Record<string, string>>;
 
-/** Key material for every adapter, keyed by ProviderId, as the registry needs it to
+/** Key material for every adapter, keyed by provider id, as the registry needs it to
  * answer "which adapters are usable right now." This is also the exact shape the BYOK
  * store (`src/lib/keys/`, issue #3) persists to localStorage and hands back — one model
  * for "a provider's key material" shared by both modules, not a second one translated at
  * the seam (issue #49). Deliberately a plain nested record rather than a class or a lookup
  * callback, so this file takes no dependency on the store's internals beyond its exported
- * types (AGENTS.md: "define the narrowest possible interface"). */
-export type AvailableKeys = Readonly<Record<ProviderId, ProviderKeyValues>>;
+ * types (AGENTS.md: "define the narrowest possible interface").
+ *
+ * Keyed by plain `string`, not the closed `ProviderId` union above, on purpose: an
+ * imported key file (issue #49's codec) must round-trip an id this app version does not
+ * recognise — a provider a newer build knows about, or one the user's own device has since
+ * removed — without losing that data, so this map is deliberately more permissive than the
+ * set of adapters actually registered right now. Every real adapter's own id is still a
+ * `ProviderId`, and indexing this map with one (`keys[provider.id]`) works either way. */
+export type AvailableKeys = Readonly<Record<string, ProviderKeyValues>>;
 
 /**
  * Passed as the last argument to every adapter method. One shape for all four provider

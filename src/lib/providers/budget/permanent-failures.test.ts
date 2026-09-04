@@ -7,22 +7,22 @@ beforeEach(() => {
 
 describe('permanent not-subscribed tracking', () => {
 	it('reports a provider as not permanently unsubscribed until marked', () => {
-		expect(isPermanentlyUnsubscribed('sky-scrapper')).toBe(false);
+		expect(isPermanentlyUnsubscribed('skyscanner')).toBe(false);
 	});
 
 	it('remembers a provider marked not-subscribed', () => {
-		markNotSubscribed('sky-scrapper');
-		expect(isPermanentlyUnsubscribed('sky-scrapper')).toBe(true);
+		markNotSubscribed('skyscanner');
+		expect(isPermanentlyUnsubscribed('skyscanner')).toBe(true);
 	});
 
 	it('keeps other providers unaffected', () => {
-		markNotSubscribed('sky-scrapper');
+		markNotSubscribed('skyscanner');
 		expect(isPermanentlyUnsubscribed('flights-sky')).toBe(false);
 	});
 
 	it('clears on reset, simulating a fresh session', () => {
-		markNotSubscribed('sky-scrapper');
+		markNotSubscribed('skyscanner');
 		resetPermanentFailuresForTests();
-		expect(isPermanentlyUnsubscribed('sky-scrapper')).toBe(false);
+		expect(isPermanentlyUnsubscribed('skyscanner')).toBe(false);
 	});
 });

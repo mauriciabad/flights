@@ -281,7 +281,9 @@ export interface ProviderStanding {
 export interface CurrencyCrosscheckStats {
 	currency: IsoCurrencyCode;
 	comparisons: number;
-	providers: Readonly<Record<ProviderId, ProviderStanding>>;
+	/** Partial, not every `ProviderId`: only providers actually seen in a comparison get an
+	 * entry — most searches will not have live results from every registered adapter. */
+	providers: Readonly<Partial<Record<ProviderId, ProviderStanding>>>;
 }
 
 /** The whole point of issue #17, in one shape a settings screen can render directly:
@@ -375,11 +377,14 @@ export function mergeCrosscheckSummaries(a: CrosscheckSummary, b: CrosscheckSumm
 	for (const currency of currencies) {
 		const ca = a.byCurrency[currency];
 		const cb = b.byCurrency[currency];
+		// Object.keys always answers plain `string[]` regardless of the source object's own
+		// key type, so this re-asserts what every key actually is: one of the `ProviderId`s
+		// `ca`/`cb`'s own `providers` maps are keyed by.
 		const providerIds = new Set([
 			...Object.keys(ca?.providers ?? {}),
 			...Object.keys(cb?.providers ?? {})
-		]);
-		const providers: Record<ProviderId, ProviderStanding> = {};
+		]) as Set<ProviderId>;
+		const providers: Partial<Record<ProviderId, ProviderStanding>> = {};
 		for (const id of providerIds) {
 			const pa = ca?.providers[id];
 			const pb = cb?.providers[id];

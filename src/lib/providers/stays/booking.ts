@@ -24,10 +24,13 @@ import { defineCacheKey, getDefaultStore } from '../../cache';
 import type { CacheKey, CacheStore } from '../../cache';
 import { DEFAULT_TRAVELLERS } from '../../domain';
 import type { Stay } from '../../domain';
+import { callProviderWithBudget } from '../budget';
+import { classifyClientResultError, unwrapOrThrow } from '../client-result-budget';
 import type {
 	ProviderContext,
 	ProviderError,
 	ProviderHealth,
+	ProviderId,
 	ProviderResult,
 	ProviderSource,
 	StayProvider,
@@ -37,7 +40,9 @@ import { fetchGetRoomList, fetchSearchHotelsByCoordinates, type BookingHttpDeps 
 import type { BookingFetchError } from './booking-types';
 import { mapRoomListToStays, mapSearchResultToCandidate, type BookingCandidate } from './booking-mapper';
 
-export const BOOKING_PROVIDER_ID = 'booking';
+/** Also the id `../budget/caps.ts`'s `DEFAULT_PROVIDER_CAPS` is keyed by — enforced at
+ * compile time by `ProviderId` (../types.ts, issue #69), not by convention. */
+export const BOOKING_PROVIDER_ID: ProviderId = 'booking';
 
 /** Drill-downs per search — see this file's header for why this is a fifth of Agoda's
  * default. Kept at 1 rather than 0 because a search that never drills down could only ever
@@ -60,6 +65,14 @@ export interface BookingProviderOptions {
 	/** Overrides the global `fetch`. Tests inject a stub that resolves fixtures, so the
 	 * whole adapter is exercised with zero real network traffic. */
 	fetchImpl?: typeof fetch;
+	/** Overrides `callProviderWithBudget`'s stored/default monthly cap. Mainly for tests —
+	 * see `CallProviderWithBudgetOptions.cap` (../budget/call-with-budget.ts). */
+	cap?: number;
+	/** Overrides the real timer-based backoff delay. Tests pass an instant no-op so a
+	 * 429-retry test doesn't take real seconds. */
+	sleep?: (ms: number) => Promise<void>;
+	/** Overrides `Date.now`. Mainly for tests. */
+	now?: () => number;
 }
 
 function source(): ProviderSource {
@@ -121,6 +134,18 @@ async function writeCache<T>(store: CacheStore, key: CacheKey, value: T): Promis
 }
 
 function createBookingStayProvider(options: BookingProviderOptions = {}): StayProvider {
+	function budgetCall<T>(dedupeKey: string, execute: () => Promise<T>): Promise<ProviderResult<T>> {
+		return callProviderWithBudget({
+			providerId: BOOKING_PROVIDER_ID,
+			dedupeKey,
+			execute,
+			classifyError: classifyClientResultError,
+			cap: options.cap,
+			sleep: options.sleep,
+			now: options.now
+		});
+	}
+
 	async function searchStays(query: StaySearchQuery, ctx: ProviderContext): Promise<ProviderResult<Stay[]>> {
 		if (ctx.signal.aborted) {
 			return {
@@ -165,22 +190,29 @@ function createBookingStayProvider(options: BookingProviderOptions = {}): StayPr
 		let requestsUsed = 0;
 
 		if (!candidates) {
-			const searchResponse = await fetchSearchHotelsByCoordinates(
-				{
-					latitude: query.near.latitude,
-					longitude: query.near.longitude,
-					radiusKm: query.radiusKm,
-					checkinDate: query.checkIn,
-					checkoutDate: query.checkOut,
-					currencyCode: query.currency
-				},
-				httpDeps
+			const searchResult = await budgetCall(
+				`${BOOKING_PROVIDER_ID}:search:${query.near.latitude}:${query.near.longitude}:${query.radiusKm}:${query.checkIn}:${query.checkOut}`,
+				() =>
+					unwrapOrThrow(
+						fetchSearchHotelsByCoordinates(
+							{
+								latitude: query.near.latitude,
+								longitude: query.near.longitude,
+								radiusKm: query.radiusKm,
+								checkinDate: query.checkIn,
+								checkoutDate: query.checkOut,
+								currencyCode: query.currency
+							},
+							httpDeps
+						),
+						toProviderError
+					)
 			);
-			requestsUsed += 1;
-			if (!searchResponse.ok) {
-				return { ok: false, error: toProviderError(searchResponse.error), source: source(), requestsUsed };
+			requestsUsed += searchResult.requestsUsed;
+			if (!searchResult.ok) {
+				return { ok: false, error: searchResult.error, source: source(), requestsUsed };
 			}
-			const results = searchResponse.data.data?.result ?? [];
+			const results = searchResult.data.data?.result ?? [];
 			candidates = [];
 			for (const result of results) {
 				const candidate = mapSearchResultToCandidate(result);
@@ -209,17 +241,24 @@ function createBookingStayProvider(options: BookingProviderOptions = {}): StayPr
 			);
 			let candidateStays = await readCache<Stay[]>(store, roomListCacheKey);
 			if (!candidateStays) {
-				const roomListResponse = await fetchGetRoomList(
-					{ hotelId: candidate.hotelId, checkinDate: query.checkIn, checkoutDate: query.checkOut, adults: travellers, currencyCode: query.currency },
-					httpDeps
+				const roomListResult = await budgetCall(
+					`${BOOKING_PROVIDER_ID}:getRoomList:${candidate.hotelId}:${query.checkIn}:${query.checkOut}:${travellers}:${query.currency}`,
+					() =>
+						unwrapOrThrow(
+							fetchGetRoomList(
+								{ hotelId: candidate.hotelId, checkinDate: query.checkIn, checkoutDate: query.checkOut, adults: travellers, currencyCode: query.currency },
+								httpDeps
+							),
+							toProviderError
+						)
 				);
-				requestsUsed += 1;
-				if (!roomListResponse.ok) {
+				requestsUsed += roomListResult.requestsUsed;
+				if (!roomListResult.ok) {
 					// One property's drill-down failing must not sink the whole search —
 					// same reasoning as agoda.ts.
 					continue;
 				}
-				candidateStays = mapRoomListToStays(candidate.property, roomListResponse.data);
+				candidateStays = mapRoomListToStays(candidate.property, roomListResult.data);
 				await writeCache(store, roomListCacheKey, candidateStays);
 			}
 			stays.push(...candidateStays);
@@ -262,29 +301,39 @@ function createBookingStayProvider(options: BookingProviderOptions = {}): StayPr
 		// against calling this before every search already keeps it rare). Spends real
 		// quota every time it runs, same trade-off ryanair.ts and agoda.ts accept for
 		// their own health checks.
-		const response = await fetchSearchHotelsByCoordinates(
-			{
-				latitude: 48.8566,
-				longitude: 2.3522,
-				radiusKm: 15,
-				checkinDate: nearFutureDate(30),
-				checkoutDate: nearFutureDate(32)
-			},
-			{ signal: ctx.signal, apiKey, fetchImpl: options.fetchImpl }
+		const result = await budgetCall(`${BOOKING_PROVIDER_ID}:healthCheck`, () =>
+			unwrapOrThrow(
+				fetchSearchHotelsByCoordinates(
+					{
+						latitude: 48.8566,
+						longitude: 2.3522,
+						radiusKm: 15,
+						checkinDate: nearFutureDate(30),
+						checkoutDate: nearFutureDate(32)
+					},
+					{ signal: ctx.signal, apiKey, fetchImpl: options.fetchImpl }
+				),
+				toProviderError
+			)
 		);
-		if (!response.ok) {
-			return { ok: false, error: toProviderError(response.error), source: source(), requestsUsed: 1 };
+		if (!result.ok) {
+			return { ok: false, error: result.error, source: source(), requestsUsed: result.requestsUsed };
 		}
-		const count = response.data.data?.result?.length ?? 0;
+		const count = result.data.data?.result?.length ?? 0;
 		if (count === 0) {
 			return {
 				ok: false,
 				error: { code: 'malformed-response', message: 'Booking returned zero hotels for a known city' },
 				source: source(),
-				requestsUsed: 1
+				requestsUsed: result.requestsUsed
 			};
 		}
-		return { ok: true, data: { message: `${count} Booking hotels reachable` }, source: source(), requestsUsed: 1 };
+		return {
+			ok: true,
+			data: { message: `${count} Booking hotels reachable` },
+			source: source(),
+			requestsUsed: result.requestsUsed
+		};
 	}
 
 	return {

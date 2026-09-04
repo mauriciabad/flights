@@ -11,20 +11,26 @@ import type { ProviderId } from './types';
  *
  *   Sky Scrapper  measured limit:  20 requests / month  -> default cap  15 (25% held back)
  *   Flights Sky   measured limit:  50 requests / month  -> default cap  40 (20% held back)
+ *   Kiwi.com      measured limit: 300 requests / month  -> default cap 240 (20% held back)
  *   Agoda         measured limit: 500 requests / month  -> default cap 400 (20% held back)
  *   Booking.com   measured limit:  50 requests / month  -> default cap  40 (20% held back)
  *
- * Keyed by the RapidAPI host slugs docs/PROVIDERS.md records
- * (`sky-scrapper`, `flights-sky`, `agoda-com`, `booking-com15`), which is
- * also what an adapter's own `id` (../types.ts ProviderBase) is expected to
- * be once issue #2's adapters land. Re-verify against docs/PROVIDERS.md
- * before changing these — they are measured numbers, not guesses.
+ * Keyed by each adapter's own `ProviderId` (../types.ts) — `skyscanner`, `flights-sky`,
+ * `kiwi`, `agoda`, `booking` — NOT the RapidAPI host slugs docs/PROVIDERS.md records
+ * (`sky-scrapper`, `agoda-com`, `booking-com15`). Issue #69: this table used to be keyed by
+ * the host slugs on the assumption an adapter's `id` would match, which only happened to
+ * hold for `flights-sky`; every other lookup missed silently and fell back to
+ * `FALLBACK_PROVIDER_CAP`. `Partial` because a keyless adapter (Ryanair, Transitous, OSRM,
+ * the geocode and cheap-routes wrappers) has no tuned entry here at all and is expected to
+ * fall back. Re-verify the numbers against docs/PROVIDERS.md before changing them — they
+ * are measured, not guessed.
  */
-export const DEFAULT_PROVIDER_CAPS: Readonly<Record<string, number>> = Object.freeze({
-	'sky-scrapper': 15,
+export const DEFAULT_PROVIDER_CAPS: Readonly<Partial<Record<ProviderId, number>>> = Object.freeze({
+	skyscanner: 15,
 	'flights-sky': 40,
-	'agoda-com': 400,
-	'booking-com15': 40
+	kiwi: 240,
+	agoda: 400,
+	booking: 40
 });
 
 /** Applied to a metered provider with no entry above. Conservative on purpose: an unlisted metered provider still gets a hard stop rather than none. */

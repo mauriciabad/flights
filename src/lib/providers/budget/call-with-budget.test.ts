@@ -18,7 +18,7 @@ describe('callProviderWithBudget — hard quota stop', () => {
 		const execute = vi.fn(async () => 'never reached');
 
 		const outcome = await callProviderWithBudget({
-			providerId: 'sky-scrapper',
+			providerId: 'skyscanner',
 			cap: 0, // already exhausted
 			dedupeKey: 'sky-scrapper:cap-test',
 			execute,
@@ -38,14 +38,14 @@ describe('callProviderWithBudget — hard quota stop', () => {
 		const execute = vi.fn(async () => 'ok');
 
 		await callProviderWithBudget({
-			providerId: 'sky-scrapper',
+			providerId: 'skyscanner',
 			cap: 1,
 			dedupeKey: 'sky-scrapper:call-1',
 			execute,
 			now: () => SEP_2026
 		});
 		const second = await callProviderWithBudget({
-			providerId: 'sky-scrapper',
+			providerId: 'skyscanner',
 			cap: 1,
 			dedupeKey: 'sky-scrapper:call-2', // different key: this is a genuinely separate request
 			execute,
@@ -64,14 +64,14 @@ describe('callProviderWithBudget — in-flight deduplication', () => {
 		const execute = vi.fn(() => new Promise<string>((resolve) => (resolveExecute = resolve)));
 
 		const first = callProviderWithBudget({
-			providerId: 'sky-scrapper',
+			providerId: 'skyscanner',
 			cap: 15,
 			dedupeKey: 'sky-scrapper:BCN-VIE-2026-10-01',
 			execute,
 			now: () => SEP_2026
 		});
 		const second = callProviderWithBudget({
-			providerId: 'sky-scrapper',
+			providerId: 'skyscanner',
 			cap: 15,
 			dedupeKey: 'sky-scrapper:BCN-VIE-2026-10-01', // same query, fired again before the first settled
 			execute,
@@ -92,14 +92,14 @@ describe('callProviderWithBudget — in-flight deduplication', () => {
 
 		await Promise.all([
 			callProviderWithBudget({
-				providerId: 'sky-scrapper',
+				providerId: 'skyscanner',
 				cap: 1,
 				dedupeKey: 'same-key',
 				execute,
 				now: () => SEP_2026
 			}),
 			callProviderWithBudget({
-				providerId: 'sky-scrapper',
+				providerId: 'skyscanner',
 				cap: 1,
 				dedupeKey: 'same-key',
 				execute,
@@ -120,7 +120,7 @@ describe('callProviderWithBudget — not-subscribed is permanent for the session
 		});
 
 		const outcome = await callProviderWithBudget({
-			providerId: 'sky-scrapper',
+			providerId: 'skyscanner',
 			cap: 15,
 			dedupeKey: 'sky-scrapper:first-attempt',
 			execute,
@@ -130,7 +130,7 @@ describe('callProviderWithBudget — not-subscribed is permanent for the session
 
 		expect(execute).toHaveBeenCalledTimes(1); // not retried, unlike a 429
 		expect(outcome).toMatchObject({ ok: false, error: { code: 'not-subscribed', status: 403 } });
-		expect(isPermanentlyUnsubscribed('sky-scrapper')).toBe(true);
+		expect(isPermanentlyUnsubscribed('skyscanner')).toBe(true);
 	});
 
 	it('refuses a later call for the same provider without ever calling execute again', async () => {
@@ -139,7 +139,7 @@ describe('callProviderWithBudget — not-subscribed is permanent for the session
 		});
 
 		await callProviderWithBudget({
-			providerId: 'sky-scrapper',
+			providerId: 'skyscanner',
 			cap: 15,
 			dedupeKey: 'sky-scrapper:attempt-1',
 			execute,
@@ -148,7 +148,7 @@ describe('callProviderWithBudget — not-subscribed is permanent for the session
 		});
 
 		const secondOutcome = await callProviderWithBudget({
-			providerId: 'sky-scrapper',
+			providerId: 'skyscanner',
 			cap: 15,
 			dedupeKey: 'sky-scrapper:attempt-2', // a different request to the same provider
 			execute,
@@ -172,7 +172,7 @@ describe('callProviderWithBudget — exponential backoff on 429', () => {
 		const sleep = vi.fn(instantSleep);
 
 		const outcome = await callProviderWithBudget({
-			providerId: 'sky-scrapper',
+			providerId: 'skyscanner',
 			cap: 15,
 			dedupeKey: 'sky-scrapper:retry-test',
 			execute,
@@ -196,7 +196,7 @@ describe('callProviderWithBudget — exponential backoff on 429', () => {
 		const sleep = vi.fn(instantSleep);
 
 		await callProviderWithBudget({
-			providerId: 'sky-scrapper',
+			providerId: 'skyscanner',
 			cap: 15,
 			dedupeKey: 'sky-scrapper:retry-after-test',
 			execute,
@@ -214,7 +214,7 @@ describe('callProviderWithBudget — exponential backoff on 429', () => {
 		const sleep = vi.fn(instantSleep);
 
 		await callProviderWithBudget({
-			providerId: 'sky-scrapper',
+			providerId: 'skyscanner',
 			cap: 15,
 			dedupeKey: 'sky-scrapper:retry-after-cap-test',
 			execute,
@@ -233,7 +233,7 @@ describe('callProviderWithBudget — exponential backoff on 429', () => {
 		});
 
 		const outcome = await callProviderWithBudget({
-			providerId: 'sky-scrapper',
+			providerId: 'skyscanner',
 			cap: 15,
 			dedupeKey: 'sky-scrapper:always-429',
 			execute,
@@ -252,7 +252,7 @@ describe('callProviderWithBudget — exponential backoff on 429', () => {
 		});
 
 		const outcome = await callProviderWithBudget({
-			providerId: 'sky-scrapper',
+			providerId: 'skyscanner',
 			cap: 2, // enough for the first attempt and one retry, not a third
 			dedupeKey: 'sky-scrapper:cap-mid-retry',
 			execute,
@@ -273,7 +273,7 @@ describe('callProviderWithBudget — cancellation and unclassified failures', ()
 		});
 
 		const outcome = await callProviderWithBudget({
-			providerId: 'sky-scrapper',
+			providerId: 'skyscanner',
 			cap: 15,
 			dedupeKey: 'sky-scrapper:cancelled',
 			execute,
@@ -291,7 +291,7 @@ describe('callProviderWithBudget — cancellation and unclassified failures', ()
 		});
 
 		const outcome = await callProviderWithBudget({
-			providerId: 'sky-scrapper',
+			providerId: 'skyscanner',
 			cap: 15,
 			dedupeKey: 'sky-scrapper:unknown-failure',
 			execute,

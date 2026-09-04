@@ -10,6 +10,7 @@ import type { Stay } from '../domain';
 import type {
 	AvailableKeys,
 	ProviderContext,
+	ProviderId,
 	ProviderResult,
 	StayProvider,
 	StaySearchQuery,
@@ -20,17 +21,21 @@ import { fetchConnectionResources } from './resources';
 import { recordProviderResult, SourceTracker } from './provenance';
 import type { ProviderStatus } from './types';
 
+// Every id passed through here is a fixture-only stand-in, not a real registered adapter —
+// cast rather than widening ProviderSource.providerId itself, which is exactly the closed
+// `ProviderId` union issue #69 exists to enforce for real adapters.
 function source(providerId: string) {
-	return { providerId, fetchedAt: '2026-09-04T00:00:00Z' };
+	return { providerId: providerId as ProviderId, fetchedAt: '2026-09-04T00:00:00Z' };
 }
 
 /** A stay provider that always returns the same fixed list of stays, regardless of query —
  * these tests only care about the pricing/room-kind mix, not about geography. */
-function fakeStayProvider(id: string, stays: Stay[]): StayProvider {
+function fakeStayProvider(idString: string, stays: Stay[]): StayProvider {
+	const id = idString as ProviderId; // see source() above
 	return {
 		kind: 'stay',
 		id,
-		label: `Fixture stays (${id})`,
+		label: `Fixture stays (${idString})`,
 		needsKey: false,
 		keyFields: [],
 		async healthCheck() {
@@ -49,7 +54,7 @@ function fakeStayProvider(id: string, stays: Stay[]): StayProvider {
 function fakeTransferProvider(): TransferProvider {
 	return {
 		kind: 'transfer',
-		id: 'transit-fixture',
+		id: 'transit-fixture' as ProviderId, // fixture-only stand-in id, see source() above
 		label: 'Fixture transfers',
 		needsKey: false,
 		keyFields: [],
@@ -79,7 +84,7 @@ function stay(name: string, roomKind: Stay['roomKind'], minorUnits: number): Sta
 }
 
 function newTracking() {
-	const providerStatus = new Map<string, ProviderStatus>();
+	const providerStatus = new Map<ProviderId, ProviderStatus>();
 	const record = (provider: { id: string; kind: string; label: string }, result: ProviderResult<unknown>) =>
 		recordProviderResult(providerStatus, provider as never, result);
 	return { record, sources: new SourceTracker() };

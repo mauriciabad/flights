@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { PROVIDER_ISSUE_COPY } from '$lib/components';
-import { clearInFlightForTests, resetPermanentFailuresForTests } from '$lib/providers/budget';
+import { clearInFlightForTests, resetPermanentFailuresForTests, setProviderCapOverride } from '$lib/providers/budget';
 import { checkProviderKey } from './key-check';
 import { SETTINGS_PROVIDERS } from './provider-catalog';
 
@@ -126,17 +126,15 @@ describe('checkProviderKey', () => {
 	});
 
 	it('refuses locally as quota-exceeded once the shared monthly cap for this provider is spent, without a network call', async () => {
-		// Agoda's declared quota is generous (docs/PROVIDERS.md: 500/month) but this
-		// provider id isn't one `providers/budget/caps.ts` recognises yet (that module's
-		// cap table still keys on RapidAPI's host slugs, e.g. "agoda-com", rather than the
-		// brand-style ids this catalog and the real Skyscanner adapter use — filed as
-		// issue #69), so it falls back to `FALLBACK_PROVIDER_CAP` (10) today. Ten cheap,
-		// successful checks exhausts it.
+		// Issue #69 fixed `providers/budget/caps.ts` to key `DEFAULT_PROVIDER_CAPS` by each
+		// adapter's own id (`agoda`, matching this catalog and the real adapter) rather than
+		// RapidAPI's host slugs, so Agoda's real tuned cap (400) is what applies by default
+		// now — too many real checks to spend in a fast test. `setProviderCapOverride`
+		// simulates "the shared budget is already at its cap" directly instead.
+		setProviderCapOverride('agoda', 1);
 		const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(200, { status: true }));
-		for (let i = 0; i < 10; i++) {
-			const outcome = await checkProviderKey(agoda, 'sk-1', new AbortController().signal, fetchImpl);
-			expect(outcome.ok).toBe(true);
-		}
+		const first = await checkProviderKey(agoda, 'sk-1', new AbortController().signal, fetchImpl);
+		expect(first.ok).toBe(true);
 		fetchImpl.mockClear();
 
 		const refused = await checkProviderKey(agoda, 'sk-1', new AbortController().signal, fetchImpl);

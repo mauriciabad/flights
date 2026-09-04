@@ -47,12 +47,15 @@ import type { CacheKey, CacheStore } from '../../cache';
 import { getAirport } from '../../data/airports';
 import { DEFAULT_TRAVELLERS } from '../../domain';
 import type { FlightOffer, IataAirportCode } from '../../domain';
+import { callProviderWithBudget } from '../budget';
+import { classifyClientResultError, unwrapOrThrow } from '../client-result-budget';
 import type {
 	FlightProvider,
 	FlightSearchQuery,
 	ProviderContext,
 	ProviderError,
 	ProviderHealth,
+	ProviderId,
 	ProviderKeyField,
 	ProviderResult,
 	ProviderSource
@@ -65,9 +68,11 @@ import {
 	mapResponseToDirectDestinations,
 	mapResponseToFlightOffers
 } from './kiwi-mapper';
-import type { KiwiFetchError, KiwiFetchResult, KiwiOneWayResponse } from './kiwi-types';
+import type { KiwiFetchError, KiwiOneWayResponse } from './kiwi-types';
 
-export const KIWI_PROVIDER_ID = 'kiwi';
+/** Also the id `../budget/caps.ts`'s `DEFAULT_PROVIDER_CAPS` is keyed by — enforced at
+ * compile time by `ProviderId` (../types.ts, issue #69), not by convention. */
+export const KIWI_PROVIDER_ID: ProviderId = 'kiwi';
 
 /** docs/PROVIDERS.md: 300 requests/month, hard limit, measured 2026-09-04 straight off the
  * pricing page after subscribing. Every `searchOffers`/`listDirectDestinations` call below
@@ -121,6 +126,14 @@ export interface KiwiProviderOptions {
 	store?: CacheStore;
 	/** Overrides the global `fetch`. Tests inject a stub that resolves fixtures. */
 	fetchImpl?: typeof fetch;
+	/** Overrides `callProviderWithBudget`'s stored/default monthly cap. Mainly for tests —
+	 * see `CallProviderWithBudgetOptions.cap` (../budget/call-with-budget.ts). */
+	cap?: number;
+	/** Overrides the real timer-based backoff delay. Tests pass an instant no-op so a
+	 * 429-retry test doesn't take real seconds. */
+	sleep?: (ms: number) => Promise<void>;
+	/** Overrides `Date.now`. Mainly for tests. */
+	now?: () => number;
 }
 
 /** `FlightProvider` plus the structural marker from `KIWI_UNVERIFIED_AGAINST_LIVE_RESPONSE`
@@ -157,30 +170,6 @@ function toProviderError(error: KiwiFetchError): ProviderError {
 			// any other status this adapter hasn't seen — `unknown` is the documented
 			// catch-all for exactly that (types.ts), not a mis-mapping.
 			return { code: 'unknown', message: error.message, cause: { status: error.status } };
-	}
-}
-
-/**
- * How many of Kiwi's own metered requests one client call actually spent, matching
- * skyscanner.ts's `costOf` — the more recently merged sibling adapter, also a metered
- * RapidAPI listing. `not-subscribed`, `network-error` and `cancelled` are free: a 403 is
- * RapidAPI's own gateway rejecting the call before it reaches this listing's backend at
- * all (that is the whole reason it is a distinct, permanent failure rather than a
- * transient one — docs/PROVIDERS.md), and the other two never got a response. This
- * adapter's own live 402/DEPLOYMENT_DISABLED test came back WITH a genuine
- * `x-rapidapi-request-id`, unlike what a gateway-level rejection would look like, which is
- * independent evidence for treating it (and every other unrecognised status) as billed,
- * same as a genuine success.
- */
-function costOf(result: KiwiFetchResult<unknown>): number {
-	if (result.ok) return 1;
-	switch (result.error.code) {
-		case 'not-subscribed':
-		case 'network-error':
-		case 'cancelled':
-			return 0;
-		default:
-			return 1;
 	}
 }
 
@@ -248,15 +237,16 @@ function toDateTimeEnd(isoCalendarDate: string): string {
 }
 
 function createKiwiFlightProvider(options: KiwiProviderOptions = {}): KiwiFlightProvider {
-	// Once a key has been seen answering "not subscribed," it stays marked for the life of
-	// this instance — matching skyscanner.ts: a RapidAPI BASIC plan is per-API, so retrying
-	// will not change the answer (docs/PROVIDERS.md). Keyed by the API key's own value, not
-	// a boolean, so a user who pastes in a different, working key after a bad one isn't
-	// blocked by their previous mistake.
-	const notSubscribedByApiKey = new Map<string, ProviderError & { code: 'not-subscribed' }>();
-
-	function rememberIfNotSubscribed(apiKey: string, error: ProviderError): void {
-		if (error.code === 'not-subscribed') notSubscribedByApiKey.set(apiKey, error);
+	function budgetCall<T>(dedupeKey: string, execute: () => Promise<T>): Promise<ProviderResult<T>> {
+		return callProviderWithBudget({
+			providerId: KIWI_PROVIDER_ID,
+			dedupeKey,
+			execute,
+			classifyError: classifyClientResultError,
+			cap: options.cap,
+			sleep: options.sleep,
+			now: options.now
+		});
 	}
 
 	async function searchOffers(
@@ -281,10 +271,6 @@ function createKiwiFlightProvider(options: KiwiProviderOptions = {}): KiwiFlight
 				requestsUsed: 0
 			};
 		}
-		const remembered = notSubscribedByApiKey.get(apiKey);
-		if (remembered !== undefined) {
-			return { ok: false, error: remembered, source: source(), requestsUsed: 0 };
-		}
 
 		const store = await resolveStore(options);
 		const cacheKey = defineCacheKey(KIWI_PROVIDER_ID, { op: 'searchOffers', ...query }, SEARCH_TTL_MS);
@@ -304,45 +290,50 @@ function createKiwiFlightProvider(options: KiwiProviderOptions = {}): KiwiFlight
 		const handbags = DEFAULT_HANDBAGS;
 		const holdbags = DEFAULT_HOLDBAGS;
 
-		const response = await fetchOneWay(
-			{
-				source: query.origin,
-				destination: query.destination,
-				outboundDepartmentDateStart: toDateTimeStart(query.earliestDeparture),
-				outboundDepartmentDateEnd: toDateTimeEnd(query.latestDeparture),
-				currency,
-				adults: query.travellers ?? DEFAULT_TRAVELLERS,
-				handbags,
-				holdbags,
-				enableSelfTransfer: true,
-				allowOvernightStopover: true,
-				limit: DEFAULT_SEARCH_LIMIT
-			},
-			{ signal: ctx.signal, apiKey, fetchImpl: options.fetchImpl }
+		const result = await budgetCall(
+			`${KIWI_PROVIDER_ID}:searchOffers:${query.origin}:${query.destination}:${query.earliestDeparture}:${query.latestDeparture}:${currency}`,
+			() =>
+				unwrapOrThrow(
+					fetchOneWay(
+						{
+							source: query.origin,
+							destination: query.destination,
+							outboundDepartmentDateStart: toDateTimeStart(query.earliestDeparture),
+							outboundDepartmentDateEnd: toDateTimeEnd(query.latestDeparture),
+							currency,
+							adults: query.travellers ?? DEFAULT_TRAVELLERS,
+							handbags,
+							holdbags,
+							enableSelfTransfer: true,
+							allowOvernightStopover: true,
+							limit: DEFAULT_SEARCH_LIMIT
+						},
+						{ signal: ctx.signal, apiKey, fetchImpl: options.fetchImpl }
+					),
+					toProviderError
+				)
 		);
 
-		if (!response.ok) {
-			const error = toProviderError(response.error);
-			rememberIfNotSubscribed(apiKey, error);
-			return { ok: false, error, source: source(), requestsUsed: costOf(response) };
+		if (!result.ok) {
+			return { ok: false, error: result.error, source: source(), requestsUsed: result.requestsUsed };
 		}
 
 		let offers: FlightOffer[];
 		try {
-			const countryCodeByIataCode = await resolveCountryCodes(collectIataCodes(response.data));
-			offers = mapResponseToFlightOffers(response.data, { handbags, holdbags }, countryCodeByIataCode);
+			const countryCodeByIataCode = await resolveCountryCodes(collectIataCodes(result.data));
+			offers = mapResponseToFlightOffers(result.data, { handbags, holdbags }, countryCodeByIataCode);
 		} catch (cause) {
 			if (!(cause instanceof KiwiMalformedResponseError)) throw cause;
 			return {
 				ok: false,
 				error: { code: 'malformed-response', message: cause.message },
 				source: source(),
-				requestsUsed: costOf(response)
+				requestsUsed: result.requestsUsed
 			};
 		}
 		await writeCache(store, cacheKey, offers);
 
-		return { ok: true, data: offers, source: source(), requestsUsed: costOf(response) };
+		return { ok: true, data: offers, source: source(), requestsUsed: result.requestsUsed };
 	}
 
 	async function listDirectDestinations(
@@ -367,11 +358,6 @@ function createKiwiFlightProvider(options: KiwiProviderOptions = {}): KiwiFlight
 				requestsUsed: 0
 			};
 		}
-		const remembered = notSubscribedByApiKey.get(apiKey);
-		if (remembered !== undefined) {
-			return { ok: false, error: remembered, source: source(), requestsUsed: 0 };
-		}
-
 		const store = await resolveStore(options);
 		const cacheKey = defineCacheKey(KIWI_PROVIDER_ID, { op: 'listDirectDestinations', origin }, DESTINATIONS_TTL_MS);
 
@@ -388,52 +374,55 @@ function createKiwiFlightProvider(options: KiwiProviderOptions = {}): KiwiFlight
 		const windowEnd = new Date(now.getTime() + DESTINATIONS_WINDOW_DAYS * 24 * 60 * 60_000);
 		const isoDate = (d: Date): string => d.toISOString().slice(0, 10);
 
-		const response = await fetchOneWay(
-			{
-				source: origin,
-				// Omitted on purpose: this is Kiwi's "everywhere from this airport" search
-				// (the endpoint's own docs mark `destination` optional) — see kiwi-types.ts
-				// for why bare IATA codes and an absent `destination` are both accepted at
-				// the request-validation stage, the only evidence available while the
-				// backend stays down.
-				outboundDepartmentDateStart: toDateTimeStart(isoDate(now)),
-				outboundDepartmentDateEnd: toDateTimeEnd(isoDate(windowEnd)),
-				currency: 'eur',
-				adults: DEFAULT_TRAVELLERS,
-				handbags: DEFAULT_HANDBAGS,
-				holdbags: DEFAULT_HOLDBAGS,
-				enableSelfTransfer: true,
-				allowOvernightStopover: true,
-				// Direct destinations only — nonstop itineraries, matching what
-				// `listDirectDestinations` promises (types.ts: "a direct flight," not a
-				// connection). mapResponseToDirectDestinations filters on route.length
-				// too, so a response that ignores this param still comes out correct.
-				maxStopsCount: 0,
-				limit: 50
-			},
-			{ signal: ctx.signal, apiKey, fetchImpl: options.fetchImpl }
+		const result = await budgetCall(`${KIWI_PROVIDER_ID}:listDirectDestinations:${origin}`, () =>
+			unwrapOrThrow(
+				fetchOneWay(
+					{
+						source: origin,
+						// Omitted on purpose: this is Kiwi's "everywhere from this airport" search
+						// (the endpoint's own docs mark `destination` optional) — see kiwi-types.ts
+						// for why bare IATA codes and an absent `destination` are both accepted at
+						// the request-validation stage, the only evidence available while the
+						// backend stays down.
+						outboundDepartmentDateStart: toDateTimeStart(isoDate(now)),
+						outboundDepartmentDateEnd: toDateTimeEnd(isoDate(windowEnd)),
+						currency: 'eur',
+						adults: DEFAULT_TRAVELLERS,
+						handbags: DEFAULT_HANDBAGS,
+						holdbags: DEFAULT_HOLDBAGS,
+						enableSelfTransfer: true,
+						allowOvernightStopover: true,
+						// Direct destinations only — nonstop itineraries, matching what
+						// `listDirectDestinations` promises (types.ts: "a direct flight," not a
+						// connection). mapResponseToDirectDestinations filters on route.length
+						// too, so a response that ignores this param still comes out correct.
+						maxStopsCount: 0,
+						limit: 50
+					},
+					{ signal: ctx.signal, apiKey, fetchImpl: options.fetchImpl }
+				),
+				toProviderError
+			)
 		);
 
-		if (!response.ok) {
-			const error = toProviderError(response.error);
-			rememberIfNotSubscribed(apiKey, error);
-			return { ok: false, error, source: source(), requestsUsed: costOf(response) };
+		if (!result.ok) {
+			return { ok: false, error: result.error, source: source(), requestsUsed: result.requestsUsed };
 		}
 
 		let destinations: IataAirportCode[];
 		try {
-			destinations = mapResponseToDirectDestinations(response.data);
+			destinations = mapResponseToDirectDestinations(result.data);
 		} catch (cause) {
 			if (!(cause instanceof KiwiMalformedResponseError)) throw cause;
 			return {
 				ok: false,
 				error: { code: 'malformed-response', message: cause.message },
 				source: source(),
-				requestsUsed: costOf(response)
+				requestsUsed: result.requestsUsed
 			};
 		}
 		await writeCache(store, cacheKey, destinations);
-		return { ok: true, data: destinations, source: source(), requestsUsed: costOf(response) };
+		return { ok: true, data: destinations, source: source(), requestsUsed: result.requestsUsed };
 	}
 
 	async function healthCheck(ctx: ProviderContext): Promise<ProviderHealth> {
@@ -455,11 +444,6 @@ function createKiwiFlightProvider(options: KiwiProviderOptions = {}): KiwiFlight
 				requestsUsed: 0
 			};
 		}
-		const remembered = notSubscribedByApiKey.get(apiKey);
-		if (remembered !== undefined) {
-			return { ok: false, error: remembered, source: source(), requestsUsed: 0 };
-		}
-
 		// Health here means "the key is accepted and the endpoint responds with the shape
 		// this adapter expects" — NOT "flights exist for this pair today." A well-shaped
 		// empty result is still healthy; only an error result (types.ts's warning that
@@ -469,27 +453,30 @@ function createKiwiFlightProvider(options: KiwiProviderOptions = {}): KiwiFlight
 		const isoDate = (d: Date): string => d.toISOString().slice(0, 10);
 		const windowEnd = new Date(now.getTime() + 7 * 24 * 60 * 60_000);
 
-		const response = await fetchOneWay(
-			{
-				source: 'LHR',
-				destination: 'CDG',
-				outboundDepartmentDateStart: toDateTimeStart(isoDate(now)),
-				outboundDepartmentDateEnd: toDateTimeEnd(isoDate(windowEnd)),
-				currency: 'eur',
-				adults: 1,
-				handbags: DEFAULT_HANDBAGS,
-				holdbags: DEFAULT_HOLDBAGS,
-				enableSelfTransfer: true,
-				allowOvernightStopover: true,
-				limit: 1
-			},
-			{ signal: ctx.signal, apiKey, fetchImpl: options.fetchImpl }
+		const result = await budgetCall(`${KIWI_PROVIDER_ID}:healthCheck`, () =>
+			unwrapOrThrow(
+				fetchOneWay(
+					{
+						source: 'LHR',
+						destination: 'CDG',
+						outboundDepartmentDateStart: toDateTimeStart(isoDate(now)),
+						outboundDepartmentDateEnd: toDateTimeEnd(isoDate(windowEnd)),
+						currency: 'eur',
+						adults: 1,
+						handbags: DEFAULT_HANDBAGS,
+						holdbags: DEFAULT_HOLDBAGS,
+						enableSelfTransfer: true,
+						allowOvernightStopover: true,
+						limit: 1
+					},
+					{ signal: ctx.signal, apiKey, fetchImpl: options.fetchImpl }
+				),
+				toProviderError
+			)
 		);
 
-		if (!response.ok) {
-			const error = toProviderError(response.error);
-			rememberIfNotSubscribed(apiKey, error);
-			return { ok: false, error, source: source(), requestsUsed: costOf(response) };
+		if (!result.ok) {
+			return { ok: false, error: result.error, source: source(), requestsUsed: result.requestsUsed };
 		}
 
 		// The live call succeeded — proof the key and subscription work, NOT proof this
@@ -503,7 +490,7 @@ function createKiwiFlightProvider(options: KiwiProviderOptions = {}): KiwiFlight
 		if (KIWI_UNVERIFIED_AGAINST_LIVE_RESPONSE) {
 			let shapeNote: string;
 			try {
-				assertValidOneWayResponse(response.data);
+				assertValidOneWayResponse(result.data);
 				shapeNote = "its shape matched this adapter's current (unverified) assumptions";
 			} catch (cause) {
 				shapeNote =
@@ -522,15 +509,15 @@ function createKiwiFlightProvider(options: KiwiProviderOptions = {}): KiwiFlight
 						'to false in kiwi.ts before trusting it.'
 				},
 				source: source(),
-				requestsUsed: costOf(response)
+				requestsUsed: result.requestsUsed
 			};
 		}
 
 		return {
 			ok: true,
-			data: { message: `Kiwi responded with ${response.data.data.length} itinerary(ies) for a test query` },
+			data: { message: `Kiwi responded with ${result.data.data.length} itinerary(ies) for a test query` },
 			source: source(),
-			requestsUsed: costOf(response)
+			requestsUsed: result.requestsUsed
 		};
 	}
 

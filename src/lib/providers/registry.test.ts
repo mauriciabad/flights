@@ -6,6 +6,7 @@ import type {
 	FlightProvider,
 	FlightSearchQuery,
 	ProviderContext,
+	ProviderId,
 	ProviderResult,
 	StayProvider,
 	StaySearchQuery
@@ -42,11 +43,15 @@ function fakeOffer(carrierCode: string): FlightOffer {
  * per-call request budget — the two behaviours every real adapter must also implement. */
 function createFakeFlightProvider(id: string, opts: { needsKey?: boolean } = {}): FlightProvider {
 	const needsKey = opts.needsKey ?? false;
-	const source = () => ({ providerId: id, fetchedAt: new Date().toISOString() });
+	// Fixture-only stand-in id, not a real registered adapter — cast rather than widening
+	// FlightProvider.id itself, which is exactly the closed `ProviderId` union issue #69
+	// exists to enforce for real adapters.
+	const providerId = id as ProviderId;
+	const source = () => ({ providerId, fetchedAt: new Date().toISOString() });
 
 	return {
 		kind: 'flight',
-		id,
+		id: providerId,
 		label: `Fake flights (${id})`,
 		needsKey,
 		keyFields: needsKey ? [{ id: 'apiKey', label: 'API key' }] : [],
@@ -108,7 +113,8 @@ function createFailingFlightProvider(
 	id: string,
 	code: 'not-subscribed' | 'quota-exceeded'
 ): FlightProvider {
-	const source = () => ({ providerId: id, fetchedAt: new Date().toISOString() });
+	const providerId = id as ProviderId; // fixture-only stand-in id, see createFakeFlightProvider above
+	const source = () => ({ providerId, fetchedAt: new Date().toISOString() });
 	const error =
 		code === 'not-subscribed'
 			? ({
@@ -125,7 +131,7 @@ function createFailingFlightProvider(
 
 	return {
 		kind: 'flight',
-		id,
+		id: providerId,
 		label: `Fake failing flights (${id})`,
 		needsKey: false,
 		keyFields: [],
@@ -154,10 +160,11 @@ function fakeStay(propertyName: string): Stay {
 }
 
 function createFakeStayProvider(id: string): StayProvider {
-	const source = () => ({ providerId: id, fetchedAt: new Date().toISOString() });
+	const providerId = id as ProviderId; // fixture-only stand-in id, see createFakeFlightProvider above
+	const source = () => ({ providerId, fetchedAt: new Date().toISOString() });
 	return {
 		kind: 'stay',
-		id,
+		id: providerId,
 		label: `Fake stays (${id})`,
 		needsKey: false,
 		keyFields: [],
@@ -212,7 +219,7 @@ describe('ProviderRegistry', () => {
 		const registry = new ProviderRegistry([a]);
 		registry.register(b);
 		expect(registry.all().map((p) => p.id).sort()).toEqual(['a', 'b']);
-		expect(registry.byId('a')).toBe(a);
+		expect(registry.byId('a' as ProviderId)).toBe(a); // fixture-only stand-in id, see createFakeFlightProvider above
 	});
 
 	it('refuses a duplicate id rather than silently shadowing the first adapter', () => {

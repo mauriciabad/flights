@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 import { estimateWidenCost, runCostAwareSearch } from './cost-aware-search';
 import type { CostAwareSource } from './cost-aware-search';
-import type { ProviderResult } from './types';
+import type { ProviderId, ProviderResult } from './types';
 
-function success<T>(providerId: string, data: T, requestsUsed = 1): ProviderResult<T> {
+function success<T>(providerId: ProviderId, data: T, requestsUsed = 1): ProviderResult<T> {
 	return { ok: true, data, requestsUsed, source: { providerId, fetchedAt: '2026-09-04T00:00:00.000Z' } };
 }
 
@@ -21,28 +21,28 @@ describe('runCostAwareSearch', () => {
 	});
 
 	it('does not run a metered source that was not asked for', async () => {
-		const skyScrapper = vi.fn(async () => success('sky-scrapper', ['fare']));
+		const skyScrapper = vi.fn(async () => success('skyscanner', ['fare']));
 		const sources: CostAwareSource<string[]>[] = [
-			{ providerId: 'sky-scrapper', tier: 'metered', estimatedCost: 2, run: skyScrapper }
+			{ providerId: 'skyscanner', tier: 'metered', estimatedCost: 2, run: skyScrapper }
 		];
 
 		const { report } = await runCostAwareSearch(sources);
 
 		expect(skyScrapper).not.toHaveBeenCalled();
 		expect(report.ranMetered).toEqual([]);
-		expect(report.skipped).toEqual([{ providerId: 'sky-scrapper', reason: 'not-requested' }]);
+		expect(report.skipped).toEqual([{ providerId: 'skyscanner', reason: 'not-requested' }]);
 	});
 
 	it('runs a metered source once the caller explicitly widens to it', async () => {
-		const skyScrapper = vi.fn(async () => success('sky-scrapper', ['fare']));
+		const skyScrapper = vi.fn(async () => success('skyscanner', ['fare']));
 		const sources: CostAwareSource<string[]>[] = [
-			{ providerId: 'sky-scrapper', tier: 'metered', estimatedCost: 2, run: skyScrapper }
+			{ providerId: 'skyscanner', tier: 'metered', estimatedCost: 2, run: skyScrapper }
 		];
 
-		const { report } = await runCostAwareSearch(sources, { widenTo: ['sky-scrapper'] });
+		const { report } = await runCostAwareSearch(sources, { widenTo: ['skyscanner'] });
 
 		expect(skyScrapper).toHaveBeenCalledTimes(1);
-		expect(report.ranMetered).toEqual(['sky-scrapper']);
+		expect(report.ranMetered).toEqual(['skyscanner']);
 		expect(report.skipped).toEqual([]);
 	});
 
@@ -50,10 +50,10 @@ describe('runCostAwareSearch', () => {
 		const sources: CostAwareSource<string[]>[] = [
 			{ providerId: 'ryanair', tier: 'free', estimatedCost: 0, run: async () => success('ryanair', [], 0) },
 			{
-				providerId: 'sky-scrapper',
+				providerId: 'skyscanner',
 				tier: 'metered',
 				estimatedCost: 2,
-				run: async () => success('sky-scrapper', [], 2)
+				run: async () => success('skyscanner', [], 2)
 			},
 			{
 				providerId: 'flights-sky',
@@ -63,7 +63,7 @@ describe('runCostAwareSearch', () => {
 			}
 		];
 
-		const { report } = await runCostAwareSearch(sources, { widenTo: ['sky-scrapper'] });
+		const { report } = await runCostAwareSearch(sources, { widenTo: ['skyscanner'] });
 
 		// flights-sky was never requested, so its cost never gets counted even though it exists.
 		expect(report.totalRequestsUsed).toBe(2);
@@ -73,19 +73,19 @@ describe('runCostAwareSearch', () => {
 	it('surfaces a failed source in results rather than throwing', async () => {
 		const sources: CostAwareSource<string[]>[] = [
 			{
-				providerId: 'sky-scrapper',
+				providerId: 'skyscanner',
 				tier: 'metered',
 				estimatedCost: 1,
 				run: async () => ({
 					ok: false,
 					requestsUsed: 1,
-					source: { providerId: 'sky-scrapper', fetchedAt: '2026-09-04T00:00:00.000Z' },
+					source: { providerId: 'skyscanner', fetchedAt: '2026-09-04T00:00:00.000Z' },
 					error: { code: 'unknown', message: 'boom' }
 				})
 			}
 		];
 
-		const { results } = await runCostAwareSearch(sources, { widenTo: ['sky-scrapper'] });
+		const { results } = await runCostAwareSearch(sources, { widenTo: ['skyscanner'] });
 
 		expect(results).toHaveLength(1);
 		expect(results[0]?.outcome.ok).toBe(false);
@@ -96,12 +96,12 @@ describe('estimateWidenCost', () => {
 	it('sums the estimated cost of only the named metered sources', () => {
 		const sources: CostAwareSource<unknown>[] = [
 			{ providerId: 'ryanair', tier: 'free', estimatedCost: 0, run: async () => success('ryanair', null) },
-			{ providerId: 'sky-scrapper', tier: 'metered', estimatedCost: 2, run: async () => success('sky-scrapper', null) },
+			{ providerId: 'skyscanner', tier: 'metered', estimatedCost: 2, run: async () => success('skyscanner', null) },
 			{ providerId: 'flights-sky', tier: 'metered', estimatedCost: 1, run: async () => success('flights-sky', null) }
 		];
 
-		expect(estimateWidenCost(sources, ['sky-scrapper', 'flights-sky'])).toBe(3);
-		expect(estimateWidenCost(sources, ['sky-scrapper'])).toBe(2);
+		expect(estimateWidenCost(sources, ['skyscanner', 'flights-sky'])).toBe(3);
+		expect(estimateWidenCost(sources, ['skyscanner'])).toBe(2);
 		expect(estimateWidenCost(sources, [])).toBe(0);
 	});
 

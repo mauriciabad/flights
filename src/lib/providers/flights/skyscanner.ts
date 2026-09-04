@@ -20,22 +20,26 @@ import type {
 } from '../../domain';
 import { DEFAULT_TRAVELLERS } from '../../domain';
 import type { CacheStore } from '../../cache';
+import { callProviderWithBudget } from '../budget';
+import { classifyClientResultError, unwrapOrThrow } from '../client-result-budget';
 import type {
 	FlightProvider,
 	FlightSearchQuery,
 	ProviderContext,
 	ProviderError,
 	ProviderHealth,
+	ProviderId,
 	ProviderResult,
 	ProviderSource
 } from '../types';
 import { getCachedAirportEntity, setCachedAirportEntity } from './skyscanner-airport-cache';
 import type { SkyscannerAirportEntity } from './skyscanner-airport-cache';
 import { callSkyscanner } from './skyscanner-client';
-import type { SkyscannerClientResult } from './skyscanner-client';
 import { mapSearchFlightsToOffers, SkyscannerMalformedResponseError } from './skyscanner-map-offers';
 
-const PROVIDER_ID = 'skyscanner';
+/** Also the id `../budget/caps.ts`'s `DEFAULT_PROVIDER_CAPS` is keyed by — enforced at
+ * compile time by `ProviderId` (../types.ts, issue #69), not by convention. */
+const PROVIDER_ID: ProviderId = 'skyscanner';
 const DEFAULT_CURRENCY: IsoCurrencyCode = 'EUR';
 /** Used when `ctx.maxRequests` is not given, so a caller that forgets to set a budget
  * cannot accidentally drain a whole month's quota (20) in one `searchOffers` call spanning
@@ -48,27 +52,32 @@ export interface CreateSkyscannerFlightProviderOptions {
 	cacheStore?: CacheStore;
 	/** Overrides the global `fetch`. Mainly for tests, so none of them touch the network. */
 	fetchImpl?: typeof fetch;
+	/** Overrides `callProviderWithBudget`'s stored/default monthly cap. Mainly for tests —
+	 * see `CallProviderWithBudgetOptions.cap` (../budget/call-with-budget.ts). */
+	cap?: number;
+	/** Overrides the real timer-based backoff delay. Tests pass an instant no-op so a
+	 * 429-retry test doesn't take real seconds. */
+	sleep?: (ms: number) => Promise<void>;
+	/** Overrides `Date.now`. Mainly for tests. */
+	now?: () => number;
 }
 
 /**
  * Builds one Skyscanner adapter instance. A factory rather than a bare object literal so
- * tests can inject a fake `fetchImpl` and an isolated `cacheStore`, and so the
- * "not-subscribed is permanent for the session" rule below (issue #5's brief) has
- * somewhere to live that resets between tests instead of leaking across them the way a
- * module-level singleton's state would.
+ * tests can inject a fake `fetchImpl` and an isolated `cacheStore`.
+ *
+ * Issue #69: every real request here routes through `callProviderWithBudget` (../budget),
+ * which now owns the monthly hard quota stop, in-flight dedup, and the "not-subscribed is
+ * permanent for the session" rule issue #5's brief originally asked this file to hand-roll
+ * (a per-instance `Map` keyed by API key). That per-key nuance is gone: the shared budget
+ * module tracks "not subscribed" per `ProviderId`, not per key, the same as every other
+ * adapter wired to it — one consistent rule across adapters beats a bespoke one here,
+ * which is the whole point of connecting to the module rather than keeping a parallel one.
  */
 export function createSkyscannerFlightProvider(
 	options: CreateSkyscannerFlightProviderOptions = {}
 ): FlightProvider {
-	const { cacheStore, fetchImpl } = options;
-
-	// Once a key has been seen answering "not subscribed," it stays marked for the life of
-	// this instance: issue #5's brief calls this out explicitly as a permanent-for-the-
-	// session failure, since a RapidAPI BASIC plan is per-API and retrying will not change
-	// the answer (docs/PROVIDERS.md). Keyed by the API key's own value, not just a boolean,
-	// so a user who pastes in a different, working key after a bad one is not blocked by
-	// their previous mistake.
-	const notSubscribedByApiKey = new Map<string, ProviderError & { code: 'not-subscribed' }>();
+	const { cacheStore, fetchImpl, cap, sleep, now } = options;
 
 	function source(): ProviderSource {
 		return { providerId: PROVIDER_ID, fetchedAt: new Date().toISOString() };
@@ -82,6 +91,18 @@ export function createSkyscannerFlightProvider(
 		return { ok: false, error, source: source(), requestsUsed };
 	}
 
+	function budgetCall<T>(dedupeKey: string, execute: () => Promise<T>): Promise<ProviderResult<T>> {
+		return callProviderWithBudget({
+			providerId: PROVIDER_ID,
+			dedupeKey,
+			execute,
+			classifyError: classifyClientResultError,
+			cap,
+			sleep,
+			now
+		});
+	}
+
 	async function resolveAirportEntity(
 		iataCode: IataAirportCode,
 		apiKey: string,
@@ -93,19 +114,23 @@ export function createSkyscannerFlightProvider(
 		const cached = await getCachedAirportEntity(iataCode, cacheStore);
 		if (cached !== undefined) return { ok: true, entity: cached, requestsSpent: 0 };
 
-		const result = await callSkyscanner<unknown>(
-			'/api/v1/flights/searchAirport',
-			{ query: iataCode, locale: 'en-US' },
-			{ apiKey, signal, fetchImpl }
+		const result = await budgetCall(`${PROVIDER_ID}:searchAirport:${iataCode.toUpperCase()}`, () =>
+			unwrapOrThrow(
+				callSkyscanner<unknown>(
+					'/api/v1/flights/searchAirport',
+					{ query: iataCode, locale: 'en-US' },
+					{ apiKey, signal, fetchImpl }
+				),
+				identityProviderError
+			)
 		);
-		const requestsSpent = costOf(result);
-		if (!result.ok) return { ok: false, error: result.error, requestsSpent };
+		if (!result.ok) return { ok: false, error: result.error, requestsSpent: result.requestsUsed };
 
 		const entity = extractExactAirportMatch(result.data, iataCode);
 		if (entity === undefined) {
 			return {
 				ok: false,
-				requestsSpent,
+				requestsSpent: result.requestsUsed,
 				error: {
 					code: 'malformed-response',
 					message: `Sky Scrapper's airport search for "${iataCode}" returned no exact match`
@@ -113,7 +138,7 @@ export function createSkyscannerFlightProvider(
 			};
 		}
 		await setCachedAirportEntity(iataCode, entity, cacheStore);
-		return { ok: true, entity, requestsSpent };
+		return { ok: true, entity, requestsSpent: result.requestsUsed };
 	}
 
 	async function searchOffers(
@@ -127,10 +152,6 @@ export function createSkyscannerFlightProvider(
 		if (!apiKey) {
 			return fail({ code: 'missing-key', message: 'No Sky Scrapper (RapidAPI) key configured' }, 0);
 		}
-		const remembered = notSubscribedByApiKey.get(apiKey);
-		if (remembered !== undefined) {
-			return fail(remembered, 0);
-		}
 
 		const budget = ctx.maxRequests ?? DEFAULT_MAX_REQUESTS_PER_CALL;
 		let requestsUsed = 0;
@@ -142,20 +163,11 @@ export function createSkyscannerFlightProvider(
 		// the lookup's long-lived value for every future call on the same route.
 		const originResolved = await resolveAirportEntity(query.origin, apiKey, ctx.signal);
 		requestsUsed += originResolved.requestsSpent;
-		if (!originResolved.ok) {
-			if (originResolved.error.code === 'not-subscribed') {
-				notSubscribedByApiKey.set(apiKey, originResolved.error);
-			}
-			return fail(originResolved.error, requestsUsed);
-		}
+		if (!originResolved.ok) return fail(originResolved.error, requestsUsed);
+
 		const destinationResolved = await resolveAirportEntity(query.destination, apiKey, ctx.signal);
 		requestsUsed += destinationResolved.requestsSpent;
-		if (!destinationResolved.ok) {
-			if (destinationResolved.error.code === 'not-subscribed') {
-				notSubscribedByApiKey.set(apiKey, destinationResolved.error);
-			}
-			return fail(destinationResolved.error, requestsUsed);
-		}
+		if (!destinationResolved.ok) return fail(destinationResolved.error, requestsUsed);
 
 		const currency = query.currency ?? DEFAULT_CURRENCY;
 		const travellers = query.travellers ?? DEFAULT_TRAVELLERS;
@@ -172,28 +184,32 @@ export function createSkyscannerFlightProvider(
 				return fail({ code: 'cancelled', message: 'Search was cancelled' }, requestsUsed);
 			}
 
-			const result = await callSkyscanner<unknown>(
-				'/api/v1/flights/searchFlights',
-				{
-					originSkyId: originResolved.entity.skyId,
-					destinationSkyId: destinationResolved.entity.skyId,
-					originEntityId: originResolved.entity.entityId,
-					destinationEntityId: destinationResolved.entity.entityId,
-					date,
-					adults: String(travellers),
-					cabinClass: 'economy',
-					currency,
-					market: 'en-US',
-					countryCode: 'US'
-				},
-				{ apiKey, signal: ctx.signal, fetchImpl }
+			const result = await budgetCall(
+				`${PROVIDER_ID}:searchFlights:${originResolved.entity.skyId}:${destinationResolved.entity.skyId}:${date}:${currency}:${travellers}`,
+				() =>
+					unwrapOrThrow(
+						callSkyscanner<unknown>(
+							'/api/v1/flights/searchFlights',
+							{
+								originSkyId: originResolved.entity.skyId,
+								destinationSkyId: destinationResolved.entity.skyId,
+								originEntityId: originResolved.entity.entityId,
+								destinationEntityId: destinationResolved.entity.entityId,
+								date,
+								adults: String(travellers),
+								cabinClass: 'economy',
+								currency,
+								market: 'en-US',
+								countryCode: 'US'
+							},
+							{ apiKey, signal: ctx.signal, fetchImpl }
+						),
+						identityProviderError
+					)
 			);
-			requestsUsed += costOf(result);
+			requestsUsed += result.requestsUsed;
 
 			if (!result.ok) {
-				if (result.error.code === 'not-subscribed') {
-					notSubscribedByApiKey.set(apiKey, result.error);
-				}
 				if (result.error.code === 'malformed-response') {
 					// One day's response failing to parse does not mean the whole range
 					// should: the other days may well be fine. Keep going, and only
@@ -263,25 +279,22 @@ export function createSkyscannerFlightProvider(
 		if (!apiKey) {
 			return fail({ code: 'missing-key', message: 'No Sky Scrapper (RapidAPI) key configured' }, 0);
 		}
-		const remembered = notSubscribedByApiKey.get(apiKey);
-		if (remembered !== undefined) return fail(remembered, 0);
 
 		// No dedicated "ping" endpoint exists, so this spends one real request on the
 		// cheapest real call available, same as any other adapter method would. Callers
 		// are told (types.ts ProviderBase.healthCheck) to run this once, not per search.
-		const result = await callSkyscanner<unknown>(
-			'/api/v1/flights/searchAirport',
-			{ query: 'london', locale: 'en-US' },
-			{ apiKey, signal: ctx.signal, fetchImpl }
+		const result = await budgetCall(`${PROVIDER_ID}:healthCheck`, () =>
+			unwrapOrThrow(
+				callSkyscanner<unknown>(
+					'/api/v1/flights/searchAirport',
+					{ query: 'london', locale: 'en-US' },
+					{ apiKey, signal: ctx.signal, fetchImpl }
+				),
+				identityProviderError
+			)
 		);
-		const requestsUsed = costOf(result);
-		if (!result.ok) {
-			if (result.error.code === 'not-subscribed') {
-				notSubscribedByApiKey.set(apiKey, result.error);
-			}
-			return fail(result.error, requestsUsed);
-		}
-		return ok({ message: 'Sky Scrapper key is present and subscribed' }, requestsUsed);
+		if (!result.ok) return fail(result.error, result.requestsUsed);
+		return ok({ message: 'Sky Scrapper key is present and subscribed' }, result.requestsUsed);
 	}
 
 	return {
@@ -326,29 +339,11 @@ function enumerateDates(
 	return dates;
 }
 
-/**
- * How many of Sky Scrapper's own metered requests one client call actually spent, so
- * `requestsUsed` on every `ProviderResult` this adapter returns is honest.
- *
- * `not-subscribed`, `network-error` and `cancelled` are counted as free: a 403
- * "not subscribed" is RapidAPI's gateway rejecting the call before it reaches Sky
- * Scrapper's own metering (that is the whole reason it exists as a distinct, permanent
- * failure rather than a transient one), and the other two never got a response at all.
- * Everything else, success included, got a real answer from the host and is billed.
- * This assumption about `not-subscribed` is not independently verified against RapidAPI's
- * own billing (doing so would mean deliberately unsubscribing the owner's live key), so it
- * is called out here for a future reviewer to confirm or correct.
- */
-function costOf(result: SkyscannerClientResult<unknown>): number {
-	if (result.ok) return 1;
-	switch (result.error.code) {
-		case 'not-subscribed':
-		case 'network-error':
-		case 'cancelled':
-			return 0;
-		default:
-			return 1;
-	}
+/** `unwrapOrThrow`'s `toProviderError` for this adapter: `callSkyscanner` already resolves
+ * a real `ProviderError` on failure (../client-result-budget.ts), so there is nothing to
+ * translate. */
+function identityProviderError(error: ProviderError): ProviderError {
+	return error;
 }
 
 function extractExactAirportMatch(raw: unknown, iataCode: string): SkyscannerAirportEntity | undefined {

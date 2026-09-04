@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { AvailableKeys, FlightProvider, ProviderContext } from '../providers/types';
+import type { AvailableKeys, FlightProvider, ProviderContext, ProviderId } from '../providers/types';
 import {
 	estimatePriceCalendarWidenCost,
 	hasPriceCalendar,
@@ -8,11 +8,15 @@ import {
 } from './price-calendar';
 import type { FlightsSkyProvider, PriceCalendarDay, PriceCalendarQuery } from './price-calendar';
 
-function plainFlightProvider(id: string): FlightProvider {
+function plainFlightProvider(idString: string): FlightProvider {
+	// Fixture-only stand-in id, not a real registered adapter — cast rather than widening
+	// FlightProvider.id itself, which is exactly the closed `ProviderId` union issue #69
+	// exists to enforce for real adapters.
+	const id = idString as ProviderId;
 	return {
 		kind: 'flight',
 		id,
-		label: `Plain (${id})`,
+		label: `Plain (${idString})`,
 		needsKey: false,
 		keyFields: [],
 		async healthCheck() {
@@ -40,10 +44,11 @@ function calendarDay(date: string, minorUnits: number): PriceCalendarDay {
  * what this fixture mirrors, not a shape this package invents.
  */
 function calendarCapableProvider(
-	id: string,
+	idString: string,
 	options: { needsKey?: boolean; costPerCall?: number; alwaysFails?: boolean } = {}
 ): FlightsSkyProvider {
-	const base = plainFlightProvider(id);
+	const id = idString as ProviderId; // see plainFlightProvider above
+	const base = plainFlightProvider(idString);
 	const needsKey = options.needsKey ?? true;
 	const costPerCall = options.costPerCall ?? 1;
 

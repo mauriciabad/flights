@@ -47,6 +47,7 @@ import type {
 	ProviderContext,
 	ProviderError,
 	ProviderHealth,
+	ProviderId,
 	ProviderResult,
 	ProviderSource,
 	TransferProvider,
@@ -58,7 +59,10 @@ import type { TaxiFareEstimate } from './taxi-rate-table';
 export { estimateTaxiFare, TAXI_RATE_TABLE } from './taxi-rate-table';
 export type { TaxiFareEstimate } from './taxi-rate-table';
 
-export const OSRM_PROVIDER_ID = 'osrm';
+/** Keyless and unmetered — no `../budget` cap or wiring applies — but still a real
+ * registered adapter id, so it is checked against `ProviderId` (../types.ts, issue #69)
+ * like every other adapter's id. */
+export const OSRM_PROVIDER_ID: ProviderId = 'osrm';
 
 const DEFAULT_BASE_URL = 'https://routing.openstreetmap.de';
 

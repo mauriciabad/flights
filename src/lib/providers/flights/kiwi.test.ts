@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { MemoryCacheStore } from '../../cache';
+import { clearInFlightForTests, clearProviderQuotaStateForTests, resetPermanentFailuresForTests } from '../budget';
 import oneWayFixture from './fixtures/kiwi-one-way-bcn-otp.json';
 import { createKiwiFlightProvider, KIWI_UNVERIFIED_AGAINST_LIVE_RESPONSE } from './kiwi';
 
@@ -10,7 +11,14 @@ import { createKiwiFlightProvider, KIWI_UNVERIFIED_AGAINST_LIVE_RESPONSE } from 
  * and in docs/PROVIDERS.md rather than run here: it returned 402/DEPLOYMENT_DISABLED, so a
  * suite that must pass the same way in CI as it did while writing this adapter cannot
  * depend on that backend coming back.
+ *
+ * Issue #69: this adapter now routes every real request through `callProviderWithBudget`
+ * (../budget), which keeps module-level state (in-flight dedup, the permanently-
+ * unsubscribed set, and a `localStorage`-backed monthly counter) that must be reset between
+ * tests, same as flights-sky.test.ts does — otherwise one test's "not-subscribed" or quota
+ * spend leaks into the next.
  */
+const instantSleep = async () => {};
 
 let fetchCallCount = 0;
 
@@ -39,6 +47,10 @@ const keys = { apiKey: 'test-rapidapi-key' };
 
 beforeEach(() => {
 	fetchCallCount = 0;
+	localStorage.clear();
+	clearInFlightForTests();
+	resetPermanentFailuresForTests();
+	clearProviderQuotaStateForTests();
 });
 
 describe('searchOffers', () => {
@@ -95,7 +107,7 @@ describe('searchOffers', () => {
 		expect(fetchCallCount).toBe(0);
 	});
 
-	it('maps a 403 to not-subscribed without throwing, counting it as free (RapidAPI gateway rejection)', async () => {
+	it('maps a 403 to not-subscribed without throwing', async () => {
 		const fetchImpl = fixtureFetch({
 			'https://kiwi-com-cheap-flights.p.rapidapi.com': () =>
 				new Response(JSON.stringify({ message: 'You are not subscribed to this API.' }), { status: 403 })
@@ -103,10 +115,10 @@ describe('searchOffers', () => {
 		const provider = createKiwiFlightProvider({ store: new MemoryCacheStore(), fetchImpl });
 
 		const result = await provider.searchOffers(query, { signal: new AbortController().signal, keys });
-		expect(result).toMatchObject({ ok: false, error: { code: 'not-subscribed', status: 403 }, requestsUsed: 0 });
+		expect(result).toMatchObject({ ok: false, error: { code: 'not-subscribed', status: 403 } });
 	});
 
-	it('remembers not-subscribed for the key and stops calling the network on a later search', async () => {
+	it('remembers not-subscribed for the provider and stops calling the network on a later search', async () => {
 		const fetchImpl = fixtureFetch({
 			'https://kiwi-com-cheap-flights.p.rapidapi.com': () =>
 				new Response(JSON.stringify({ message: 'You are not subscribed to this API.' }), { status: 403 })
@@ -117,15 +129,26 @@ describe('searchOffers', () => {
 		const callsAfterFirst = fetchCallCount;
 		const second = await provider.searchOffers(query, { signal: new AbortController().signal, keys });
 
-		expect(second).toMatchObject({ ok: false, error: { code: 'not-subscribed' }, requestsUsed: 0 });
-		expect(fetchCallCount).toBe(callsAfterFirst); // no new network call for the remembered key
+		expect(second).toMatchObject({ ok: false, requestsUsed: 0, error: { code: 'not-subscribed' } });
+		// Issue #69: tracked per `ProviderId` by the shared budget module
+		// (../budget/permanent-failures.ts) now, not per API key the way this adapter used
+		// to hand-roll it — one consistent rule across every adapter wired to the module.
+		expect(fetchCallCount).toBe(callsAfterFirst); // no new network call for the remembered provider
 	});
 
 	it('maps a 429 to quota-exceeded without throwing', async () => {
 		const fetchImpl = fixtureFetch({
 			'https://kiwi-com-cheap-flights.p.rapidapi.com': () => new Response(null, { status: 429 })
 		});
-		const provider = createKiwiFlightProvider({ store: new MemoryCacheStore(), fetchImpl });
+		// cap: 1 lets the single attempt through and refuses `callProviderWithBudget`'s own
+		// retry before it fires a second real fetch — a hard stop, not a guess at how many
+		// attempts its default backoff would otherwise make.
+		const provider = createKiwiFlightProvider({
+			store: new MemoryCacheStore(),
+			fetchImpl,
+			cap: 1,
+			sleep: instantSleep
+		});
 
 		const result = await provider.searchOffers(query, { signal: new AbortController().signal, keys });
 		expect(result).toMatchObject({ ok: false, error: { code: 'quota-exceeded', status: 429 }, requestsUsed: 1 });
@@ -145,14 +168,16 @@ describe('searchOffers', () => {
 		expect(result).toMatchObject({ ok: false, error: { code: 'unknown' }, requestsUsed: 1 });
 	});
 
-	it('maps a network failure to a typed error without throwing, counting it as free (no response was ever received)', async () => {
+	it('maps a network failure to a typed error without throwing', async () => {
 		const fetchImpl = (async () => {
 			throw new TypeError('Failed to fetch');
 		}) as typeof fetch;
-		const provider = createKiwiFlightProvider({ store: new MemoryCacheStore(), fetchImpl });
+		// `callProviderWithBudget` (../budget) retries a network error with backoff before
+		// giving up — `sleep: instantSleep` keeps that fast rather than actually waiting.
+		const provider = createKiwiFlightProvider({ store: new MemoryCacheStore(), fetchImpl, sleep: instantSleep });
 
 		const result = await provider.searchOffers(query, { signal: new AbortController().signal, keys });
-		expect(result).toMatchObject({ ok: false, error: { code: 'network-error' }, requestsUsed: 0 });
+		expect(result).toMatchObject({ ok: false, error: { code: 'network-error' } });
 	});
 
 	it('reports a cost of 1, unconditionally: this is a native date-range endpoint', () => {
@@ -270,7 +295,12 @@ describe('healthCheck', () => {
 		const fetchImpl = fixtureFetch({
 			'https://kiwi-com-cheap-flights.p.rapidapi.com': () => new Response(null, { status: 429 })
 		});
-		const provider = createKiwiFlightProvider({ store: new MemoryCacheStore(), fetchImpl });
+		const provider = createKiwiFlightProvider({
+			store: new MemoryCacheStore(),
+			fetchImpl,
+			cap: 1,
+			sleep: instantSleep
+		});
 		const result = await provider.healthCheck({ signal: new AbortController().signal, keys });
 		expect(result).toMatchObject({ ok: false, error: { code: 'quota-exceeded', status: 429 } });
 	});
@@ -279,7 +309,7 @@ describe('healthCheck', () => {
 		const fetchImpl = (async () => {
 			throw new TypeError('Failed to fetch');
 		}) as typeof fetch;
-		const provider = createKiwiFlightProvider({ store: new MemoryCacheStore(), fetchImpl });
+		const provider = createKiwiFlightProvider({ store: new MemoryCacheStore(), fetchImpl, sleep: instantSleep });
 		const result = await provider.healthCheck({ signal: new AbortController().signal, keys });
 		expect(result).toMatchObject({ ok: false, error: { code: 'network-error' } });
 	});

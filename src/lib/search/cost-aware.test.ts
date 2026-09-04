@@ -1,7 +1,15 @@
 import { describe, expect, it, vi } from 'vitest';
 import { runCostAwareSearch } from '../providers/budget';
 import { ProviderRegistry } from '../providers/registry';
-import type { AnyProvider, AvailableKeys, FlightProvider, FlightSearchQuery, ProviderContext, ProviderResult } from '../providers/types';
+import type {
+	AnyProvider,
+	AvailableKeys,
+	FlightProvider,
+	FlightSearchQuery,
+	ProviderContext,
+	ProviderId,
+	ProviderResult
+} from '../providers/types';
 import type { FlightOffer } from '../domain';
 import {
 	flattenOk,
@@ -27,11 +35,15 @@ function fakeOffer(carrierCode: string): FlightOffer {
 	};
 }
 
-function fakeProvider(id: string, cost: number, needsKey = false): FlightProvider {
+function fakeProvider(idString: string, cost: number, needsKey = false): FlightProvider {
+	// Fixture-only stand-in id, not a real registered adapter — cast rather than widening
+	// FlightProvider.id itself, which is exactly the closed `ProviderId` union issue #69
+	// exists to enforce for real adapters.
+	const id = idString as ProviderId;
 	return {
 		kind: 'flight',
 		id,
-		label: `Fake (${id})`,
+		label: `Fake (${idString})`,
 		needsKey,
 		keyFields: needsKey ? [{ id: 'apiKey', label: 'Key' }] : [],
 		async healthCheck() {
@@ -41,7 +53,7 @@ function fakeProvider(id: string, cost: number, needsKey = false): FlightProvide
 		async searchOffers(_query: FlightSearchQuery, ctx: ProviderContext): Promise<ProviderResult<FlightOffer[]>> {
 			return {
 				ok: true,
-				data: [fakeOffer(id.toUpperCase())],
+				data: [fakeOffer(idString.toUpperCase())],
 				source: { providerId: id, fetchedAt: '2026-09-04T00:00:00Z' },
 				requestsUsed: ctx.maxRequests !== undefined ? Math.min(cost, ctx.maxRequests) : cost
 			};
@@ -60,7 +72,7 @@ const QUERY: FlightSearchQuery = {
 };
 
 function newTracking() {
-	const providerStatus = new Map<string, ProviderStatus>();
+	const providerStatus = new Map<ProviderId, ProviderStatus>();
 	const record = (provider: Pick<AnyProvider, 'id' | 'kind' | 'label'>, result: ProviderResult<unknown>) =>
 		recordProviderResult(providerStatus, provider, result);
 	return { providerStatus, record, sources: new SourceTracker() };

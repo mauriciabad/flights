@@ -7,7 +7,7 @@ import {
 } from './connections';
 import type { IataAirportCode } from '../domain';
 import { MemoryCacheStore } from '../cache';
-import type { FlightProvider, ProviderResult } from '../providers/types';
+import type { FlightProvider, ProviderId, ProviderResult } from '../providers/types';
 import { createRyanairFlightProvider } from '../providers/flights/ryanair';
 import routesBcnFixture from '../providers/flights/fixtures/routes-bcn.json';
 
@@ -34,11 +34,15 @@ function createFakeFlightProvider(
 ): FlightProvider {
 	const { routes = {}, metered = false, fail = false } = opts;
 	const cost = metered ? 1 : 0;
-	const source = () => ({ providerId: id, fetchedAt: new Date().toISOString() });
+	// Fixture-only stand-in id, not a real registered adapter — cast rather than widening
+	// FlightProvider.id itself, which is exactly the closed `ProviderId` union issue #69
+	// exists to enforce for real adapters.
+	const providerId = id as ProviderId;
+	const source = () => ({ providerId, fetchedAt: new Date().toISOString() });
 
 	return {
 		kind: 'flight',
-		id,
+		id: providerId,
 		label: `Fake flights (${id})`,
 		needsKey: false,
 		keyFields: [],

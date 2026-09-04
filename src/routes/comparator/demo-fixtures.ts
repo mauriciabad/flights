@@ -24,6 +24,7 @@ import type {
 } from '$lib/domain';
 import { buildItineraries } from '$lib/algorithm/build';
 import type { ComparedItinerary } from '$lib/components';
+import type { ProviderId } from '$lib/providers/types';
 
 const austria: Country = { isoCode: 'AT', name: 'Austria' };
 const vienna: City = {
@@ -173,7 +174,11 @@ export function buildDemoComparedItineraries(): ComparedItinerary[] {
 			}),
 			sources: [
 				{ providerId: 'skyscanner', fetchedAt: fiveMinutesAgo },
-				{ providerId: 'hostelworld', fetchedAt: now }
+				// Illustrative only: Hostelworld has no RapidAPI listing (docs/PROVIDERS.md)
+				// and is not a registered adapter, so this id is cast rather than added to
+				// the real `ProviderId` union (issue #69) — this demo page shows what a
+				// third source COULD look like, not a provider this app actually calls.
+				{ providerId: 'hostelworld' as ProviderId, fetchedAt: now }
 			]
 		},
 		{
