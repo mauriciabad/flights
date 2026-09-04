@@ -37,6 +37,16 @@ describe('displayCityName', () => {
 		expect(displayCityName('BVC', 'Rabil')).toBe('Boa Vista');
 	});
 
+	it('names the stopover city the owner saw as "Velika Gorica", and the three airports with the same defect', () => {
+		expect(displayCityName('ZAG', 'Velika Gorica')).toBe('Zagreb');
+		expect(displayCityName('ATH', 'Spata-Artemida')).toBe('Athens');
+		expect(displayCityName('BRU', 'Zaventem')).toBe('Brussels');
+		// EDI is the one where the cleanup itself picks the wrong half: the segment
+		// before the comma is the suburb, not the city.
+		expect(cleanMunicipality('Ingliston, Edinburgh')).toBe('Ingliston');
+		expect(displayCityName('EDI', 'Ingliston, Edinburgh')).toBe('Edinburgh');
+	});
+
 	it('fixes the rows the structural cleanup reaches without any curation', () => {
 		expect(displayCityName('STN', 'London, Essex')).toBe('London');
 		expect(displayCityName('PSA', 'Pisa (PI)')).toBe('Pisa');
@@ -81,6 +91,8 @@ describe('citySearchAliases', () => {
 		expect(citySearchAliases('BGY', 'Orio al Serio (BG)')).toContain('Orio al Serio (BG)');
 		expect(citySearchAliases('BVC', 'Rabil')).toContain('Rabil');
 		expect(citySearchAliases('STN', 'London, Essex')).toContain('London, Essex');
+		expect(citySearchAliases('ZAG', 'Velika Gorica')).toContain('Velika Gorica');
+		expect(citySearchAliases('BRU', 'Zaventem')).toContain('Zaventem');
 	});
 
 	it('adds nothing for an airport whose municipality already is its display name', () => {

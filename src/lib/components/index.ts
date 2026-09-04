@@ -6,6 +6,7 @@ export { default as Input } from './Input.svelte';
 export { default as Select } from './Select.svelte';
 export { default as DateField } from './DateField.svelte';
 export { default as Chip } from './Chip.svelte';
+export { default as Flag } from './Flag.svelte';
 export { default as Card } from './Card.svelte';
 export { default as ItineraryMap } from './ItineraryMap.svelte';
 export { default as Skeleton } from './Skeleton.svelte';

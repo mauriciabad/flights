@@ -2,8 +2,6 @@ import { describe, expect, it } from 'vitest';
 import {
 	deriveSizeClass,
 	getAirport,
-	iconForAirport,
-	iconForCity,
 	searchAirports,
 	sizeClassOf
 } from './airports';
@@ -239,39 +237,5 @@ describe('searchAirports', () => {
 		for (const airport of results.slice(0, sfo)) {
 			expect(airport.sizeClass).toBe('large');
 		}
-	});
-});
-
-describe('iconForCity / iconForAirport', () => {
-	it('returns a flag for a known country', () => {
-		const icon = iconForCity({ country: { isoCode: 'AT', name: 'Austria' } });
-		expect(icon.kind).toBe('flag');
-		expect(icon.glyph).toBe('🇦🇹');
-		expect(icon.label).toContain('Austria');
-	});
-
-	it('returns a deliberate placeholder, not a throw, for an unrecognisable country', () => {
-		expect(() => iconForCity({ country: { isoCode: '', name: '' } })).not.toThrow();
-		const icon = iconForCity({ country: { isoCode: '', name: '' } });
-		expect(icon.kind).toBe('placeholder');
-		expect(icon.glyph).toBeTruthy();
-		expect(icon.label).toBeTruthy();
-	});
-
-	it('is total for garbage or missing input', () => {
-		expect(iconForCity({ country: { isoCode: 'NOTACODE', name: 'Nowhere' } })).toEqual(
-			expect.objectContaining({ kind: 'placeholder' })
-		);
-		expect(iconForCity(null)).toEqual(expect.objectContaining({ kind: 'placeholder' }));
-		expect(iconForCity(undefined)).toEqual(expect.objectContaining({ kind: 'placeholder' }));
-		expect(iconForAirport(undefined)).toEqual(expect.objectContaining({ kind: 'placeholder' }));
-		expect(iconForAirport(null)).toEqual(expect.objectContaining({ kind: 'placeholder' }));
-	});
-
-	it('resolves a full Airport to its country flag', async () => {
-		const airport = await getAirport('VIE');
-		const icon = iconForAirport(airport);
-		expect(icon.kind).toBe('flag');
-		expect(icon.glyph).toBe('🇦🇹');
 	});
 });

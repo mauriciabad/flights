@@ -5,8 +5,7 @@
 	 * tested), this component only arranges markup and picks CSS classes, nothing here
 	 * recomputes a duration or a price from scratch.
 	 */
-	import { Card, Chip } from '$lib/components';
-	import { iconForAirport } from '$lib/data/airports';
+	import { Card, Chip, Flag } from '$lib/components';
 	import type { Airport } from '$lib/domain';
 	import { formatAge, formatClockTime, formatDayLabel, formatDuration, formatMoney } from '$lib/results/format';
 	import { connectionAirportCode } from '$lib/results/types';
@@ -31,10 +30,13 @@
 	const freshness = $derived(describePriceFreshness(result.price.freshness));
 	const whyGood = $derived(describeWhyGood(result));
 
-	const originIcon = $derived(iconForAirport(itinerary.originAirport));
-	const destinationIcon = $derived(iconForAirport(itinerary.destinationAirport));
-	const connectionIcon = $derived(iconForAirport(connectionAirport));
 	const connectionLabel = $derived(connectionAirport?.city.name ?? connectionCode);
+	// The owner's report was one line reading "Velika Gorica ZAG": the wrong city name
+	// (fixed in data/airport-city-names.ts) and no country at all. A stopover is a place
+	// he has to decide about, and "Zagreb" alone still leaves him working out which
+	// country he would be spending two nights in. Undefined until the airport record
+	// resolves, which is the same reason `connectionLabel` falls back to the bare code.
+	const connectionCountry = $derived(connectionAirport?.country.name);
 	const variantsLabel = $derived(describeVariants(result));
 
 	// Provenance: distinct provider labels behind this price, and the OLDEST of their
@@ -61,18 +63,27 @@
 	{#snippet header()}
 		<div class="route">
 			<span class="route-leg">
-				<span class="flag" aria-hidden="true">{originIcon.glyph}</span>
+				<Flag country={itinerary.originAirport.country} />
 				<span class="iata font-mono tabular-nums">{itinerary.originAirport.iataCode}</span>
 			</span>
 			<span class="route-arrow" aria-hidden="true">→</span>
 			<span class="route-leg route-leg-stopover">
-				<span class="flag" aria-hidden="true">{connectionIcon.glyph}</span>
-				<span class="city">{connectionLabel}</span>
+				<!-- Decorative here alone: this leg spells the country out beside the flag,
+				     so announcing it twice only slows a screen reader down. -->
+				<Flag country={connectionAirport?.country} decorative />
+				<!-- City and country share one flex item on purpose: they are one place
+				     name, and separate items would put the row's gap in front of the
+				     comma. -->
+				<span class="place"
+					><span class="city">{connectionLabel}</span>{#if connectionCountry}<span
+							class="country">, {connectionCountry}</span
+						>{/if}</span
+				>
 				<span class="iata font-mono tabular-nums">{connectionCode}</span>
 			</span>
 			<span class="route-arrow" aria-hidden="true">→</span>
 			<span class="route-leg">
-				<span class="flag" aria-hidden="true">{destinationIcon.glyph}</span>
+				<Flag country={itinerary.destinationAirport.country} />
 				<span class="iata font-mono tabular-nums">{itinerary.destinationAirport.iataCode}</span>
 			</span>
 		</div>
@@ -225,9 +236,10 @@
 		color: var(--color-text-deprioritized);
 	}
 
-	.flag {
-		font-size: 1rem;
-		line-height: 1;
+	.country {
+		font-size: var(--font-size-sm);
+		font-weight: var(--font-weight-regular);
+		color: var(--color-text-muted);
 	}
 
 	.iata {

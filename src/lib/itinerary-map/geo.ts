@@ -55,19 +55,34 @@ function intermediatePoint(
 }
 
 /**
+ * The same place as `longitude`, expressed in whichever 360° copy of the world sits
+ * nearest `reference`: 179 stays 179 next to 170, and becomes -181 next to -175.
+ *
+ * Mercator renderers, MapLibre included, draw whatever coordinates they are given
+ * rather than working out that -179 is two degrees from 179, so a pair of points either
+ * side of the antimeridian has to be written in one frame before anything is drawn or
+ * framed with it. Exported because the geometry is only half the problem: the camera and
+ * the markers have to agree with the line (`segments.ts`, `singleFrame`).
+ */
+export function longitudeNear(reference: number, longitude: number): number {
+	let result = longitude;
+	while (result - reference > 180) result -= 360;
+	while (result - reference < -180) result += 360;
+	return result;
+}
+
+/**
  * Rewrites longitudes so consecutive points never jump by more than 180°, e.g.
  * 179 -> 181 rather than 179 -> -179. Raw coordinates crossing the antimeridian would
- * otherwise draw as a spurious line all the way back across the map: MapLibre, like any
- * Mercator-based renderer, wants a continuous coordinate sequence, not a wrapped one.
+ * otherwise draw as a spurious line all the way back across the map.
  */
 function unwrapLongitudes(points: Coordinates[]): Coordinates[] {
 	const result: Coordinates[] = [points[0]];
 	for (let i = 1; i < points.length; i++) {
-		const previous = result[i - 1].longitude;
-		let longitude = points[i].longitude;
-		while (longitude - previous > 180) longitude -= 360;
-		while (longitude - previous < -180) longitude += 360;
-		result.push({ latitude: points[i].latitude, longitude });
+		result.push({
+			latitude: points[i].latitude,
+			longitude: longitudeNear(result[i - 1].longitude, points[i].longitude)
+		});
 	}
 	return result;
 }

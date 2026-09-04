@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Airport, Duration, FlightOffer, Itinerary, LocalDateTime, Stay, Transfer } from '$lib/domain';
 import { allCoordinates, buildItineraryMapModel, findSegment } from './segments';
+import { boundsOfCoordinates } from './geo';
 
 // ---------------------------------------------------------------------------
 // Fixture builders — enough of each domain type to be a valid Itinerary, no more.
@@ -300,5 +301,99 @@ describe('allCoordinates', () => {
 		expect(points).toContainEqual(destinationAirport.coordinates);
 		// Both flight arcs contribute many more than one point each.
 		expect(points.length).toBeGreaterThan(10);
+	});
+});
+
+describe('buildItineraryMapModel: a route that crosses the antimeridian', () => {
+	// Auckland to Honolulu to Los Angeles. The outbound flight leaves at +174.8 and
+	// lands at -157.9, which is 27 degrees away going east and 332 going west, and every
+	// renderer takes the second reading unless the coordinates say otherwise.
+	const auckland: Airport = {
+		iataCode: 'AKL',
+		name: 'Auckland Airport',
+		coordinates: { latitude: -37.0082, longitude: 174.7917 },
+		city: {
+			name: 'Auckland',
+			coordinates: { latitude: -36.8485, longitude: 174.7633 },
+			country: { isoCode: 'NZ', name: 'New Zealand' }
+		},
+		country: { isoCode: 'NZ', name: 'New Zealand' },
+		sizeClass: 'large'
+	};
+	const honolulu: Airport = {
+		iataCode: 'HNL',
+		name: 'Daniel K. Inouye International Airport',
+		coordinates: { latitude: 21.3187, longitude: -157.9224 },
+		city: {
+			name: 'Honolulu',
+			coordinates: { latitude: 21.3069, longitude: -157.8583 },
+			country: { isoCode: 'US', name: 'United States' }
+		},
+		country: { isoCode: 'US', name: 'United States' },
+		sizeClass: 'large'
+	};
+	const losAngeles: Airport = {
+		iataCode: 'LAX',
+		name: 'Los Angeles International Airport',
+		coordinates: { latitude: 33.9416, longitude: -118.4085 },
+		city: {
+			name: 'Los Angeles',
+			coordinates: { latitude: 34.0522, longitude: -118.2437 },
+			country: { isoCode: 'US', name: 'United States' }
+		},
+		country: { isoCode: 'US', name: 'United States' },
+		sizeClass: 'large'
+	};
+
+	function pacificItinerary(): Itinerary {
+		return {
+			...baseItinerary(),
+			originAirport: auckland,
+			outboundFlight: flight('AKL', 'HNL', 'AB300'),
+			onwardFlight: flight('HNL', 'LAX', 'AB400'),
+			destinationAirport: losAngeles,
+			stay: {
+				...stay,
+				property: { ...stay.property, coordinates: honolulu.city.coordinates }
+			}
+		};
+	}
+
+	it('keeps the whole chain in one frame, so nothing is drawn a world away from the leg it belongs to', () => {
+		const model = buildItineraryMapModel(pacificItinerary(), honolulu);
+		const points = allCoordinates(model);
+
+		for (let i = 1; i < points.length; i++) {
+			expect(
+				Math.abs(points[i].longitude - points[i - 1].longitude),
+				`points ${i - 1} and ${i} are on opposite sides of the map`
+			).toBeLessThan(180);
+		}
+	});
+
+	it('frames the trip rather than the globe', () => {
+		const model = buildItineraryMapModel(pacificItinerary(), honolulu);
+		const [west, , east] = boundsOfCoordinates(allCoordinates(model));
+
+		// Auckland to Los Angeles is 67 degrees apart the short way. Before every
+		// coordinate shared one frame this box came out at the full 360, and the camera
+		// answered by showing the whole world with the route drawn back across it.
+		expect(east - west).toBeLessThan(90);
+	});
+
+	it('ends the outbound arc exactly where the connection airport marker is drawn', () => {
+		const model = buildItineraryMapModel(pacificItinerary(), honolulu);
+		const outbound = findSegment(model, 'outbound-flight');
+		const waiting = findSegment(model, 'connection-waiting');
+
+		expect(outbound?.kind).toBe('line');
+		expect(waiting?.kind).toBe('point');
+		if (outbound?.kind === 'line' && waiting?.kind === 'point') {
+			expect(outbound.coordinates.at(-1)).toEqual(waiting.coordinates);
+			// The arc left Auckland heading east and crossed 180, so the whole trip is
+			// drawn in the copy of the world east of it: Honolulu is 202.08, not its raw
+			// -157.92, and Los Angeles follows at 241.6.
+			expect(waiting.coordinates.longitude).toBeCloseTo(-157.9224 + 360, 4);
+		}
 	});
 });

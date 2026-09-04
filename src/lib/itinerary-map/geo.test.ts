@@ -3,6 +3,7 @@ import type { Coordinates } from '$lib/domain';
 import {
 	boundsOfCoordinates,
 	greatCircleArc,
+	longitudeNear,
 	POINT_VIEW_ZOOM,
 	viewForCoordinates
 } from './geo';
@@ -35,6 +36,39 @@ describe('greatCircleArc', () => {
 		const midpoint = arc[50];
 
 		expect(midpoint.latitude).toBeGreaterThan(Math.max(newYork.latitude, tokyo.latitude) + 10);
+	});
+
+	// The owner's complaint in his own words: "the flight lines in the map should follow
+	// the flight trajectory aprox, a straignt line is wrong in the map projection". The
+	// test above states that in latitude; this one states it the way he sees it, in the
+	// projection MapLibre actually draws, on his own reference route.
+	it('leaves the straight Mercator line by a visible distance on the reference route', () => {
+		const boaVista: Coordinates = { latitude: 16.1365, longitude: -22.8889 };
+		const gatwick: Coordinates = { latitude: 51.1487, longitude: -0.1857 };
+
+		// Web Mercator, normalised so the whole world is 1 wide and 1 tall.
+		const project = (point: Coordinates) => ({
+			x: point.longitude / 360,
+			y: Math.log(Math.tan(Math.PI / 4 + (point.latitude * Math.PI) / 360)) / (2 * Math.PI)
+		});
+
+		const from = project(boaVista);
+		const to = project(gatwick);
+		const chord = Math.hypot(to.x - from.x, to.y - from.y);
+		const offChord = greatCircleArc(boaVista, gatwick).map((point) => {
+			const p = project(point);
+			return (
+				Math.abs((to.x - from.x) * (from.y - p.y) - (from.x - p.x) * (to.y - from.y)) / chord
+			);
+		});
+
+		// 2.5% of the leg's own length. On the map that is tens of pixels of daylight
+		// between the arc and where a straight segment would have been drawn.
+		expect(Math.max(...offChord) / chord).toBeGreaterThan(0.025);
+		// The endpoints are on the line by definition, so a curve that bulges is the only
+		// way this passes.
+		expect(offChord[0]).toBeCloseTo(0, 10);
+		expect(offChord.at(-1)).toBeCloseTo(0, 10);
 	});
 
 	it('produces a continuous, unwrapped longitude sequence across the antimeridian', () => {
@@ -79,5 +113,21 @@ describe('viewForCoordinates', () => {
 		const hotel: Coordinates = { latitude: vienna.latitude + 0.0005, longitude: vienna.longitude + 0.0005 };
 		const view = viewForCoordinates([vienna, hotel]);
 		expect(view.kind).toBe('point');
+	});
+});
+
+describe('longitudeNear', () => {
+	it('leaves a longitude alone when it is already the nearest way round', () => {
+		expect(longitudeNear(10, 20)).toBe(20);
+		expect(longitudeNear(-170, -175)).toBe(-175);
+	});
+
+	it('rewrites the far side of the antimeridian into the near one, both directions', () => {
+		expect(longitudeNear(175, -175)).toBe(185);
+		expect(longitudeNear(-175, 175)).toBe(-185);
+	});
+
+	it('crosses as many worlds as it takes, since an arc can already be past 180', () => {
+		expect(longitudeNear(540, 175)).toBe(535);
 	});
 });

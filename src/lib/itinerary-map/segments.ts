@@ -1,5 +1,5 @@
 import type { Airport, Coordinates, Itinerary, Transfer } from '$lib/domain';
-import { greatCircleArc } from './geo';
+import { greatCircleArc, longitudeNear } from './geo';
 import type { ItinerarySegmentId } from './segment-id';
 
 /**
@@ -106,6 +106,66 @@ function transferLine(
  *  visually. */
 function transferLabel(base: string, geometryKind: ItineraryLineGeometryKind): string {
 	return geometryKind === 'schematic' ? `${base} (straight-line estimate)` : base;
+}
+
+/**
+ * Rewrites a whole model into one continuous longitude frame, so the trip reads as one
+ * journey rather than a jump across the map.
+ *
+ * `greatCircleArc` already keeps a single flight's own polyline continuous, which was
+ * enough while every route this app returned stayed inside Europe and Africa. It is not
+ * enough for a trip that crosses the antimeridian: an Auckland to Tokyo arc leaves
+ * Auckland at 174.8 and ends at -220.4 (the same place as 139.6, one world to the west),
+ * and everything built after it — the connection airport's marker, the onward flight, the
+ * hotel — still carries its raw +139.6. The line and the marker meant to sit at its end
+ * then land a whole world apart, `boundsOfCoordinates` spans 360°, and the camera answers
+ * by zooming out to the entire globe with the route drawn back across all of it.
+ *
+ * So the chain is walked in travel order and every coordinate is placed in the copy of
+ * the world nearest the point before it. A polyline is shifted as a whole (by the offset
+ * its first point needs) rather than point by point, which preserves the internal
+ * continuity `greatCircleArc` and OSRM's own geometry already have.
+ *
+ * MapLibre is fine with the result: a `LngLat` beyond ±180 projects onto the world copy
+ * it names, and `renderWorldCopies` (on by default) is what draws the basemap there.
+ */
+function singleFrame(model: ItineraryMapModel): ItineraryMapModel {
+	let reference: number | undefined;
+
+	function place(coordinate: Coordinates): Coordinates {
+		if (reference === undefined) {
+			reference = coordinate.longitude;
+			return coordinate;
+		}
+		const longitude = longitudeNear(reference, coordinate.longitude);
+		reference = longitude;
+		return { latitude: coordinate.latitude, longitude };
+	}
+
+	function placeLine(coordinates: Coordinates[]): Coordinates[] {
+		if (coordinates.length === 0) return coordinates;
+		const offset = place(coordinates[0]).longitude - coordinates[0].longitude;
+		if (offset !== 0) {
+			coordinates = coordinates.map((c) => ({
+				latitude: c.latitude,
+				longitude: c.longitude + offset
+			}));
+		}
+		reference = coordinates[coordinates.length - 1].longitude;
+		return coordinates;
+	}
+
+	return {
+		segments: model.segments.map((segment) =>
+			segment.kind === 'point'
+				? { ...segment, coordinates: place(segment.coordinates) }
+				: { ...segment, coordinates: placeLine(segment.coordinates) }
+		),
+		extraWaypoints: model.extraWaypoints.map((waypoint) => ({
+			...waypoint,
+			coordinates: place(waypoint.coordinates)
+		}))
+	};
 }
 
 export function buildItineraryMapModel(
@@ -272,7 +332,7 @@ export function buildItineraryMapModel(
 		}
 	];
 
-	return { segments, extraWaypoints };
+	return singleFrame({ segments, extraWaypoints });
 }
 
 /** Every coordinate in the model, for the map's initial "show the whole chain" view
