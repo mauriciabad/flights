@@ -136,7 +136,11 @@ export type KiwiFetchError =
 	| { code: 'rate-limited'; message: string; status: 429; retryAfterSeconds?: number }
 	/** Covers every other non-2xx, including the 402 this adapter's own listing returns
 	 * while its backend is down (`x-vercel-error: DEPLOYMENT_DISABLED`) — that is an
-	 * upstream outage, not a shape this adapter recognises as anything more specific. */
-	| { code: 'http-error'; message: string; status: number };
+	 * upstream outage, not a shape this adapter recognises as anything more specific.
+	 * `cause` carries the `ProviderResponseEvidence` the client read off that response
+	 * (`../response-evidence.ts`): the status, the provider's own sentence, the raw body and
+	 * any `*-error` header. `message` already quotes the first two, and this is where the
+	 * rest survives the trip to `ProviderError.cause` instead of being dropped (issue #171). */
+	| { code: 'http-error'; message: string; status: number; cause?: unknown };
 
 export type KiwiFetchResult<T> = { ok: true; data: T } | { ok: false; error: KiwiFetchError };

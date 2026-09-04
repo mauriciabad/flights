@@ -82,14 +82,39 @@ describe('fetchOneWay', () => {
 		expect(result).toEqual({ ok: true, data: oneWayFixture });
 	});
 
-	it('maps a 403 to not-subscribed', async () => {
+	it('maps the documented 403 "not subscribed" body to not-subscribed, quoting it', async () => {
 		const fetchImpl = fakeFetch(
 			() => new Response(JSON.stringify({ message: 'You are not subscribed to this API.' }), { status: 403 })
 		);
 		const result = await fetchOneWay(baseParams, { signal: new AbortController().signal, apiKey: 'k', fetchImpl });
 		expect(result).toEqual({
 			ok: false,
-			error: { code: 'not-subscribed', message: expect.any(String), status: 403 }
+			error: {
+				code: 'not-subscribed',
+				message: 'Kiwi.com (RapidAPI) returned HTTP 403: You are not subscribed to this API.',
+				status: 403
+			}
+		});
+	});
+
+	/**
+	 * `not-subscribed` is permanent for the session (budget/permanent-failures.ts), so
+	 * handing it out on the strength of a bare 403 switches the provider off for the rest of
+	 * the visit over a failure nobody profiled. AGENTS.md, after issue #122: that code must
+	 * only ever come from a real 403 carrying RapidAPI's own literal sentence.
+	 */
+	it('does not label a 403 with different wording as not-subscribed', async () => {
+		const fetchImpl = fakeFetch(
+			() => new Response(JSON.stringify({ message: 'Request blocked by the gateway' }), { status: 403 })
+		);
+		const result = await fetchOneWay(baseParams, { signal: new AbortController().signal, apiKey: 'k', fetchImpl });
+		expect(result).toMatchObject({
+			ok: false,
+			error: {
+				code: 'http-error',
+				message: 'Kiwi.com (RapidAPI) returned HTTP 403: Request blocked by the gateway',
+				status: 403
+			}
 		});
 	});
 
@@ -98,11 +123,40 @@ describe('fetchOneWay', () => {
 		const result = await fetchOneWay(baseParams, { signal: new AbortController().signal, apiKey: 'k', fetchImpl });
 		expect(result).toEqual({
 			ok: false,
-			error: { code: 'rate-limited', message: expect.any(String), status: 429, retryAfterSeconds: 60 }
+			error: {
+				code: 'rate-limited',
+				message: 'Kiwi.com (RapidAPI) returned HTTP 429 with an empty body',
+				status: 429,
+				retryAfterSeconds: 60
+			}
 		});
 	});
 
-	it('maps a 402 (the live DEPLOYMENT_DISABLED case this adapter actually observed) to http-error', async () => {
+	it('repeats what a 429 actually said, when it said anything', async () => {
+		const fetchImpl = fakeFetch(
+			() =>
+				new Response(JSON.stringify({ message: 'You have exceeded the MONTHLY quota for Requests' }), {
+					status: 429
+				})
+		);
+		const result = await fetchOneWay(baseParams, { signal: new AbortController().signal, apiKey: 'k', fetchImpl });
+		expect(result).toMatchObject({
+			ok: false,
+			error: {
+				code: 'rate-limited',
+				message: 'Kiwi.com (RapidAPI) returned HTTP 429: You have exceeded the MONTHLY quota for Requests'
+			}
+		});
+	});
+
+	/**
+	 * Issue #171's headline example, and the only failure this listing has ever actually
+	 * produced (docs/PROVIDERS.md). The old code answered "Kiwi returned HTTP 402" and threw
+	 * away both the provider's sentence and the one header that names the real cause: a
+	 * Vercel deployment its owner has taken offline, which is neither a key nor a
+	 * subscription problem and cannot be fixed from this app.
+	 */
+	it('maps the live 402/DEPLOYMENT_DISABLED case to http-error, keeping its sentence and its header', async () => {
 		const fetchImpl = fakeFetch(
 			() =>
 				new Response(JSON.stringify({ error: { code: '402', message: 'Payment required' } }), {
@@ -111,7 +165,35 @@ describe('fetchOneWay', () => {
 				})
 		);
 		const result = await fetchOneWay(baseParams, { signal: new AbortController().signal, apiKey: 'k', fetchImpl });
-		expect(result).toEqual({ ok: false, error: { code: 'http-error', message: expect.any(String), status: 402 } });
+		expect(result).toMatchObject({
+			ok: false,
+			error: {
+				code: 'http-error',
+				message:
+					'Kiwi.com (RapidAPI) returned HTTP 402: Payment required; x-vercel-error: DEPLOYMENT_DISABLED',
+				status: 402,
+				cause: {
+					status: 402,
+					message: 'Payment required',
+					errorHeaders: { 'x-vercel-error': 'DEPLOYMENT_DISABLED' }
+				}
+			}
+		});
+	});
+
+	it('quotes a non-JSON gateway page rather than reporting only its status', async () => {
+		const fetchImpl = fakeFetch(
+			() => new Response('<html>\n  <body>504 Gateway Timeout</body>\n</html>', { status: 504 })
+		);
+		const result = await fetchOneWay(baseParams, { signal: new AbortController().signal, apiKey: 'k', fetchImpl });
+		expect(result).toMatchObject({
+			ok: false,
+			error: {
+				code: 'http-error',
+				message: 'Kiwi.com (RapidAPI) returned HTTP 504 with body: <html> <body>504 Gateway Timeout</body> </html>',
+				status: 504
+			}
+		});
 	});
 
 	it('maps a 200 with invalid JSON to malformed-response', async () => {

@@ -3,6 +3,7 @@ import { callProviderWithBudget } from './call-with-budget';
 import { ProviderHttpError } from './classify-error';
 import { clearInFlightForTests } from './dedupe';
 import { isPermanentlyUnsubscribed, resetPermanentFailuresForTests } from './permanent-failures';
+import { saveReportedQuotaState } from './reported-quota';
 
 const SEP_2026 = Date.UTC(2026, 8, 4);
 const instantSleep = async () => {};
@@ -211,8 +212,13 @@ describe('callProviderWithBudget — exponential backoff on 429', () => {
 	});
 
 	it('caps an outsized Retry-After hint rather than freezing the search', async () => {
+		let call = 0;
 		const execute = vi.fn(async () => {
-			throw new ProviderHttpError(429, 'Too Many Requests', 3_600); // an hour
+			call++;
+			// 20 seconds is still a burst window, and still longer than a search should sit
+			// still for, so `backoff.maxDelayMs` clamps the wait without discarding the hint.
+			if (call < 2) throw new ProviderHttpError(429, 'Too Many Requests', 20);
+			return 'ok';
 		});
 		const sleep = vi.fn(instantSleep);
 
@@ -275,6 +281,176 @@ describe('callProviderWithBudget — exponential backoff on 429', () => {
 
 		expect(execute).toHaveBeenCalledTimes(2);
 		expect(outcome).toMatchObject({ ok: false, requestsUsed: 2, error: { code: 'quota-exceeded' } });
+	});
+});
+
+/**
+ * Issue #159. RapidAPI answers two different failures with a 429. One is a burst limit, where
+ * waiting and asking again is the whole point of this loop. The other is the subscribed
+ * plan's allowance being spent for the month:
+ *
+ *   429: "You have exceeded the MONTHLY quota for Requests on your current plan, BASIC."
+ *
+ * Retrying the second cannot succeed until the quota resets, and it spends requests from an
+ * account that has none. Observed live: one price-calendar call became three identical
+ * requests against an empty key. `rate-limit-verdict.ts` tells them apart; these tests hold
+ * both directions of that split, and the message the second one leaves behind.
+ */
+describe('callProviderWithBudget — a monthly quota is not a rate limit', () => {
+	const MONTHLY = 'You have exceeded the MONTHLY quota for Requests on your current plan, BASIC.';
+
+	it('stops after one attempt on an exhausted monthly quota, even with a Retry-After header', async () => {
+		// The header is what made this expensive: before the split, a `Retry-After` was the
+		// only thing this loop looked at, so a monthly exhaustion that carried one was worth
+		// three requests to rediscover.
+		const execute = vi.fn(async () => {
+			throw new ProviderHttpError(429, MONTHLY, 60);
+		});
+		const sleep = vi.fn(instantSleep);
+
+		const outcome = await callProviderWithBudget({
+			providerId: 'flights-sky',
+			cap: 15,
+			dedupeKey: 'flights-sky:monthly-quota',
+			execute,
+			sleep,
+			maxAttempts: 3,
+			now: () => SEP_2026
+		});
+
+		expect(execute).toHaveBeenCalledTimes(1);
+		expect(sleep).not.toHaveBeenCalled();
+		expect(outcome).toMatchObject({ ok: false, requestsUsed: 1, error: { code: 'quota-exceeded' } });
+	});
+
+	it('keeps the sentence the provider sent and adds when the quota comes back', async () => {
+		const execute = vi.fn(async () => {
+			throw new ProviderHttpError(429, MONTHLY);
+		});
+
+		const outcome = await callProviderWithBudget({
+			providerId: 'flights-sky',
+			cap: 15,
+			dedupeKey: 'flights-sky:monthly-quota-message',
+			execute,
+			sleep: instantSleep,
+			now: () => SEP_2026
+		});
+
+		expect(outcome.ok).toBe(false);
+		if (!outcome.ok && outcome.error.code === 'quota-exceeded') {
+			expect(outcome.error.message).toContain(MONTHLY);
+			expect(outcome.error.message).toContain('2026-10-01T00:00:00.000Z');
+			// The seconds a caller would wait, derived from that instant rather than from the
+			// per-minute hint the provider sent alongside a limit that is not per-minute.
+			expect(outcome.error.retryAfterSeconds).toBe((Date.UTC(2026, 9, 1) - SEP_2026) / 1000);
+		}
+	});
+
+	it('believes the quota headers over the wording when both are there', async () => {
+		// Faithful to the real order of events: every metered client calls
+		// `recordRateLimitHeaders` on the response before it branches on the status, so by
+		// the time the 429 reaches this loop the reading is already stored. The message here
+		// says nothing about a month; the headers say the key has nothing left.
+		const execute = vi.fn(async () => {
+			saveReportedQuotaState({
+				'flights-sky': {
+					monthKey: '2026-09',
+					limit: 50,
+					remaining: 0,
+					observedAt: SEP_2026,
+					resetsAt: SEP_2026 + 3 * 24 * 3600 * 1000,
+					scope: 'requests',
+					headerNames: ['x-ratelimit-requests-limit', 'x-ratelimit-requests-remaining', 'x-ratelimit-requests-reset']
+				}
+			});
+			throw new ProviderHttpError(429, 'Too Many Requests', 30);
+		});
+
+		const outcome = await callProviderWithBudget({
+			providerId: 'flights-sky',
+			cap: 15,
+			dedupeKey: 'flights-sky:headers-win',
+			execute,
+			sleep: instantSleep,
+			maxAttempts: 3,
+			now: () => SEP_2026
+		});
+
+		expect(execute).toHaveBeenCalledTimes(1);
+		if (!outcome.ok && outcome.error.code === 'quota-exceeded') {
+			expect(outcome.error.message).toContain('x-ratelimit-requests-remaining');
+			expect(outcome.error.message).toContain('0 of 50 requests left');
+			expect(outcome.error.message).toContain(new Date(SEP_2026 + 3 * 24 * 3600 * 1000).toISOString());
+			expect(outcome.error.retryAfterSeconds).toBe(3 * 24 * 3600);
+		}
+	});
+
+	it('still rides out a burst limit, which is what the retry loop is for', async () => {
+		let call = 0;
+		const execute = vi.fn(async () => {
+			call++;
+			if (call < 3) throw new ProviderHttpError(429, 'Too Many Requests', 2);
+			return 'ok-once-the-minute-rolled-over';
+		});
+
+		const outcome = await callProviderWithBudget({
+			providerId: 'flights-sky',
+			cap: 15,
+			dedupeKey: 'flights-sky:burst',
+			execute,
+			sleep: instantSleep,
+			maxAttempts: 3,
+			now: () => SEP_2026
+		});
+
+		expect(execute).toHaveBeenCalledTimes(3);
+		expect(outcome).toMatchObject({ ok: true, data: 'ok-once-the-minute-rolled-over' });
+	});
+
+	it('treats a Retry-After of an hour or more as a closed window, not a pause', async () => {
+		const execute = vi.fn(async () => {
+			throw new ProviderHttpError(429, 'Too Many Requests', 7_200);
+		});
+
+		const outcome = await callProviderWithBudget({
+			providerId: 'flights-sky',
+			cap: 15,
+			dedupeKey: 'flights-sky:long-retry-after',
+			execute,
+			sleep: instantSleep,
+			maxAttempts: 3,
+			now: () => SEP_2026
+		});
+
+		expect(execute).toHaveBeenCalledTimes(1);
+		if (!outcome.ok && outcome.error.code === 'quota-exceeded') {
+			expect(outcome.error.retryAfterSeconds).toBe(7_200);
+		}
+	});
+
+	it('says it could not tell the two apart, rather than asserting which one it was', async () => {
+		const execute = vi.fn(async () => {
+			throw new ProviderHttpError(429, 'Too Many Requests');
+		});
+
+		const outcome = await callProviderWithBudget({
+			providerId: 'flights-sky',
+			cap: 15,
+			dedupeKey: 'flights-sky:silent-429',
+			execute,
+			sleep: instantSleep,
+			maxAttempts: 3,
+			now: () => SEP_2026
+		});
+
+		expect(execute).toHaveBeenCalledTimes(1);
+		if (!outcome.ok && outcome.error.code === 'quota-exceeded') {
+			expect(outcome.error.message).toContain('Too Many Requests');
+			expect(outcome.error.message).toContain('no Retry-After header and no quota reading');
+			// Nothing said when it reopens, so nothing is claimed about when it reopens.
+			expect(outcome.error.retryAfterSeconds).toBeUndefined();
+		}
 	});
 });
 

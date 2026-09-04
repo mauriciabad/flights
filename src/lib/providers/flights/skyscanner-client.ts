@@ -1,4 +1,5 @@
 import { recordRateLimitHeaders } from '../budget';
+import { describeProviderResponse, readProviderResponse, readRetryAfterSeconds } from '../response-evidence';
 import type { ProviderError, ProviderId } from '../types';
 
 /** `sky-scrapper.p.rapidapi.com` is the only host this adapter is built and verified
@@ -6,6 +7,9 @@ import type { ProviderError, ProviderId } from '../types';
 const PROVIDER_ID: ProviderId = 'skyscanner';
 const HOST = 'sky-scrapper.p.rapidapi.com';
 const BASE_URL = `https://${HOST}`;
+/** How every message out of this file names the host, so a traveller reading an error badge
+ * and a developer reading a console see the same provider named the same way. */
+const LABEL = 'Sky Scrapper';
 
 export type SkyscannerClientResult<T> = { ok: true; data: T } | { ok: false; error: ProviderError };
 
@@ -29,6 +33,12 @@ export interface SkyscannerClientOptions {
  * because a 403 with a different message is a different, unmodelled failure and should not
  * be told apart from "add your key" the way `not-subscribed` is (it maps to `unknown`
  * instead, so it is at least visible rather than silently mis-explained).
+ *
+ * Issue #171: every non-2xx branch reads the body first and quotes what came back. The two
+ * branches that used to skip that step wrote `'Sky Scrapper rate limit or monthly quota
+ * reached'` over a 429 and `'Sky Scrapper responded with HTTP 500'` over everything else,
+ * which is our guess standing where the host's own sentence should be. See
+ * ../response-evidence.ts.
  */
 export async function callSkyscanner<T>(
 	path: string,
@@ -55,13 +65,13 @@ export async function callSkyscanner<T>(
 		// sniffing the thrown error's name, since it is the same AbortSignal the caller
 		// gave us either way and every environment respects it.
 		if (options.signal.aborted) {
-			return { ok: false, error: { code: 'cancelled', message: 'Sky Scrapper request was aborted' } };
+			return { ok: false, error: { code: 'cancelled', message: `${LABEL} request was aborted` } };
 		}
 		return {
 			ok: false,
 			error: {
 				code: 'network-error',
-				message: 'Network request to Sky Scrapper failed',
+				message: `Network request to ${LABEL} failed`,
 				cause
 			}
 		};
@@ -71,50 +81,43 @@ export async function callSkyscanner<T>(
 	// and those are exactly the responses where the real remaining count matters (#146).
 	recordRateLimitHeaders(PROVIDER_ID, response.headers);
 
-	if (response.status === 403) {
-		const body = await safeReadJson(response);
-		const message = messageFrom(body);
-		if (/not subscribed/i.test(message ?? '')) {
+	// Every failure branch below reads the body before deciding anything, so the message the
+	// traveller and the next developer see is the host's own sentence with its status code
+	// attached (issue #171). The classification sits on top of that, never in place of it.
+	if (!response.ok) {
+		const evidence = await readProviderResponse(response);
+		const message = describeProviderResponse(LABEL, evidence);
+
+		if (response.status === 403) {
+			// Only RapidAPI's literal wording earns `not-subscribed`. It is permanent for the
+			// session (budget/permanent-failures.ts), so a 403 that says something else must
+			// not be told apart from "add your key" the way this one is.
+			if (/not subscribed/i.test(evidence.message ?? '')) {
+				return { ok: false, error: { code: 'not-subscribed', message, status: 403 } };
+			}
+			return { ok: false, error: { code: 'unknown', message, cause: evidence } };
+		}
+
+		if (response.status === 429) {
 			return {
 				ok: false,
 				error: {
-					code: 'not-subscribed',
-					message: message ?? 'You are not subscribed to this API.',
-					status: 403
+					code: 'quota-exceeded',
+					message,
+					status: 429,
+					retryAfterSeconds: readRetryAfterSeconds(response.headers)
 				}
 			};
 		}
-		return {
-			ok: false,
-			error: { code: 'unknown', message: message ?? 'Sky Scrapper returned 403', cause: body }
-		};
-	}
 
-	if (response.status === 429) {
-		const retryAfterSeconds = parseRetryAfter(response.headers.get('retry-after'));
-		return {
-			ok: false,
-			error: {
-				code: 'quota-exceeded',
-				message: 'Sky Scrapper rate limit or monthly quota reached',
-				status: 429,
-				retryAfterSeconds
-			}
-		};
-	}
-
-	if (!response.ok) {
-		return {
-			ok: false,
-			error: { code: 'unknown', message: `Sky Scrapper responded with HTTP ${response.status}` }
-		};
+		return { ok: false, error: { code: 'unknown', message, cause: evidence } };
 	}
 
 	const body = await safeReadJson(response);
 	if (body === undefined) {
 		return {
 			ok: false,
-			error: { code: 'malformed-response', message: 'Sky Scrapper response body was not valid JSON' }
+			error: { code: 'malformed-response', message: `${LABEL} response body was not valid JSON` }
 		};
 	}
 	return { ok: true, data: body as T };
@@ -126,18 +129,4 @@ async function safeReadJson(response: Response): Promise<unknown> {
 	} catch {
 		return undefined;
 	}
-}
-
-function messageFrom(body: unknown): string | undefined {
-	if (body !== null && typeof body === 'object' && 'message' in body) {
-		const { message } = body as { message: unknown };
-		return typeof message === 'string' ? message : undefined;
-	}
-	return undefined;
-}
-
-function parseRetryAfter(header: string | null): number | undefined {
-	if (header === null) return undefined;
-	const seconds = Number(header);
-	return Number.isFinite(seconds) && seconds >= 0 ? seconds : undefined;
 }
