@@ -12,6 +12,13 @@
  * order. This only has to be good enough to make "nothing yet" not the first thing a user
  * sees; it goes stale slowly, and that is an acceptable trade for a static site with no
  * backend to refresh it from.
+ *
+ * `FALLBACK_AIRPORTS` below is a similar last resort for geography, now mostly shadowed
+ * in practice by the real airport dataset (issue #11, `../data/airports`), which
+ * `connections.ts` consults first for any real IATA code — that dataset is itself a
+ * bundled, offline-safe JSON import, not a network call, so this table's remaining job is
+ * the narrower one of covering a dataset load failure, not being the primary geography
+ * source.
  */
 
 import type { AirportSizeClass, Coordinates, IataAirportCode, IsoCountryCode } from '../domain';
