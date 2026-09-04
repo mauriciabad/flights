@@ -71,7 +71,7 @@ describe('getProviderCap', () => {
 	});
 });
 
-describe('isQuotaGenerous (issue #94)', () => {
+describe('isQuotaGenerous (issues #94, #148)', () => {
 	it('is always generous for a zero-cost source, regardless of cap', () => {
 		expect(isQuotaGenerous('skyscanner', 0)).toBe(true);
 	});
@@ -85,16 +85,29 @@ describe('isQuotaGenerous (issue #94)', () => {
 		expect(isQuotaGenerous('skyscanner', 1)).toBe(false);
 	});
 
-	it('lets a real Agoda-shaped search run with no extra consent', () => {
-		// Real cost: 1 search + up to 5 get-prices drill-downs (agoda.ts's
-		// MAX_CANDIDATES_TO_EXPAND) = 6. Cap 400 ÷ 6 ≈ 66.7 searches/month.
+	it('lets a one-lookup Agoda search run with no extra consent', () => {
+		// One lookup costs 1 search + up to 5 get-prices drill-downs (agoda.ts's
+		// MAX_CANDIDATES_TO_EXPAND) = 6. Cap 400 ÷ 6 ≈ 66.7 such searches/month.
 		expect(isQuotaGenerous('agoda', 6)).toBe(true);
 	});
 
-	it('lets a real Booking-shaped search run with no extra consent, even at the threshold', () => {
-		// Real cost: 1 search + 1 getRoomList drill-down = 2. Cap 40 ÷ 2 = exactly 20 —
-		// this is the boundary case docs/PROVIDERS.md's numbers land on, so it has to pass.
+	it('lets a one-lookup Booking search run with no extra consent, exactly at the threshold', () => {
+		// One lookup costs 1 search + 1 getRoomList drill-down = 2. Cap 40 ÷ 2 = exactly 20.
 		expect(isQuotaGenerous('booking', 2)).toBe(true);
+	});
+
+	it('refuses the SIX-lookup Booking search the pipeline actually used to make (issue #148)', () => {
+		// The regression this argument's meaning was corrected for. `pipeline.ts` ran a stay
+		// lookup per connection candidate — six ordinarily — so one search really cost
+		// 6 × 2 = 12 Booking requests, which a cap of 40 sustains three times, not twenty.
+		// Passing the per-call cost here reported `true` and let it run anyway.
+		expect(isQuotaGenerous('booking', 2 * 6)).toBe(false);
+	});
+
+	it('refuses the twenty-four-lookup Booking search the fallback sweep used to make (issue #148)', () => {
+		// `FALLBACK_MAX_CANDIDATES` is 24, and that path fires precisely when a search found
+		// nothing — 48 requests, the whole free tier, from one click.
+		expect(isQuotaGenerous('booking', 2 * 24)).toBe(false);
 	});
 
 	it('treats a provider whose cap has been driven to zero as never quota-generous', () => {

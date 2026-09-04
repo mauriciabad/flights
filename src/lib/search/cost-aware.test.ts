@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { runCostAwareSearch } from '../providers/budget';
+import { createStayLookupBudget, runCostAwareSearch } from '../providers/budget';
 import { ProviderRegistry } from '../providers/registry';
 import type {
 	AnyProvider,
@@ -14,7 +14,7 @@ import type {
 } from '../providers/types';
 import type { FlightOffer, Stay } from '../domain';
 import {
-	autoWidenStaySources,
+	claimAutoWidenStaySources,
 	flattenOk,
 	flightCostAwareSources,
 	meteredRequestsUsed,
@@ -202,7 +202,7 @@ describe('registry integration sanity', () => {
 	});
 });
 
-describe('autoWidenStaySources (issue #94)', () => {
+describe('claimAutoWidenStaySources (issues #94, #148)', () => {
 	it('auto-widens a keyed, quota-generous metered stay provider (Agoda-shaped)', async () => {
 		const { record, sources } = newTracking();
 		// Real Agoda cost: 1 search + up to 5 get-prices drill-downs.
@@ -212,9 +212,9 @@ describe('autoWidenStaySources (issue #94)', () => {
 
 		const built = stayCostAwareSources([agoda], STAY_QUERY, keys, controller.signal, sources, record);
 		expect(built[0]?.tier).toBe('metered'); // still costs something — never reclassified as free
-		expect(autoWidenStaySources(built)).toEqual(['agoda']);
+		expect(claimAutoWidenStaySources(built, createStayLookupBudget())).toEqual(['agoda']);
 
-		const result = await runCostAwareSearch(built, { widenTo: autoWidenStaySources(built) });
+		const result = await runCostAwareSearch(built, { widenTo: claimAutoWidenStaySources(built, createStayLookupBudget()) });
 		expect(flattenOk(result)).toHaveLength(1);
 		expect(result.report.ranMetered).toEqual(['agoda']);
 	});
@@ -227,7 +227,7 @@ describe('autoWidenStaySources (issue #94)', () => {
 		const controller = new AbortController();
 
 		const built = stayCostAwareSources([booking], STAY_QUERY, keys, controller.signal, sources, record);
-		expect(autoWidenStaySources(built)).toEqual(['booking']);
+		expect(claimAutoWidenStaySources(built, createStayLookupBudget())).toEqual(['booking']);
 	});
 
 	it('does not auto-widen a stay provider with no key configured at all', () => {
@@ -239,7 +239,7 @@ describe('autoWidenStaySources (issue #94)', () => {
 		// this function ever sees them, same as it already does for flights.
 		const built = stayCostAwareSources([agoda], STAY_QUERY, {}, controller.signal, sources, record);
 		expect(built).toHaveLength(0);
-		expect(autoWidenStaySources(built)).toEqual([]);
+		expect(claimAutoWidenStaySources(built, createStayLookupBudget())).toEqual([]);
 	});
 
 	it('leaves a Sky-Scrapper-tight metered stay provider out, still requiring explicit consent', () => {
@@ -252,7 +252,7 @@ describe('autoWidenStaySources (issue #94)', () => {
 		const controller = new AbortController();
 
 		const built = stayCostAwareSources([tight], STAY_QUERY, keys, controller.signal, sources, record);
-		expect(autoWidenStaySources(built)).toEqual([]);
+		expect(claimAutoWidenStaySources(built, createStayLookupBudget())).toEqual([]);
 	});
 
 	it('never lists a free stay source — nothing to widen to', () => {
@@ -262,6 +262,6 @@ describe('autoWidenStaySources (issue #94)', () => {
 
 		const built = stayCostAwareSources([free], STAY_QUERY, {}, controller.signal, sources, record);
 		expect(built[0]?.tier).toBe('free');
-		expect(autoWidenStaySources(built)).toEqual([]);
+		expect(claimAutoWidenStaySources(built, createStayLookupBudget())).toEqual([]);
 	});
 });

@@ -39,7 +39,8 @@ import {
 	type Stay,
 	type Transfer
 } from '../domain';
-import { runCostAwareSearch } from '../providers/budget';
+import { createStayLookupBudget, runCostAwareSearch } from '../providers/budget';
+import type { StayLookupBudget } from '../providers/budget';
 import { isProviderUsable } from '../providers/registry';
 import type {
 	AvailableKeys,
@@ -326,6 +327,10 @@ interface ProcessCandidateInput {
 	 * `SearchDependencies.currency`'s own doc comment for why every provider in one search
 	 * is asked for the same currency. */
 	currency: SearchDependencies['currency'];
+	/** Issue #148: created ONCE per search and shared by every candidate, which is the
+	 * entire point — a per-candidate budget would bound nothing, since the unbounded cost
+	 * came from the candidate count itself. */
+	stayLookupBudget: StayLookupBudget;
 	transferToOriginAirport?: Transfer;
 	transferToDestinationLocation?: Transfer;
 	sources: SourceTracker;
@@ -440,7 +445,9 @@ async function processCandidate(input: ProcessCandidateInput): Promise<Candidate
 			sources: input.sources,
 			record: input.record,
 			travellers: input.query.travellers,
-			females: input.query.females
+			females: input.query.females,
+			currency: input.currency,
+			stayLookupBudget: input.stayLookupBudget
 		})
 	]);
 
@@ -806,6 +813,12 @@ export async function* runSearch(
 		weights: DEFAULT_SCORING_WEIGHTS,
 		airlinesToAvoid: query.airlinesToAvoid ?? [],
 		currency,
+		// Issue #148: one ration for the whole search, deliberately created out here rather
+		// than inside `buildCandidateTasks`. Both the primary batch below and the fallback
+		// sweep further down draw from THIS object, which is what stops the 24-candidate
+		// sweep multiplying stay spend by four over the 6-candidate batch — the fallback
+		// path inherits an already-partly-spent budget rather than a fresh one.
+		stayLookupBudget: createStayLookupBudget(),
 		transferToOriginAirport,
 		transferToDestinationLocation,
 		sources,
@@ -921,6 +934,9 @@ export async function* widenSearch(
 	const stayRadiusKm = options.stayRadiusKm ?? DEFAULT_STAY_RADIUS_KM;
 	const resolveAirport = deps.resolveAirport ?? getAirport;
 	const currency = deps.currency;
+	// Issue #148: one ration for this whole confirm run, shared across every target the
+	// traveller confirmed — see its use below for why the confirm tier is rationed too.
+	const stayLookupBudget = createStayLookupBudget();
 
 	const providerStatus = new Map<ProviderId, ProviderStatus>();
 	const record: RecordProviderCall = (provider, result) => recordProviderResult(providerStatus, provider, result);
@@ -1071,6 +1087,11 @@ export async function* widenSearch(
 			weights: DEFAULT_SCORING_WEIGHTS,
 			airlinesToAvoid: query.airlinesToAvoid ?? [],
 			currency,
+			// Issue #148: the confirm tier is the one place a traveller has explicitly agreed
+			// to spend, but "agreed to spend" is not "agreed to spend without limit" — this
+			// gets the same per-search ration as the free tier so one confirmation cannot
+			// empty a month either.
+			stayLookupBudget,
 			transferToOriginAirport,
 			transferToDestinationLocation,
 			sources,

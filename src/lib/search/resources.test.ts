@@ -17,6 +17,7 @@ import type {
 	TransferProvider,
 	TransferSearchQuery
 } from '../providers/types';
+import { createStayLookupBudget, createUnboundedStayLookupBudget } from '../providers/budget';
 import { recordProviderResult, SourceTracker } from './provenance';
 import type { ProviderStatus } from './types';
 import type { TaxiFareEstimate } from '../providers/transfers/taxi-rate-table';
@@ -139,6 +140,7 @@ function baseInput(
 		transferProviders?: readonly TransferProvider[];
 		connectionCountryCode?: IsoCountryCode;
 		landingToTransportRules?: readonly LandingToTransportRule[];
+		currency?: string;
 	} = {}
 ) {
 	const { record, sources } = newTracking();
@@ -155,6 +157,10 @@ function baseInput(
 		checkIn: '2026-10-01' as const,
 		checkOut: '2026-10-03' as const,
 		landingToTransportRules: [],
+		// Issue #148: these tests exercise ONE candidate each, so the fan-out this budget
+		// rations is not what they are about — an unbounded one keeps them testing what they
+		// were written to test. `stay-lookup-budget.test.ts` covers the rationing itself.
+		stayLookupBudget: createUnboundedStayLookupBudget(),
 		sources,
 		record,
 		...extra
@@ -287,6 +293,7 @@ describe('fetchConnectionResources: missing stay is degraded, not dropped (issue
 			checkIn: '2026-10-01' as const,
 			checkOut: '2026-10-03' as const,
 			landingToTransportRules: [],
+			stayLookupBudget: createUnboundedStayLookupBudget(),
 			sources,
 			record
 		};
@@ -430,5 +437,204 @@ describe('fetchConnectionResources: taxi fare estimate wiring (issue #114)', () 
 
 		expect(getTaxiFareEstimate).not.toHaveBeenCalled();
 		expect(resources.transferToHotelTaxiFareEstimate).toBeUndefined();
+	});
+});
+
+/**
+ * Issue #152. These are the assertions that would have caught "No bed priced for this
+ * stopover" without spending a single provider request — the bug was entirely in the query
+ * this module builds, and a captured response was never needed to see it.
+ */
+describe('fetchConnectionResources: the stay query it builds (issue #152)', () => {
+	function capturingStayProvider(captured: StaySearchQuery[], stays: Stay[]): StayProvider {
+		return {
+			kind: 'stay',
+			id: 'agoda' as ProviderId,
+			label: 'Capturing stays',
+			needsKey: false,
+			keyFields: [],
+			async healthCheck() {
+				return { ok: true, data: {}, source: source('agoda' as ProviderId), requestsUsed: 0 };
+			},
+			estimateSearchStaysCost: () => 0,
+			async searchStays(query: StaySearchQuery): Promise<ProviderResult<Stay[]>> {
+				captured.push(query);
+				return { ok: true, data: stays, source: source('agoda' as ProviderId), requestsUsed: 1 };
+			}
+		};
+	}
+
+	it('asks the provider for the search currency, which is what Agoda needs to not answer in USD', async () => {
+		// The omission that caused the whole defect. With no `currency` on the query,
+		// `agoda.ts` computes `agodaCurrencyId(undefined)` -> undefined, omits `currency_id`
+		// from the request, and Agoda falls back to USD (its documented default). The bed
+		// then could not be totalled against EUR flights.
+		const captured: StaySearchQuery[] = [];
+		const input = baseInput([capturingStayProvider(captured, [stay('Hostel', 'dorm', 2000)])], {
+			currency: 'EUR'
+		});
+
+		await fetchConnectionResources(input);
+
+		expect(captured).toHaveLength(1);
+		expect(captured[0]?.currency).toBe('EUR');
+	});
+
+	it('asks the provider for the real party size rather than silently pricing one adult', async () => {
+		const captured: StaySearchQuery[] = [];
+		const input = baseInput([capturingStayProvider(captured, [stay('Hostel', 'dorm', 2000)])], {
+			travellers: 3,
+			currency: 'EUR'
+		});
+
+		await fetchConnectionResources(input);
+
+		expect(captured[0]?.travellers).toBe(3);
+	});
+
+	it('drops a stay quoted in another currency, and still returns the candidate', async () => {
+		// A provider that ignores the requested currency must cost the search a BED, never
+		// the whole itinerary. Before this, the mismatch reached `build.ts`'s `sumMoney`,
+		// which threw, and `pipeline.ts` swallowed the throw by discarding the candidate —
+		// so pricing a bed successfully is precisely what destroyed the trip.
+		const usdStay: Stay = {
+			property: { name: 'Priced In Dollars', coordinates: { latitude: 48.2, longitude: 16.37 }, images: [] },
+			roomKind: 'dorm',
+			pricePerNight: { minorUnits: 2000, currency: 'USD' }
+		};
+		const captured: StaySearchQuery[] = [];
+		const input = baseInput([capturingStayProvider(captured, [usdStay])], { currency: 'EUR' });
+
+		const resources = await fetchConnectionResources(input);
+
+		expect(resources.stay).toBeUndefined();
+		expect(resources.stayCandidates).toEqual([]);
+	});
+
+	it('keeps a matching-currency stay alongside a mismatched one, rather than discarding both', async () => {
+		const usdStay: Stay = {
+			property: { name: 'Priced In Dollars', coordinates: { latitude: 48.2, longitude: 16.37 }, images: [] },
+			roomKind: 'dorm',
+			pricePerNight: { minorUnits: 1000, currency: 'USD' }
+		};
+		const eurStay = stay('Priced In Euros', 'dorm', 2000);
+		const captured: StaySearchQuery[] = [];
+		const input = baseInput([capturingStayProvider(captured, [usdStay, eurStay])], { currency: 'EUR' });
+
+		const resources = await fetchConnectionResources(input);
+
+		// The USD one is nominally cheaper. It is still not an option.
+		expect(resources.stay?.property.name).toBe('Priced In Euros');
+		expect(resources.stayCandidates).toHaveLength(1);
+	});
+
+	it('filters nothing when the search never named a currency', async () => {
+		const captured: StaySearchQuery[] = [];
+		const input = baseInput([capturingStayProvider(captured, [stay('Hostel', 'dorm', 2000)])]);
+
+		const resources = await fetchConnectionResources(input);
+
+		expect(resources.stay?.property.name).toBe('Hostel');
+	});
+});
+
+/**
+ * Issue #148. The bound the PR states as "what one click costs", asserted where the fan-out
+ * actually happened rather than only on the budget object in isolation: `pipeline.ts` calls
+ * `fetchConnectionResources` once per connection candidate, all of them sharing one budget.
+ */
+describe('fetchConnectionResources: one search cannot spend a month (issue #148)', () => {
+	function meteredStayProvider(idString: string, costPerLookup: number, calls: { n: number }): StayProvider {
+		const id = idString as ProviderId;
+		return {
+			kind: 'stay',
+			id,
+			label: `Metered stays (${idString})`,
+			needsKey: false,
+			keyFields: [],
+			async healthCheck() {
+				return { ok: true, data: {}, source: source(id), requestsUsed: 0 };
+			},
+			estimateSearchStaysCost: () => costPerLookup,
+			async searchStays(): Promise<ProviderResult<Stay[]>> {
+				calls.n += 1;
+				return { ok: true, data: [stay('Hostel', 'dorm', 2000)], source: source(id), requestsUsed: costPerLookup };
+			}
+		};
+	}
+
+	/** The pipeline's own worst case: `FALLBACK_MAX_CANDIDATES`, which fires precisely on a
+	 * search that found nothing — so it is the common path, not the rare one. */
+	const FALLBACK_CANDIDATE_COUNT = 24;
+
+	async function runOneSearchOver(candidateCount: number, providers: readonly StayProvider[]) {
+		const budget = createStayLookupBudget();
+		for (let i = 0; i < candidateCount; i += 1) {
+			await fetchConnectionResources({ ...baseInput(providers, { currency: 'EUR' }), stayLookupBudget: budget });
+		}
+	}
+
+	it('lets Booking be searched once across 24 candidates, not 24 times', async () => {
+		const calls = { n: 0 };
+		await runOneSearchOver(FALLBACK_CANDIDATE_COUNT, [meteredStayProvider('booking', 2, calls)]);
+
+		expect(calls.n).toBe(1);
+	});
+
+	it('holds one search to 2 Booking requests, against a 50-a-month free tier', async () => {
+		const calls = { n: 0 };
+		await runOneSearchOver(FALLBACK_CANDIDATE_COUNT, [meteredStayProvider('booking', 2, calls)]);
+
+		// 1 lookup x 2 requests. Before this, 24 candidates x 2 = 48 — the entire tier, from
+		// one click, on a search that returned nothing.
+		expect(calls.n * 2).toBe(2);
+	});
+
+	it('holds one search to 18 Agoda requests', async () => {
+		const calls = { n: 0 };
+		await runOneSearchOver(FALLBACK_CANDIDATE_COUNT, [meteredStayProvider('agoda', 6, calls)]);
+
+		expect(calls.n).toBe(3);
+		expect(calls.n * 6).toBe(18);
+	});
+
+	it('leaves both free tiers good for at least 20 searches a month', async () => {
+		const booking = { n: 0 };
+		const agoda = { n: 0 };
+		await runOneSearchOver(FALLBACK_CANDIDATE_COUNT, [meteredStayProvider('booking', 2, booking)]);
+		await runOneSearchOver(FALLBACK_CANDIDATE_COUNT, [meteredStayProvider('agoda', 6, agoda)]);
+
+		expect(50 / (booking.n * 2)).toBeGreaterThanOrEqual(20);
+		expect(500 / (agoda.n * 6)).toBeGreaterThanOrEqual(20);
+	});
+
+	it('still prices a bed for the candidates it does spend a lookup on', async () => {
+		// The bound must ration, never disable — a search that prices no bed at all is the
+		// defect this PR's other half exists to fix.
+		const calls = { n: 0 };
+		const budget = createStayLookupBudget();
+		const provider = meteredStayProvider('agoda', 6, calls);
+
+		const first = await fetchConnectionResources({
+			...baseInput([provider], { currency: 'EUR' }),
+			stayLookupBudget: budget
+		});
+
+		expect(first.stay?.property.name).toBe('Hostel');
+	});
+
+	it('degrades a candidate past the ration to no bed, never to a dropped candidate', async () => {
+		const calls = { n: 0 };
+		const budget = createStayLookupBudget();
+		const provider = meteredStayProvider('booking', 2, calls);
+
+		await fetchConnectionResources({ ...baseInput([provider], { currency: 'EUR' }), stayLookupBudget: budget });
+		const second = await fetchConnectionResources({
+			...baseInput([provider], { currency: 'EUR' }),
+			stayLookupBudget: budget
+		});
+
+		expect(second.stay).toBeUndefined();
+		expect(second.stayCandidates).toEqual([]);
 	});
 });

@@ -40,6 +40,7 @@ import type {
 	Duration,
 	IsoCalendarDate,
 	IsoCountryCode,
+	IsoCurrencyCode,
 	LandingToTransportRule,
 	Stay,
 	Transfer,
@@ -49,7 +50,8 @@ import type { ConnectionResources } from '../algorithm/build';
 import { femaleDormFit, isFemaleDormSelectable } from '../stays/female-dorm-fit';
 import { getTaxiFareEstimate, OSRM_PROVIDER_ID } from '../providers/transfers/osrm';
 import type { TaxiFareEstimate } from '../providers/transfers/taxi-rate-table';
-import { autoWidenStaySources, flattenOk, stayCostAwareSources } from './cost-aware';
+import { claimAutoWidenStaySources, flattenOk, stayCostAwareSources } from './cost-aware';
+import type { StayLookupBudget } from '../providers/budget';
 import type { RecordProviderCall, SourceTracker } from './provenance';
 
 /** Brief line 76: "cheapest hotels/hostels for each connection within 100km." */
@@ -63,10 +65,13 @@ export const DEFAULT_STAY_RADIUS_KM = 100;
  * select to update total") is a UI concern this module hands the option list to rather than
  * decides.
  *
- * Ignores currency when comparing prices, same simplification `build.ts`'s own
- * `sumMoney` makes explicit is out of scope at this layer: every provider in one search is
- * asked for the same `SearchDependencies.currency`, so a mismatch here would already be a
- * degraded result by the time it reaches sorting.
+ * Compares raw minor units with no currency conversion, which is safe only because
+ * `fetchCheapestStay` has already dropped every stay not quoted in the search's own
+ * currency before calling this. That filter is what makes the comparison meaningful —
+ * issue #152: this function's previous comment claimed a mismatch "would already be a
+ * degraded result by the time it reaches sorting", which was the assumption that hid the
+ * bug. Nothing asked providers for a currency at all, so mismatches were the normal case
+ * and sorting them by bare minor units ranked 2000 USD below 2200 EUR.
  */
 export function rankStaysByPrice(stays: readonly Stay[]): Stay[] {
 	return [...stays].sort((a, b) => a.pricePerNight.minorUnits - b.pricePerNight.minorUnits);
@@ -269,11 +274,24 @@ async function fetchCheapestStay(
 	sources: SourceTracker,
 	record: RecordProviderCall,
 	travellers: number | undefined,
-	females: number | undefined
+	females: number | undefined,
+	stayLookupBudget: StayLookupBudget
 ): Promise<StaySearchOutcome> {
 	const costAwareSources = stayCostAwareSources(providers, query, keys, signal, sources, record);
-	const result = await runCostAwareSearch(costAwareSources, { widenTo: autoWidenStaySources(costAwareSources) });
-	const candidates = rankStaysByPrice(flattenOk(result));
+	const result = await runCostAwareSearch(costAwareSources, {
+		widenTo: claimAutoWidenStaySources(costAwareSources, stayLookupBudget)
+	});
+	// Issue #152: a stay priced in a currency this itinerary cannot total is not a cheaper
+	// option, it is an unusable one — the same reasoning issue #80 applied to a female-only
+	// dorm a group cannot book. Dropped here, before ranking, so it can neither become the
+	// pick nor sit in `stayCandidates` offering a picker a price in the wrong money.
+	// `build.ts` refuses to total a mix (`sumMoney`), and until this filter existed that
+	// refusal threw, which `pipeline.ts` caught by discarding the whole candidate — so a
+	// successfully priced bed destroyed the itinerary it belonged to.
+	const inSearchCurrency = flattenOk(result).filter(
+		(stay) => query.currency === undefined || stay.pricePerNight.currency === query.currency
+	);
+	const candidates = rankStaysByPrice(inSearchCurrency);
 	const selected = candidates.find((stay) => isStaySelectable(stay, travellers, females));
 	return { candidates, selected };
 }
@@ -305,6 +323,26 @@ export interface FetchConnectionResourcesInput {
 	 * consulted for nothing else here. `undefined` degrades to no taxi estimate for this
 	 * connection, never a guess borrowed from the wrong country's rate card. */
 	connectionCountryCode?: IsoCountryCode;
+	/**
+	 * Issue #152: the currency every provider in this search is asked to quote in
+	 * (`SearchDependencies.currency`). Threading it here is the actual fix for "No bed
+	 * priced for this stopover" — it never reached the stay query before, so Agoda was
+	 * called with no `currency_id` and answered in USD (its documented default) while the
+	 * flights came back in EUR. `build.ts`'s `sumMoney` then refused to total the mix and
+	 * threw, and `pipeline.ts` caught that by dropping the whole candidate. Every itinerary
+	 * that successfully priced a bed was destroyed by having priced one; only the bedless
+	 * ones survived to be rendered, each captioned "No bed priced for this stopover."
+	 *
+	 * `undefined` disables the currency filter rather than rejecting everything — a search
+	 * that never asked for a particular currency has no grounds to refuse one.
+	 */
+	currency?: IsoCurrencyCode;
+	/** Issue #148: this search's shared ration of stay lookups, created once per search by
+	 * `pipeline.ts` and passed to every candidate. Without it each candidate called every
+	 * keyed stay provider, so one click cost as many lookups as the route graph happened to
+	 * return candidates — 6 ordinarily, 24 on the fallback sweep. See
+	 * `providers/budget/stay-lookup-budget.ts`. */
+	stayLookupBudget: StayLookupBudget;
 }
 
 /**
@@ -368,7 +406,14 @@ export async function fetchConnectionResources(
 			near: input.connectionCoordinates,
 			radiusKm: input.stayRadiusKm,
 			checkIn: input.checkIn,
-			checkOut: input.checkOut
+			checkOut: input.checkOut,
+			// Issue #152: both of these were simply missing, and both were silently wrong
+			// rather than absent in effect. No `currency` meant Agoda omitted `currency_id`
+			// and priced in USD against EUR flights; no `travellers` meant every stay was
+			// priced for `DEFAULT_TRAVELLERS` regardless of the party the traveller entered,
+			// so a party of three saw one adult's rate.
+			currency: input.currency,
+			travellers: input.travellers
 		},
 		input.stayProviders,
 		input.keys,
@@ -376,7 +421,8 @@ export async function fetchConnectionResources(
 		input.sources,
 		input.record,
 		input.travellers,
-		input.females
+		input.females,
+		input.stayLookupBudget
 	);
 	if (!stay) return withoutStay(stayCandidates);
 
