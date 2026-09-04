@@ -34,6 +34,9 @@ real app, and a live search returns itineraries. A plateau is not a stop.
 | 21 | Settings live at /settings, BYOK with per-provider quota counters | yes | 200 in production |
 | 22 | Map, geocoding, stay picker, timeline selection merged | yes | integrated build clean |
 
+| 23 | Effect loop fixed (#87): search runs to completion | yes | providers answer, no console errors |
+| 24 | Stay made optional and cost policy made quota-aware (#94) | yes | **first real itinerary returned** |
+
 ## Decisions worth auditing
 
 **Amadeus was abandoned before any code was written.** It was the intended source for both
@@ -176,3 +179,25 @@ returned 200, every asset loaded, the PWA installed, and a real search returned 
 all, frozen by a Svelte reactive loop. The tests were not wrong; they tested the right things
 at the wrong level. `stream-order.test.ts` proves result cards never reorder while streaming.
 Nothing proved the stream was consumed.
+
+## The exit predicate, met
+
+**2026-09-04, verified live at https://flights.mauri.app with no API keys entered:**
+
+Barcelona to Tallinn, a route with no direct flight, returns
+**BCN → Dublin → TLL for €58.54**, both legs Ryanair, with free time from Wed 7 Oct 07:35 to
+Mon 19 Oct 06:10. That is the thing the app exists to do, working, from a browser, against
+live provider data, with no key and no backend.
+
+It says three separate times that no bed was priced and that the total excludes a stay, and it
+records its own provenance: "via Ryanair (no key required), fetched this minute". Getting that
+right mattered more than finding the flight. An itinerary that quietly omits the hotel while
+looking complete is worse than no itinerary.
+
+**The two failures that stood between the code and this result were both invisible to the test
+suite.** A single unawaited async call inside an `$effect` froze the page through 849 passing
+tests and a green deploy. Underneath it, a rule I wrote into the pipeline brief, "stage 1
+spends nothing", was correct for Skyscanner's 20-per-month quota and wrong for Agoda's 500, and
+it made every itinerary unbuildable because stays could never resolve.
+
+Neither was found by a test. Both were found by opening the site and trying to plan a trip.
