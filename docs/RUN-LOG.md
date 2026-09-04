@@ -224,3 +224,46 @@ This is the same failure as the reactive loop, one level up. There, 849 passing 
 code that never ran in a browser. Here, a browser test verified a route that never needed the
 feature. **Choosing the test case is part of the test**, and a case that passes for the wrong
 reason is worse than no case at all, because it stops the search.
+
+## The measurement instrument was the bug
+
+For a stretch this morning the project could not tell a broken feature from a broken test.
+
+Two agents reported that `BCN → OTP` still returned zero itineraries after #115's fix merged
+and deployed. One of them reopened the issue on that evidence, with a fair argument attached:
+if "closed" only means "the PR merged", then every closed pricing bug deserves re-checking too.
+I then reproduced the zero myself, twice, and was about to accept it.
+
+A freshly launched Chromium returned **1 of 1 itinerary** on the identical URL, via Bergamo.
+
+Every agent here shares one Playwright browser. It had sixteen tabs open against four different
+origins, and it switched tabs between two of my own tool calls, so the page I measured was not
+the page I had loaded. Worse, the app's response cache lives in IndexedDB, which survives both
+`localStorage.clear()` and deleting Cache Storage, so the careful cleanup one agent performed
+before testing left the cache fully intact.
+
+Three fixes came out of it, all in AGENTS.md: launch your own browser context, delete
+`flights-cache` from IndexedDB, and re-run the repro written in the issue body against
+production before closing anything.
+
+The reopened issue was wrong and the reasoning behind it was right. Both things at once.
+
+## What the request log said that the screen did not
+
+Running the owner's own reference route in a clean browser, `BVC → PFO`, produced the clearest
+evidence yet of a rule this project had already written down and then broken.
+
+The screen said "Nothing has answered yet" and "None of the free providers above found a
+workable connection for this search." The network said Ryanair answered twice, `404` on BVC and
+`404` on RAI, which is Ryanair's way of stating those airports are not in its network at all.
+
+So the page reported a provider as silent when it had spoken, and then invented a conclusion
+("no workable connection") from an answer that never supported it. Widening the dates, which is
+what that copy tells the user to do, cannot possibly help. Filed as #130, and it is the same
+rule as the Agoda false "Not subscribed": show the answer you got.
+
+The same clean run priced the rate-limit risk properly. One `BCN → OTP` search fires **95**
+requests at Ryanair, not the 48 estimated in #121. Ninety-one of them fetch a route graph that
+is identical between searches and stable for days. Caching that one response class turns a
+95-request search into a 12-request search, which retires the rate-limit question rather than
+tuning a cap against it.
