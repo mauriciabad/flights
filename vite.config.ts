@@ -14,14 +14,15 @@ export default defineConfig({
 				runes: ({ filename }) =>
 					filename.split(/[/\\]/).includes('node_modules') ? undefined : true
 			},
+			// These sit at the top level of the plugin options, not under a `kit`
+			// key. Nesting them makes vite-plugin-svelte warn and ignore them,
+			// which silently drops the base path and breaks every asset URL.
 			adapter: adapter({ fallback: '404.html', strict: false }),
-			kit: {
-				paths: { base, relative: false },
-				// There is no server. Every route is a shell that hydrates and
-				// then fetches from the provider APIs in the browser.
-				prerender: { handleHttpError: 'warn' },
-				appDir: 'app'
-			}
+			paths: { base, relative: false },
+			// There is no server. Every route is a shell that hydrates and
+			// then fetches from the provider APIs in the browser.
+			prerender: { handleHttpError: 'warn' },
+			appDir: 'app'
 		}),
 		SvelteKitPWA({
 			registerType: 'autoUpdate',
