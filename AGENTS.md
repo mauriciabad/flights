@@ -191,6 +191,34 @@ cached value whose shape changed needs a key that no longer resolves to the old 
 Do not merge a PR that has an unresolved review comment on it, and post blocking feedback as a
 PR review rather than only as a message to the author, so whoever merges can see it.
 
+## The owner's quota is real money he told us he would not spend
+
+He pays nothing, by his own instruction. Every metered request comes out of a free tier that
+resets on the 1st, and once it is gone it is gone for the rest of the month.
+
+Eighty-five percent of his Booking.com allowance went in a single morning, spent by agents
+testing, while the settings card still read "0 of 40 requests spent". Both numbers were
+right. The cap lives in `localStorage`, the quota belongs to the RapidAPI account, so a
+counter is per browser profile and the allowance is per key. Every fresh Chromium starts
+again at zero believing it has the full allowance, and the instruction in the section above
+to launch your own browser is what multiplied that by the number of agents running.
+
+So:
+
+- **Do not call a metered provider to look at something.** Booking, Agoda, Skyscanner,
+  Flights Sky and Kiwi all cost. Ryanair, OSRM and Transitous are free, use those to explore.
+- **Capture once, then work offline.** A response you already received is a fixture. Request
+  construction, parsing and classification are all testable without the network, and that is
+  where the bugs have actually been. `{"status":false,"message":"The location cannot be
+  empty"}` was a malformed request of ours, provable from one captured response.
+- **Ask before a live confirmation, with a number.** One request at the end to prove the fix
+  is reasonable. Ten to explore is not. Say how many and why.
+- **Never press Test repeatedly to debug.** Saving a key spends a request today, and the
+  button has no cooldown. Debugging the key screen is the most expensive thing in the app.
+
+If your work genuinely cannot proceed without spending, say so and stop. Being blocked and
+saying it is better than quietly emptying his month.
+
 ## Definition of done
 
 - `pnpm check` passes. No new type errors, no `any` smuggled in to silence one.
