@@ -19,13 +19,10 @@
 
 	interface Props {
 		title?: string;
-		/** The query currently on screen, so the results page can leave it out of its own
-		 * "recent" list instead of offering the traveller the page they are looking at. */
-		excludeQuery?: string;
 		class?: string;
 	}
 
-	let { title = 'Recent searches', excludeQuery, class: className }: Props = $props();
+	let { title = 'Recent searches', class: className }: Props = $props();
 
 	let mounted = $state(false);
 	onMount(() => {
@@ -35,10 +32,11 @@
 	const rows = $derived.by(() => {
 		if (!mounted) return [];
 		return searchHistory.entries
-			.filter((entry) => entry.query !== excludeQuery)
 			.map((entry) => {
 				const params = new URLSearchParams(entry.query);
 				const query = buildSearchQuery(searchParamsToFields(params));
+				// An entry that no longer decodes to a whole search cannot be replayed, so it
+				// is skipped rather than rendered as a link that goes nowhere useful.
 				return query ? { query: entry.query, summary: summarizeSearch(query) } : undefined;
 			})
 			.filter((row) => row !== undefined);

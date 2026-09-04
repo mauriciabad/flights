@@ -40,6 +40,9 @@
 		void goto(`${base}/results/?${normalizeQuery(page.url.searchParams)}`, { replaceState: true });
 	});
 
+	/** Read once per page load, not reactive: a form does not need to notice midnight
+	 * ticking over while it is open, and the prerendered build's date never reaches a
+	 * browser because this only matters once hydrated. */
 	const todayIso = new Date().toISOString().slice(0, 10);
 
 	function runSearch(next: URLSearchParams) {
