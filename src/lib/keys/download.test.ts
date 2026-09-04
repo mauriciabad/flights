@@ -28,7 +28,7 @@ describe('downloadKeysFile', () => {
 	});
 
 	it('builds the anchor with the given filename and revokes the blob URL afterwards', () => {
-		const envelope = buildExportEnvelope({ skyscanner: 'sk-live-1234' });
+		const envelope = buildExportEnvelope({ skyscanner: { apiKey: 'sk-live-1234' } });
 		downloadKeysFile(envelope, 'my-keys.json');
 
 		expect(createObjectURL).toHaveBeenCalledTimes(1);

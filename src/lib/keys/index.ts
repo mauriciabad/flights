@@ -4,5 +4,12 @@ export { downloadKeysFile } from './download';
 export { redactKey } from './redact';
 export { clearKeysFromStorage, loadKeysFromStorage, saveKeysToStorage } from './storage';
 export { KeyStore, keyStore } from './store.svelte';
-export type { ImportOutcome, ImportWarning, KeyFileEnvelope, ProviderId, ProviderKeys } from './types';
+export type {
+	ImportOutcome,
+	ImportWarning,
+	KeyFileEnvelope,
+	ProviderId,
+	ProviderKeys,
+	ProviderKeyValues
+} from './types';
 export { KEY_FILE_VERSION } from './types';

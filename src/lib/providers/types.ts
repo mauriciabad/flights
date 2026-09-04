@@ -55,10 +55,12 @@ export interface ProviderKeyField {
 export type ProviderKeyValues = Readonly<Record<string, string>>;
 
 /** Key material for every adapter, keyed by ProviderId, as the registry needs it to
- * answer "which adapters are usable right now." Deliberately a plain nested record rather
- * than a class or a lookup callback: the BYOK store (issue #3) does not exist yet, and a
- * plain record is the narrowest thing that store can hand over without this file taking a
- * dependency on its internals (AGENTS.md: "define the narrowest possible interface"). */
+ * answer "which adapters are usable right now." This is also the exact shape the BYOK
+ * store (`src/lib/keys/`, issue #3) persists to localStorage and hands back — one model
+ * for "a provider's key material" shared by both modules, not a second one translated at
+ * the seam (issue #49). Deliberately a plain nested record rather than a class or a lookup
+ * callback, so this file takes no dependency on the store's internals beyond its exported
+ * types (AGENTS.md: "define the narrowest possible interface"). */
 export type AvailableKeys = Readonly<Record<ProviderId, ProviderKeyValues>>;
 
 /**

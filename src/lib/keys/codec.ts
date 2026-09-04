@@ -1,12 +1,14 @@
 import { KEY_FILE_VERSION } from './types';
-import type { ImportWarning, KeyFileEnvelope, ProviderId, ProviderKeys } from './types';
+import type { ImportWarning, KeyFileEnvelope, ProviderId, ProviderKeys, ProviderKeyValues } from './types';
 
 /** Pure — builds the export file's contents. The actual browser download is in `download.ts`. */
 export function buildExportEnvelope(keys: ProviderKeys): KeyFileEnvelope {
 	return {
 		version: KEY_FILE_VERSION,
 		exportedAt: new Date().toISOString(),
-		keys: { ...keys }
+		// Copy each provider's field map too, not just the top-level object — the result
+		// must not alias anything the live store could later mutate in place.
+		keys: Object.fromEntries(Object.entries(keys).map(([id, values]) => [id, { ...values }]))
 	};
 }
 
@@ -33,7 +35,7 @@ export function parseImportedKeysFile(
 	}
 	const envelope = raw as Record<string, unknown>;
 
-	// Version 1 is the only shape that has ever existed. A future bump adds a
+	// Version 2 is the only shape that has ever existed. A future bump adds a
 	// branch here that upgrades the old shape, instead of rejecting it.
 	if (envelope.version !== KEY_FILE_VERSION) {
 		return {
@@ -46,12 +48,27 @@ export function parseImportedKeysFile(
 	}
 
 	const warnings: ImportWarning[] = [];
-	const keys: ProviderKeys = {};
-	for (const [providerId, value] of Object.entries(envelope.keys as Record<string, unknown>)) {
-		if (typeof value !== 'string' || value.trim().length === 0) {
-			// Never include the offending value in the warning — it may well be a
+	// Built up mutably here, then returned as the caller-facing `Readonly<...>` shape —
+	// `ProviderKeys`'s index signature is read-only precisely so a caller can't do this.
+	const keys: Record<ProviderId, ProviderKeyValues> = {};
+	for (const [providerId, rawValue] of Object.entries(envelope.keys as Record<string, unknown>)) {
+		if (typeof rawValue !== 'object' || rawValue === null || Array.isArray(rawValue)) {
+			// Never include the offending value in the warning — it may well contain a
 			// half-formed key.
-			warnings.push({ providerId, message: 'Skipped: the key value must be a non-empty string.' });
+			warnings.push({
+				providerId,
+				message: 'Skipped: the key value must be an object mapping field id to string.'
+			});
+			continue;
+		}
+		const fields: Record<string, string> = {};
+		for (const [fieldId, fieldValue] of Object.entries(rawValue as Record<string, unknown>)) {
+			if (typeof fieldValue === 'string' && fieldValue.trim().length > 0) {
+				fields[fieldId] = fieldValue.trim();
+			}
+		}
+		if (Object.keys(fields).length === 0) {
+			warnings.push({ providerId, message: 'Skipped: no non-empty field values.' });
 			continue;
 		}
 		if (knownProviderIds && !knownProviderIds.includes(providerId)) {
@@ -60,33 +77,50 @@ export function parseImportedKeysFile(
 				message: 'Unknown provider id. Imported anyway in case a newer app version recognises it.'
 			});
 		}
-		keys[providerId] = value.trim();
+		keys[providerId] = fields;
 	}
 	return { ok: true, keys, warnings };
 }
 
+/** True when two field maps hold the exact same field ids and values. */
+function fieldsEqual(a: ProviderKeyValues, b: ProviderKeyValues): boolean {
+	const aKeys = Object.keys(a);
+	const bKeys = Object.keys(b);
+	if (aKeys.length !== bKeys.length) return false;
+	return aKeys.every((key) => a[key] === b[key]);
+}
+
 /**
- * Merges imported keys into the existing set. Anything the file doesn't
- * mention is left exactly as it was — import can only add to or overwrite
- * the entries it names, never wipe the rest.
+ * Merges imported keys into the existing set, per field rather than replacing a whole
+ * provider wholesale: an imported provider entry only adds or overwrites the field ids it
+ * names, so a field the file doesn't mention (or an entire provider it doesn't mention)
+ * survives untouched — same "the file can only add to what's here, never wipe it" rule
+ * this always followed, now applied one level deeper.
  */
 export function mergeProviderKeys(
 	existing: ProviderKeys,
 	incoming: ProviderKeys
 ): { merged: ProviderKeys; added: ProviderId[]; updated: ProviderId[]; unchanged: ProviderId[] } {
-	const merged: ProviderKeys = { ...existing };
+	// Same reasoning as parseImportedKeysFile above: mutable while building, read-only once
+	// handed back.
+	const merged: Record<ProviderId, ProviderKeyValues> = { ...existing };
 	const added: ProviderId[] = [];
 	const updated: ProviderId[] = [];
 	const unchanged: ProviderId[] = [];
-	for (const [providerId, value] of Object.entries(incoming)) {
-		if (!(providerId in existing)) {
+	for (const [providerId, incomingFields] of Object.entries(incoming)) {
+		const existingFields = existing[providerId];
+		if (!existingFields) {
 			added.push(providerId);
-		} else if (existing[providerId] !== value) {
-			updated.push(providerId);
-		} else {
-			unchanged.push(providerId);
+			merged[providerId] = { ...incomingFields };
+			continue;
 		}
-		merged[providerId] = value;
+		const mergedFields = { ...existingFields, ...incomingFields };
+		merged[providerId] = mergedFields;
+		if (fieldsEqual(existingFields, mergedFields)) {
+			unchanged.push(providerId);
+		} else {
+			updated.push(providerId);
+		}
 	}
 	return { merged, added, updated, unchanged };
 }
