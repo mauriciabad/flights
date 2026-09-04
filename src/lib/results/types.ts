@@ -18,6 +18,7 @@
 import type { IataAirlineCode, IataAirportCode, Itinerary, Money } from '$lib/domain';
 import { currencyExponent, majorUnitsOf } from '$lib/domain';
 import type { ItineraryScore } from '$lib/algorithm/score';
+import { defaultStopoverLength, isFlightChange, stopoverLengths, stopoverOfLength } from '$lib/algorithm/stopover-length';
 import type { ProviderError, ProviderId, ProviderKind } from '$lib/providers/types';
 import type { ProviderIssueReason } from '$lib/components';
 import type {
@@ -108,6 +109,49 @@ export interface ResultProvenance {
 	freshness: PriceFreshness;
 }
 
+/**
+ * Issue #224: how long this stopover can be, and what the card is currently showing.
+ *
+ * The card opens at `minimum`, the fewest nights this connection city can be stopped over
+ * in, and the traveller moves along `available` from there. Everything a nights control
+ * needs to render and to explain itself is here, so `ResultCard` never reaches back into
+ * the group's `variants` to work out what pressing + would do.
+ */
+/** One rung of a connection's ladder: a length it can do, and the trip at that length. */
+export interface StopoverLengthOption {
+	nights: number;
+	/** The best-scoring pairing at this length. Carried rather than only its night count so
+	 * a control can price a step BEFORE it is taken. A longer stay usually means a
+	 * different onward fare, and "one more night, +EUR 41.00" on the button is the whole
+	 * point of issue #224's "never silently". */
+	itinerary: Itinerary;
+}
+
+export interface StopoverLengths {
+	/** Every length this connection offers, ascending. Always contains the shown
+	 * itinerary's own length, and always contains `minimum`. */
+	options: StopoverLengthOption[];
+	/** The count the card opens on, and the floor the traveller can return to. */
+	minimum: number;
+	/** The itinerary at `minimum`. What a longer pick's price and flights are compared
+	 * against, so the card can say the price moved and why (issue #224: "Do not silently
+	 * cap it either"). Identical to `ScoredResult.itinerary` while nothing is extended. */
+	minimumItinerary: Itinerary;
+	/**
+	 * True when this city can be flown through on the same calendar day, which issue #225
+	 * makes a flight change rather than a stopover:
+	 *
+	 * > there shoudl be no casa in wich the nights could be 0 or more, that case should
+	 * > just be a flight change and thats it
+	 *
+	 * The card says so and offers no nights ladder. Longer pairings through the same city
+	 * may still exist in `available`, and stay reachable through the flight picker, which
+	 * is a deliberate choice of a specific flight rather than a night count counted up
+	 * from zero.
+	 */
+	isFlightChange: boolean;
+}
+
 /** One stopover, ready to render and order: `ItineraryGroup.best` plus its provenance.
  * `algorithm/score.ts` never filters, only ranks, an avoided-airline group is always
  * present here, exactly as it is in `ItineraryGroup`. */
@@ -122,10 +166,18 @@ export interface ScoredResult {
 	sequence: number;
 	itinerary: Itinerary;
 	score: ItineraryScore;
-	/** `ItineraryGroup.variants.length`, brief line 67: "user can see alternative
-	 * flights for same location... selecting updates ui." Exposed so a card can say "+2
-	 * more flight times" without the caller re-deriving it from the group itself. */
+	/** How many pairings through this stopover share the shown itinerary's night count,
+	 * brief line 67: "user can see alternative flights for same location... selecting
+	 * updates ui." Exposed so a card can say "+2 more flight times" without the caller
+	 * re-deriving it from the group itself.
+	 *
+	 * Issue #224 narrowed this from every variant to the ones at this length. Pairings at
+	 * other lengths are a different offer, a different number of nights and a different
+	 * total, and the nights control is what reaches them; counting them here would have
+	 * promised "3 more flight times" and delivered three other trips. */
 	variantCount: number;
+	/** Issue #224: the stopover lengths this connection offers, and which one is shown. */
+	stopover: StopoverLengths;
 	price: ResultProvenance;
 }
 
@@ -205,19 +257,44 @@ function oldestPartAgeMs(parts: readonly ProvenancePart[]): number {
  * the caller (`+page.svelte`) owns assigning that once per connection code across the
  * whole search's lifetime, the same "first-seen order, never recomputed" rule
  * `stream-order.ts` needs to keep ties stable.
+ *
+ * `requestedNights` is issue #224's nights control: the length the traveller has chosen
+ * for THIS stopover, if any. Omitted, or asking for a length this city cannot do, falls
+ * back to `group.best`, the shortest one it can. Nothing here re-prices or re-fetches:
+ * every length is a pairing this search already has in `variants`, so moving between them
+ * costs no provider request at all.
  */
 export function deriveScoredResult(
 	group: ItineraryGroup,
 	snapshot: Pick<SearchSnapshot, 'providers' | 'done'>,
-	sequence: number
+	sequence: number,
+	requestedNights?: number
 ): ScoredResult {
+	const lengths = stopoverLengths(group.variants, (variant) => variant.score.itinerary.nightsInConnection);
+	const minimum = defaultStopoverLength(lengths);
+	const chosen =
+		(requestedNights === undefined ? undefined : stopoverOfLength(lengths, requestedNights)) ?? minimum;
+	// `group.variants` is never empty (a group exists because a variant put it there), so
+	// both of the above resolve; `group.best` is the honest fallback if that ever changes.
+	const shown = chosen?.pick ?? group.best;
+	const minimumShown = minimum?.pick ?? group.best;
+
 	return {
 		id: group.connectionAirportCode,
 		sequence,
-		itinerary: group.best.score.itinerary,
-		score: group.best.score,
-		variantCount: group.variants.length,
-		price: buildProvenance(group.best.sources, snapshot.providers, snapshot.done)
+		itinerary: shown.score.itinerary,
+		score: shown.score,
+		variantCount: chosen?.count ?? 1,
+		stopover: {
+			options: lengths.map((length) => ({
+				nights: length.nights,
+				itinerary: length.pick.score.itinerary
+			})),
+			minimum: minimumShown.score.itinerary.nightsInConnection,
+			minimumItinerary: minimumShown.score.itinerary,
+			isFlightChange: isFlightChange(lengths)
+		},
+		price: buildProvenance(shown.sources, snapshot.providers, snapshot.done)
 	};
 }
 

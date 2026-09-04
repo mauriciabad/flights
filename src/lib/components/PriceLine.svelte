@@ -20,7 +20,7 @@
 	 * has to be the one that stops overstating. `from EUR 238.00` is a floor, which is
 	 * what this number has always actually been whenever a part of the trip went unpriced.
 	 */
-	import type { Itinerary } from '$lib/domain';
+	import type { Coordinates, Itinerary } from '$lib/domain';
 	import { formatMoney } from '$lib/format';
 	import { priceBreakdown } from './itinerary-metrics';
 
@@ -29,11 +29,16 @@
 		/** `lg` for the results card's headline, `md` anywhere the price is not the
 		 * loudest thing in its own block. */
 		size?: 'md' | 'lg';
+		/** Issue #224: the stopover city's centre point, when the caller has resolved the
+		 * airport record and the dataset knows one. The bed line then says how far out the
+		 * bed is, which is one of the two facts the owner named as his reason to spend
+		 * another night somewhere. Absent, the line simply omits it. */
+		cityCentre?: Coordinates;
 	}
 
-	let { itinerary, size = 'lg' }: Props = $props();
+	let { itinerary, size = 'lg', cityCentre }: Props = $props();
 
-	const breakdown = $derived(priceBreakdown(itinerary));
+	const breakdown = $derived(priceBreakdown(itinerary, { cityCentre }));
 	const showParts = $derived(breakdown.parts.length > 1);
 	const missingGround = $derived(breakdown.unpricedTransferCount > 0);
 	const isFloor = $derived(breakdown.missingStay || missingGround);

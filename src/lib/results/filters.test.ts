@@ -45,6 +45,27 @@ describe('applyFilters', () => {
 		expect(filtered.map((r) => r.id)).toEqual([longStopover.id]);
 	});
 
+	it('keeps a stopover that can reach the asked-for nights, whatever length its card shows', () => {
+		// Issue #224: a card opens at its SHORTEST length, so reading this filter against
+		// the length on screen would hide the three-night London trip behind the one-night
+		// London card, which is exactly the trip somebody asking for three nights wants.
+		const oneNightShown = makeScoredResult({ nightsInConnection: 1 });
+		const extendable = {
+			...oneNightShown,
+			stopover: {
+				...oneNightShown.stopover,
+				options: [
+					{ nights: 1, itinerary: oneNightShown.itinerary },
+					{ nights: 3, itinerary: oneNightShown.itinerary }
+				]
+			}
+		};
+
+		const filtered = applyFilters([extendable], { ...emptyFilters(), minNights: 3 });
+
+		expect(filtered.map((r) => r.id)).toEqual([extendable.id]);
+	});
+
 	it('filters by minimum free time', () => {
 		const short = makeScoredResult({ freeTimeMinutes: 60 });
 		const long = makeScoredResult({ freeTimeMinutes: 600 });
@@ -108,6 +129,24 @@ describe('deriveFilterOptions', () => {
 		expect(options.priceRangeMinorUnits).toEqual({ min: 5_000, max: 20_000 });
 		expect(options.totalDurationRangeMinutes).toEqual({ min: 300, max: 900 });
 		expect(options.nightsRange).toEqual({ min: 0, max: 3 });
+	});
+
+	it('opens the nights slider to every length a stopover can reach, not only the one shown', () => {
+		// A list of one-night cards would otherwise draw a slider running 1 to 1, and the
+		// longer trips behind those cards would be unaskable-for (issue #224).
+		const shown = makeScoredResult({ nightsInConnection: 1 });
+		const extendable = {
+			...shown,
+			stopover: {
+				...shown.stopover,
+				options: [
+					{ nights: 1, itinerary: shown.itinerary },
+					{ nights: 4, itinerary: shown.itinerary }
+				]
+			}
+		};
+
+		expect(deriveFilterOptions([extendable]).nightsRange).toEqual({ min: 1, max: 4 });
 	});
 
 	it('returns empty option lists and no bounds for zero results', () => {

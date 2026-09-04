@@ -172,6 +172,19 @@
 	 * it is always the one current answer for the whole search, never keyed per connection. */
 	let transferOptionsByConnection = $state<Record<string, ConnectionTransferOptions>>({});
 	let outerTransferOptions = $state<OuterTransferOptions | undefined>(undefined);
+	/**
+	 * Issue #224: how many nights the traveller has chosen for a given stopover, for the
+	 * ones they have touched. Absent means "whatever the card opens on", which is the
+	 * shortest length that connection can do.
+	 *
+	 * It lives here rather than inside `ResultCard` because a card's price, trip strip and
+	 * metric rail all derive from one itinerary, and the pipeline replaces every group on
+	 * every snapshot: a length held inside the card would be overwritten the moment an
+	 * unrelated provider answered. Kept per connection code, the same key `order` and
+	 * `sequenceByConnection` already use, so a card's chosen length survives the group
+	 * behind it being rebuilt.
+	 */
+	let chosenNightsByConnection = $state<Record<string, number>>({});
 
 	// Plain mutable bookkeeping, not `$state`: neither needs to trigger a render on its
 	// own, only the `$state` fields written from inside the functions below do that.
@@ -194,7 +207,56 @@
 		return sequence;
 	}
 
-	const results = $derived(slotsToResults(order));
+	/**
+	 * Issue #224: the stopover length one connection should be showing. The traveller's own
+	 * pick wins; failing that, a nights filter is a request for that many nights, so the
+	 * cards show trips of that length instead of leaving somebody to press + on every one
+	 * of them. `undefined` leaves `deriveScoredResult` to open at the shortest length.
+	 *
+	 * A length this connection cannot do falls back to the shortest, inside
+	 * `deriveScoredResult`, rather than being rounded to the nearest. See its doc comment.
+	 */
+	function requestedNightsFor(code: string): number | undefined {
+		return chosenNightsByConnection[code] ?? filters.minNights;
+	}
+
+	/**
+	 * Records the length the traveller picked. Nothing else: `results` below re-derives
+	 * that card from the group it already has, so the card's content changes and its
+	 * POSITION does not. A list that reordered itself under the finger that just pressed +
+	 * is the exact instability `stream-order.ts` exists to prevent, and leaving `order`
+	 * alone is the cheapest possible way to guarantee it.
+	 *
+	 * Zero provider requests, now or ever. Every length is a flight pairing this search
+	 * already fetched, and the bed's nightly rate was quoted once for the whole stay;
+	 * `buildItineraries` multiplied it out per pairing when the search ran.
+	 */
+	function chooseNights(code: string, nights: number) {
+		chosenNightsByConnection = { ...chosenNightsByConnection, [code]: nights };
+	}
+
+	/**
+	 * The cards, in their standing order, each at the stopover length it should be showing.
+	 *
+	 * The re-derivation is here rather than in an `$effect` writing back into `order` on
+	 * purpose: an effect that reads and writes the same state is the shape that froze this
+	 * page once already (AGENTS.md, "The Svelte trap that cost us a working search"). A
+	 * `$derived` cannot loop, and `order` stays exactly what the stream put there.
+	 */
+	const results = $derived(
+		slotsToResults(order).map((result) => {
+			const requested = requestedNightsFor(result.id);
+			if (requested === undefined || requested === result.itinerary.nightsInConnection) return result;
+			const group = groupsByConnection[result.id];
+			if (!group) return result;
+			return deriveScoredResult(
+				group,
+				{ providers: providerStatuses, done: primarySearchDone && !stillSearching },
+				result.sequence,
+				requested
+			);
+		})
+	);
 	const currency = $derived(results[0]?.itinerary.totalPrice.currency ?? DEFAULT_SEARCH_CURRENCY);
 	const filterOptions = $derived(deriveFilterOptions(results));
 	const filteredResults = $derived(applyFilters(results, filters));
@@ -311,7 +373,15 @@
 					void recordItineraryGroup(group, keyStore.currency ?? DEFAULT_SEARCH_CURRENCY, {
 						alreadyWritten: recordedToLedger
 					});
-					const scored = deriveScoredResult(group, snapshot, sequenceFor(group.connectionAirportCode));
+					// Issue #224: a re-yielded group keeps whatever length the traveller
+					// chose for it, rather than snapping back to the shortest while they
+					// are reading it.
+					const scored = deriveScoredResult(
+						group,
+						snapshot,
+						sequenceFor(group.connectionAirportCode),
+						untrack(() => requestedNightsFor(group.connectionAirportCode))
+					);
 					order = insertStable(order, toSlot(scored), compare);
 				}
 				stayCandidatesByConnection = { ...stayCandidatesByConnection, ...snapshot.stayCandidatesByConnection };
@@ -339,6 +409,10 @@
 		// A new query is an unrelated search: yesterday's connection codes have no business
 		// staying "expanded" against whatever streams in next.
 		expandedId = null;
+		// Issue #224: a new query is a new set of stopovers, so a length chosen for
+		// yesterday's London card has no business applying to whatever LGW turns out to be
+		// this time.
+		chosenNightsByConnection = {};
 		groupsByConnection = {};
 		stayCandidatesByConnection = {};
 		transferOptionsByConnection = {};
@@ -659,10 +733,20 @@
 									connectionAirport={connectionAirports[code]}
 									expanded={expandedId === result.id}
 									onToggleExpand={() => toggleExpanded(result.id)}
+									onNightsChange={(nights) => chooseNights(result.id, nights)}
 								/>
 								{#if expandedId === result.id}
+									<!-- Keyed on the stopover length: `ResultDetail` freezes its itinerary
+									     at mount so a streaming snapshot cannot wipe out a traveller's
+									     in-progress pick, which also means it cannot follow a length
+									     change made on the card above it. Remounting is the honest
+									     answer rather than the cheap one: a different length is a
+									     different onward flight, so any flight or transfer picked inside
+									     the panel was for a trip that no longer exists. -->
+									{#key result.itinerary.nightsInConnection}
 									<ResultDetail
 										itinerary={result.itinerary}
+										atDefaultLength={result.itinerary.nightsInConnection === result.stopover.minimum}
 										group={groupsByConnection[result.id]}
 										stayCandidates={stayCandidatesByConnection[code] ?? []}
 										transferOptions={transferOptionsByConnection[code]}
@@ -673,6 +757,7 @@
 										minLayoverTime={query.minLayoverTime}
 										searchDone={primarySearchDone && !stillSearching}
 									/>
+									{/key}
 								{/if}
 							</li>
 						{/each}

@@ -41,6 +41,7 @@ import { buildItineraries } from '../algorithm/build';
 import { discoverCandidateViaCalendar } from './calendar-discovery';
 import { DEFAULT_SCORING_WEIGHTS, rankItineraries } from '../algorithm/score';
 import type { ScoringWeights } from '../algorithm/score';
+import { defaultStopover } from '../algorithm/stopover-length';
 import { getAirport } from '../data/airports';
 import {
 	DEFAULT_LANDING_TO_TRANSPORT_RULES,
@@ -517,8 +518,16 @@ async function processCandidate(input: ProcessCandidateInput): Promise<Candidate
 		// to a volunteer-run service by however many fares the flight providers happened to
 		// return. The other variants keep their road-mode transfers, which is also what
 		// happens today when a traveller swaps flights in the picker.
-		const refined = scored.length > 0 ? await fetchTransitSchedules({
-			itinerary: scored[0].itinerary,
+		//
+		// Issue #224: "the one the result card shows" is the SHORTEST stopover through this
+		// city, not the top-scoring pairing. `groupItineraryResults` picks the card's
+		// itinerary with the same `defaultStopover` rule, so both agree on which trip is
+		// worth the one timetable lookup this candidate gets. Spending it on the longest
+		// pairing would have bought a bus schedule for a trip nobody is shown. Same cost:
+		// one refinement per candidate, before and after.
+		const cardPairing = defaultStopover(scored, (score) => score.itinerary.nightsInConnection);
+		const refined = cardPairing ? await fetchTransitSchedules({
+			itinerary: cardPairing.itinerary,
 			connectionCoordinates: connectionAirport.coordinates,
 			connectionLandingBuffer: pickLandingToTransportTime(input.landingToTransportRules, connectionAirport.sizeClass),
 			destinationLandingBuffer: pickLandingToTransportTime(input.landingToTransportRules, input.destinationAirport.sizeClass),
@@ -531,11 +540,18 @@ async function processCandidate(input: ProcessCandidateInput): Promise<Candidate
 			minLayoverTime: input.query.minLayoverTime
 		}) : undefined;
 
-		// Re-ranked rather than slotted back in at position 0: swapping a two-hour walk for a
+		// Re-ranked rather than slotted back in where it was: swapping a two-hour walk for a
 		// forty-minute night bus changes this itinerary's total time, which is one of the
 		// things `rankItineraries` scores on. Keeping the old order would show a stale one.
+		//
+		// The refined pairing is substituted by identity rather than by index. It is no
+		// longer `scored[0]` (issue #224 refines the shortest stopover, not the top score),
+		// and slicing off index 0 would have dropped the top-scoring variant and duplicated
+		// the refined one.
 		const finalItineraries = refined
-			? [refined.itinerary, ...scored.slice(1).map((score) => score.itinerary)]
+			? scored.map((score) =>
+					score.itinerary === cardPairing?.itinerary ? refined.itinerary : score.itinerary
+				)
 			: scored.map((score) => score.itinerary);
 		const results = rankItineraries(finalItineraries, input.airlinesToAvoid, input.weights).map(
 			(score): ItineraryResult => ({

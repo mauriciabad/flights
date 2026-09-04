@@ -26,6 +26,17 @@ export interface ResultFilters {
 	 * already documents. */
 	maxPriceMinorUnits?: number;
 	maxTotalDurationMinutes?: number;
+	/**
+	 * Nights the traveller wants in the stopover. Since issue #224 a card opens at the
+	 * SHORTEST length its flights allow, so this is read against what the connection can
+	 * REACH, not against the length currently on screen: a London card showing one night
+	 * with a three-night pairing behind it is exactly what somebody asking for three nights
+	 * is looking for, and hiding it would answer their question with silence.
+	 *
+	 * `+page.svelte` also seeds each card's shown length from this, so setting it to three
+	 * makes the cards show three-night trips rather than leaving the traveller to press +
+	 * on every one of them.
+	 */
 	minNights?: number;
 	minFreeTimeMinutes?: number;
 	/** Airports EXCLUDED from the connection city, not an allow-list, so a connection
@@ -54,6 +65,13 @@ export function isEmptyFilters(filters: ResultFilters): boolean {
 	);
 }
 
+/** The most nights this connection can offer, whatever length its card currently shows.
+ * `stopover.options` is ascending, so the last rung is the longest. Falling back to the
+ * shown itinerary keeps this honest for any caller building a `ScoredResult` by hand. */
+function longestStopoverNights(result: ScoredResult): number {
+	return result.stopover.options.at(-1)?.nights ?? result.itinerary.nightsInConnection;
+}
+
 function passesFilters(result: ScoredResult, filters: ResultFilters): boolean {
 	const { itinerary } = result;
 
@@ -69,7 +87,7 @@ function passesFilters(result: ScoredResult, filters: ResultFilters): boolean {
 	) {
 		return false;
 	}
-	if (filters.minNights !== undefined && itinerary.nightsInConnection < filters.minNights) {
+	if (filters.minNights !== undefined && longestStopoverNights(result) < filters.minNights) {
 		return false;
 	}
 	if (
@@ -148,13 +166,20 @@ export function deriveFilterOptions(results: readonly ScoredResult[]): FilterOpt
 	let nightsRange: FilterBounds | undefined;
 	let freeTimeRange: FilterBounds | undefined;
 
-	for (const { itinerary } of results) {
+	for (const result of results) {
+		const { itinerary } = result;
 		bumpCount(connectionCounts, connectionAirportCode(itinerary));
 		bumpCount(airlineCounts, itinerary.outboundFlight.carrier.iataCode);
 		bumpCount(airlineCounts, itinerary.onwardFlight.carrier.iataCode);
 		priceRange = extendBounds(priceRange, itinerary.totalPrice.minorUnits);
 		durationRange = extendBounds(durationRange, itinerary.times.total);
-		nightsRange = extendBounds(nightsRange, itinerary.nightsInConnection);
+		// Every length these connections can reach, not only the shortest one each card
+		// happens to open on (issue #224). Otherwise a list of one-night cards would draw a
+		// slider that runs from 1 to 1, and the traveller could no longer ask for the
+		// three-night trips sitting behind those same cards.
+		for (const option of result.stopover.options) {
+			nightsRange = extendBounds(nightsRange, option.nights);
+		}
 		freeTimeRange = extendBounds(freeTimeRange, itinerary.freeTime.duration);
 	}
 

@@ -96,13 +96,36 @@ describe('priceBreakdown', () => {
 		expect(priceBreakdown(sameDay).missingStay).toBe(false);
 	});
 
-	it('says how many nights the bed line covers, since the nightly rate alone does not', () => {
+	it('says how many nights the bed line covers, and what one of them costs', () => {
+		// Issue #225 asks for the accommodation rate per night beside its total. The count
+		// alone left the traveller dividing one number by another to answer "is another
+		// night here worth it", which is the decision the nights control exists for.
 		const breakdown = priceBreakdown(makeItinerary({ nightsInConnection: 1 }));
 		const stay = breakdown.parts.find((part) => part.id === 'stay');
-		expect(stay?.detail).toBe('1 night');
+		expect(stay?.detail).toBe('1 night x €20.00');
 		expect(priceBreakdown(makeItinerary({ nightsInConnection: 5 })).parts.find((p) => p.id === 'stay')?.detail).toBe(
-			'5 nights'
+			'5 nights x €20.00'
 		);
+	});
+
+	it('says how far the bed is from the city centre when the dataset knows where that is', () => {
+		// Issue #224: "if the city is interesting and the hotel in the center" are the
+		// owner's two reasons to spend another night somewhere, and this is the measurable
+		// one. It rides on the line that already prices the bed, so it costs the card no row.
+		const itinerary = makeItinerary({ nightsInConnection: 2 });
+		const stay = priceBreakdown(itinerary, {
+			cityCentre: { latitude: itinerary.stay!.property.coordinates.latitude + 0.025, longitude: 0 }
+		}).parts.find((part) => part.id === 'stay');
+
+		expect(stay?.detail).toBe('2 nights x €20.00, 2.8 km from centre');
+	});
+
+	it('says nothing about the centre when nobody has checked where the centre is', () => {
+		// Issue #162/#196: most airports in the dataset carry no city point, and measuring
+		// against the runway and calling that the centre is the bug that fix removed.
+		const stay = priceBreakdown(makeItinerary({ nightsInConnection: 2 })).parts.find((p) => p.id === 'stay');
+
+		expect(stay?.detail).toBe('2 nights x €20.00');
 	});
 
 	it('omits a ground line while no transfer provider prices one', () => {

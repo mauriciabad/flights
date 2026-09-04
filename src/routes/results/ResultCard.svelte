@@ -37,7 +37,7 @@
 	 * `view-model.ts`, all pure and tested. This file arranges markup and picks classes; it
 	 * never recomputes a duration or a price.
 	 */
-	import { AirlineLogo, Card, Flag, MetricRail, PriceLine, TripStrip } from '$lib/components';
+	import { AirlineLogo, Card, Flag, MetricRail, PriceLine, StopoverNights, TripStrip } from '$lib/components';
 	import { CARD_METRIC_IDS } from '$lib/components/itinerary-metrics';
 	import type { Airport } from '$lib/domain';
 	import { formatAge } from '$lib/format';
@@ -54,9 +54,14 @@
 		/** Issue #104: whether the full timeline/map/pickers are open below this card. */
 		expanded?: boolean;
 		onToggleExpand?: () => void;
+		/** Issue #224: the traveller pressed + or - on the nights control. The page owns
+		 * which length each connection is showing, so the whole card (price, strip, metrics)
+		 * re-derives from one place rather than this component keeping a private copy that
+		 * the next snapshot would overwrite. */
+		onNightsChange?: (nights: number) => void;
 	}
 
-	let { result, connectionAirport, expanded = false, onToggleExpand }: Props = $props();
+	let { result, connectionAirport, expanded = false, onToggleExpand, onNightsChange }: Props = $props();
 
 	const itinerary = $derived(result.itinerary);
 	const connectionCode = $derived(connectionAirportCode(itinerary));
@@ -87,6 +92,14 @@
 	// resolves, which is the same reason `connectionLabel` falls back to the bare code.
 	const connectionCountry = $derived(connectionAirport?.country.name);
 	const variantsLabel = $derived(describeVariants(result));
+
+	// Issue #224: the stopover lengths this connection offers, split into the two shapes
+	// the control wants: the ladder itself, and a lookup from a rung to the trip on it, so
+	// a button can price its own step before anyone presses it.
+	const availableNights = $derived(result.stopover.options.map((option) => option.nights));
+	const itineraryAtLength = $derived(
+		(nights: number) => result.stopover.options.find((option) => option.nights === nights)?.itinerary
+	);
 
 	// Provenance: distinct provider labels behind this price, and the OLDEST of their
 	// fetch times, the same "oldest part wins" reasoning `types.ts`'s freshness
@@ -194,7 +207,7 @@
 	{/snippet}
 
 	<div class="card-main">
-		<PriceLine {itinerary} />
+		<PriceLine {itinerary} cityCentre={connectionAirport?.city.coordinates} />
 
 		<TripStrip {itinerary} {connectionCode} {connectionLabel} deprioritized={isDeprioritized} />
 
@@ -206,6 +219,20 @@
 		     FilterPanel.svelte's own Chip usage documents as the failure mode of a
 		     `$bindable` prop nobody binds. -->
 		<div class="card-controls">
+			<!-- Issue #224: how many nights this stopover is, and the traveller's control
+			     over it. It rides in this row rather than in a row of its own because the
+			     row's height is already set by the 44px button on the other end of it, and
+			     the phone card has no pixels to give (#197, #209). -->
+			<StopoverNights
+				itinerary={result.itinerary}
+				minimumItinerary={result.stopover.minimumItinerary}
+				available={availableNights}
+				{itineraryAtLength}
+				isFlightChange={result.stopover.isFlightChange}
+				{connectionLabel}
+				deprioritized={isDeprioritized}
+				{onNightsChange}
+			/>
 			{#if variantsLabel}
 				<!-- Brief line 67's "+2 more flight times through here". Beside the button
 				     that opens the picker able to swap them, not inside it: a button's label
@@ -434,9 +461,15 @@
 	/* An auto right margin rather than `justify-content: space-between` on the row: with
 	   `space-between`, a control that wraps to a second line is the only item on it and
 	   gets pushed to the LEFT, which put "Show details" under the label on a 375px card.
-	   This way whatever wraps stays hard against the right edge. */
-	.variants {
+	   This way whatever wraps stays hard against the right edge. The margin moved from
+	   `.variants` to the nights control when that arrived (issue #224), since `.variants`
+	   is now often absent: it counts the flight times at THIS stopover length, and a
+	   shortest-length card usually has one. */
+	.card-controls :global(.stopover-nights) {
 		margin-right: auto;
+	}
+
+	.variants {
 		font-size: var(--font-size-xs);
 		color: var(--color-text-faint);
 	}

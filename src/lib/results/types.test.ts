@@ -299,3 +299,79 @@ describe('summarizePriceCalendarOutcome', () => {
 		expect(summarizePriceCalendarOutcome(outcome)).toContain('Monthly quota used up.');
 	});
 });
+
+describe('deriveScoredResult, stopover lengths (issue #224)', () => {
+	/** A group whose variants really differ in length, unlike the `group()` helper above,
+	 * which repeats one result to vary only the count. Variants are handed over best score
+	 * first, the order `groupItineraryResults` guarantees. */
+	function ladder(nights: readonly number[]): ItineraryGroup {
+		const variants = [...nights]
+			.map((count) => {
+				const itinerary = makeItinerary({ connectionAirportCode: 'LGW', nightsInConnection: count });
+				return {
+					score: scoreItinerary(itinerary),
+					sources: {
+						outboundFlight: { providerId: 'ryanair', fetchedAt: FIVE_MINUTES_AGO },
+						onwardFlight: { providerId: 'ryanair', fetchedAt: FIVE_MINUTES_AGO }
+					}
+				} satisfies ItineraryResult;
+			})
+			.sort((a, b) => b.score.total - a.score.total);
+		return { connectionAirportCode: 'LGW', best: variants[0], variants };
+	}
+
+	it('shows the shortest length when nothing has been asked for', () => {
+		const result = deriveScoredResult(ladder([6, 3, 1]), { providers: {}, done: true }, 1);
+
+		expect(result.itinerary.nightsInConnection).toBe(1);
+		expect(result.stopover.minimum).toBe(1);
+		expect(result.stopover.options.map((option) => option.nights)).toEqual([1, 3, 6]);
+		expect(result.stopover.isFlightChange).toBe(false);
+	});
+
+	it('shows the length the traveller asked for', () => {
+		const result = deriveScoredResult(ladder([6, 3, 1]), { providers: {}, done: true }, 1, 3);
+
+		expect(result.itinerary.nightsInConnection).toBe(3);
+		// The baseline the card's "the price moved" line compares against never moves with
+		// the selection: it is the trip the card offered and the list was ranked on.
+		expect(result.stopover.minimumItinerary.nightsInConnection).toBe(1);
+	});
+
+	it('falls back to the shortest rather than the nearest when a length is gone', () => {
+		// A length the traveller cannot have is not silently rounded to another trip.
+		const result = deriveScoredResult(ladder([1, 6]), { providers: {}, done: true }, 1, 3);
+
+		expect(result.itinerary.nightsInConnection).toBe(1);
+	});
+
+	it('calls a city you can fly through in a day a flight change', () => {
+		const result = deriveScoredResult(ladder([0, 2]), { providers: {}, done: true }, 1);
+
+		expect(result.itinerary.nightsInConnection).toBe(0);
+		expect(result.stopover.isFlightChange).toBe(true);
+	});
+
+	it('counts only the flight times at the length on screen', () => {
+		// "+2 more flight times" has to mean two other ways to fly THIS trip. Pairings at
+		// other lengths are other trips, with other totals, and the nights control is what
+		// reaches them.
+		const result = deriveScoredResult(ladder([1, 1, 4]), { providers: {}, done: true }, 1);
+
+		expect(result.variantCount).toBe(2);
+	});
+
+	it('reads provenance off the length being shown, not off the shortest one', () => {
+		const group = ladder([1, 2]);
+		const extended = group.variants.find((variant) => variant.score.itinerary.nightsInConnection === 2);
+		if (!extended) throw new Error('fixture lost its two-night variant');
+		extended.sources = {
+			outboundFlight: { providerId: 'ryanair', fetchedAt: ONE_HOUR_AGO },
+			onwardFlight: { providerId: 'flights-sky', fetchedAt: ONE_HOUR_AGO }
+		};
+
+		const result = deriveScoredResult(group, { providers: {}, done: true }, 1, 2);
+
+		expect(result.price.parts.map((part) => part.providerId)).toEqual(['ryanair', 'flights-sky']);
+	});
+});

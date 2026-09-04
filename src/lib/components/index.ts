@@ -13,6 +13,7 @@ export { default as TimeCell } from './TimeCell.svelte';
 export { default as TripStrip } from './TripStrip.svelte';
 export { default as MetricRail } from './MetricRail.svelte';
 export { default as PriceLine } from './PriceLine.svelte';
+export { default as StopoverNights } from './StopoverNights.svelte';
 export { ALL_METRIC_IDS, CARD_METRIC_IDS, itineraryMetrics, priceBreakdown } from './itinerary-metrics';
 export type { ItineraryMetric, ItineraryMetricId, PriceBreakdown, PricePart } from './itinerary-metrics';
 export { tripStrip } from './trip-strip';
