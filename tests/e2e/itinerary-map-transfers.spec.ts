@@ -25,7 +25,7 @@ import { mockKiwiPublic } from './support/providers';
  *
  * Ryanair stands in for Skyscanner here (keyless, no RapidAPI key needed) purely as a
  * source of matching flight offers for this fictional pairing — the same substitution
- * `select-and-compare.spec.ts` already makes for its own route. Booking.com gets a fake
+ * `result-detail.spec.ts` already makes for its own route. Booking.com gets a fake
  * key through the settings UI so a stay actually prices, which is what makes
  * `transferToHotel`/`transferToConnectionAirport` exist at all (issue #94's "all three
  * together or none").
@@ -247,7 +247,7 @@ test.describe('itinerary map: every transfer leg, distinct markers, honest geome
 		});
 
 		// -----------------------------------------------------------------
-		// 5. Keyless CARTO basemap — same empty style select-and-compare.spec.ts uses,
+		// 5. Keyless CARTO basemap — same empty style result-detail.spec.ts uses,
 		//    enough for MapLibre's own `load` event without pulling real vector tiles.
 		// -----------------------------------------------------------------
 		await page.context().route('https://basemaps.cartocdn.com/**', (route) =>

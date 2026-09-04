@@ -18,20 +18,12 @@
 		/** Resolved lazily by the page (getAirport is async); undefined until then, in
 		 * which case the card falls back to the bare IATA code rather than blocking. */
 		connectionAirport?: Airport;
-		/** Issue #103: whether this card is one of the ones the traveller picked to line
-		 * up in the comparator. Owned by the results page (keyed on `result.id`, the
-		 * connection airport code — see `+page.svelte`'s own comment on why that's the
-		 * identity to track, not the object itself), not local state here, so selection
-		 * survives this card's own content being replaced in place as the search streams. */
-		selected?: boolean;
 		/** Issue #104: whether the full timeline/map/pickers are open below this card. */
 		expanded?: boolean;
-		onToggleSelect?: () => void;
 		onToggleExpand?: () => void;
 	}
 
-	let { result, connectionAirport, selected = false, expanded = false, onToggleSelect, onToggleExpand }: Props =
-		$props();
+	let { result, connectionAirport, expanded = false, onToggleExpand }: Props = $props();
 
 	const itinerary = $derived(result.itinerary);
 	const connectionCode = $derived(connectionAirportCode(itinerary));
@@ -149,26 +141,12 @@
 			<p class="variants">{variantsLabel}</p>
 		{/if}
 
-		<!-- Issue #103/#104: the two affordances the results list never had before —
-		     "pick this one to compare" and "open the full trip." Both are plain controlled
-		     inputs (the checked/aria-expanded state comes straight from a prop, never a
-		     locally-owned copy), so an external change — the traveller clearing the whole
-		     selection from the compare bar, say — is never stuck out of sync with what this
-		     card renders, the exact bug FilterPanel.svelte's own Chip usage documents as the
-		     failure mode of a `$bindable` prop nobody binds. -->
+		<!-- Issue #104: "open the full trip." A plain controlled button — `aria-expanded`
+		     comes straight from a prop, never a locally-owned copy — so an external change
+		     is never stuck out of sync with what this card renders, the exact bug
+		     FilterPanel.svelte's own Chip usage documents as the failure mode of a
+		     `$bindable` prop nobody binds. -->
 		<div class="card-controls">
-			<label class="compare-toggle">
-				<input
-					type="checkbox"
-					checked={selected}
-					onchange={() => onToggleSelect?.()}
-					aria-describedby={`${connectionCode}-compare-hint`}
-				/>
-				<span>Compare</span>
-			</label>
-			<span id={`${connectionCode}-compare-hint`} class="visually-hidden">
-				Select this itinerary to line it up against others in the comparator.
-			</span>
 			<button
 				type="button"
 				class="details-toggle"
@@ -404,35 +382,11 @@
 	.card-controls {
 		display: flex;
 		align-items: center;
-		justify-content: space-between;
+		justify-content: flex-end;
 		gap: var(--space-3);
 		margin-top: var(--space-1);
 		padding-top: var(--space-4);
 		border-top: 2px dashed var(--color-border-strong);
-	}
-
-	.compare-toggle {
-		display: flex;
-		align-items: center;
-		gap: var(--space-2);
-		min-height: 2.75rem;
-		font-size: var(--font-size-sm);
-		font-weight: var(--font-weight-medium);
-		color: var(--color-text);
-		cursor: pointer;
-	}
-
-	.compare-toggle input {
-		/* Large enough to be a real 44px-ish touch target together with its label, not a
-		   native 13px checkbox floating in a sea of padding. */
-		width: 1.25rem;
-		height: 1.25rem;
-		accent-color: var(--color-accent);
-	}
-
-	.compare-toggle input:focus-visible {
-		outline: 2px solid var(--color-focus-ring);
-		outline-offset: 2px;
 	}
 
 	.details-toggle {

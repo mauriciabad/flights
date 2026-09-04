@@ -18,19 +18,18 @@
 	const manifestHref = `${base}/manifest.webmanifest`;
 
 	interface NavItem {
-		id: 'search' | 'results' | 'comparator' | 'settings';
+		id: 'search' | 'results' | 'settings';
 		label: string;
 		href: string;
 	}
 
-	// Every route below is owned by a different issue (#16, #23, #25, #29).
-	// This shell only needs to know they exist and where they live. Search
-	// lives at "/" — it's the landing screen — so #16 belongs in
+	// Every route below is owned by a different issue (#16, #23, #29). This
+	// shell only needs to know they exist and where they live. Search lives
+	// at "/" — it's the landing screen — so #16 belongs in
 	// src/routes/+page.svelte, not a new src/routes/search/.
 	const navItems: NavItem[] = [
 		{ id: 'search', label: 'Search', href: '/' },
 		{ id: 'results', label: 'Results', href: '/results/' },
-		{ id: 'comparator', label: 'Compare', href: '/comparator/' },
 		{ id: 'settings', label: 'Settings', href: '/settings/' }
 	];
 
@@ -106,12 +105,6 @@
 									<circle cx="3.5" cy="6" r="1.5" fill="currentColor" />
 									<circle cx="3.5" cy="12" r="1.5" fill="currentColor" />
 									<circle cx="3.5" cy="18" r="1.5" fill="currentColor" />
-								</svg>
-							{:else if item.id === 'comparator'}
-								<svg viewBox="0 0 24 24" fill="none">
-									<rect x="3" y="4" width="5" height="16" rx="1" stroke="currentColor" stroke-width="2" />
-									<rect x="9.5" y="4" width="5" height="16" rx="1" stroke="currentColor" stroke-width="2" />
-									<rect x="16" y="4" width="5" height="16" rx="1" stroke="currentColor" stroke-width="2" />
 								</svg>
 							{:else}
 								<svg viewBox="0 0 24 24" fill="none">
@@ -340,8 +333,7 @@
 		}
 	}
 
-	/* Search, results, comparator and settings all wrap their own content
-	   at --layout-max-width; the shell itself stays full-bleed so a
-	   full-width control (like the comparator's own horizontal scroller)
-	   still has the whole viewport to work with. */
+	/* Search, results and settings all wrap their own content at
+	   --layout-max-width; the shell itself stays full-bleed so a
+	   full-width control still has the whole viewport to work with. */
 </style>

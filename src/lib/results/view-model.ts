@@ -51,8 +51,9 @@ export function describeWhyGood(result: ScoredResult): string {
 
 /** "+2 more flight times through here", brief line 67: "user can see alternative
  * flights for same location with their price and difference from selected one." Picking
- * a specific alternate and swapping it in is the comparator's job (issue #25); this list
- * only says how many exist. `undefined` when there is nothing but the headline card. */
+ * a specific alternate and swapping it in is `FlightPicker`'s job in the expanded card
+ * detail; this list only says how many exist. `undefined` when there is nothing but the
+ * headline card. */
 export function describeVariants(result: ScoredResult): string | undefined {
 	const extra = result.variantCount - 1;
 	if (extra <= 0) return undefined;

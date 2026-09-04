@@ -1,16 +1,13 @@
 import { test, expect } from './support/fixtures';
-import { FIXTURE_FLIGHT_NUMBERS, FIXTURE_NAMES, FIXTURE_PRICES } from './support/fixture-markers';
+import { FIXTURE_FLIGHT_NUMBERS, FIXTURE_PRICES } from './support/fixture-markers';
 import { mockAllKeylessProviders, routeRyanairFlights } from './support/providers';
 
 /**
- * Issues #103/#104: this is the regression guard for the whole gap those issues
- * describe. Before this pair of issues, `ResultCard.svelte` had no selection mechanism at
- * all and `/comparator/` only ever rendered `?demo=1` fixtures — a real search's
- * itineraries were built, scored and completely unreachable past the results list.
+ * Issue #104: the regression guard for the gap that issue describes. Before it, a real
+ * search's itineraries were built, scored, and then reachable only as summary cards.
  * `results-stream-consumption.spec.ts` already proves a real search's providers get
- * called and answer; this proves the rest of the path: select two real results, open the
- * comparator, see those exact itineraries (not the demo ones), then drill into one card's
- * full detail and confirm a picker choice really changes the total.
+ * called and answer; this proves the rest of the path: expand a real result into its
+ * full detail, and confirm a picker choice really changes the total.
  *
  * The Ryanair mock below is deliberately narrower than `mockAllKeylessProviders`' own
  * generic default, which is a STN -> VIE pair built for a different test and never chains
@@ -27,8 +24,8 @@ import { mockAllKeylessProviders, routeRyanairFlights } from './support/provider
 
 const EMPTY_MAP_STYLE = JSON.stringify({ version: 8, name: 'empty', sources: {}, layers: [] });
 
-test.describe('select and compare (issues #103/#104)', () => {
-	test('selecting real results carries them into the comparator, and a picker change updates the total', async ({
+test.describe('result detail (issue #104)', () => {
+	test('expanding a real result shows its timeline and map, and a picker change updates the total', async ({
 		page
 	}) => {
 		await mockAllKeylessProviders(page.context());
@@ -80,23 +77,6 @@ test.describe('select and compare (issues #103/#104)', () => {
 		await expect(card).toBeVisible();
 		await expect(card).toContainText('VIE');
 
-		// Select it: the checkbox issue #103 adds, controlled entirely by the results
-		// page's own `selectedIds` state (see ResultCard.svelte's own comment on why it is
-		// a plain controlled input, not a locally-owned copy).
-		await card.getByRole('checkbox', { name: 'Compare' }).check();
-		await expect(page.getByText('1 itinerary selected')).toBeVisible();
-
-		// "Compare" navigates with the real, just-selected itinerary — not the ?demo=1
-		// fixtures every earlier comparator test exercised.
-		await page.getByRole('button', { name: 'Compare', exact: true }).click();
-		await expect(page).toHaveURL(/\/comparator\/$/);
-		await expect(page.locator('.comparator-column')).toHaveCount(1);
-		await expect(page.locator('.comparator-column').first()).toContainText('VIE');
-		await expect(page.locator('.comparator-column').first()).toContainText('BCN');
-
-		// Back to the results list, same search, to reach the per-card detail (issue #104).
-		await page.goto('/results/?dep=2027-03-08&arr=2027-03-27&from=BCN&to=TLL');
-		await expect(page.getByText('still searching')).toHaveCount(0, { timeout: 20_000 });
 		await page.getByRole('button', { name: 'Show details' }).first().click();
 
 		const detail = page.locator('.result-detail');

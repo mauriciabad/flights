@@ -16,7 +16,7 @@ export interface FreeTime {
 	start: LocalDateTime;
 	end: LocalDateTime;
 	/** = end − start, computed once by whoever builds the itinerary (issue #13), so
-	 * display code and the comparator never redo timezone-aware subtraction themselves. */
+	 * display code never redoes timezone-aware subtraction itself. */
 	duration: Duration;
 }
 

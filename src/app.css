@@ -286,10 +286,9 @@ body {
 }
 
 body {
-	/* Safety net: the comparator and other wide content are required to
-	   scroll inside their own container, never the page. This just keeps
-	   an implementation mistake elsewhere from producing a sideways
-	   page scrollbar at 320px. */
+	/* Safety net: wide content is required to scroll inside its own
+	   container, never the page. This just keeps an implementation mistake
+	   elsewhere from producing a sideways page scrollbar at 320px. */
 	overflow-x: hidden;
 	font-family: var(--font-sans);
 	font-size: var(--font-size-base);
@@ -394,7 +393,7 @@ ol {
 }
 
 /* Numbers that need to line up in a column, e.g. prices and durations in
-   the results list and comparator. */
+   the results list. */
 .tabular-nums {
 	font-variant-numeric: tabular-nums;
 }
@@ -421,9 +420,8 @@ ol {
 }
 
 /* A container that scrolls its own overflow horizontally instead of
-   letting the page scroll sideways. The comparator (#25) is the main
-   user of this, but any wide content — a long table, a timeline — should
-   reach for it too. */
+   letting the page scroll sideways. The provider status strip uses it; any
+   wide content — a long table, a timeline — should reach for it too. */
 .scroll-x {
 	overflow-x: auto;
 	overflow-y: hidden;

@@ -18,7 +18,7 @@
  * answer, and it feeds both readers:
  *
  *   - `data/airports.ts` `toAirport` -> `Airport.city.name`, which every renderer reads
- *     (result card, map labels, comparator, filter chips, the empty-results sentences)
+ *     (result card, map labels, filter chips, the empty-results sentences)
  *     and which `providers/geocode/airport-city.ts` hands to Agoda's free-text search.
  *   - `data/airports.ts` `loadSearchIndex` -> the typeahead's alternate names.
  *

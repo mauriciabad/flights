@@ -183,10 +183,10 @@ export type UnroutedLeg =
  * Each sentence below is a fact about this itinerary, readable straight off it:
  *
  * - Zero nights is a same-day connection. There is no hotel leg to price and the row is
- *   not waiting on one. The row still renders: `ItineraryTimeline`'s DOM contract for the
- *   comparator requires the Nth row to be the same kind of step across every itinerary of
- *   one search, so dropping a row for one itinerary and not another would break the
- *   subgrid alignment. Saying why it is empty is the fix, deleting it is not.
+ *   not waiting on one. The row still renders: `ItineraryTimeline` prints every schedule
+ *   step in a fixed order, so a row that vanishes for one itinerary and not another makes
+ *   two trips harder to read against each other. Saying why it is empty is the fix,
+ *   deleting it is not.
  * - Nights but no priced stay means there is no address at either end, so nothing was
  *   looked up.
  * - The outer legs are gated on the query carrying an origin or destination location
