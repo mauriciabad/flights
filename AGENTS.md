@@ -126,20 +126,29 @@ survives that, it is real.
 When a provider fails, surface **its own message and status code, verbatim**. Our own
 classification is an addition on top, never a replacement.
 
-This has already cost real time. Agoda returned `200` with
-`{"status":false,"message":"The location cannot be empty"}`, which points straight at a
-malformed request on our side. The settings screen discarded that and displayed an invented
-sentence saying the user had not subscribed on RapidAPI. He had. He went and checked his
-account, and the actual bug was in our own query parameters.
+This has already cost real time, twice, and the second time we did it to ourselves.
 
-So:
+Agoda returned `200` with `{"status":false,"message":"The location cannot be empty"}`, which
+points straight at a malformed request on our side. Separately, the owner saw the settings
+screen report that his account had not subscribed, when he had. Someone concluded the second
+was caused by the first, and that story was repeated for hours, written into this file, and
+told to the owner as fact.
+
+Reading the code settles it: `not-subscribed` requires a real `403` carrying RapidAPI's own
+wording (`classify-error.ts`), so a `200` with a `status:false` body could never produce that
+message. The two observations were never connected. The real defect in that path was the
+opposite direction, `performCheck` branching on `response.ok` before reading the body, so a
+malformed-request response read as a plain success.
+
+So the rule applies to us, not only to the UI:
 
 - A headline and a suggested action are useful, but only when they are true and only alongside
   the raw response.
 - Never assert a cause you did not observe. "Agoda returned 200 with: The location cannot be
-  empty" is worth more than a confident wrong diagnosis.
+  empty" is worth more than a confident wrong diagnosis, and two symptoms appearing on the same
+  afternoon are not evidence that one caused the other.
 - Include the status code. `403` versus `200`-with-an-error-body is exactly the distinction that
-  went missing here.
+  went missing, and it is what eventually resolved this.
 
 The owner's words: "we should show the actual errors recieved, not invent our own".
 
