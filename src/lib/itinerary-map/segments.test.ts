@@ -197,6 +197,41 @@ describe('buildItineraryMapModel', () => {
 	});
 });
 
+describe('buildItineraryMapModel: no stay priced (issue #94)', () => {
+	function itineraryWithoutStay(): Itinerary {
+		return { ...baseItinerary(), stay: undefined, transferToHotel: undefined, transferToConnectionAirport: undefined };
+	}
+
+	it('drops the two in-city transfer segments, keeping free-time as a point at the connection airport', () => {
+		const model = buildItineraryMapModel(itineraryWithoutStay(), connectionAirport);
+
+		expect(model.segments.map((s) => s.id)).toEqual([
+			'origin-waiting',
+			'outbound-flight',
+			'free-time',
+			'connection-waiting',
+			'onward-flight'
+		]);
+		expect(findSegment(model, 'transfer-to-hotel')).toBeUndefined();
+		expect(findSegment(model, 'transfer-to-connection-airport')).toBeUndefined();
+
+		const freeTime = findSegment(model, 'free-time');
+		expect(freeTime).toEqual({
+			kind: 'point',
+			id: 'free-time',
+			tone: 'stopover',
+			label: 'Stopover at Vienna',
+			coordinates: connectionAirport.coordinates
+		});
+	});
+
+	it('still marks the free-time point itself as the stopover tone', () => {
+		const model = buildItineraryMapModel(itineraryWithoutStay(), connectionAirport);
+		const stopoverIds = model.segments.filter((s) => s.tone === 'stopover').map((s) => s.id);
+		expect(stopoverIds).toEqual(['free-time', 'connection-waiting']);
+	});
+});
+
 describe('allCoordinates', () => {
 	it('includes every segment coordinate plus the extra waypoints', () => {
 		const model = buildItineraryMapModel(baseItinerary(), connectionAirport);

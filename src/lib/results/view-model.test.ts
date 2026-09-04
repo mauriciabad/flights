@@ -37,6 +37,23 @@ describe('describeWhyGood', () => {
 		const numbers = text.match(/\d+/g) ?? [];
 		expect(numbers).toEqual(['2']);
 	});
+
+	it('says plainly that no stay was priced, rather than reading a fabricated zero as "no overnight needed" (issue #94)', () => {
+		const result = makeScoredResult({ nightsInConnection: 0 });
+		// `makeItinerary` (test-support.ts) always includes a stay — this is the one case
+		// `fetchConnectionResources` produces with none, degraded here rather than adding a
+		// second fixture builder for one field.
+		const withoutStay = {
+			...result,
+			itinerary: { ...result.itinerary, stay: undefined, transferToHotel: undefined, transferToConnectionAirport: undefined }
+		};
+
+		const text = describeWhyGood(withoutStay);
+		expect(text).toMatch(/no stay priced/i);
+		// Never the "no overnight stay needed" line below it: that claims a fact (a short
+		// layover) this itinerary never actually checked.
+		expect(text).not.toMatch(/no overnight stay needed/i);
+	});
 });
 
 describe('describePriceFreshness', () => {

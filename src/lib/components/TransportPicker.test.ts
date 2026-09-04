@@ -253,7 +253,7 @@ describe('TransportPicker: selection', () => {
 		flushSync();
 
 		expect(received).toBeDefined();
-		expect(received?.itinerary.transferToHotel.mode).toBe('taxi');
+		expect(received?.itinerary.transferToHotel?.mode).toBe('taxi');
 	});
 
 	it('never selects a row just because the traveller expanded its taxi citation', () => {

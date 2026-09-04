@@ -3,8 +3,10 @@ export type { BackoffOptions } from './backoff';
 export {
 	DEFAULT_PROVIDER_CAPS,
 	FALLBACK_PROVIDER_CAP,
+	MIN_SEARCHES_PER_MONTH_FOR_AUTO_RUN,
 	clearProviderCapOverride,
 	getProviderCap,
+	isQuotaGenerous,
 	setProviderCapOverride
 } from './caps';
 export { callProviderWithBudget } from './call-with-budget';

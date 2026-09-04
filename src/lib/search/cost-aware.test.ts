@@ -8,14 +8,18 @@ import type {
 	FlightSearchQuery,
 	ProviderContext,
 	ProviderId,
-	ProviderResult
+	ProviderResult,
+	StayProvider,
+	StaySearchQuery
 } from '../providers/types';
-import type { FlightOffer } from '../domain';
+import type { FlightOffer, Stay } from '../domain';
 import {
+	autoWidenStaySources,
 	flattenOk,
 	flightCostAwareSources,
 	meteredRequestsUsed,
-	pickMeteredWithinBudget
+	pickMeteredWithinBudget,
+	stayCostAwareSources
 } from './cost-aware';
 import { recordProviderResult, SourceTracker } from './provenance';
 import type { ProviderStatus } from './types';
@@ -69,6 +73,44 @@ const QUERY: FlightSearchQuery = {
 	destination: 'ZDE',
 	earliestDeparture: '2026-10-01',
 	latestDeparture: '2026-10-01'
+};
+
+/** A stay-provider fixture with a REAL `ProviderId` — 'agoda', 'booking' or 'skyscanner'
+ * are cast here only to satisfy `StayProvider.kind`, not because those ids are really
+ * stay adapters; what matters for issue #94's tests is that `../providers/budget/caps.ts`'s
+ * `DEFAULT_PROVIDER_CAPS` has a tuned, non-fallback entry for each. */
+function fakeStayProvider(id: ProviderId, cost: number, needsKey = true): StayProvider {
+	const stay: Stay = {
+		property: { name: `${id} stay`, coordinates: { latitude: 48.2, longitude: 16.37 }, images: [] },
+		roomKind: 'dorm',
+		pricePerNight: { minorUnits: 2000, currency: 'EUR' }
+	};
+	return {
+		kind: 'stay',
+		id,
+		label: `Fake stays (${id})`,
+		needsKey,
+		keyFields: needsKey ? [{ id: 'apiKey', label: 'Key' }] : [],
+		async healthCheck() {
+			return { ok: true, data: {}, source: { providerId: id, fetchedAt: '2026-09-04T00:00:00Z' }, requestsUsed: 0 };
+		},
+		estimateSearchStaysCost: () => cost,
+		async searchStays(_query: StaySearchQuery, ctx: ProviderContext): Promise<ProviderResult<Stay[]>> {
+			return {
+				ok: true,
+				data: [stay],
+				source: { providerId: id, fetchedAt: '2026-09-04T00:00:00Z' },
+				requestsUsed: ctx.maxRequests !== undefined ? Math.min(cost, ctx.maxRequests) : cost
+			};
+		}
+	};
+}
+
+const STAY_QUERY: StaySearchQuery = {
+	near: { latitude: 48.2, longitude: 16.37 },
+	radiusKm: 100,
+	checkIn: '2026-10-01',
+	checkOut: '2026-10-03'
 };
 
 function newTracking() {
@@ -156,5 +198,69 @@ describe('registry integration sanity', () => {
 		const registry = new ProviderRegistry([fakeProvider('ryanair', 0), fakeProvider('skyscanner', 1, true)]);
 		expect(registry.ofKind('flight')).toHaveLength(2);
 		expect(registry.usable('flight', {}).map((p) => p.id)).toEqual(['ryanair']);
+	});
+});
+
+describe('autoWidenStaySources (issue #94)', () => {
+	it('auto-widens a keyed, quota-generous metered stay provider (Agoda-shaped)', async () => {
+		const { record, sources } = newTracking();
+		// Real Agoda cost: 1 search + up to 5 get-prices drill-downs.
+		const agoda = fakeStayProvider('agoda', 6);
+		const keys: AvailableKeys = { agoda: { apiKey: 'k' } };
+		const controller = new AbortController();
+
+		const built = stayCostAwareSources([agoda], STAY_QUERY, keys, controller.signal, sources, record);
+		expect(built[0]?.tier).toBe('metered'); // still costs something — never reclassified as free
+		expect(autoWidenStaySources(built)).toEqual(['agoda']);
+
+		const result = await runCostAwareSearch(built, { widenTo: autoWidenStaySources(built) });
+		expect(flattenOk(result)).toHaveLength(1);
+		expect(result.report.ranMetered).toEqual(['agoda']);
+	});
+
+	it('auto-widens a keyed, quota-generous metered stay provider (Booking-shaped, exactly at the threshold)', () => {
+		const { record, sources } = newTracking();
+		// Real Booking cost: 1 search + 1 getRoomList drill-down.
+		const booking = fakeStayProvider('booking', 2);
+		const keys: AvailableKeys = { booking: { apiKey: 'k' } };
+		const controller = new AbortController();
+
+		const built = stayCostAwareSources([booking], STAY_QUERY, keys, controller.signal, sources, record);
+		expect(autoWidenStaySources(built)).toEqual(['booking']);
+	});
+
+	it('does not auto-widen a stay provider with no key configured at all', () => {
+		const { record, sources } = newTracking();
+		const agoda = fakeStayProvider('agoda', 6);
+		const controller = new AbortController();
+
+		// No key in `keys` — `stayCostAwareSources` filters unusable providers out before
+		// this function ever sees them, same as it already does for flights.
+		const built = stayCostAwareSources([agoda], STAY_QUERY, {}, controller.signal, sources, record);
+		expect(built).toHaveLength(0);
+		expect(autoWidenStaySources(built)).toEqual([]);
+	});
+
+	it('leaves a Sky-Scrapper-tight metered stay provider out, still requiring explicit consent', () => {
+		const { record, sources } = newTracking();
+		// 'skyscanner' cast here purely to reuse its real tuned cap (15) from the budget
+		// module's table — a hypothetical stay provider this scarce should be treated the
+		// same way the real Sky Scrapper flight provider is.
+		const tight = fakeStayProvider('skyscanner', 1);
+		const keys: AvailableKeys = { skyscanner: { apiKey: 'k' } };
+		const controller = new AbortController();
+
+		const built = stayCostAwareSources([tight], STAY_QUERY, keys, controller.signal, sources, record);
+		expect(autoWidenStaySources(built)).toEqual([]);
+	});
+
+	it('never lists a free stay source — nothing to widen to', () => {
+		const { record, sources } = newTracking();
+		const free = fakeStayProvider('ryanair', 0, false);
+		const controller = new AbortController();
+
+		const built = stayCostAwareSources([free], STAY_QUERY, {}, controller.signal, sources, record);
+		expect(built[0]?.tier).toBe('free');
+		expect(autoWidenStaySources(built)).toEqual([]);
 	});
 });

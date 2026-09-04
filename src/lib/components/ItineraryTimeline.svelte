@@ -158,11 +158,13 @@
 
 	// Accommodation subtotal for the free-time row: not stored anywhere on Itinerary
 	// (totalPrice is the door-to-door figure), but it is exactly nights × nightly rate, and
-	// both of those already live on `shown`.
-	const staySubtotal = $derived({
-		minorUnits: shown.stay.pricePerNight.minorUnits * shown.nightsInConnection,
-		currency: shown.stay.pricePerNight.currency
-	});
+	// both of those already live on `shown`. `undefined` when no stay was priced for this
+	// connection (issue #94) — there is no nightly rate to multiply.
+	const staySubtotal = $derived(
+		shown.stay
+			? { minorUnits: shown.stay.pricePerNight.minorUnits * shown.nightsInConnection, currency: shown.stay.pricePerNight.currency }
+			: undefined
+	);
 
 	const uid = $props.id();
 
@@ -395,7 +397,11 @@
 
 	{@render flightRow(shown.outboundFlight, `Flight to ${shown.outboundFlight.arrivalAirport}`, 'outbound-flight')}
 
-	{@render transferRow(shown.transferToHotel, `Travel to ${shown.stay.property.name}`, 'transfer-to-hotel')}
+	{@render transferRow(
+		shown.transferToHotel,
+		shown.stay ? `Travel to ${shown.stay.property.name}` : 'Travel to the stopover',
+		'transfer-to-hotel'
+	)}
 
 	<li
 		class="tl-row tl-row-stopover"
@@ -412,7 +418,9 @@
 		<div class="tl-content tl-stopover">
 			<p class="tl-stopover-eyebrow">The stopover</p>
 			<p class="tl-stopover-nights">
-				{#if shown.nightsInConnection > 0}
+				{#if !shown.stay}
+					Stopover in {shown.outboundFlight.arrivalAirport}
+				{:else if shown.nightsInConnection > 0}
 					{shown.nightsInConnection}
 					{shown.nightsInConnection === 1 ? 'night' : 'nights'} in {shown.outboundFlight.arrivalAirport}
 				{:else}
@@ -420,8 +428,12 @@
 				{/if}
 			</p>
 			<p class="tl-detail">
-				{shown.stay.property.name} &middot; {shown.stay.roomKind}
-				{#if shown.stay.property.rating}&middot; rated {shown.stay.property.rating}/5{/if}
+				{#if shown.stay}
+					{shown.stay.property.name} &middot; {shown.stay.roomKind}
+					{#if shown.stay.property.rating}&middot; rated {shown.stay.property.rating}/5{/if}
+				{:else}
+					No bed priced — add an Agoda or Booking.com key, or widen the search, to price one here.
+				{/if}
 			</p>
 			<div class="tl-free-window">
 				<span class="tl-free-endpoint">
@@ -435,7 +447,7 @@
 			</div>
 			<div class="tl-meta">
 				<span class="tl-duration font-mono tabular-nums">{formatDuration(shown.freeTime.duration)} free</span>
-				{#if shown.nightsInConnection > 0}
+				{#if staySubtotal && shown.nightsInConnection > 0}
 					<span class="tl-price font-mono tabular-nums">{formatMoney(staySubtotal)}</span>
 				{/if}
 			</div>
@@ -498,6 +510,9 @@
 		<div class="tl-total tl-total-primary">
 			<dt>Total price</dt>
 			<dd class="font-mono tabular-nums">{formatMoney(shown.totalPrice)}</dd>
+			{#if !shown.stay}
+				<p class="tl-note tl-note-warning">Excludes an unpriced stopover stay</p>
+			{/if}
 		</div>
 	</dl>
 {/if}

@@ -246,7 +246,9 @@
 						</div>
 						<div class="comparator-total">
 							<dt>Nights</dt>
-							<dd class="font-mono tabular-nums text-stopover">{item.itinerary.nightsInConnection}</dd>
+							<dd class="font-mono tabular-nums text-stopover">
+								{item.itinerary.stay ? item.itinerary.nightsInConnection : 'No stay priced'}
+							</dd>
 						</div>
 						<div class="comparator-total comparator-total-primary">
 							<dt>Total price</dt>

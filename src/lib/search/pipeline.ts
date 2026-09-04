@@ -337,7 +337,10 @@ async function processCandidate(input: ProcessCandidateInput): Promise<Candidate
 	]);
 
 	if (input.signal.aborted) return empty;
-	if (outboundOffers.length === 0 || onwardOffers.length === 0 || !resources) return empty;
+	// Issue #94: `resources` itself is never `undefined` any more — a missing stay
+	// degrades `resources.stay` to `undefined` rather than dropping the candidate, so the
+	// only thing that still empties this candidate outright is having no flights at all.
+	if (outboundOffers.length === 0 || onwardOffers.length === 0) return empty;
 
 	try {
 		const itineraries = buildItineraries({
@@ -485,10 +488,16 @@ function widenOptionsForCandidates(
  * two): ranks connection candidates from free sources only — Ryanair's route graph, the
  * bundled fallback table (both inside `algorithm/connections.ts`), and the build-time
  * Travelpayouts cheap-routes dataset (issue #52, `providers-adapter.ts`'s
- * `createCheapRoutesFlightProvider`) — then fetches flights, stays and transfers for them
- * from every currently-free provider (`providers/budget`'s `runCostAwareSearch` with no
- * `widenTo`, which is what guarantees a metered provider is never called), building and
- * scoring whatever itineraries the data supports.
+ * `createCheapRoutesFlightProvider`) — then fetches flights and transfers for them from
+ * every currently-free FLIGHT provider (`fetchLegs` below passes no `widenTo`, which is
+ * what guarantees a metered flight provider is never called here), building and scoring
+ * whatever itineraries the data supports.
+ *
+ * Stays are a deliberate exception (issue #94, `resources.ts`'s `fetchCheapestStay`): a
+ * metered stay provider whose own cap can absorb this search cheaply enough
+ * (`autoWidenStaySources`) still runs here, the moment a key exists — a binary "stage 1
+ * spends nothing metered, full stop" rule was written for Sky Scrapper's 20-a-month quota
+ * and, applied uniformly to Agoda's 500, made pricing a bed structurally unreachable.
  *
  * Yields a `SearchSnapshot` whose `stage` moves through `'candidates'` once ranking is done,
  * then `'stage1'` again for each candidate as its data finishes arriving (in completion
@@ -575,9 +584,11 @@ export async function* runSearch(
 		return;
 	}
 
-	// No `widenTo`: only the free tier ever runs. This one line is what makes stage 1's "no
-	// metered provider is ever called" guarantee hold, delegated entirely to
-	// `providers/budget`'s own contract rather than a filter this file maintains itself.
+	// No `widenTo`: only free FLIGHT providers ever run here. This one line is what makes
+	// stage 1's "no metered flight provider is ever called" guarantee hold, delegated
+	// entirely to `providers/budget`'s own contract rather than a filter this file
+	// maintains itself. Stays follow a different, quota-aware rule inside
+	// `fetchConnectionResources` below — see this function's own doc comment (issue #94).
 	const fetchLegs: FetchLegsFn = async (outboundQuery, onwardQuery) => {
 		const [outboundResult, onwardResult] = await Promise.all([
 			runCostAwareSearch(flightCostAwareSources(allFlightProviders, outboundQuery, deps.keys, signal, sources, record)),
@@ -631,13 +642,15 @@ export async function* runSearch(
  * confirmed, then `'done'` — the same shape as `runSearch`'s stages, reused rather than
  * inventing a parallel set of names for what is structurally the same progression.
  *
- * Scope note: only flight providers are widened to metered ones here. Stay and transfer
- * resources keep using free providers only, same as the free tier — Agoda's 500/month and
- * Booking's 50/month (docs/PROVIDERS.md) are generous enough that they don't need the same
- * one-request-per-date care Skyscanner does, and this keeps the budget-accounting logic
- * below (`cost-aware.ts`'s `pickMeteredWithinBudget`, a shared, exact ceiling) from having to
- * reason about more than one provider kind. A future issue can extend the same
- * `WidenRequest` shape to stay providers if that quota ever becomes the bottleneck instead.
+ * Scope note: `request.maxMeteredRequests` and its budget accounting
+ * (`cost-aware.ts`'s `pickMeteredWithinBudget`, a shared, exact ceiling) apply to FLIGHT
+ * providers only — Skyscanner's one-request-per-date cost is exactly what that explicit,
+ * traveller-confirmed budget exists to guard. Stay resources here go through the same
+ * quota-aware, no-second-opt-in path as the free tier (`fetchConnectionResources`, issue
+ * #94): Agoda's 500/month and Booking's 50/month are generous enough, relative to what one
+ * search costs, that a configured key already counts as consent, so this tier's own budget
+ * never has to reason about a second provider kind. A future issue can extend
+ * `WidenRequest` to stay providers too if a tightly-capped one is ever added.
  * See `widenWithPriceCalendar` below for the "calendar" tier (tier 2: cheap, broad, a full
  * year of dates per route).
  */

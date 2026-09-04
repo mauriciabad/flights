@@ -4,6 +4,7 @@ import {
 	FALLBACK_PROVIDER_CAP,
 	clearProviderCapOverride,
 	getProviderCap,
+	isQuotaGenerous,
 	setProviderCapOverride
 } from './caps';
 
@@ -67,5 +68,44 @@ describe('getProviderCap', () => {
 		// `@ts-expect-error` — rather than a lookup miss only caught by reading the number.
 		// @ts-expect-error 'flights-skyy' is not a real ProviderId.
 		expect(getProviderCap('flights-skyy')).toBe(FALLBACK_PROVIDER_CAP);
+	});
+});
+
+describe('isQuotaGenerous (issue #94)', () => {
+	it('is always generous for a zero-cost source, regardless of cap', () => {
+		expect(isQuotaGenerous('skyscanner', 0)).toBe(true);
+	});
+
+	it('keeps Sky Scrapper requiring explicit consent — its cap cannot absorb even one date-range search cheaply', () => {
+		// Sky Scrapper's real cost is one request per date in the range; even the cheapest
+		// possible case, a single date, is 1. 15 (its default cap) ÷ 1 = 15 searches/month,
+		// below the 20 this function requires — this is the exact number that must keep
+		// failing for Sky Scrapper's explicit-consent flow (pipeline.ts's "confirm" tier)
+		// to still work after issue #94.
+		expect(isQuotaGenerous('skyscanner', 1)).toBe(false);
+	});
+
+	it('lets a real Agoda-shaped search run with no extra consent', () => {
+		// Real cost: 1 search + up to 5 get-prices drill-downs (agoda.ts's
+		// MAX_CANDIDATES_TO_EXPAND) = 6. Cap 400 ÷ 6 ≈ 66.7 searches/month.
+		expect(isQuotaGenerous('agoda', 6)).toBe(true);
+	});
+
+	it('lets a real Booking-shaped search run with no extra consent, even at the threshold', () => {
+		// Real cost: 1 search + 1 getRoomList drill-down = 2. Cap 40 ÷ 2 = exactly 20 —
+		// this is the boundary case docs/PROVIDERS.md's numbers land on, so it has to pass.
+		expect(isQuotaGenerous('booking', 2)).toBe(true);
+	});
+
+	it('treats a provider whose cap has been driven to zero as never quota-generous', () => {
+		setProviderCapOverride('skyscanner', 0);
+		expect(isQuotaGenerous('skyscanner', 1)).toBe(false);
+	});
+
+	it('respects a stored cap override, not just the default', () => {
+		// A traveller who lowers Booking's cap to something Sky-Scrapper-tight should get
+		// Sky Scrapper's own treatment: explicit consent, not a silent auto-run.
+		setProviderCapOverride('booking', 15);
+		expect(isQuotaGenerous('booking', 2)).toBe(false);
 	});
 });

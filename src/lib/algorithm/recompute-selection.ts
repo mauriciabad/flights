@@ -76,6 +76,13 @@ export function recomputeItinerarySelection(
 	// Left exactly as the source itinerary had them. See this file's header for why a
 	// picker swap never reclassifies these on its own.
 	const { originWaitingTime, connectionWaitingTime } = itinerary;
+	// No override field exists for the stay itself (issue #27's picker owns that swap
+	// separately, outside this module), so it only ever carries over unchanged. Issue #94:
+	// it may be `undefined` — no bed priced for this connection — in which case a
+	// `transferToHotel`/`transferToConnectionAirport` override would have nowhere real to
+	// go; this module still never crashes on that combination, it just cannot price nights
+	// or in-city transfers that have no stay to anchor them.
+	const { stay } = itinerary;
 
 	const warnings: ItineraryWarning[] = [];
 
@@ -92,11 +99,12 @@ export function recomputeItinerarySelection(
 		});
 	}
 
-	const freeStart = addLocalMinutes(outboundFlight.arrival, transferToHotel.duration);
-	const freeEnd = addLocalMinutes(
-		onwardFlight.departure,
-		-(transferToConnectionAirport.duration + connectionWaitingTime)
-	);
+	const freeStart = stay && transferToHotel
+		? addLocalMinutes(outboundFlight.arrival, transferToHotel.duration)
+		: outboundFlight.arrival;
+	const freeEnd = stay && transferToConnectionAirport
+		? addLocalMinutes(onwardFlight.departure, -(transferToConnectionAirport.duration + connectionWaitingTime))
+		: addLocalMinutes(onwardFlight.departure, -connectionWaitingTime);
 	const freeDuration = minutesBetween(freeStart, freeEnd);
 	if (freeDuration < 0) {
 		warnings.push({
@@ -111,19 +119,20 @@ export function recomputeItinerarySelection(
 	// A negative gap has no meaningful night count; clamped to 0 rather than handed to
 	// `nightsBetween` and left to produce a number nobody asked for, since the accompanying
 	// warning above is already what tells the caller this result is not a bookable trip.
-	const nightsInConnection = freeDuration < 0 ? 0 : nightsBetween(freeStart, freeEnd);
+	// No stay booked is the same "0 nights" outcome, never a guess.
+	const nightsInConnection = freeDuration < 0 || !stay ? 0 : nightsBetween(freeStart, freeEnd);
 
 	const totalPrice: Money = sumMoney(
 		outboundFlight.price,
 		onwardFlight.price,
-		nightsInConnection > 0
+		stay && nightsInConnection > 0
 			? {
-					minorUnits: itinerary.stay.pricePerNight.minorUnits * nightsInConnection,
-					currency: itinerary.stay.pricePerNight.currency
+					minorUnits: stay.pricePerNight.minorUnits * nightsInConnection,
+					currency: stay.pricePerNight.currency
 				}
 			: undefined,
-		transferToHotel.price,
-		transferToConnectionAirport.price,
+		transferToHotel?.price,
+		transferToConnectionAirport?.price,
 		transferToOriginAirport?.price,
 		transferToDestinationLocation?.price
 	);
@@ -136,9 +145,9 @@ export function recomputeItinerarySelection(
 			transferToOriginAirport?.duration,
 			originWaitingTime,
 			outboundFlight.duration,
-			transferToHotel.duration,
+			transferToHotel?.duration,
 			freeDuration,
-			transferToConnectionAirport.duration,
+			transferToConnectionAirport?.duration,
 			connectionWaitingTime,
 			onwardFlight.duration,
 			transferToDestinationLocation?.duration

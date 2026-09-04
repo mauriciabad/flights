@@ -579,6 +579,129 @@ describe('runSearch: stay gender-fit filtering and candidate survival (issue #80
 	});
 });
 
+describe('runSearch: quota-aware stay pricing (issue #94)', () => {
+	/** A stay provider with a REAL `ProviderId` (`'agoda'`, `'booking'`, or, for the
+	 * Sky-Scrapper-tight case below, `'skyscanner'` cast to a stay adapter purely to reuse
+	 * its real tuned cap) so `../providers/budget/caps.ts`'s real cap table classifies it,
+	 * rather than a fixture-only id that would fall back to `FALLBACK_PROVIDER_CAP` — the
+	 * whole point of these tests is to prove the real numbers land where the issue says
+	 * they must. */
+	function createMeteredStayProvider(
+		id: ProviderId,
+		cost: number,
+		behavior: 'succeeds' | 'errors' = 'succeeds'
+	): StayProvider {
+		const stayFor = (near: { latitude: number; longitude: number }): Stay => fakeStay(`${id} stay`, near);
+		return {
+			kind: 'stay',
+			id,
+			label: `Fixture metered stays (${id})`,
+			needsKey: true,
+			keyFields: [{ id: 'apiKey', label: 'API key' }],
+			async healthCheck() {
+				return { ok: true, data: {}, source: source(id), requestsUsed: 0 };
+			},
+			estimateSearchStaysCost: () => cost,
+			async searchStays(query: StaySearchQuery, ctx: ProviderContext): Promise<ProviderResult<Stay[]>> {
+				if (ctx.signal.aborted) {
+					return { ok: false, error: { code: 'cancelled', message: 'aborted' }, source: source(id), requestsUsed: 0 };
+				}
+				if (behavior === 'errors') {
+					return {
+						ok: false,
+						error: { code: 'network-error', message: 'fixture stay provider failure' },
+						source: source(id),
+						requestsUsed: 0
+					};
+				}
+				return { ok: true, data: [stayFor(query.near)], source: source(id), requestsUsed: 1 };
+			}
+		};
+	}
+
+	it('produces itineraries with no priced bed when no stay provider is usable at all', async () => {
+		const free = createFakeFlightProvider({
+			id: 'free-flights',
+			routes: { [ORIGIN]: [FAST], [FAST]: [DEST] },
+			offerBuilder: standardOfferBuilder
+		});
+		// Agoda registered but no key configured — needsKey excludes it from every
+		// cost-aware source list, the same way it would with zero stay providers at all.
+		const agoda = createMeteredStayProvider('agoda', 6);
+		const registry = new ProviderRegistry([free.provider, agoda, createFakeTransferProvider()]);
+		const deps: SearchDependencies = { registry, keys: {}, resolveAirport, currency: 'EUR' };
+
+		const snapshots = await drain(runSearch(BASE_QUERY, deps));
+		const final = snapshots.at(-1)!;
+
+		expect(final.itineraryGroups.length).toBeGreaterThan(0);
+		const itinerary = final.itineraryGroups[0]?.best.score.itinerary;
+		expect(itinerary?.stay).toBeUndefined();
+		expect(itinerary?.transferToHotel).toBeUndefined();
+	});
+
+	it('prices a stay from a keyed, quota-generous metered provider (Agoda-shaped) with no widen request from the caller', async () => {
+		const free = createFakeFlightProvider({
+			id: 'free-flights',
+			routes: { [ORIGIN]: [FAST], [FAST]: [DEST] },
+			offerBuilder: standardOfferBuilder
+		});
+		const agoda = createMeteredStayProvider('agoda', 6);
+		const registry = new ProviderRegistry([free.provider, agoda, createFakeTransferProvider()]);
+		// The key alone — `runSearch` is never told to widen to anything; that is exactly
+		// what issue #94 asks for: pasting a key already counts as opting in.
+		const deps: SearchDependencies = { registry, keys: { agoda: { apiKey: 'a-real-key' } }, resolveAirport, currency: 'EUR' };
+
+		const snapshots = await drain(runSearch(BASE_QUERY, deps));
+		const final = snapshots.at(-1)!;
+
+		const itinerary = final.itineraryGroups[0]?.best.score.itinerary;
+		expect(itinerary?.stay).toBeDefined();
+		expect(itinerary?.stay?.property.name).toBe('agoda stay');
+		expect(final.itineraryGroups[0]?.best.sources.stay?.providerId).toBe('agoda');
+	});
+
+	it('still requires explicit consent for a Sky-Scrapper-tight metered stay provider, even when keyed', async () => {
+		const free = createFakeFlightProvider({
+			id: 'free-flights',
+			routes: { [ORIGIN]: [FAST], [FAST]: [DEST] },
+			offerBuilder: standardOfferBuilder
+		});
+		// 'skyscanner' cast to a StayProvider purely to reuse its real, tight tuned cap (15)
+		// — a hypothetical stay provider this scarce must be treated the same as the real
+		// Sky Scrapper flight provider is: no auto-run just because a key exists.
+		const tight = createMeteredStayProvider('skyscanner', 1);
+		const registry = new ProviderRegistry([free.provider, tight, createFakeTransferProvider()]);
+		const deps: SearchDependencies = { registry, keys: { skyscanner: { apiKey: 'k' } }, resolveAirport, currency: 'EUR' };
+
+		const snapshots = await drain(runSearch(BASE_QUERY, deps));
+		const final = snapshots.at(-1)!;
+
+		const itinerary = final.itineraryGroups[0]?.best.score.itinerary;
+		expect(itinerary?.stay).toBeUndefined();
+	});
+
+	it('degrades one itinerary to no priced stay, rather than dropping it, when the only usable stay provider errors', async () => {
+		const free = createFakeFlightProvider({
+			id: 'free-flights',
+			routes: { [ORIGIN]: [FAST], [FAST]: [DEST] },
+			offerBuilder: standardOfferBuilder
+		});
+		const flakyStay = createMeteredStayProvider('booking', 2, 'errors');
+		const registry = new ProviderRegistry([free.provider, flakyStay, createFakeTransferProvider()]);
+		const deps: SearchDependencies = { registry, keys: { booking: { apiKey: 'a-real-key' } }, resolveAirport, currency: 'EUR' };
+
+		const snapshots = await drain(runSearch(BASE_QUERY, deps));
+		const final = snapshots.at(-1)!;
+
+		// "One provider failing must never fail a search" — a hotel API being down must
+		// not remove the flight-plus-free-time itinerary that is still perfectly real.
+		expect(final.itineraryGroups.length).toBeGreaterThan(0);
+		const itinerary = final.itineraryGroups[0]?.best.score.itinerary;
+		expect(itinerary?.stay).toBeUndefined();
+	});
+});
+
 describe('widenSearch', () => {
 	it('spends metered requests only for the targeted candidate, capped at the confirmed budget', async () => {
 		const free = createFakeFlightProvider({

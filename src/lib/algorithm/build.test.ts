@@ -198,6 +198,91 @@ describe('buildItineraries — nights in connection', () => {
 	});
 });
 
+describe('buildItineraries — missing stay (issue #94)', () => {
+	it('still produces an itinerary when no stay was found for the connection', () => {
+		// The exact shape `fetchCheapestStay` returning nothing degrades to (resources.ts):
+		// stay, transferToHotel and transferToConnectionAirport all `undefined` together.
+		const arrival = localDateTime('2026-06-01T10:00:00', 'Europe/Vienna', 120);
+		const departure = localDateTime('2026-06-01T16:00:00', 'Europe/Vienna', 120);
+		const outbound = makeFlight('LGW', 'VIE', arrival, arrival, 150);
+		const onward = makeFlight('VIE', 'IST', departure, departure, 90);
+
+		const result = buildItineraries(
+			baseInput({
+				outboundOffers: [outbound],
+				onwardOffers: [onward],
+				connectionResources: { VIE: {} }
+			})
+		);
+
+		expect(result).toHaveLength(1);
+		const [itinerary] = result;
+		expect(itinerary.stay).toBeUndefined();
+		expect(itinerary.transferToHotel).toBeUndefined();
+		expect(itinerary.transferToConnectionAirport).toBeUndefined();
+	});
+
+	it('never guesses a stay cost or a night count when no stay was found', () => {
+		const arrival = localDateTime('2026-06-01T10:00:00', 'Europe/Vienna', 120);
+		// A gap wide enough to cross a calendar date, so a bug that still consulted
+		// `nightsBetween` here (rather than hard-zeroing it) would show up as a nonzero
+		// night count instead of silently matching by coincidence.
+		const departure = localDateTime('2026-06-02T14:00:00', 'Europe/Vienna', 120);
+		const outbound = makeFlight('LGW', 'VIE', arrival, arrival, 150, 5000);
+		const onward = makeFlight('VIE', 'IST', departure, departure, 90, 6000);
+
+		const [itinerary] = buildItineraries(
+			baseInput({
+				outboundOffers: [outbound],
+				onwardOffers: [onward],
+				connectionResources: { VIE: {} },
+				waitingTimeRules: flatWaitingTime(60)
+			})
+		);
+
+		expect(itinerary.nightsInConnection).toBe(0);
+		// Total is exactly the two flights, no hotel and no in-city transfer legs — never a
+		// $0 stay standing in for "unknown".
+		expect(itinerary.totalPrice).toEqual({ minorUnits: outbound.price.minorUnits + onward.price.minorUnits, currency: 'EUR' });
+	});
+
+	it('runs free time from runway to runway, with no in-city transfer buffer, when no stay was found', () => {
+		const arrival = localDateTime('2026-06-01T10:00:00', 'Europe/Vienna', 120);
+		const departure = localDateTime('2026-06-01T14:00:00', 'Europe/Vienna', 120); // 4h gap
+		const outbound = makeFlight('LGW', 'VIE', arrival, arrival, 150);
+		const onward = makeFlight('VIE', 'IST', departure, departure, 90);
+
+		const [itinerary] = buildItineraries(
+			baseInput({
+				outboundOffers: [outbound],
+				onwardOffers: [onward],
+				connectionResources: { VIE: {} },
+				waitingTimeRules: flatWaitingTime(30) // 30min connection buffer, no hotel transfer to add
+			})
+		);
+
+		expect(itinerary.freeTime.start).toEqual(arrival); // no transferToHotel duration to add
+		expect(itinerary.freeTime.duration).toBe(4 * 60 - 30); // only the connection buffer is subtracted
+	});
+
+	it('drops the candidate outright only when there is no resources entry at all for it, not merely no stay', () => {
+		const arrival = localDateTime('2026-06-01T10:00:00', 'Europe/Vienna', 120);
+		const departure = localDateTime('2026-06-01T14:00:00', 'Europe/Vienna', 120);
+		const outbound = makeFlight('LGW', 'VIE', arrival, arrival, 150);
+		const onward = makeFlight('VIE', 'IST', departure, departure, 90);
+
+		const result = buildItineraries(
+			baseInput({
+				outboundOffers: [outbound],
+				onwardOffers: [onward],
+				connectionResources: {} // no VIE entry at all — the flights themselves were never resolved
+			})
+		);
+
+		expect(result).toHaveLength(0);
+	});
+});
+
 describe('buildItineraries — airport waiting time vs layover', () => {
 	it('counts airport waiting time as only the pre-flight buffers, never the flight-to-flight gap', () => {
 		const arrival = localDateTime('2026-06-01T10:00:00', 'Europe/Vienna', 120);

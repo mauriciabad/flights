@@ -172,6 +172,40 @@ describe('recomputeItinerarySelection: totals and nights', () => {
 	});
 });
 
+describe('recomputeItinerarySelection: no stay priced (issue #94)', () => {
+	/** Same schedule as `baseItinerary`, but built from a connection with no stay resolved
+	 * — the exact shape `fetchConnectionResources` degrades to when no provider prices a
+	 * bed for the connection. */
+	function itineraryWithoutStay() {
+		const outboundArrival = localDateTime('2026-06-01T10:00:00');
+		const onwardDeparture = localDateTime('2026-06-01T10:40:00');
+		const outbound = makeFlight('LGW', 'VIE', outboundArrival, outboundArrival, 150);
+		const onward = makeFlight('VIE', 'IST', onwardDeparture, onwardDeparture, 90);
+		const [itinerary] = buildItineraries(
+			baseInput({ outboundOffers: [outbound], onwardOffers: [onward], connectionResources: { VIE: {} } })
+		);
+		if (!itinerary) throw new Error('fixture itinerary failed to build');
+		return itinerary;
+	}
+
+	it('swaps a flight without crashing, keeping the stay absent and pricing only the flights', () => {
+		const itinerary = itineraryWithoutStay();
+		expect(itinerary.stay).toBeUndefined();
+
+		const earlierArrival = localDateTime('2026-06-01T09:30:00');
+		const earlierOutbound = makeFlight('LGW', 'VIE', earlierArrival, earlierArrival, 120, 4500);
+
+		const result = recomputeItinerarySelection(itinerary, { outboundFlight: earlierOutbound });
+
+		expect(result.warnings).toHaveLength(0);
+		expect(result.itinerary.stay).toBeUndefined();
+		expect(result.itinerary.nightsInConnection).toBe(0);
+		// outbound (4500) + onward (5000, the fixture default), no stay and no transfer
+		// legs to add — never a guessed bed cost.
+		expect(result.itinerary.totalPrice.minorUnits).toBe(4500 + 5000);
+	});
+});
+
 describe('diffFlightOffers', () => {
 	const current = makeFlight(
 		'LGW',

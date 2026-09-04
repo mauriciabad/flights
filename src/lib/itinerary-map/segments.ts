@@ -103,31 +103,42 @@ export function buildItineraryMapModel(
 		coordinates: greatCircleArc(itinerary.originAirport.coordinates, connectionAirport.coordinates)
 	});
 
-	segments.push({
-		kind: 'line',
-		id: 'transfer-to-hotel',
-		role: 'transfer',
-		tone: 'stopover',
-		label: `Transfer to ${itinerary.stay.property.name}`,
-		coordinates: [connectionAirport.coordinates, itinerary.stay.property.coordinates]
-	});
+	// Issue #94: `itinerary.stay` (and, alongside it, `transferToHotel`/
+	// `transferToConnectionAirport`) is `undefined` when no bed was priced for this
+	// connection. There is then nowhere for an in-city transfer to go, so those two
+	// segments simply don't exist — same treatment `transfer-to-origin-airport` already
+	// gets when there is no `originLocation` — and `free-time` falls back to a point at
+	// the connection airport itself: the layover still happened somewhere real, even
+	// without a hotel to anchor it to.
+	if (itinerary.stay && itinerary.transferToHotel) {
+		segments.push({
+			kind: 'line',
+			id: 'transfer-to-hotel',
+			role: 'transfer',
+			tone: 'stopover',
+			label: `Transfer to ${itinerary.stay.property.name}`,
+			coordinates: [connectionAirport.coordinates, itinerary.stay.property.coordinates]
+		});
+	}
 
 	segments.push({
 		kind: 'point',
 		id: 'free-time',
 		tone: 'stopover',
-		label: itinerary.stay.property.name,
-		coordinates: itinerary.stay.property.coordinates
+		label: itinerary.stay ? itinerary.stay.property.name : `Stopover at ${connectionAirport.city.name}`,
+		coordinates: itinerary.stay ? itinerary.stay.property.coordinates : connectionAirport.coordinates
 	});
 
-	segments.push({
-		kind: 'line',
-		id: 'transfer-to-connection-airport',
-		role: 'transfer',
-		tone: 'stopover',
-		label: `Transfer to ${connectionAirport.iataCode}`,
-		coordinates: [itinerary.stay.property.coordinates, connectionAirport.coordinates]
-	});
+	if (itinerary.stay && itinerary.transferToConnectionAirport) {
+		segments.push({
+			kind: 'line',
+			id: 'transfer-to-connection-airport',
+			role: 'transfer',
+			tone: 'stopover',
+			label: `Transfer to ${connectionAirport.iataCode}`,
+			coordinates: [itinerary.stay.property.coordinates, connectionAirport.coordinates]
+		});
+	}
 
 	segments.push({
 		kind: 'point',

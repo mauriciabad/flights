@@ -22,6 +22,12 @@ export function describeWhyGood(result: ScoredResult): string {
 	const nights = itinerary.nightsInConnection;
 	const usableHours = Math.round(usableFreeHours(itinerary.freeTime));
 
+	// Issue #94: with no stay priced, `nights` is always 0 by convention, not because the
+	// layover is genuinely a day trip — say that plainly rather than let a "no overnight
+	// stay needed" line below imply a fact nobody checked.
+	if (!itinerary.stay) {
+		return 'No stay priced for this stopover yet — showing flights and free time only.';
+	}
 	if (nights >= 1) {
 		const nightsLabel = nights === 1 ? '1 night' : `${nights} nights`;
 		return `${nightsLabel} in the stopover city, most of it free time.`;
