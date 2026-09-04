@@ -27,6 +27,19 @@ export type ItinerarySegmentTone = 'neutral' | 'stopover';
 export type ItineraryMarkerKind = 'airport' | 'start' | 'stay' | 'end';
 
 /**
+ * Issue #141: how precisely a point's coordinates locate the thing it names.
+ *
+ * `'exact'` is an address: an airport, a hotel, the place the traveller typed in. Every
+ * point is that, except one. The stopover with no bed priced happens *somewhere in the
+ * connection city*, and the only coordinate this app has for that city is the airport's
+ * own (`data/airports.ts`: "OurAirports has no separate city geometry, only the
+ * airport's"). Marking it `'city'` is what stops `ItineraryMap` framing the runway at
+ * street level and calling it the free city, and what tells the status line to say why
+ * the map stopped where it did.
+ */
+export type ItineraryPointPrecision = 'exact' | 'city';
+
+/**
  * Issue #118: whether a line segment's `coordinates` trace a real, provider-fetched
  * route (`'real'`) or a straight hop between two known endpoints because no route shape
  * was available (`'schematic'`). A flight's great-circle arc is always `'real'` — it is
@@ -50,6 +63,7 @@ export interface ItineraryPointSegment extends BaseSegment {
 	kind: 'point';
 	markerKind: ItineraryMarkerKind;
 	coordinates: Coordinates;
+	precision: ItineraryPointPrecision;
 }
 
 export interface ItineraryLineSegment extends BaseSegment {
@@ -75,6 +89,19 @@ export interface ItineraryWaypoint {
 export interface ItineraryMapModel {
 	segments: ItinerarySegment[];
 	extraWaypoints: ItineraryWaypoint[];
+	/**
+	 * Issue #141: why a step the timeline renders has no geometry here.
+	 *
+	 * `ItineraryTimeline` prints every schedule step in a fixed order whether or not it
+	 * has anything behind it, deliberately (`itinerary-timeline-format.ts`: "a row that
+	 * vanishes for one itinerary and not another makes two trips harder to read against
+	 * each other"). The map cannot do the same — there is no line to draw for a leg that
+	 * was never routed — so selecting one of those rows used to move nothing and say
+	 * nothing, with an empty `role="status"` for a screen reader to not hear. Every id
+	 * that can be selected but not drawn now carries a sentence about the itinerary
+	 * instead, and `every id is either drawn or explained` is a tested invariant.
+	 */
+	absentSegmentNotes: Partial<Record<ItinerarySegmentId, string>>;
 }
 
 /**
@@ -164,8 +191,29 @@ function singleFrame(model: ItineraryMapModel): ItineraryMapModel {
 		extraWaypoints: model.extraWaypoints.map((waypoint) => ({
 			...waypoint,
 			coordinates: place(waypoint.coordinates)
-		}))
+		})),
+		absentSegmentNotes: model.absentSegmentNotes
 	};
+}
+
+/**
+ * What the map says about a transfer step it has no line for (issue #141). Each sentence
+ * is a fact readable straight off this itinerary, in the same three cases
+ * `unroutedLegNote` (`components/itinerary-timeline-format.ts`) distinguishes for the
+ * timeline row itself, so the row and the map agree about what happened. They are worded
+ * for their own place rather than shared as one string: the row explains a gap in a list
+ * of steps, this explains why the camera did not move.
+ */
+function transferAbsenceNote(itinerary: Itinerary, leg: 'to-hotel' | 'from-hotel' | 'outer'): string {
+	if (leg !== 'outer' && !itinerary.stay) {
+		if (itinerary.nightsInConnection === 0) {
+			return 'Nothing to draw: a same-day connection has no hotel leg.';
+		}
+		return leg === 'to-hotel'
+			? 'Nothing to draw: no bed priced for this stopover, so there is nowhere to travel to.'
+			: 'Nothing to draw: no bed priced for this stopover, so there is nowhere to travel back from.';
+	}
+	return 'Nothing to draw: no route came back from the transport providers for this leg.';
 }
 
 export function buildItineraryMapModel(
@@ -173,6 +221,7 @@ export function buildItineraryMapModel(
 	connectionAirport: Airport
 ): ItineraryMapModel {
 	const segments: ItinerarySegment[] = [];
+	const absentSegmentNotes: Partial<Record<ItinerarySegmentId, string>> = {};
 
 	if (itinerary.originLocation) {
 		segments.push({
@@ -181,7 +230,8 @@ export function buildItineraryMapModel(
 			tone: 'neutral',
 			markerKind: 'start',
 			label: itinerary.originLocation.label,
-			coordinates: itinerary.originLocation.coordinates
+			coordinates: itinerary.originLocation.coordinates,
+			precision: 'exact'
 		});
 	}
 
@@ -203,6 +253,10 @@ export function buildItineraryMapModel(
 			label: transferLabel(`Transfer to ${itinerary.originAirport.iataCode}`, line.geometryKind),
 			coordinates: line.coordinates
 		});
+	} else if (itinerary.originLocation) {
+		// The timeline renders this row whenever there is an origin location, routed or
+		// not, so the map owes it an answer whenever there is one too.
+		absentSegmentNotes['transfer-to-origin-airport'] = transferAbsenceNote(itinerary, 'outer');
 	}
 
 	segments.push({
@@ -211,7 +265,8 @@ export function buildItineraryMapModel(
 		tone: 'neutral',
 		markerKind: 'airport',
 		label: `${itinerary.originAirport.city.name} (${itinerary.originAirport.iataCode})`,
-		coordinates: itinerary.originAirport.coordinates
+		coordinates: itinerary.originAirport.coordinates,
+		precision: 'exact'
 	});
 
 	segments.push({
@@ -246,15 +301,24 @@ export function buildItineraryMapModel(
 			label: transferLabel(`Transfer to ${itinerary.stay.property.name}`, line.geometryKind),
 			coordinates: line.coordinates
 		});
+	} else {
+		absentSegmentNotes['transfer-to-hotel'] = transferAbsenceNote(itinerary, 'to-hotel');
 	}
 
+	// Issue #141: without a stay this point keeps the airport's own coordinates, because
+	// they are the only ones this app holds for the connection city at all — but it stops
+	// claiming to be an address. `precision: 'city'` is what makes the camera frame the
+	// city instead of the runway, and what puts the marker in the stacked treatment
+	// `ItineraryMap` gives two markers sharing one coordinate, instead of hiding it under
+	// the airport's own pill where it could not be clicked.
 	segments.push({
 		kind: 'point',
 		id: 'free-time',
 		tone: 'stopover',
 		markerKind: 'stay',
-		label: itinerary.stay ? itinerary.stay.property.name : `Stopover at ${connectionAirport.city.name}`,
-		coordinates: itinerary.stay ? itinerary.stay.property.coordinates : connectionAirport.coordinates
+		label: itinerary.stay ? itinerary.stay.property.name : `Stopover in ${connectionAirport.city.name}`,
+		coordinates: itinerary.stay ? itinerary.stay.property.coordinates : connectionAirport.coordinates,
+		precision: itinerary.stay ? 'exact' : 'city'
 	});
 
 	if (itinerary.stay && itinerary.transferToConnectionAirport) {
@@ -272,6 +336,8 @@ export function buildItineraryMapModel(
 			label: transferLabel(`Transfer to ${connectionAirport.iataCode}`, line.geometryKind),
 			coordinates: line.coordinates
 		});
+	} else {
+		absentSegmentNotes['transfer-to-connection-airport'] = transferAbsenceNote(itinerary, 'from-hotel');
 	}
 
 	segments.push({
@@ -280,7 +346,8 @@ export function buildItineraryMapModel(
 		tone: 'stopover',
 		markerKind: 'airport',
 		label: `${connectionAirport.city.name} (${connectionAirport.iataCode})`,
-		coordinates: connectionAirport.coordinates
+		coordinates: connectionAirport.coordinates,
+		precision: 'exact'
 	});
 
 	segments.push({
@@ -308,6 +375,8 @@ export function buildItineraryMapModel(
 			label: transferLabel(`Transfer to ${itinerary.destinationLocation.label}`, line.geometryKind),
 			coordinates: line.coordinates
 		});
+	} else if (itinerary.destinationLocation) {
+		absentSegmentNotes['transfer-to-destination-location'] = transferAbsenceNote(itinerary, 'outer');
 	}
 
 	if (itinerary.destinationLocation) {
@@ -317,7 +386,8 @@ export function buildItineraryMapModel(
 			tone: 'neutral',
 			markerKind: 'end',
 			label: itinerary.destinationLocation.label,
-			coordinates: itinerary.destinationLocation.coordinates
+			coordinates: itinerary.destinationLocation.coordinates,
+			precision: 'exact'
 		});
 	}
 
@@ -332,7 +402,7 @@ export function buildItineraryMapModel(
 		}
 	];
 
-	return singleFrame({ segments, extraWaypoints });
+	return singleFrame({ segments, extraWaypoints, absentSegmentNotes });
 }
 
 /** Every coordinate in the model, for the map's initial "show the whole chain" view

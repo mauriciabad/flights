@@ -43,7 +43,7 @@
 	 */
 	import { onDestroy, onMount } from 'svelte';
 	import type { GeoJSONSource, MapLibreMap, Marker as MaplibreMarker } from 'maplibre-gl';
-	import type { Airport, Itinerary } from '$lib/domain';
+	import type { Airport, Coordinates, Itinerary } from '$lib/domain';
 	import { getAirport } from '$lib/data/airports';
 	import {
 		allCoordinates,
@@ -52,7 +52,8 @@
 		type ItineraryMapModel,
 		type ItineraryMarkerKind
 	} from '$lib/itinerary-map/segments';
-	import { viewForCoordinates, type MapView } from '$lib/itinerary-map/geo';
+	import { itineraryMapStatus } from '$lib/itinerary-map/status';
+	import { CITY_VIEW_ZOOM, viewForCoordinates, type MapView } from '$lib/itinerary-map/geo';
 	import type { ItinerarySegmentId } from '$lib/itinerary-map/segment-id';
 	import {
 		applyThemeColors,
@@ -82,7 +83,13 @@
 	// Plain (non-reactive) handles to the imperative MapLibre world: reassigning these
 	// must never itself trigger a Svelte effect, only the `$state` flags above do that.
 	let map: MapLibreMap | undefined;
-	let markers: { id: ItinerarySegmentId | null; element: HTMLElement; marker: MaplibreMarker }[] = [];
+	let markers: {
+		id: ItinerarySegmentId | null;
+		element: HTMLElement;
+		marker: MaplibreMarker;
+		coordinates: Coordinates;
+		markerKind: ItineraryMarkerKind;
+	}[] = [];
 	let previousSelectedId: ItinerarySegmentId | null = null;
 	let hasFocusedOnce = false;
 	// Tracks whether 'itinerary-lines' currently exists on the map's *active* style —
@@ -99,12 +106,11 @@
 			(connectionAirport ? ` via ${connectionAirport.city.name}` : '')
 	);
 
-	const announcement = $derived.by(() => {
-		if (!model) return '';
-		if (!selectedSegmentId) return 'Showing the whole route.';
-		const segment = findSegment(model, selectedSegmentId);
-		return segment ? `Showing ${segment.label}.` : '';
-	});
+	// Issue #141: what the map is showing, in one sentence, for the line under it and for
+	// the `role="status"` region a screen reader hears. Built by a pure function so the
+	// "every selectable step gets a real sentence" promise is checked in a unit test
+	// rather than only by looking at the page.
+	const status = $derived(model ? itineraryMapStatus(model, selectedSegmentId) : undefined);
 
 	// Resolves the one thing an Itinerary never names directly (see segments.ts's own
 	// doc comment). Re-runs if the itinerary prop itself is swapped out from above
@@ -153,11 +159,21 @@
 			return;
 		}
 		const segment = findSegment(currentModel, id);
-		// A stale id from an itinerary that just changed underneath the selection —
-		// nothing to focus, and the caller (the future timeline) owns clearing it.
+		// A step with no geometry: a transfer nobody routed, or a stale id from an
+		// itinerary that changed underneath the selection. The camera stays where the
+		// traveller left it and the status line says why (issue #141) — moving it to
+		// somewhere unrelated would be worse than not moving at all.
 		if (!segment) return;
-		const coordinates = segment.kind === 'point' ? [segment.coordinates] : segment.coordinates;
-		applyView(viewForCoordinates(coordinates), animate);
+		if (segment.kind === 'line') {
+			applyView(viewForCoordinates(segment.coordinates), animate);
+			return;
+		}
+		applyView(
+			viewForCoordinates([segment.coordinates], {
+				pointZoom: segment.precision === 'city' ? CITY_VIEW_ZOOM : undefined
+			}),
+			animate
+		);
 	}
 
 	/**
@@ -282,7 +298,76 @@
 				.setLngLat([point.coordinates.longitude, point.coordinates.latitude])
 				.addTo(map);
 
-			markers.push({ id: point.id, element: el, marker });
+			markers.push({
+				id: point.id,
+				element: el,
+				marker,
+				coordinates: point.coordinates,
+				markerKind
+			});
+		}
+
+		stackCoLocatedMarkers();
+	}
+
+	/** Close enough to be the same place: the tolerance `providers/geocode/airport-city.ts`
+	 *  already uses against this app's own airport coordinates, ~11 m at the equator. In
+	 *  practice the pairs this catches are bit-identical (the stopover point copies the
+	 *  connection airport's own coordinates), and the tolerance is only there so a future
+	 *  point derived through arithmetic still counts. */
+	const CO_LOCATION_TOLERANCE_DEGREES = 1e-4;
+
+	/** Air between two stacked markers. Small enough that they read as one cluster
+	 *  pinned to one place, wide enough that neither swallows the other's pointer
+	 *  events, which is the whole point (issue #141). */
+	const MARKER_STACK_GAP_PX = 4;
+
+	function coLocationKey(coordinates: Coordinates): string {
+		const quantise = (value: number) => Math.round(value / CO_LOCATION_TOLERANCE_DEGREES);
+		return `${quantise(coordinates.latitude)}:${quantise(coordinates.longitude)}`;
+	}
+
+	/**
+	 * Issue #141: the stopover marker could not be clicked.
+	 *
+	 * With no bed priced, the stopover sits on the connection airport's own coordinates
+	 * (`segments.ts` explains why there is nowhere else to put it), and MapLibre draws
+	 * every marker as an absolutely positioned sibling in insertion order. Two markers on
+	 * one point therefore overlap exactly, and the airport pill, added last, took every
+	 * click meant for the stopover pin underneath it. Playwright called it plainly:
+	 * "subtree intercepts pointer events". Keyboard users could still reach it by Tab;
+	 * pointer users could not reach it at all.
+	 *
+	 * So markers sharing a coordinate are stacked vertically instead, each lifted clear of
+	 * the one below by its measured height (`offsetHeight`, read after they are in the DOM,
+	 * so a different root font size or a longer IATA pill still stacks correctly rather
+	 * than against a hard-coded guess). The airport keeps the anchor point, because its
+	 * coordinates are the exact ones and anything sharing them is only approximately
+	 * there. Both markers still point at the same place, which is true; they just stop
+	 * being drawn on top of each other, which was never useful.
+	 */
+	function stackCoLocatedMarkers(): void {
+		const groups = new Map<string, typeof markers>();
+		for (const entry of markers) {
+			const key = coLocationKey(entry.coordinates);
+			const group = groups.get(key);
+			if (group) group.push(entry);
+			else groups.set(key, [entry]);
+		}
+
+		for (const group of groups.values()) {
+			if (group.length < 2) continue;
+			const ordered = [...group].sort(
+				(a, b) => Number(b.markerKind === 'airport') - Number(a.markerKind === 'airport')
+			);
+			let lift = 0;
+			for (let index = 1; index < ordered.length; index++) {
+				lift += ordered[index - 1].element.offsetHeight + MARKER_STACK_GAP_PX;
+				ordered[index].marker.setOffset([0, -lift]);
+				// Paints above the marker it was lifted off, so a selected ring or shadow
+				// is never clipped by the neighbour it is standing on.
+				ordered[index].element.style.zIndex = String(index);
+			}
 		}
 	}
 
@@ -507,11 +592,36 @@
 			</div>
 		{/if}
 	</div>
-	<div class="itinerary-map-legend" aria-hidden="true">
-		<span class="legend-item"><span class="legend-dot legend-dot-neutral"></span>Your route</span>
-		<span class="legend-item"><span class="legend-dot legend-dot-stopover"></span>The free city</span>
+	<!--
+		Issue #141: this line used to be visually hidden, and it went blank for any step the
+		map had no geometry for. Both halves of that were wrong. A traveller who clicks a
+		row and watches the map sit still deserves to read why in the same place a screen
+		reader hears it, so the announcement and the visible caption are now one element.
+		The legend gives way to the way back out once a step is picked: with one leg
+		selected its own colour swatch is a better key than a two-item legend, and until
+		this button existed there was no way to return to the whole route at all.
+	-->
+	<div class="itinerary-map-bar">
+		<p class="map-status" class:is-absent={status?.isAbsence} role="status">
+			<span
+				class="map-status-swatch"
+				class:map-status-swatch-stopover={status?.tone === 'stopover'}
+				class:map-status-swatch-none={status?.tone === 'none'}
+				aria-hidden="true"
+			></span>
+			<span class="map-status-text">{status?.text ?? ''}</span>
+		</p>
+		{#if selectedSegmentId}
+			<button type="button" class="map-status-reset" onclick={() => (selectedSegmentId = null)}>
+				Show whole route
+			</button>
+		{:else}
+			<p class="itinerary-map-legend" aria-hidden="true">
+				<span class="legend-item"><span class="legend-dot legend-dot-neutral"></span>Your route</span>
+				<span class="legend-item"><span class="legend-dot legend-dot-stopover"></span>The free city</span>
+			</p>
+		{/if}
 	</div>
-	<p class="visually-hidden" role="status">{announcement}</p>
 </div>
 
 <style>
@@ -566,10 +676,100 @@
 		background: var(--color-bg-inset);
 	}
 
+	/* The caption strip under the map: what is on screen on the left, the way back to the
+	   whole route (or the colour key, when there is nothing to go back from) on the right.
+	   One row on a phone as much as on a desktop, wrapping rather than truncating, since
+	   the longest string here is a full sentence explaining an absence. */
+	.itinerary-map-bar {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: baseline;
+		justify-content: space-between;
+		gap: var(--space-2) var(--space-4);
+	}
+
+	.map-status {
+		display: flex;
+		align-items: baseline;
+		gap: var(--space-2);
+		/* Holds the row open while the map is still loading and the sentence is empty,
+		   so the caption arriving never nudges the pickers below it. */
+		min-height: var(--line-height-sm);
+		margin: 0;
+		flex: 1 1 16rem;
+		font-size: var(--font-size-sm);
+		line-height: var(--line-height-sm);
+		color: var(--color-text);
+	}
+
+	.map-status.is-absent {
+		color: var(--color-text-muted);
+	}
+
+	/* Ties the sentence to the line it names. Shape carries the meaning as well as
+	   colour: a filled bar for something drawn, a hollow ring for a step with nothing
+	   to draw, so the two are told apart without relying on hue. */
+	.map-status-swatch {
+		flex-shrink: 0;
+		width: 0.75rem;
+		height: 0.1875rem;
+		border-radius: var(--radius-full);
+		background: var(--color-accent);
+		/* Baseline alignment puts a 3px bar on the text baseline; nudging it up sits it
+		   on the x-height instead, where it reads as part of the line of text. */
+		transform: translateY(-0.25em);
+	}
+
+	.map-status-swatch-stopover {
+		background: var(--color-stopover);
+	}
+
+	.map-status-swatch-none {
+		width: 0.5rem;
+		height: 0.5rem;
+		background: none;
+		border: 1px solid var(--color-text-faint);
+		transform: translateY(0.05em);
+	}
+
+	/* Sized and shaped like `Button`'s own small variant (2.25rem tall, `--radius-md`,
+	   semibold at `--font-size-sm`) rather than inventing a third button language for one
+	   control. It stays a plain element instead of importing that component: `Button` owns
+	   variant, loading and icon slots this needs none of. */
+	.map-status-reset {
+		flex-shrink: 0;
+		min-height: 2.25rem;
+		padding: var(--space-2) var(--space-3);
+		border: 1px solid var(--color-border);
+		border-radius: var(--radius-md);
+		background: var(--color-bg-elevated);
+		color: var(--color-text-muted);
+		font-family: inherit;
+		font-size: var(--font-size-sm);
+		font-weight: var(--font-weight-semibold);
+		letter-spacing: 0.01em;
+		cursor: pointer;
+		transition:
+			color var(--transition-fast),
+			border-color var(--transition-fast),
+			background var(--transition-fast);
+	}
+
+	.map-status-reset:hover {
+		border-color: var(--color-border-strong);
+		background: var(--color-surface-hover);
+		color: var(--color-text);
+	}
+
+	.map-status-reset:active {
+		background: var(--color-surface);
+	}
+
 	.itinerary-map-legend {
 		display: flex;
 		flex-wrap: wrap;
 		gap: var(--space-4);
+		margin: 0;
 		font-size: var(--font-size-xs);
 		color: var(--color-text-muted);
 	}
@@ -602,15 +802,25 @@
 		display: inline-flex;
 		align-items: center;
 		gap: var(--space-1);
-		padding: var(--space-1) var(--space-2);
-		border: none;
+		/* 32px tall in both marker shapes. Short of the 44px this app guarantees for
+		   controls in a layout, but a marker has to stay small enough that a chain of
+		   them still reads as a route; the same trade the map's zoom buttons already
+		   document. What it does buy is a stack of two that never overlaps. */
+		padding: var(--space-2) var(--space-3);
+		/* A hairline, because `--color-bg-elevated` against a dark-matter basemap (and
+		   white against positron) is nearly the same value: without it the marker's
+		   edge disappears wherever the map underneath happens to be flat. */
+		border: 1px solid var(--color-border);
 		border-radius: var(--radius-full);
 		background: var(--color-bg-elevated);
 		box-shadow: var(--shadow-sm);
 		color: var(--color-text);
 		cursor: pointer;
+		/* Colour and elevation only. See the interaction-state block at the bottom of this
+		   stylesheet for why a marker must never be moved or scaled by CSS. */
 		transition:
-			transform var(--transition-fast),
+			background var(--transition-fast),
+			border-color var(--transition-fast),
 			box-shadow var(--transition-fast);
 	}
 
@@ -670,17 +880,49 @@
 		color: var(--color-stopover);
 	}
 
+	/*
+	 * Interaction states, and why not one of them moves the marker.
+	 *
+	 * These rules used to say `transform: scale(1.15)`, which never once applied: MapLibre
+	 * writes `element.style.transform` itself on every camera frame (`Marker._update`), and
+	 * an inline style beats a stylesheet. Reaching for the independent `scale` property
+	 * instead is worse than doing nothing, and issue #141 caught it in the act. CSS
+	 * composes `translate`, `rotate` and `scale` BEFORE the `transform` property, so
+	 * `scale: 1.05` multiplies MapLibre's own `translate(600px, 300px)` as well as the
+	 * marker's box: the marker leaps tens of pixels away from the pointer that hovered it.
+	 * In a Playwright run the `mousedown` landed on the canvas and the `mouseup` on the
+	 * marker, so no `click` event fired on it at all — the same "unclickable marker"
+	 * symptom this issue exists to fix, reintroduced by the fix.
+	 *
+	 * So emphasis is carried by colour, border and elevation, which is what this app's own
+	 * UI guidance asks for anyway: a press state that changes an element's bounds is
+	 * unstable to aim at, on a map most of all.
+	 */
 	:global(button.itinerary-marker:hover),
 	:global(button.itinerary-marker:focus-visible) {
-		transform: translateY(-1px) scale(1.05);
+		border-color: var(--color-border-strong);
+		box-shadow: var(--shadow-md);
 	}
 
+	:global(button.itinerary-marker:active) {
+		background: var(--color-surface-hover);
+	}
+
+	/* Selection is never carried by colour alone: a filled ring, a tinted body, and the
+	   caption under the map naming the step in words. */
 	:global(.itinerary-marker.is-selected) {
-		box-shadow: var(--shadow-accent);
-		transform: scale(1.15);
+		border-color: var(--color-accent);
+		background: var(--color-accent-muted);
+		box-shadow:
+			0 0 0 2px var(--color-accent),
+			var(--shadow-accent);
 	}
 
 	:global(.itinerary-marker-stopover.is-selected) {
-		box-shadow: 0 6px 20px rgb(45 212 191 / 30%);
+		border-color: var(--color-stopover);
+		background: var(--color-stopover-bg);
+		box-shadow:
+			0 0 0 2px var(--color-stopover),
+			0 6px 20px rgb(45 212 191 / 30%);
 	}
 </style>

@@ -223,6 +223,13 @@
 	// in it that includes every radio, button and link the picker draws. Picking an
 	// alternative must not also fold the picker that offered it, and a press on the
 	// waiting-time stepper never meant "show me this on the map" either.
+	//
+	// Issue #141's third defect is the stepper half of that sentence: minus and plus used
+	// to bubble up here, select the row, and fly the map to that airport, so four nudges of
+	// a buffer meant four flights of the map and the traveller's panned view thrown away
+	// each time. `button, input` is what stops it; `ItineraryTimeline.test.ts` holds that
+	// down from both directions, including that the number still changes and that a
+	// selection already on the row survives being adjusted.
 	function handleRowClick(event: MouseEvent, segment: ItinerarySegmentId) {
 		const target = event.target as Element | null;
 		if (target?.closest('.tl-expansion, button, input, label, a, select, summary, details')) return;

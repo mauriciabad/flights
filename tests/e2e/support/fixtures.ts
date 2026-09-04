@@ -28,3 +28,7 @@ export const test = base.extend<{ forbidRealNetwork: void }>({
 });
 
 export { expect };
+
+/** Re-exported so a spec can type a helper's `page` parameter without importing from
+ *  '@playwright/test' itself, which `guard.spec.ts` fails the suite for. */
+export type { Page } from '@playwright/test';

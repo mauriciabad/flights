@@ -484,6 +484,53 @@ describe('ItineraryTimeline, selection binding for the map (issue #73)', () => {
 		expect(root.querySelector('[data-segment="onward-flight"] .tl-content')?.textContent).not.toContain('flights');
 	});
 
+	it('adjusting a waiting time never selects the row, so the map keeps the view the traveller set', () => {
+		// Issue #141's third defect. Pressing minus or plus bubbled to the row, selected the
+		// segment, and flew the map to that airport; four nudges of a buffer meant four
+		// flights of the map. The number itself still changes, which is the whole point of
+		// the control, so both halves are asserted here.
+		const itinerary = makeItinerary();
+		const { root, harness } = renderSelectionHarness(itinerary);
+
+		const row = root.querySelector<HTMLLIElement>('[data-segment="origin-waiting"]')!;
+		const input = row.querySelector<HTMLInputElement>('.tl-stepper-input')!;
+		const [decrease, increase] = Array.from(row.querySelectorAll<HTMLButtonElement>('.tl-stepper-btn'));
+		const before = Number(input.value);
+
+		increase.click();
+		flushSync();
+		expect(Number(input.value)).toBe(before + 15);
+		expect(harness.currentSelection()).toBeNull();
+
+		decrease.click();
+		flushSync();
+		expect(Number(input.value)).toBe(before);
+		expect(harness.currentSelection()).toBeNull();
+
+		// Clicking into the field to type a number is the same intent as pressing a stepper.
+		input.click();
+		flushSync();
+		expect(harness.currentSelection()).toBeNull();
+
+		// The rest of the row still selects: the guard is scoped to the editor, not the row.
+		row.querySelector<HTMLElement>('.tl-label')!.click();
+		flushSync();
+		expect(harness.currentSelection()).toBe('origin-waiting');
+	});
+
+	it('keeps a selection that was already on the row while its waiting time is adjusted', () => {
+		const itinerary = makeItinerary();
+		const { root, harness } = renderSelectionHarness(itinerary);
+
+		harness.externalSelect('connection-waiting');
+		flushSync();
+
+		const row = root.querySelector<HTMLLIElement>('[data-segment="connection-waiting"]')!;
+		row.querySelectorAll<HTMLButtonElement>('.tl-stepper-btn')[1].click();
+		flushSync();
+
+		expect(harness.currentSelection()).toBe('connection-waiting');
+		expect(row.getAttribute('aria-current')).toBe('true');
 	it('the ol root and flat li row structure are unchanged by the added interactivity', () => {
 		// The mount target itself is a plain test-harness <div>, not part of the component;
 		// its first child is this component's actual root, per the DOM contract issue #25

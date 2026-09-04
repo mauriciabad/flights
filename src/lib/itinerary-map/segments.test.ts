@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Airport, Duration, FlightOffer, Itinerary, LocalDateTime, Stay, Transfer } from '$lib/domain';
 import { allCoordinates, buildItineraryMapModel, findSegment } from './segments';
+import type { ItinerarySegmentId } from './segment-id';
 import { boundsOfCoordinates } from './geo';
 
 // ---------------------------------------------------------------------------
@@ -253,8 +254,11 @@ describe('buildItineraryMapModel: no stay priced (issue #94)', () => {
 			id: 'free-time',
 			tone: 'stopover',
 			markerKind: 'stay',
-			label: 'Stopover at Vienna',
-			coordinates: connectionAirport.coordinates
+			label: 'Stopover in Vienna',
+			coordinates: connectionAirport.coordinates,
+			// Issue #141: the airport's coordinates are the only ones this app has for the
+			// connection city, so the point keeps them and stops calling itself an address.
+			precision: 'city'
 		});
 	});
 
@@ -399,5 +403,147 @@ describe('buildItineraryMapModel: a route that crosses the antimeridian', () => 
 			// -157.92, and Los Angeles follows at 241.6.
 			expect(waiting.coordinates.longitude).toBeCloseTo(-157.9224 + 360, 4);
 		}
+	});
+});
+
+describe('absentSegmentNotes (issue #141: a selected step the map cannot draw)', () => {
+	/** Every id `ItineraryTimeline` renders a selectable row for, given an itinerary with
+	 *  an origin and a destination location. `ITINERARY_SEGMENT_ORDER` is the same list;
+	 *  it is spelled out here so a future id added to that constant fails this test rather
+	 *  than silently joining the set of steps the map can go quiet on. */
+	const SELECTABLE_IDS: ItinerarySegmentId[] = [
+		'origin-location',
+		'transfer-to-origin-airport',
+		'origin-waiting',
+		'outbound-flight',
+		'transfer-to-hotel',
+		'free-time',
+		'transfer-to-connection-airport',
+		'connection-waiting',
+		'onward-flight',
+		'transfer-to-destination-location',
+		'destination-location'
+	];
+
+	function fullItinerary(overrides: Partial<Itinerary> = {}): Itinerary {
+		return {
+			...baseItinerary(),
+			originLocation: { label: 'Home', coordinates: { latitude: 40.42, longitude: -3.7 } },
+			transferToOriginAirport: transfer(),
+			destinationLocation: { label: 'Office', coordinates: { latitude: 59.44, longitude: 24.75 } },
+			transferToDestinationLocation: transfer(),
+			...overrides
+		};
+	}
+
+	it('leaves every drawable step unexplained, because it is drawn', () => {
+		const model = buildItineraryMapModel(fullItinerary(), connectionAirport);
+
+		expect(model.absentSegmentNotes).toEqual({});
+		expect(model.segments.map((s) => s.id).sort()).toEqual([...SELECTABLE_IDS].sort());
+	});
+
+	it('explains every step it cannot draw, so no selection is ever answered with silence', () => {
+		const model = buildItineraryMapModel(
+			fullItinerary({
+				stay: undefined,
+				transferToHotel: undefined,
+				transferToConnectionAirport: undefined,
+				transferToOriginAirport: undefined,
+				transferToDestinationLocation: undefined,
+				nightsInConnection: 2
+			}),
+			connectionAirport
+		);
+
+		const drawn = new Set(model.segments.map((s) => s.id));
+		for (const id of SELECTABLE_IDS) {
+			const explained = model.absentSegmentNotes[id];
+			expect(drawn.has(id) || typeof explained === 'string', `${id} is neither drawn nor explained`).toBe(true);
+		}
+	});
+
+	it('names the missing bed from both ends of the stopover, and the same-day case apart', () => {
+		const nights = buildItineraryMapModel(
+			fullItinerary({
+				stay: undefined,
+				transferToHotel: undefined,
+				transferToConnectionAirport: undefined,
+				nightsInConnection: 2
+			}),
+			connectionAirport
+		);
+		expect(nights.absentSegmentNotes['transfer-to-hotel']).toBe(
+			'Nothing to draw: no bed priced for this stopover, so there is nowhere to travel to.'
+		);
+		expect(nights.absentSegmentNotes['transfer-to-connection-airport']).toBe(
+			'Nothing to draw: no bed priced for this stopover, so there is nowhere to travel back from.'
+		);
+
+		const sameDay = buildItineraryMapModel(
+			fullItinerary({
+				stay: undefined,
+				transferToHotel: undefined,
+				transferToConnectionAirport: undefined,
+				nightsInConnection: 0
+			}),
+			connectionAirport
+		);
+		expect(sameDay.absentSegmentNotes['transfer-to-hotel']).toBe(
+			'Nothing to draw: a same-day connection has no hotel leg.'
+		);
+	});
+
+	it('blames the providers, not the missing bed, when a stay was priced but a leg was not routed', () => {
+		const model = buildItineraryMapModel(
+			fullItinerary({ transferToHotel: undefined, transferToDestinationLocation: undefined }),
+			connectionAirport
+		);
+
+		expect(model.absentSegmentNotes['transfer-to-hotel']).toBe(
+			'Nothing to draw: no route came back from the transport providers for this leg.'
+		);
+		expect(model.absentSegmentNotes['transfer-to-destination-location']).toBe(
+			'Nothing to draw: no route came back from the transport providers for this leg.'
+		);
+	});
+
+	it('says nothing about a step the timeline never renders either', () => {
+		// No origin location means no "travel to the origin airport" row anywhere, so an
+		// explanation for it would be an answer to a question nobody can ask.
+		const model = buildItineraryMapModel(baseItinerary(), connectionAirport);
+		expect(model.absentSegmentNotes['transfer-to-origin-airport']).toBeUndefined();
+		expect(model.absentSegmentNotes['transfer-to-destination-location']).toBeUndefined();
+	});
+});
+
+describe('point precision (issue #141)', () => {
+	it('calls the hotel an address and the bedless stopover a city', () => {
+		const withStay = buildItineraryMapModel(baseItinerary(), connectionAirport);
+		const freeTime = findSegment(withStay, 'free-time');
+		expect(freeTime?.kind === 'point' && freeTime.precision).toBe('exact');
+
+		const withoutStay = buildItineraryMapModel(
+			{ ...baseItinerary(), stay: undefined, transferToHotel: undefined, transferToConnectionAirport: undefined },
+			connectionAirport
+		);
+		const bedless = findSegment(withoutStay, 'free-time');
+		expect(bedless?.kind === 'point' && bedless.precision).toBe('city');
+	});
+
+	it('treats every airport and typed-in location as an address', () => {
+		const model = buildItineraryMapModel(
+			{
+				...baseItinerary(),
+				originLocation: { label: 'Home', coordinates: { latitude: 40.42, longitude: -3.7 } },
+				transferToOriginAirport: transfer(),
+				destinationLocation: { label: 'Office', coordinates: { latitude: 59.44, longitude: 24.75 } },
+				transferToDestinationLocation: transfer()
+			},
+			connectionAirport
+		);
+
+		const points = model.segments.filter((s) => s.kind === 'point');
+		expect(points.filter((p) => p.precision !== 'exact').map((p) => p.id)).toEqual([]);
 	});
 });
