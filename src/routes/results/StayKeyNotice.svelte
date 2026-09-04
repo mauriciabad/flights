@@ -7,7 +7,7 @@
 	 * (`isProviderUsable`) and every stopover on this page is silently missing a bed price.
 	 * Nothing before this notice said why, or what fixes it.
 	 *
-	 * Rendered once, above the results list (`+page.svelte`), not per card: `ResultCard`'s
+	 * Rendered once per page (`+page.svelte`), not per card: `ResultCard`'s
 	 * own "No bed priced" line stays a plain per-itinerary fact, this is the one place that
 	 * names the cause and the fix, so a traveller reads it once instead of the same "add a
 	 * key" advice repeated on every card, which is exactly what issue #117 flagged as

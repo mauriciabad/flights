@@ -20,6 +20,10 @@
 		/** Normalises and validates a token before it's added (e.g. uppercasing an IATA
 		 * code and checking its length). Returns `null` to reject the token. */
 		transform?: (raw: string) => string | null;
+		/** Shown in the field when `transform` rejects what was typed. Without it a
+		 * rejected token disappeared with no explanation, which is the silent-correction
+		 * behaviour issue this component's callers were told to stop doing. */
+		rejectMessage?: string;
 	}
 
 	let {
@@ -31,21 +35,41 @@
 		error,
 		disabled = false,
 		class: className,
-		transform = (raw) => raw.trim().toUpperCase() || null
+		transform = (raw) => raw.trim().toUpperCase() || null,
+		rejectMessage
 	}: Props = $props();
+
+	let draft = $state('');
+	/** True once `transform` turned down what is currently in the box. Cleared on the
+	 * next keystroke, so the message is about the text the traveller can still see. */
+	let rejected = $state(false);
 
 	const uid = $props.id();
 	const inputId = $derived(id ?? `chiplist-${uid}`);
 	const hintId = $derived(hint ? `${inputId}-hint` : undefined);
-	const errorId = $derived(error ? `${inputId}-error` : undefined);
+	const shownError = $derived(error ?? (rejected ? rejectMessage : undefined));
+	const errorId = $derived(shownError ? `${inputId}-error` : undefined);
 	const describedBy = $derived([hintId, errorId].filter(Boolean).join(' ') || undefined);
 
-	let draft = $state('');
-
 	function commitDraft() {
+		const raw = draft.trim();
+		if (!raw) {
+			draft = '';
+			rejected = false;
+			return;
+		}
 		const token = transform(draft);
+		if (!token) {
+			// The text stays in the box on purpose: a rejected code is usually a typo one
+			// character away from a real one, and clearing it makes the traveller retype
+			// the whole thing to find out what was wrong.
+			rejected = Boolean(rejectMessage);
+			if (!rejectMessage) draft = '';
+			return;
+		}
 		draft = '';
-		if (!token || values.includes(token)) return;
+		rejected = false;
+		if (values.includes(token)) return;
 		values = [...values, token];
 	}
 
@@ -89,18 +113,21 @@
 		value={draft}
 		{placeholder}
 		{disabled}
-		aria-invalid={error ? 'true' : undefined}
+		aria-invalid={shownError ? 'true' : undefined}
 		aria-describedby={describedBy}
-		class={['field-input', { 'has-error': !!error }]}
-		oninput={(event) => (draft = (event.currentTarget as HTMLInputElement).value)}
+		class={['field-input', { 'has-error': !!shownError }]}
+		oninput={(event) => {
+			draft = (event.currentTarget as HTMLInputElement).value;
+			rejected = false;
+		}}
 		onkeydown={onKeydown}
 		onblur={commitDraft}
 	/>
-	{#if hint && !error}
+	{#if hint && !shownError}
 		<p id={hintId} class="field-hint">{hint}</p>
 	{/if}
-	{#if error}
-		<p id={errorId} class="field-error" role="alert">{error}</p>
+	{#if shownError}
+		<p id={errorId} class="field-error" role="alert">{shownError}</p>
 	{/if}
 </div>
 

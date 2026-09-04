@@ -1,11 +1,29 @@
 <script lang="ts">
 	import '../app.css';
+	import { afterNavigate } from '$app/navigation';
 	import { base } from '$app/paths';
 	import { page } from '$app/state';
 	import UpdateToast from '$lib/pwa/UpdateToast.svelte';
 	import type { Snippet } from 'svelte';
 
 	let { children }: { children: Snippet } = $props();
+
+	let contentEl = $state<HTMLElement | undefined>();
+
+	/**
+	 * Since #177 the page that scrolls is `.app-content`, not the document, and SvelteKit
+	 * only ever resets the document. So a navigation kept the previous page's scroll
+	 * position: submitting the search form from its own submit button, two screens down,
+	 * arrived on the results already scrolled past the first result. Measured at 115px on
+	 * a 375px viewport before this.
+	 *
+	 * A hash is the one case to leave alone: `/settings/#agoda` (issue #117) is a link
+	 * that means "put me at that card", and scrolling to the top would undo it.
+	 */
+	afterNavigate((navigation) => {
+		if (navigation.to?.url.hash) return;
+		contentEl?.scrollTo(0, 0);
+	});
 
 	// Served from `static/icons/`, not `$lib` — those files ship as-is to
 	// the build root, so the base path has to be prefixed by hand here.
@@ -18,18 +36,24 @@
 	const manifestHref = `${base}/manifest.webmanifest`;
 
 	interface NavItem {
-		id: 'search' | 'results' | 'settings';
+		id: 'search' | 'settings';
 		label: string;
 		href: string;
+		/** Other routes this tab is the home of. `/results/` belongs to Search because a
+		 * search and its answers are one thing, not two. */
+		alsoOwns?: string[];
 	}
 
-	// Every route below is owned by a different issue (#16, #23, #29). This
-	// shell only needs to know they exist and where they live. Search lives
-	// at "/" — it's the landing screen — so #16 belongs in
-	// src/routes/+page.svelte, not a new src/routes/search/.
+	/**
+	 * Results used to be a tab of its own, sitting next to Search, so a person filled in
+	 * a form on one screen and had to work out that the answer lived on another. The
+	 * owner on that: "the ux of goig from search to result makes no fucking sense [...]
+	 * they are not 2 separate tabs." Submitting the form now navigates, and this tab
+	 * stays lit the whole way through, because the search and its results are one place.
+	 * Getting back to an earlier search is what the history on `/` is for.
+	 */
 	const navItems: NavItem[] = [
-		{ id: 'search', label: 'Search', href: '/' },
-		{ id: 'results', label: 'Results', href: '/results/' },
+		{ id: 'search', label: 'Search', href: '/', alsoOwns: ['/results/'] },
 		{ id: 'settings', label: 'Settings', href: '/settings/' }
 	];
 
@@ -37,8 +61,9 @@
 		return `${base}${href}`;
 	}
 
-	function isActive(href: string): boolean {
-		return page.url.pathname === fullHref(href);
+	function isActive(item: NavItem): boolean {
+		const here = page.url.pathname;
+		return [item.href, ...(item.alsoOwns ?? [])].some((href) => here === fullHref(href));
 	}
 </script>
 
@@ -82,7 +107,7 @@
 		<ul>
 			{#each navItems as item (item.id)}
 				<li>
-					<a href={fullHref(item.href)} aria-current={isActive(item.href) ? 'page' : undefined}>
+					<a href={fullHref(item.href)} aria-current={isActive(item) ? 'page' : undefined}>
 						<span class="app-nav-icon" aria-hidden="true">
 							{#if item.id === 'search'}
 								<svg viewBox="0 0 24 24" fill="none">
@@ -96,15 +121,6 @@
 										stroke-width="2"
 										stroke-linecap="round"
 									/>
-								</svg>
-							{:else if item.id === 'results'}
-								<svg viewBox="0 0 24 24" fill="none">
-									<line x1="8" y1="6" x2="21" y2="6" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
-									<line x1="8" y1="12" x2="21" y2="12" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
-									<line x1="8" y1="18" x2="21" y2="18" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
-									<circle cx="3.5" cy="6" r="1.5" fill="currentColor" />
-									<circle cx="3.5" cy="12" r="1.5" fill="currentColor" />
-									<circle cx="3.5" cy="18" r="1.5" fill="currentColor" />
 								</svg>
 							{:else}
 								<svg viewBox="0 0 24 24" fill="none">
@@ -127,7 +143,7 @@
 		</ul>
 	</nav>
 
-	<main id="main-content" class="app-content" tabindex="-1">
+	<main bind:this={contentEl} id="main-content" class="app-content" tabindex="-1">
 		{@render children()}
 	</main>
 </div>
