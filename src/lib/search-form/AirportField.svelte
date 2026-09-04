@@ -23,6 +23,10 @@
 		required?: boolean;
 		disabled?: boolean;
 		class?: string;
+		/** Fired after the field has resolved whatever was typed to a real selection (or
+		 * reverted it), so a form can tell "left this field alone" from "tried and left
+		 * it empty" and only show an error for the second. */
+		onblur?: () => void;
 	}
 
 	let {
@@ -34,7 +38,8 @@
 		error,
 		required = false,
 		disabled = false,
-		class: className
+		class: className,
+		onblur
 	}: Props = $props();
 
 	const uid = $props.id();
@@ -149,7 +154,7 @@
 
 	function onBlur() {
 		open = false;
-		void commitFromQuery();
+		void commitFromQuery().then(() => onblur?.());
 	}
 
 	function onKeydown(event: KeyboardEvent) {

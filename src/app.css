@@ -192,6 +192,10 @@
 	   into an unreadable ruler on a desktop-width viewport. */
 	--layout-max-width: 72rem;
 
+	/* Strips that pin inside a scrolling page rather than to the viewport: the
+	   results page's search summary is the one today. Above the page's own
+	   content, below the app header. */
+	--z-sticky: 10;
 	--z-header: 20;
 	/* UpdateToast.svelte's fixed banner — above the header and the bottom tab
 	   bar's grid layer, below anything modal. */

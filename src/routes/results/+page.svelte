@@ -11,17 +11,26 @@
 	 * Confirmed by grepping `src/` for `new ProviderRegistry` before writing it, per
 	 * AGENTS.md's "check whether another issue owns it": nothing else does yet, and the
 	 * search form's own comment already names this as "the results issue's job."
+	 *
+	 * Since the search and results screens were merged, this page also owns the query
+	 * itself: `SearchSummaryBar` keeps it visible at the top and opens the real search
+	 * form in place, and `$lib/search-form/validation` gets a look at the URL before any
+	 * provider does. A link carrying `from=BCN&to=BCN` or `people=0` used to run a full
+	 * search to discover it could not answer.
 	 */
 	import { untrack } from 'svelte';
 	import { browser } from '$app/environment';
 	import { page } from '$app/state';
-	import { Button, Card, EmptyState, Skeleton } from '$lib/components';
+	import { Button, Card, EmptyState, ErrorState, Skeleton } from '$lib/components';
 	import { getAirport } from '$lib/data/airports';
 	import { DEFAULT_SEARCH_CURRENCY } from '$lib/domain';
 	import type { Airport, IataAirportCode, SearchQuery, Stay } from '$lib/domain';
 	import { keyStore } from '$lib/keys';
 	import { buildSearchQuery } from '$lib/search-form/model';
 	import { searchParamsToFields } from '$lib/search-form/url-codec';
+	import { hasBlockingIssue, validateSearchFields } from '$lib/search-form/validation';
+	import { normalizeQuery, RecentSearches, searchHistory, summarizeSearch } from '$lib/search-history';
+	import SearchSummaryBar from './SearchSummaryBar.svelte';
 	import { runSearch, widenSearch, widenWithPriceCalendar } from '$lib/search';
 	import type {
 		ConnectionTransferOptions,
@@ -61,9 +70,54 @@
 	 * `+page.svelte` uses), so the prerendered build always starts with no query; the
 	 * real params take over the moment this hydrates in an actual browser.
 	 */
-	const query = $derived<SearchQuery | null>(
-		browser ? buildSearchQuery(searchParamsToFields(page.url.searchParams)) : null
+	const searchFields = $derived(
+		searchParamsToFields(browser ? page.url.searchParams : new URLSearchParams())
 	);
+	const parsedQuery = $derived<SearchQuery | null>(
+		browser ? buildSearchQuery(searchFields) : null
+	);
+
+	/** Not reactive: a results page does not need to notice midnight ticking over while
+	 * it is open, and a wrong build date costs nothing because this only ever hydrates in
+	 * a real browser. */
+	const todayIso = new Date().toISOString().slice(0, 10);
+
+	const issues = $derived(validateSearchFields(searchFields, { today: todayIso }));
+	/** A query that cannot describe a trip on any date. Nothing is asked of any provider
+	 * until it is fixed, which is the point: the traveller sees the reason in the field
+	 * instead of waiting out a search that was never going to answer. */
+	const blockingIssues = $derived(parsedQuery && hasBlockingIssue(issues) ? issues.filter((issue) => issue.severity === 'blocking') : []);
+	/** True but not fatal, such as dates that have already passed. Said out loud, and the
+	 * search still runs: a link shared last week going dead at midnight would surprise its
+	 * reader more than a sentence explaining what happened. */
+	const advisories = $derived(
+		issues.filter((issue) => issue.severity === 'advisory').map((issue) => issue.message)
+	);
+
+	const query = $derived<SearchQuery | null>(blockingIssues.length > 0 ? null : parsedQuery);
+	const summary = $derived(parsedQuery ? summarizeSearch(parsedQuery) : undefined);
+	const normalizedQuery = $derived(
+		browser ? normalizeQuery(page.url.searchParams) : ''
+	);
+
+	/** Opened by hand from the summary bar, or forced open when the URL's own search is
+	 * the thing that needs fixing. */
+	let editorOpen = $state(false);
+	$effect(() => {
+		if (blockingIssues.length > 0) editorOpen = true;
+	});
+
+	/**
+	 * Every search that actually ran is remembered, whether it came from the form next
+	 * door or from a link someone sent. Deduplicated and capped by the store itself.
+	 * `untrack` because `record` writes state this component also reads further down, and
+	 * an effect that reads what it writes is what froze this page once already (#87).
+	 */
+	$effect(() => {
+		const params = normalizedQuery;
+		if (!query || !params) return;
+		untrack(() => searchHistory.record(new URLSearchParams(params)));
+	});
 
 	let order = $state<StreamSlot[]>([]);
 	let providerStatuses = $state<Record<string, ProviderStatus>>({});
@@ -379,128 +433,227 @@
 	function toggleExpanded(id: string) {
 		expandedId = expandedId === id ? null : id;
 	}
+
+	/** A refined search is a navigation to this same page with different params, which is
+	 * what makes the browser's back button walk back through the searches the traveller
+	 * actually ran. The query effect above tears the old results down. */
+	function submitSearch(next: URLSearchParams) {
+		editorOpen = false;
+		void goto(`${base}/results/?${next.toString()}`);
+	}
+
+	/**
+	 * Filters and the widen panel are a sidebar on a wide screen and a collapsed sheet on
+	 * a phone. Issue #139 measured the first result card at about 1,650px down a 375px
+	 * viewport, behind the sort control, four range sliders, two chip rows and four widen
+	 * blocks: "The person who typed a search wants the answer."
+	 *
+	 * Read from `matchMedia` rather than branched on in CSS alone so `aria-expanded` and
+	 * `hidden` tell the truth at both widths. The initial value is computed inline, not in
+	 * an effect, so a desktop browser hydrates with the panel already open.
+	 */
+	let sidebarIsColumn = $state(browser ? window.matchMedia('(min-width: 64rem)').matches : false);
+	$effect(() => {
+		const media = window.matchMedia('(min-width: 64rem)');
+		const sync = () => (sidebarIsColumn = media.matches);
+		sync();
+		media.addEventListener('change', sync);
+		return () => media.removeEventListener('change', sync);
+	});
+	let filtersOpenOnPhone = $state(false);
+	const filtersVisible = $derived(sidebarIsColumn || filtersOpenOnPhone);
+	const activeFilterCount = $derived(
+		[
+			filters.maxPriceMinorUnits !== undefined,
+			filters.maxTotalDurationMinutes !== undefined,
+			filters.minNights !== undefined,
+			filters.minFreeTimeMinutes !== undefined,
+			filters.excludedConnectionAirports.size > 0,
+			filters.excludedAirlines.size > 0
+		].filter(Boolean).length
+	);
 </script>
 
 <svelte:head>
-	<title>Results, Layover</title>
+	<title
+		>{summary
+			? `${summary.originAirport} to ${summary.destinationAirport} - Layover`
+			: 'Results - Layover'}</title
+	>
 </svelte:head>
 
 <div class="results-page">
-	{#if !query}
+	{#if !parsedQuery}
 		<EmptyState
-			title="Start a search first"
-			description="This page renders whatever search you save on the search screen, there isn't one yet."
+			title="No search in this link"
+			description="A results page is a search plus its answers, and this link carries no search. Start one, or pick up where you left off."
 		>
 			{#snippet action()}
-				<Button href="/">Go to search</Button>
+				<Button href={`${base}/`}>Go to search</Button>
 			{/snippet}
 		</EmptyState>
-	{:else}
-		<header class="results-header">
-			<h1>
-				{query.originAirport} <span aria-hidden="true">→</span> {query.destinationAirport}
-			</h1>
-			<p class="results-subhead">
+		<RecentSearches title="Pick up a recent search" />
+	{:else if summary}
+		<SearchSummaryBar
+			{summary}
+			initialFields={searchFields}
+			today={todayIso}
+			onsearch={submitSearch}
+			{advisories}
+			revealIssues={blockingIssues.length > 0}
+			bind:expanded={editorOpen}
+		/>
+
+		{#if blockingIssues.length > 0}
+			<!-- Nothing has been asked of any provider. This search describes a trip that
+			     cannot exist on any date (an origin equal to its destination, an arrival
+			     before its own departure, a party of nobody), so running it would spend
+			     requests to rediscover that. The form above is already open on the fields
+			     that need changing. -->
+			<ErrorState
+				severity="error"
+				title="This search cannot be run as it stands"
+				message="No provider was asked anything. The form above says what to change."
+			/>
+		{:else if query}
+			<p class="results-subhead" aria-live="polite">
 				{filteredResults.length} of {results.length}
 				{results.length === 1 ? 'itinerary' : 'itineraries'} shown
-				{#if stillSearching}<span class="still-searching">· still searching</span>{/if}
+				{#if stillSearching}<span class="still-searching">&middot; still searching</span>{/if}
 			</p>
-		</header>
 
-		<StayKeyNotice />
-
-		<ProviderStatusStrip statuses={providerStatusList} searching={stillSearching} />
-
-		<div class="results-layout">
-			<aside class="results-filters" aria-label="Filters">
-				<FilterPanel
-					options={filterOptions}
-					bind:filters
-					bind:sortMode
-					{currency}
-					avoidedAirlines={query.airlinesToAvoid}
-					{connectionCityNames}
-				/>
-				<WidenOptionsPanel options={widenOptions} onWiden={handleWiden} pendingKey={pendingWidenKey} />
-				{#if calendarSummaries.length > 0}
-					<div class="calendar-summaries">
-						<p class="calendar-summaries-label">Calendar results</p>
-						<ul>
-							{#each calendarSummaries as summary, index (index)}
-								<li>{summary}</li>
-							{/each}
-						</ul>
-					</div>
-				{/if}
-			</aside>
-
-			<div class="results-list-column">
-				{#if filteredResults.length === 0 && results.length > 0}
-					<EmptyState
-						title="No itineraries match your filters"
-						description="Loosen a filter to see more of what's already come back."
+			<div class="results-layout">
+				<aside class="results-filters" aria-label="Filters and sorting">
+					<!-- On a phone this whole panel starts closed behind one button, because
+					     issue #139 measured the first result card at about 1,650px down with
+					     it open: "The person who typed a search wants the answer." On a wide
+					     screen it is a sidebar and the button is not rendered at all. -->
+					<button
+						type="button"
+						class="filters-toggle"
+						aria-expanded={filtersVisible}
+						aria-controls="results-filters-body"
+						onclick={() => (filtersOpenOnPhone = !filtersOpenOnPhone)}
 					>
-						{#snippet action()}
-							<Button variant="secondary" onclick={clearFilters}>Clear filters</Button>
-						{/snippet}
-					</EmptyState>
-				{/if}
-
-				{#if noResults}
-					<!-- Issue #130, and issue #107's "well served direct" ending folded into the
-					     same component: every sentence here is derived from what the providers
-					     answered (`results/no-results.ts`), never from what an empty list was
-					     assumed to mean. The copy this replaced blamed "no workable connection"
-					     on a search where the only keyless provider had said, twice, that it does
-					     not serve the origin airport at all. -->
-					<NoResultsBoard explanation={noResults} {origin} {destination} />
-				{/if}
-
-				<!-- Keyed on result.id (the connection airport code, stable for the whole
-				     search per types.ts), so Svelte only ever moves a DOM node when
-				     stream-order.ts genuinely repositions it, never recreates one just
-				     because its price or freshness changed in place. -->
-				<ul class="results-list">
-					{#each filteredResults as result (result.id)}
-						{@const code = connectionAirportCode(result.itinerary)}
-						<li>
-							<ResultCard
-								{result}
-								connectionAirport={connectionAirports[code]}
-								expanded={expandedId === result.id}
-								onToggleExpand={() => toggleExpanded(result.id)}
-							/>
-							{#if expandedId === result.id}
-								<ResultDetail
-									itinerary={result.itinerary}
-									group={groupsByConnection[result.id]}
-									stayCandidates={stayCandidatesByConnection[code] ?? []}
-									transferOptions={transferOptionsByConnection[code]}
-									{outerTransferOptions}
-									connectionAirport={connectionAirports[code]}
-									travellers={query.travellers}
-									females={query.females}
-									minLayoverTime={query.minLayoverTime}
-									searchDone={primarySearchDone && !stillSearching}
+						<span class="filters-toggle-icon" aria-hidden="true">
+							<svg viewBox="0 0 24 24" fill="none">
+								<path
+									d="M4 6h16M7 12h10M10 18h4"
+									stroke="currentColor"
+									stroke-width="2"
+									stroke-linecap="round"
 								/>
-							{/if}
-						</li>
-					{/each}
-					{#if stillSearching}
-						<li aria-hidden="true">
-							<Card class="result-card-skeleton" padded={false}>
-								<div class="skeleton-body">
-									<Skeleton height="2rem" width="40%" />
-									<Skeleton height="1rem" width="70%" />
-									<Skeleton height="4rem" />
-									<Skeleton height="1.5rem" width="60%" />
-								</div>
-							</Card>
-						</li>
+							</svg>
+						</span>
+						Filter and sort
+						{#if activeFilterCount > 0}
+							<span class="filters-count">{activeFilterCount}</span>
+						{/if}
+					</button>
+					<div id="results-filters-body" class="results-filters-body" hidden={!filtersVisible}>
+						<FilterPanel
+							options={filterOptions}
+							bind:filters
+							bind:sortMode
+							{currency}
+							avoidedAirlines={query.airlinesToAvoid}
+							{connectionCityNames}
+						/>
+					</div>
+				</aside>
+
+				<div class="results-list-column">
+					{#if filteredResults.length === 0 && results.length > 0}
+						<EmptyState
+							title="No itineraries match your filters"
+							description="Loosen a filter to see more of what's already come back."
+						>
+							{#snippet action()}
+								<Button variant="secondary" onclick={clearFilters}>Clear filters</Button>
+							{/snippet}
+						</EmptyState>
 					{/if}
-				</ul>
+
+					{#if noResults}
+						<!-- Issue #130, and issue #107's "well served direct" ending folded into the
+						     same component: every sentence here is derived from what the providers
+						     answered (`results/no-results.ts`), never from what an empty list was
+						     assumed to mean. The copy this replaced blamed "no workable connection"
+						     on a search where the only keyless provider had said, twice, that it does
+						     not serve the origin airport at all. -->
+						<NoResultsBoard explanation={noResults} {origin} {destination} />
+					{/if}
+
+					<!-- Keyed on result.id (the connection airport code, stable for the whole
+					     search per types.ts), so Svelte only ever moves a DOM node when
+					     stream-order.ts genuinely repositions it, never recreates one just
+					     because its price or freshness changed in place. -->
+					<ul class="results-list">
+						{#each filteredResults as result (result.id)}
+							{@const code = connectionAirportCode(result.itinerary)}
+							<li>
+								<ResultCard
+									{result}
+									connectionAirport={connectionAirports[code]}
+									expanded={expandedId === result.id}
+									onToggleExpand={() => toggleExpanded(result.id)}
+								/>
+								{#if expandedId === result.id}
+									<ResultDetail
+										itinerary={result.itinerary}
+										group={groupsByConnection[result.id]}
+										stayCandidates={stayCandidatesByConnection[code] ?? []}
+										transferOptions={transferOptionsByConnection[code]}
+										{outerTransferOptions}
+										connectionAirport={connectionAirports[code]}
+										travellers={query.travellers}
+										females={query.females}
+										minLayoverTime={query.minLayoverTime}
+										searchDone={primarySearchDone && !stillSearching}
+									/>
+								{/if}
+							</li>
+						{/each}
+						{#if stillSearching}
+							<li aria-hidden="true">
+								<Card class="result-card-skeleton" padded={false}>
+									<div class="skeleton-body">
+										<Skeleton height="2rem" width="40%" />
+										<Skeleton height="1rem" width="70%" />
+										<Skeleton height="4rem" />
+										<Skeleton height="1.5rem" width="60%" />
+									</div>
+								</Card>
+							</li>
+						{/if}
+					</ul>
+
+					<!-- Everything that explains the results rather than being one, gathered
+					     below them: which providers answered, why no bed is priced, and what
+					     spending a metered request would buy. All three used to sit between
+					     the search and the first card. -->
+					<section class="results-context" aria-label="About these results">
+						<ProviderStatusStrip statuses={providerStatusList} searching={stillSearching} />
+						<StayKeyNotice />
+						<WidenOptionsPanel
+							options={widenOptions}
+							onWiden={handleWiden}
+							pendingKey={pendingWidenKey}
+						/>
+						{#if calendarSummaries.length > 0}
+							<div class="calendar-summaries">
+								<p class="calendar-summaries-label">Calendar results</p>
+								<ul>
+									{#each calendarSummaries as calendarSummary, index (index)}
+										<li>{calendarSummary}</li>
+									{/each}
+								</ul>
+							</div>
+						{/if}
+					</section>
+				</div>
 			</div>
-		</div>
+		{/if}
 	{/if}
 </div>
 
@@ -511,11 +664,6 @@
 		gap: var(--space-5);
 		max-width: var(--layout-max-width);
 		margin: 0 auto;
-	}
-
-	.results-header h1 {
-		font-size: var(--font-size-2xl);
-		font-family: var(--font-mono);
 	}
 
 	.results-subhead {
@@ -530,13 +678,92 @@
 	.results-layout {
 		display: grid;
 		grid-template-columns: 1fr;
-		gap: var(--space-6);
+		gap: var(--space-5);
 	}
 
 	.results-filters {
 		display: flex;
 		flex-direction: column;
+		gap: var(--space-4);
+	}
+
+	.filters-toggle {
+		display: inline-flex;
+		align-items: center;
+		gap: var(--space-2);
+		align-self: start;
+		/* 44px, per WCAG 2.5.5. */
+		min-height: 2.75rem;
+		padding-inline: var(--space-4);
+		background: var(--color-surface);
+		border: 1px solid var(--color-border-strong);
+		border-radius: var(--radius-full);
+		color: var(--color-text);
+		font-family: inherit;
+		font-size: var(--font-size-sm);
+		font-weight: var(--font-weight-semibold);
+		cursor: pointer;
+		transition:
+			background-color var(--transition-fast),
+			border-color var(--transition-fast),
+			color var(--transition-fast);
+	}
+
+	.filters-toggle:hover {
+		background: var(--color-surface-hover);
+		border-color: var(--color-accent);
+		color: var(--color-accent);
+	}
+
+	.filters-toggle:focus-visible {
+		outline: 2px solid var(--color-focus-ring);
+		outline-offset: 2px;
+	}
+
+	.filters-toggle-icon svg {
+		width: 1.125rem;
+		height: 1.125rem;
+		display: block;
+	}
+
+	/* How many filters are on, so a closed panel is never silent state. */
+	.filters-count {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		min-width: 1.375rem;
+		height: 1.375rem;
+		padding-inline: 0.375rem;
+		border-radius: var(--radius-full);
+		background: var(--color-accent);
+		color: var(--color-accent-text);
+		font-family: var(--font-mono);
+		font-size: var(--font-size-xs);
+		font-weight: var(--font-weight-bold);
+	}
+
+	.results-filters-body {
+		display: flex;
+		flex-direction: column;
 		gap: var(--space-5);
+		min-width: 0;
+	}
+
+	/* `display: flex` above beats the user-agent's own `[hidden] { display: none }`, so
+	   without this the panel stays on screen while `aria-expanded` says it is closed. */
+	.results-filters-body[hidden] {
+		display: none;
+	}
+
+	/* Provider chips, the missing-stay-key notice and the widen panel: context for the
+	   answer rather than the answer, so it reads after it. */
+	.results-context {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-4);
+		margin-top: var(--space-2);
+		padding-top: var(--space-5);
+		border-top: 1px dashed var(--color-border);
 	}
 
 	.calendar-summaries {
@@ -588,11 +815,19 @@
 		.results-layout {
 			grid-template-columns: 18rem 1fr;
 			align-items: start;
+			gap: var(--space-6);
 		}
 
 		.results-filters {
 			position: sticky;
-			top: var(--space-4);
+			/* Clears the search summary strip pinned above it, so the two never overlap. */
+			top: 6rem;
+		}
+
+		/* A sidebar is already open; a button that says so would be a control with
+		   nothing to do. */
+		.filters-toggle {
+			display: none;
 		}
 	}
 </style>
