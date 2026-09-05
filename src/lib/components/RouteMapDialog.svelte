@@ -44,8 +44,12 @@
 
 	interface Props {
 		itinerary: Itinerary;
-		/** Heading, and the dialog's accessible name. The leg's own sentence from the map
-		 *  model, "(straight-line estimate)" included where that is true. */
+		/**
+		 * Heading, and the dialog's accessible name. Short: the leg's name, not its sentence.
+		 * The full sentence with its "(straight-line estimate)" caveat reaches the reader
+		 * twice without being here, as the accessible name of the button that opened this and
+		 * as `ItineraryMap`'s own status line under the map.
+		 */
 		title: string;
 		/**
 		 * The selection this map shares with `ItineraryTimeline`, one `ItinerarySegmentId`
@@ -107,17 +111,34 @@
 	/* "almost fullscreen, it just has a fixed margin arround based on screen size": one
 	   token, read by the width and the height as well as the margin, so the three cannot
 	   drift apart. 8px on a phone keeps the card behind it visible as context; 40px stops a
-	   2560px monitor rendering a map the size of a wall. */
+	   2560px monitor rendering a map the size of a wall.
+
+	   The notch insets are added on top rather than folded into the token, because they are
+	   the device's measurement and not a design decision. Without them an 8px margin puts a
+	   near-fullscreen surface under a phone's camera cutout, which is where the close button
+	   lives. */
 	.route-dialog {
 		--route-dialog-margin: clamp(0.5rem, 3vw, 2.5rem);
 
-		width: calc(100dvw - var(--route-dialog-margin) * 2);
-		height: calc(100dvh - var(--route-dialog-margin) * 2);
+		width: calc(
+			100dvw - var(--route-dialog-margin) * 2 - env(safe-area-inset-left, 0px) -
+				env(safe-area-inset-right, 0px)
+		);
+		height: calc(
+			100dvh - var(--route-dialog-margin) * 2 - env(safe-area-inset-top, 0px) -
+				env(safe-area-inset-bottom, 0px)
+		);
 		max-width: none;
 		max-height: none;
-		margin: var(--route-dialog-margin);
+		margin: calc(var(--route-dialog-margin) + env(safe-area-inset-top, 0px))
+			calc(var(--route-dialog-margin) + env(safe-area-inset-right, 0px))
+			calc(var(--route-dialog-margin) + env(safe-area-inset-bottom, 0px))
+			calc(var(--route-dialog-margin) + env(safe-area-inset-left, 0px));
 		padding: 0;
 		overflow: hidden;
+		/* A pinch-zoom that runs out of map must not scroll the results list behind the
+		   scrim, which reads as the dialog sliding. */
+		overscroll-behavior: contain;
 		border: 1px solid var(--color-border-strong);
 		border-radius: var(--radius-lg);
 		background: var(--color-bg-elevated);
@@ -155,6 +176,7 @@
 		font-size: var(--font-size-sm);
 		font-weight: var(--font-weight-semibold);
 		line-height: 1.35;
+		text-wrap: balance;
 	}
 
 	.route-dialog-close {
@@ -172,6 +194,8 @@
 		font: inherit;
 		font-size: var(--font-size-sm);
 		cursor: pointer;
+		touch-action: manipulation;
+		-webkit-tap-highlight-color: transparent;
 	}
 
 	.route-dialog-close svg {

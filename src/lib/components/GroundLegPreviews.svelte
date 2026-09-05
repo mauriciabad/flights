@@ -143,6 +143,10 @@
 		font: inherit;
 		text-align: left;
 		cursor: pointer;
+		/* The 300ms double-tap-zoom delay, and the grey flash Android paints over a tapped
+		   control, both matched to what `TripStrip` already does for its own hit targets. */
+		touch-action: manipulation;
+		-webkit-tap-highlight-color: transparent;
 		transition:
 			border-color 140ms ease-out,
 			color 140ms ease-out;

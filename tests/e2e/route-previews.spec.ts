@@ -91,12 +91,52 @@ test.describe('frozen route previews (issue #280)', () => {
 		await expect(card.locator('.flight-shape-caption')).toContainText('direct flight');
 	});
 
-	test('the flight picture makes no WebGL context, however many cards are on screen', async ({ page }) => {
+	test('the previews make no WebGL context, however many cards are on screen', async ({ page }) => {
 		await search(page, BOTH_ENDS);
 
 		await expect(page.locator('.result-card').first()).toBeVisible();
+		for (const toggle of await page.getByRole('button', { name: 'Show details' }).all()) {
+			await toggle.click();
+		}
+		await expect(page.locator('.ground-legs-item').first()).toBeVisible();
+
+		// Counted, not assumed: a zero-context assertion passes for the wrong reason if the
+		// page happens to be holding no previews. This fixture yields one card, so four is
+		// what one card asks for, and four live contexts per card is the arithmetic that
+		// puts a results page over Chromium's sixteen at the fifth card.
+		// `tools/probe-map-cost.mjs` is where that ceiling is measured across card counts;
+		// a browser test cannot conjure five itineraries out of two mocked flights.
+		expect(await page.locator('.route-preview').count()).toBeGreaterThanOrEqual(4);
+
 		// The whole reason these are SVG. Chromium evicts the oldest of more than sixteen
 		// live contexts, and four per card would put the ceiling at four cards.
+		await expect(page.locator('canvas.maplibregl-canvas')).toHaveCount(0);
+	});
+
+	test('asking about public transport neither strips nor duplicates a preview', async ({ page }) => {
+		// #282 added an on-demand timetable lookup that can change a transfer row's shape
+		// after a press. These previews derive from the same `Itinerary`, so they follow it,
+		// and the concern is whether following it can leave the row wrong: a leg vanishing,
+		// or a second copy of one appearing.
+		await search(page, BOTH_ENDS);
+		await page.getByRole('button', { name: 'Show details' }).first().click();
+
+		const detail = page.locator('.result-detail');
+		const items = detail.locator('.ground-legs-item');
+		await expect(items).toHaveCount(3);
+
+		const check = detail.getByRole('button', { name: 'Check public transport' }).first();
+		// The control is conditional on the itinerary having something to ask about, so this
+		// test asserts the invariant only when the press is actually available.
+		if ((await check.count()) > 0) {
+			await check.click();
+			await expect(check).toBeEnabled({ timeout: 20_000 });
+		}
+
+		await expect(items).toHaveCount(3);
+		// Keyed on a fixed set of three preview ids, so a duplicate is not representable;
+		// this checks the row is still one preview per leg and not one per timeline row.
+		await expect(detail.locator('.ground-leg')).toHaveCount(3);
 		await expect(page.locator('canvas.maplibregl-canvas')).toHaveCount(0);
 	});
 
