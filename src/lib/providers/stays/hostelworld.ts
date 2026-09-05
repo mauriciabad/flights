@@ -60,7 +60,7 @@
  * who does hold a key. This is a floor under the feature, not a replacement for them.
  */
 
-import { defineCacheKey, getDefaultStore, readCachedEntry } from '../../cache';
+import { defineCacheKey, getDefaultStore, readCachedEntry, revalidationSettled } from '../../cache';
 import type { CacheKey, CacheStore } from '../../cache';
 import { DEFAULT_SEARCH_CURRENCY, DEFAULT_TRAVELLERS } from '../../domain';
 import type { IsoCurrencyCode, Stay } from '../../domain';
@@ -284,6 +284,7 @@ function createHostelworldStayProvider(options: HostelworldProviderOptions = {})
 			const value = await fetchValue();
 			if (value === undefined) return;
 			await writeCache(store, key, value, Date.now());
+			revalidationSettled(HOSTELWORLD_PROVIDER_ID);
 		} catch {
 			// The held answer stays exactly as it was; the next search tries again.
 		} finally {
