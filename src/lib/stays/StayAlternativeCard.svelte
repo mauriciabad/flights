@@ -38,11 +38,13 @@
 	 * ## No carousel here, deliberately
 	 *
 	 * Issue #319 asks for one and this row is not where it goes. Thirty rows would be thirty
-	 * scrollers, thirty `aria-live` counters and sixty arrows in the tab order, and on the
-	 * keyless Hostelworld path every one of those photographs is a 2.8 MB original (issue
-	 * #284). The carousel goes where a property has room and is looked at one at a time: the
-	 * open card above this list, and the sidebar the stay map opens. Both are one click from
-	 * here. This row keeps its single lazy thumbnail.
+	 * scrollers, thirty `aria-live` counters and sixty arrows in the tab order, and that
+	 * settles it on its own. The byte argument that used to sit beside it no longer holds.
+	 * Issue #284 called every keyless Hostelworld photograph a 2.8 MB original, and
+	 * `hostelworld-photo.ts` now asks Cloudinary for the card width instead, 96.0% less
+	 * across eight measured photographs. The carousel goes where a property has room and is
+	 * looked at one at a time: the open card above this list, and the sidebar the stay map
+	 * opens. Both are one click from here. This row keeps its single lazy thumbnail.
 	 */
 	import { describePriceComparison, stayDistances, type StayChoice } from './choice';
 	import { Icon } from '$lib/components';

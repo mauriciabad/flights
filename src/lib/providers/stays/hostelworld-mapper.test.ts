@@ -259,10 +259,12 @@ describe('mapPropertyToStays', () => {
 		}
 	});
 
-	it('joins the two halves of an image URL and carries the rating with the scale it is on', () => {
+	it('builds a card-sized address from the two halves and carries the rating with the scale it is on', () => {
 		const stays = mapPropertyToStays(backpackers, 1);
-		expect(stays[0].property.images[0]).toMatch(
-			/^https:\/\/a\.hwstatic\.com\/propertyimages\/.+\.jpg$/
+		// The two halves joined are the 984,293-byte original; this address is 72,084 bytes
+		// of the same photograph. `hostelworld-photo.ts` carries the measurement.
+		expect(stays[0].property.images[0]).toBe(
+			'https://a.hwstatic.com/image/upload/c_limit,w_800,f_auto,q_auto/v1/propertyimages/5/527/hcfi2krbq0sja1spk7pi.jpg'
 		);
 		// #245: the value stays exactly as Hostelworld sent it, and `outOf` says which
 		// scale that is, so a screen can never label it with somebody else's.

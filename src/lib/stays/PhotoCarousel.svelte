@@ -18,14 +18,21 @@
 	 *
 	 * ## Why only the photographs the reader asked for are fetched
 	 *
-	 * Hostelworld is the keyless default most visitors hit and `a.hwstatic.com` serves the
-	 * photographer's original: 4032x2268 at 2.79 MB, 1930x1085 at 2.02 MB. It is not an
-	 * image CDN and it honours no resize - imgix's `w`, `h`, `fit`, `auto` and `dpr` all
-	 * returned output byte-identical to a `?zzz=1` control (issue #284). There is no backend
-	 * here to proxy through. So `reached` holds the furthest photograph the reader has
-	 * actually asked for, nothing past it has a `src`, and a strip of two costs one image
-	 * rather than five megabytes. `loading="lazy"` on top of that is what keeps a list of
-	 * these to the ones on screen.
+	 * Hostelworld is the keyless default most visitors hit, and its `images` field points at
+	 * the photographer's original: 4032x2268 at 2.79 MB, 1930x1085 at 2.02 MB. Issue #284
+	 * read that as a dumb origin, because imgix's `w`, `h`, `fit`, `auto` and `dpr` all
+	 * returned output byte-identical to a `?zzz=1` control. That control was sent to the
+	 * ORIGIN path. `a.hwstatic.com` is a Cloudinary account whose delivery path is
+	 * `/image/upload/<transformations>/v1/<public id>`, and `hostelworld-photo.ts` asks for
+	 * the card width there. Eight measured photographs fall from 13,157,409 bytes to 523,570,
+	 * 96.0% less.
+	 *
+	 * So a second photograph costs about 65 KB now rather than two megabytes, and this is no
+	 * longer the difference between a page that works and one that does not. It stays because
+	 * it is still free. `reached` holds the furthest photograph the reader has actually asked
+	 * for, nothing past it has a `src`, and a reader who never presses the arrow never pays
+	 * for a picture they did not look at. `loading="lazy"` on top of that is what keeps a
+	 * list of these to the ones on screen.
 	 *
 	 * ## Accessibility, which is most of the file
 	 *
@@ -224,9 +231,9 @@
 		/* The strip is what scrolls, so the rounding has to be clipped on this element or
 		   the photograph's square corners sit proud of it. */
 		overflow: hidden;
-		/* Reserved before a byte arrives, which is the whole CLS story: these files run to
-		   2.8 MB and land long after the text does. Without a ratio here the card would
-		   grow by 190px under the reader's thumb the moment the first one decoded. */
+		/* Reserved before a byte arrives, which is the whole CLS story. These come over the
+		   network and land after the text whatever they weigh. Without a ratio here the card
+		   would grow by 190px under the reader's thumb the moment the first one decoded. */
 		aspect-ratio: var(--photo-aspect, 16 / 10);
 		background: var(--color-bg-inset);
 	}

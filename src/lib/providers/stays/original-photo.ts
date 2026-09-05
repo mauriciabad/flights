@@ -2,12 +2,17 @@
  * The address a provider actually published, for a photograph this app asked for at a
  * different size.
  *
- * Two adapters now rewrite an image URL before it reaches a card. `booking-photo.ts`
+ * Three adapters now rewrite an image URL before it reaches a card. `booking-photo.ts`
  * upgrades a 60x60 thumbnail (#279), `agoda-photo.ts` shrinks a 2048px original (#281),
- * and each one is measured against a handful of ids rather than every id the provider
- * holds. A shape either got wrong 404s and blanks a picture, so every renderer retries
- * once at the published address and lands on the behaviour that shipped before the
- * rewrite existed.
+ * `hostelworld-photo.ts` sends a 2.8 MB original through Cloudinary (#284), and each one is
+ * measured against a handful of ids rather than every id the provider holds. A shape any of
+ * them got wrong blanks a picture, so every renderer retries once at the published address
+ * and lands on the behaviour that shipped before the rewrite existed.
+ *
+ * Hostelworld is the sharp one. Agoda ignores an `s` it cannot read and hands back the
+ * full-size photograph, so a mistake there costs bytes. Cloudinary answers 400 with an empty
+ * body for a transformation it cannot parse, so there the reverse below is the only thing
+ * standing between a shape nobody measured and an empty card.
  *
  * `PickedBed.svelte` used to call Booking's reverse directly, under a comment saying a
  * second provider wanting one would turn that call into a table. Agoda is the second, so
@@ -18,8 +23,9 @@
 
 import { originalAgodaPhoto } from './agoda-photo';
 import { originalBookingPhoto } from './booking-photo';
+import { originalHostelworldPhoto } from './hostelworld-photo';
 
-const PUBLISHED_ADDRESS = [originalAgodaPhoto, originalBookingPhoto];
+const PUBLISHED_ADDRESS = [originalAgodaPhoto, originalBookingPhoto, originalHostelworldPhoto];
 
 /** `undefined` when nothing rewrote this URL, which a renderer reads as "this one is
  * simply broken" rather than retrying the same address forever. */

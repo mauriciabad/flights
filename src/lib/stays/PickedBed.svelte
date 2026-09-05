@@ -37,13 +37,15 @@
 	 * counter, not a gallery, and at one photograph the controls are gone rather than
 	 * greyed: a dead arrow is a promise the data cannot keep.
 	 *
-	 * **They are enormous.** Hostelworld is the keyless default most visitors hit, and
-	 * `a.hwstatic.com` serves the photographer's original: 4032x2268 at 2.79 MB, 3936x2624
-	 * at 984 KB, 1930x1085 at 2.02 MB. It is not an image CDN and it has no resize. Passing
-	 * imgix's `w`, `h`, `fit`, `auto` and `dpr` returned output byte-identical to a `?zzz=1`
-	 * control, and there is no backend here to proxy through. So the second photograph is
-	 * fetched when the reader asks for it and never before: loading a strip of two on render
-	 * would cost 5 MB to show one picture.
+	 * **They were enormous, and are not any more.** Hostelworld is the keyless default most
+	 * visitors hit, and its `images` field points at the photographer's original: 4032x2268
+	 * at 2.79 MB, 3936x2624 at 984 KB, 1930x1085 at 2.02 MB. Issue #284 read that as an
+	 * origin with no resize, on a control that passed imgix's parameters to the ORIGIN path.
+	 * `a.hwstatic.com` is a Cloudinary account, its delivery path is
+	 * `/image/upload/<transformations>/v1/<public id>`, and `hostelworld-photo.ts` asks for
+	 * the card width there. Eight measured photographs weigh 13,157,409 bytes as published
+	 * and 523,570 at `c_limit,w_800,f_auto,q_auto`. The second photograph is still fetched only
+	 * when the reader asks for it, which now saves about 65 KB rather than 2.8 MB.
 	 *
 	 * ## The photographs live next door now
 	 *

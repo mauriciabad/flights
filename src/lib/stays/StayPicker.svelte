@@ -433,8 +433,10 @@
 	}
 
 	/* 16/9 rather than the carousel's own 16/10, because the open card's photograph is the
-	   widest thing on this panel and the ratio it reserves is what stops a 2.8 MB image
-	   shoving the room tiles down when it lands. */
+	   widest thing on this panel and the ratio it reserves is what stops an image shoving
+	   the room tiles down when it lands. That image was 2.8 MB when this was written and is
+	   about 65 KB since `hostelworld-photo.ts`. That changes the wait and not the shove.
+	   Any picture arriving after layout moves what is under it. */
 	.stay-open-body :global(.photo-carousel) {
 		--photo-aspect: 16 / 9;
 	}

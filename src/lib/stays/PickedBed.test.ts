@@ -7,11 +7,12 @@ import PickedBed from './PickedBed.svelte';
  * Issue #279. These mount the block and read it back off the DOM, the same way
  * `StopoverBlock.test.ts` does, because what the issue is about is what a person sees.
  *
- * The load discipline is the thing most worth pinning. Hostelworld serves 1 to 2.8 MB
- * originals with no resize (measured, `tools/probe-images.mjs`), so a strip that gives
- * every slide a `src` on render costs the reader 5 MB to look at one photograph. That is
- * invisible in a screenshot and invisible to a test that only asks whether an `<img>`
- * exists, so it is asserted here as the absence of a second `src`.
+ * The load discipline is the thing most worth pinning, and it used to be worth megabytes.
+ * Hostelworld publishes 1 to 2.8 MB originals, and issue #284 read that as an origin with
+ * no resize. `hostelworld-photo.ts` now asks Cloudinary for the card width instead, so a
+ * photograph costs about 65 KB. A second `src` on render is still a second download nobody
+ * asked for, and it is still invisible in a screenshot and invisible to a test that only
+ * asks whether an `<img>` exists, so it is asserted here as the absence of a second `src`.
  *
  * Geometry is not asserted here and cannot be: jsdom has no layout, so every element is
  * 0x0 and an assertion about the reserved aspect box would pass against a broken one.
@@ -161,8 +162,9 @@ describe('what the block says about the bed', () => {
 
 describe('the photographs, and what they cost to fetch', () => {
 	it('gives only the first photograph a src, so the second is never fetched unasked', () => {
-		// The 5 MB assertion. Hostelworld's originals run to 2.8 MB each and it has no
-		// resize, so a second slide with a src is a second download nobody asked for.
+		// A second slide with a src is a second download nobody asked for. This used to be
+		// the 5 MB assertion, back when #284 had every Hostelworld photograph at its
+		// published size; `hostelworld-photo.ts` made it about 65 KB and kept it worth having.
 		render();
 		expect(sources()).toEqual([PHOTO_A]);
 	});
