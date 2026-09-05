@@ -23,7 +23,7 @@ import type {
 } from '../domain';
 import { groundFare } from '../domain';
 import { NORMAL_WAIT_THRESHOLD_MINUTES } from '../algorithm/transit-schedule';
-import type { WithheldRoutes } from '../search/types';
+import type { WithheldRoutes, WithheldTransfers } from '../search/types';
 import { formatClockTime, formatDuration, formatMoney, formatMoneyRange } from '$lib/format';
 
 export {
@@ -405,8 +405,14 @@ export function unroutedLegNote(
 		 * rule usually empties the leg outright, so there is no picker left to say it in.
 		 *
 		 * Ranked BELOW `transferAnchor` on purpose — see the `unrouted-stay` branch.
+		 *
+		 * Issue #347 added the walking half. It reaches this row far less often than the road
+		 * half does, because a walk that trips the 45-minute cap usually sits beside a driving
+		 * route that did not, and then the leg has a transfer and this function is never
+		 * called at all. `TransportPicker` is where that common case gets said. This is for
+		 * the leg where a refused walk was the whole answer.
 		 */
-		withheldRoad?: WithheldRoutes;
+		withheld?: WithheldTransfers;
 	}
 ): string {
 	if (leg === 'to-hotel' || leg === 'from-hotel') {
@@ -415,7 +421,7 @@ export function unroutedLegNote(
 		// asked about this address. Distinct from the last sentence in this branch, which
 		// would blame a transport provider for refusing a question nobody put to it.
 		//
-		// First, and that matters more than it looks. `withheldRoad` below describes the leg
+		// First, and that matters more than it looks. `withheld` below describes the leg
 		// the SEARCH routed, to the property the search picked. Once the traveller has moved
 		// to a different one, that refusal is about an address they are no longer looking at,
 		// and printing "the road route in takes 33h" beside this property's name would be
@@ -439,7 +445,8 @@ export function unroutedLegNote(
 		// provider could route to it" when a router answered at 33 hours and this app refused
 		// the answer. Below the nightless branch, though: that traveller is not going to a
 		// bed at all, and the refusal is true and irrelevant to them.
-		if (context.withheldRoad) return withheldRoadNote(leg, context.withheldRoad);
+		const refused = withheldNote(leg, context.withheld);
+		if (refused) return refused;
 		if (!context.hasStay) {
 			// Issue #185: the row's own fact and nothing else. It used to open with "No bed
 			// priced for this stopover", which was true but was also the third and sixth of
@@ -467,23 +474,56 @@ export function unroutedLegNote(
 			? 'The bed is priced, but no transport provider could route to it.'
 			: 'The bed is priced, but no transport provider could route back from it.';
 	}
-	if (context.withheldRoad) return withheldRoadNote(leg, context.withheldRoad);
-	return 'No route came back from the transport providers for this leg.';
+	return (
+		withheldNote(leg, context.withheld) ?? 'No route came back from the transport providers for this leg.'
+	);
 }
 
 /**
- * The refusal, in the two numbers it was made on. Deliberately does not print
- * `WithheldRoutes.count`: driving and taxi are one OSRM route wearing two labels
- * (`providers/transfers/osrm.ts`), so the count here is almost always 2 and "2 routes"
- * would describe two options where the traveller has one.
+ * The refusal this row leads with. Road before walk, because a walk over 45 minutes is the
+ * expected consequence of a drive that already takes hours, and printing both would spend a
+ * second clause on the first one's echo.
+ *
+ * `undefined` when nothing was refused, which is nearly every leg.
  */
-function withheldRoadNote(leg: UnroutedLeg, withheld: WithheldRoutes): string {
-	const subject =
-		leg === 'to-hotel'
-			? 'The road route in'
-			: leg === 'from-hotel'
-				? 'The road route back'
-				: 'The road route';
+function withheldNote(leg: UnroutedLeg, withheld: WithheldTransfers | undefined): string | undefined {
+	if (withheld?.road) return refusedRouteSentence(ROAD_SUBJECT[leg], withheld.road);
+	if (withheld?.walk) return refusedRouteSentence(WALK_SUBJECT[leg], withheld.walk);
+	return undefined;
+}
+
+/** A table rather than a nested ternary per mode: two modes times four legs is where the
+ * conditional version stopped being readable, and a `Record` over the union is also what
+ * makes a fifth leg a compile error instead of a silent fall-through to the generic form. */
+const ROAD_SUBJECT: Record<UnroutedLeg, string> = {
+	'to-hotel': 'The road route in',
+	'from-hotel': 'The road route back',
+	'to-origin-airport': 'The road route',
+	'to-destination-location': 'The road route'
+};
+
+const WALK_SUBJECT: Record<UnroutedLeg, string> = {
+	'to-hotel': 'The walk in',
+	'from-hotel': 'The walk back',
+	'to-origin-airport': 'The walk',
+	'to-destination-location': 'The walk'
+};
+
+/**
+ * One refused mode, in the duration it came back with and the distance it was judged
+ * against. Both numbers, always, and that is the sentence's job rather than a decoration on
+ * it: 33 hours to cover 157 km reads as a journey nobody could take, and 1h 13m to cover
+ * 1.4 km reads as a router measuring from the wrong side of a runway, which is exactly what
+ * happens at the 653 airports with no terminal mapped (issue #347). A traveller can act on
+ * the second and this app cannot, so it prints what it saw and leaves the reading to them.
+ *
+ * Deliberately does not print `WithheldRoutes.count`. Driving and taxi are one OSRM route
+ * wearing two labels (`providers/transfers/osrm.ts`), so the count is almost always 2 for
+ * road and 1 for walking, and "2 routes" would describe two options where the traveller has
+ * one. `TransportPicker`'s transit notice does print its count, because a timetable really
+ * can return several different journeys.
+ */
+export function refusedRouteSentence(subject: string, withheld: WithheldRoutes): string {
 	return `${subject} takes ${formatDuration(withheld.quickest)} to cover ${formatKilometres(withheld.straightLineKm)} in a straight line, so it is not offered.`;
 }
 

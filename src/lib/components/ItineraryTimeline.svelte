@@ -87,7 +87,7 @@
 		unroutedLegNote
 	} from './itinerary-timeline-format';
 	import type { UnroutedLeg } from './itinerary-timeline-format';
-	import type { WithheldRoutes } from '../search/types';
+	import type { WithheldTransfers } from '../search/types';
 	import { freeTimeDays } from './free-time-days';
 	import { technicalStopDetail } from './technical-stop-note';
 	import AirlineLogo from './AirlineLogo.svelte';
@@ -135,13 +135,13 @@
 		 * and transfer row a third line. */
 		optionMarks?: Partial<Record<ItinerarySegmentId, string>>;
 		/**
-		 * Issue #119: for each leg with no transfer, what `search/resources.ts` refused to
-		 * offer there. Only ever set when a router really did answer and the road rule judged
-		 * the answer implausible, which is the one case every sentence in `unroutedLegNote`
-		 * gets wrong — they all say nothing was routed. Omit it and the rows read exactly as
-		 * they did before.
+		 * For each leg with no transfer, what `search/resources.ts` refused to offer there.
+		 * Only ever set when a router really did answer and a plausibility rule judged the
+		 * answer unusable, which is the one case every sentence in `unroutedLegNote` gets
+		 * wrong — they all say nothing was routed. Issue #119 for the road half, issue #347
+		 * for the walking half. Omit it and the rows read exactly as they did before.
 		 */
-		withheldRoad?: Partial<Record<UnroutedLeg, WithheldRoutes>>;
+		withheld?: Partial<Record<UnroutedLeg, WithheldTransfers>>;
 		/** Applied to the row list; the totals block keeps its own fixed class. */
 		class?: string;
 	}
@@ -152,7 +152,7 @@
 		connectionAirport,
 		expansion,
 		optionMarks,
-		withheldRoad,
+		withheld,
 		class: className
 	}: Props = $props();
 
@@ -462,7 +462,7 @@
 							nightsInConnection: itinerary.nightsInConnection,
 							overnightWait: isOvernightWait(itinerary.freeTime.start, itinerary.freeTime.end),
 							transferAnchor: itinerary.transferAnchor,
-							withheldRoad: withheldRoad?.[leg]
+							withheld: withheld?.[leg]
 						})}</span
 					>{@render optionMark(segment)}
 				</p>

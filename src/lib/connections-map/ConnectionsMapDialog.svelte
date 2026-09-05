@@ -80,6 +80,16 @@
 		/** `SearchQuery.airlinesToAvoid`, upper-cased. Only ever quiets a logo and adds a
 		 * line; the brief is explicit that an avoided airline is still shown. */
 		avoidedCarriers?: ReadonlySet<string>;
+		/**
+		 * Issue #350: `SearchSnapshot.confirmedBeyondCap` — stopovers candidate discovery
+		 * confirmed on both flights and then dropped, because the candidate cap was full.
+		 *
+		 * A prop rather than a field on `ConnectionsMapModel`, because none of these is drawn.
+		 * That model is the picture, and every field on it is a coordinate, a distance or a
+		 * state a point renders in; an airport with no arc and no point does not belong in it.
+		 * The panel's opening line is a sentence about the search, which is where this fits.
+		 */
+		confirmedBeyondCap?: readonly IataAirportCode[];
 		onclose: () => void;
 	}
 
@@ -89,7 +99,8 @@
 		currency,
 		onopen,
 		onclose,
-		avoidedCarriers = new Set<string>()
+		avoidedCarriers = new Set<string>(),
+		confirmedBeyondCap = []
 	}: Props = $props();
 
 	let previewCode = $state<IataAirportCode | null>(null);
@@ -97,7 +108,7 @@
 
 	const shownCode = $derived(previewCode ?? pinnedCode);
 	const shown = $derived(model.connections.find((connection) => connection.airport.iataCode === shownCode));
-	const summary = $derived(summariseConnections(countByState(model)));
+	const summary = $derived(summariseConnections(countByState(model), confirmedBeyondCap));
 
 	const priceLabels = $derived.by(() => {
 		const labels: Partial<Record<IataAirportCode, string>> = {};

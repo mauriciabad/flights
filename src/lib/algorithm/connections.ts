@@ -35,6 +35,28 @@
  * exactly like an empty answer, and the algorithm falls through to whatever source runs
  * next (ultimately the bundled table for the free path). Same contract every other caller
  * of a `ProviderResult` in this codebase follows.
+ *
+ * ## What this module cannot propose, and why that is not a bug to fix here
+ *
+ * Every candidate starts life in the origin's own direct-destination list. Issue #349 added
+ * `METRO_CODE_MEMBERS` so an airport hidden by a one-row-per-city collapse is recovered,
+ * which is what makes Bergamo reachable from a list that only names Milan. That lever
+ * reaches siblings and nothing else.
+ *
+ * Issue #350 measured where it stops. `EMA` (Nottingham / East Midlands) is one of
+ * flightconnections.com's ten stopovers for `BVC -> PFO`, and Kiwi sells both of its legs,
+ * yet no search here can ever propose it: Boa Vista's `onewayOnePerCityItineraries` answer
+ * does not name East Midlands, and East Midlands is nobody's metro sibling. The list is
+ * price-sorted and capped by the aggregator, so it is a sample of a route graph rather than
+ * the graph itself, and no amount of post-processing recovers a row that is not there.
+ *
+ * Closing that gap means candidates coming from somewhere other than the origin's list — a
+ * route graph vendored at build time the way `prepare-icons.mjs` and `prepare-flags.mjs`
+ * vendor their data, or proposing plausible airports and letting `hasDirectRoute` settle
+ * them. The second is cheap per candidate and unbounded in how many there could be, so
+ * "which ones" is the whole question and it is not answered by anything in this file today.
+ * Written down here rather than left implicit, because the next reader's question is why
+ * a route they can see on a third-party map never appears in this app's results.
  */
 
 import type {
@@ -189,6 +211,22 @@ export interface ConnectionGraphOptions {
 	) => void;
 	/** How many ranked candidates to return. Default `DEFAULT_MAX_CANDIDATES`. */
 	maxCandidates?: number;
+	/**
+	 * Issue #350: called once, with the candidates this call confirmed on both legs and then
+	 * dropped because `maxCandidates` was already full. Never called when nothing was
+	 * dropped, which is most searches.
+	 *
+	 * Reporting only, exactly like `onProviderResult` above: this module's behaviour does not
+	 * depend on it and a caller can leave it out. The cap itself is not the problem — each
+	 * candidate kept costs two metered fare searches downstream, and issue #255 is this
+	 * repo's own record of what bounding the wrong thing does. What was wrong is that the
+	 * results page could say "six stopovers" when the search had confirmed nine, and nothing
+	 * on screen distinguished the three it dropped from three that do not exist.
+	 *
+	 * These carry a full `ConnectionCandidate` rather than a bare code so a caller can rank
+	 * or describe them; `SearchSnapshot` keeps only the codes, for the reason on that field.
+	 */
+	onCandidatesBeyondCap?: (beyondCap: readonly ConnectionCandidate[]) => void;
 	/** How many candidates this call may spend a request asking about. Default
 	 * `maxCandidates * ROUTE_PROBES_PER_KEPT_CANDIDATE`. See that constant for why the
 	 * ceiling belongs here rather than inside each adapter. Candidates past it are still
@@ -713,6 +751,7 @@ export async function findConnectionCandidates(
 		airportLookup,
 		onProviderResult,
 		maxCandidates = DEFAULT_MAX_CANDIDATES,
+		onCandidatesBeyondCap,
 		maxRouteProbes = maxCandidates * ROUTE_PROBES_PER_KEPT_CANDIDATE,
 		maxDetourRatio = DEFAULT_MAX_DETOUR_RATIO,
 		weights = DEFAULT_WEIGHTS,
@@ -977,7 +1016,13 @@ export async function findConnectionCandidates(
 	}
 
 	candidates.sort((a, b) => b.score - a.score || a.airportCode.localeCompare(b.airportCode));
-	return candidates.slice(0, Math.max(0, maxCandidates));
+	const cap = Math.max(0, maxCandidates);
+	// Issue #350: reported before the slice throws them away, and only when there is
+	// something to report. Every one of these passed the same two confirmations the kept
+	// candidates passed — a source says the origin flies here, and a source says something
+	// flies onward — so "we found it and are not pricing it" is a fact, not a guess.
+	if (candidates.length > cap) onCandidatesBeyondCap?.(candidates.slice(cap));
+	return candidates.slice(0, cap);
 }
 
 /**

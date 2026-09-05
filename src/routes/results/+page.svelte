@@ -242,6 +242,16 @@
 	 * never becomes a card, so the results list is the one place it can never appear.
 	 */
 	let candidateCodes = $state<IataAirportCode[]>([]);
+	/**
+	 * Issue #350: the stopovers candidate discovery confirmed on both flights and then
+	 * dropped, because the candidate cap was already full.
+	 *
+	 * Separate from `candidateCodes` above, which is what the search is actually pursuing.
+	 * These airports get no card, no arc and no point, because nothing was ever priced for
+	 * them — they exist here so the page can say they exist, which is the entire difference
+	 * between "six stopovers" and "six is how many we priced".
+	 */
+	let confirmedBeyondCap = $state<IataAirportCode[]>([]);
 	let blockedConnections = $state<Record<string, ConnectionBlock>>({});
 	let connectionsMapOpen = $state(false);
 	/** True once the primary search has yielded its final snapshot. The empty-results board
@@ -691,6 +701,7 @@
 					directRouteKnown = snapshot.hasDirectRoute;
 					candidateCount = snapshot.candidates.length;
 					candidateCodes = snapshot.candidates.map((candidate) => candidate.airportCode);
+					confirmedBeyondCap = snapshot.confirmedBeyondCap;
 					if (snapshot.done) primarySearchDone = true;
 				}
 				const compare = untrack(() => compareResults(sortMode));
@@ -833,6 +844,7 @@
 		chosenNightsByConnection = {};
 		groupsByConnection = {};
 		candidateCodes = [];
+		confirmedBeyondCap = [];
 		blockedConnections = {};
 		connectionsMapOpen = false;
 		stayCandidatesByConnection = {};
@@ -1442,9 +1454,15 @@
 				<span class="connections-map-link-text">
 					See every connection on a map
 					{#if connectionsMapModel && connectionsMapModel.connections.length > 0}
+						<!-- Issue #350: the count on its own read as "these are the stopovers", when it
+						     only ever meant "these are the stopovers we priced". The second clause is
+						     here rather than only inside the dialog because this is the line a
+						     traveller reads while counting the cards; which airports they are is
+						     detail, and detail belongs behind the tap. -->
 						<span class="connections-map-link-note"
 							>{connectionsMapModel.connections.length} airports considered, including the ones with no
-							trip</span
+							trip{#if confirmedBeyondCap.length > 0}, and {confirmedBeyondCap.length} more confirmed
+								but not priced{/if}</span
 						>
 					{/if}
 				</span>
@@ -1681,6 +1699,7 @@
 		window={{ from: query.soonestDeparture, to: query.latestArrival }}
 		currency={ledgerCurrency}
 		{avoidedCarriers}
+		{confirmedBeyondCap}
 		onopen={openStopoverFromMap}
 		onclose={() => (connectionsMapOpen = false)}
 	/>

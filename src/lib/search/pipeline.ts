@@ -87,7 +87,7 @@ import {
 	pickBestTransfer,
 	pickLandingToTransportTime,
 	ROAD_TRANSFER_MODES,
-	withheldRoadFor
+	withheldTransfersFor
 } from './resources';
 import { createTransitLookupBudget, fetchTransitSchedules } from './transit-schedule';
 import type { TransitLookupBudget } from './transit-schedule';
@@ -209,13 +209,13 @@ async function fetchOuterTransfers(
 		transferToOriginAirportOptions: query.originLocation
 			? {
 					candidates: originOutcome?.candidates ?? [],
-					withheldRoad: withheldRoadFor(originOutcome)
+					withheld: withheldTransfersFor(originOutcome)
 				}
 			: NO_TRANSFER_LEG_OPTIONS,
 		transferToDestinationLocationOptions: query.destinationLocation
 			? {
 					candidates: destinationCandidates,
-					withheldRoad: withheldRoadFor(destinationOutcome)
+					withheld: withheldTransfersFor(destinationOutcome)
 				}
 			: NO_TRANSFER_LEG_OPTIONS
 	};
@@ -619,11 +619,11 @@ async function processCandidate(input: ProcessCandidateInput): Promise<Candidate
 			transferOptions: {
 				transferToHotel: {
 					candidates: resources.transferToHotelCandidates,
-					withheldRoad: resources.transferToHotelWithheldRoad
+					withheld: resources.transferToHotelWithheld
 				},
 				transferToConnectionAirport: {
 					candidates: resources.transferToConnectionAirportCandidates,
-					withheldRoad: resources.transferToConnectionAirportWithheldRoad
+					withheld: resources.transferToConnectionAirportWithheld
 				}
 			}
 		};
@@ -667,14 +667,17 @@ const NO_OUTER_TRANSFER_OPTIONS: OuterTransferOptions = {
  * instead of collapsing to one pick each). `outerTransferOptionsRef` is a mutable holder
  * (not a map — there is only ever one value, computed once) so a caller can update it in
  * place the moment `fetchOuterTransfers` resolves and have every snapshot from then on pick
- * up the new value, the same way the maps below are read live rather than passed by value. */
+ * up the new value, the same way the maps below are read live rather than passed by value.
+ * `confirmedBeyondCapRef` (issue #350) is the same kind of holder, written once when
+ * candidate discovery reports what its cap dropped. */
 function makeSnapshotFn(
 	results: ItineraryResult[],
 	providerStatus: Map<ProviderId, ProviderStatus>,
 	stayCandidatesByConnection: Map<IataAirportCode, Stay[]>,
 	transferOptionsByConnection: Map<IataAirportCode, ConnectionTransferOptions>,
 	blockedConnections: Map<IataAirportCode, ConnectionBlock>,
-	outerTransferOptionsRef: { current: OuterTransferOptions }
+	outerTransferOptionsRef: { current: OuterTransferOptions },
+	confirmedBeyondCapRef: { current: IataAirportCode[] }
 ) {
 	let sequence = 0;
 	return function snapshot(
@@ -689,6 +692,15 @@ function makeSnapshotFn(
 			stage,
 			done,
 			candidates,
+			// Issue #350: subtracted here rather than trusted from the caller. The #115
+			// fallback sweep re-runs discovery at a larger cap, so a candidate the primary
+			// call dropped can be on screen by the time this snapshot is built, and a page
+			// reading "8 considered and 2 more we did not price" about two of those eight is
+			// worse than the silence this replaced. Making the invariant hold where the
+			// snapshot is assembled means it cannot depend on which discovery call ran last.
+			confirmedBeyondCap: confirmedBeyondCapRef.current.filter(
+				(code) => !candidates.some((candidate) => candidate.airportCode === code)
+			),
 			itineraryGroups: groupItineraryResults(results),
 			providers: Object.fromEntries(providerStatus),
 			widenOptions,
@@ -837,13 +849,18 @@ export async function* runSearch(
 	const transferOptionsByConnection = new Map<IataAirportCode, ConnectionTransferOptions>();
 	const blockedConnections = new Map<IataAirportCode, ConnectionBlock>();
 	const outerTransferOptionsRef = { current: NO_OUTER_TRANSFER_OPTIONS };
+	const confirmedBeyondCapRef = { current: [] as IataAirportCode[] };
+	const reportBeyondCap = (beyondCap: readonly ConnectionCandidate[]) => {
+		confirmedBeyondCapRef.current = beyondCap.map((candidate) => candidate.airportCode);
+	};
 	const snapshot = makeSnapshotFn(
 		results,
 		providerStatus,
 		stayCandidatesByConnection,
 		transferOptionsByConnection,
 		blockedConnections,
-		outerTransferOptionsRef
+		outerTransferOptionsRef,
+		confirmedBeyondCapRef
 	);
 
 	const { originAirport, destinationAirport } = await resolveOuterAirports(query, resolveAirport);
@@ -898,6 +915,11 @@ export async function* runSearch(
 			// make, so without this the status panel had nothing to report at all.
 			onProviderResult: record,
 			maxCandidates: options.maxCandidates,
+			// Issue #350: what this cap threw away, so the page can say it found more than it
+			// is pricing. Every discovery call in this file reports, and the last one to run
+			// wins, because the candidates on screen are the ones IT returned. The snapshot
+			// subtracts anything a later call went on to keep.
+			onCandidatesBeyondCap: reportBeyondCap,
 			signal
 			// meteredRequestBudget intentionally omitted (default 0): this is the line that
 			// guarantees stage 1 spends nothing, even as connections.ts's own last-resort
@@ -1095,6 +1117,7 @@ export async function* runSearch(
 				airportLookup: airportLookupFrom(resolveAirport),
 				onProviderResult: record,
 				maxCandidates: FALLBACK_MAX_CANDIDATES,
+				onCandidatesBeyondCap: reportBeyondCap,
 				signal
 				// meteredRequestBudget intentionally omitted (default 0), same as the primary
 				// call above — re-deriving a larger slice of the same free ranking spends
@@ -1179,13 +1202,18 @@ export async function* widenSearch(
 	const transferOptionsByConnection = new Map<IataAirportCode, ConnectionTransferOptions>();
 	const blockedConnections = new Map<IataAirportCode, ConnectionBlock>();
 	const outerTransferOptionsRef = { current: NO_OUTER_TRANSFER_OPTIONS };
+	const confirmedBeyondCapRef = { current: [] as IataAirportCode[] };
+	const reportBeyondCap = (beyondCap: readonly ConnectionCandidate[]) => {
+		confirmedBeyondCapRef.current = beyondCap.map((candidate) => candidate.airportCode);
+	};
 	const snapshot = makeSnapshotFn(
 		results,
 		providerStatus,
 		stayCandidatesByConnection,
 		transferOptionsByConnection,
 		blockedConnections,
-		outerTransferOptionsRef
+		outerTransferOptionsRef,
+		confirmedBeyondCapRef
 	);
 
 	const { originAirport, destinationAirport } = await resolveOuterAirports(query, resolveAirport);
@@ -1221,6 +1249,7 @@ export async function* widenSearch(
 			// find that candidate again even when it only appeared via that fallback sweep.
 			maxCandidates: options.maxCandidates ?? FALLBACK_MAX_CANDIDATES,
 			onProviderResult: record,
+			onCandidatesBeyondCap: reportBeyondCap,
 			signal
 			// meteredRequestBudget intentionally omitted (default 0): re-deriving the
 			// candidate ranking here must stay free too, even though widenSearch itself goes

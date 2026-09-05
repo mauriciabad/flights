@@ -838,11 +838,46 @@ describe('a road route has to be proportionate to the distance (issue #119)', ()
 		expect(resources.stay?.property.name).toBe('Hostel');
 		expect(resources.transferToHotel).toBeUndefined();
 		expect(resources.transferToHotelCandidates).toEqual([]);
-		expect(resources.transferToHotelWithheldRoad).toEqual({
+		expect(resources.transferToHotelWithheld?.road).toEqual({
 			count: 2,
 			quickest: 1980,
 			straightLineKm: expect.closeTo(0.95, 1)
 		});
+	});
+
+	it('keeps a refused walk beside a drive that was accepted (issue #347)', async () => {
+		// #348 moved every transfer's start onto a real terminal, and 653 airports have no
+		// terminal mapped in OpenStreetMap, so at those the walk is still measured from the
+		// runway reference point. Gatwick's numbers: 1h 13m to cover a walk the traveller
+		// would make in 32 minutes. The drive is fine and wins the leg, so before this the
+		// refusal left no trace anywhere.
+		const provider = configurableTransferProvider([transfer('walk', 73), transfer('drive', 8)]);
+		const resources = await fetchConnectionResources(
+			baseInput([fakeStayProvider('stays', [stay('Hostel', 'dorm', 2000)])], {
+				transferProviders: [provider],
+				currency: 'EUR'
+			})
+		);
+
+		expect(resources.transferToHotel?.mode).toBe('drive');
+		expect(resources.transferToHotelWithheld?.walk).toEqual({
+			count: 1,
+			quickest: 73,
+			straightLineKm: expect.closeTo(0.95, 1)
+		});
+		expect(resources.transferToHotelWithheld?.road).toBeUndefined();
+	});
+
+	it('reports nothing at all for a leg where every answer was plausible', async () => {
+		const provider = configurableTransferProvider([transfer('walk', 12), transfer('drive', 8)]);
+		const resources = await fetchConnectionResources(
+			baseInput([fakeStayProvider('stays', [stay('Hostel', 'dorm', 2000)])], {
+				transferProviders: [provider],
+				currency: 'EUR'
+			})
+		);
+
+		expect(resources.transferToHotelWithheld).toBeUndefined();
 	});
 
 	it('reports a refused bus and a refused drive apart, never as each other', () => {

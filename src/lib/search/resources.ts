@@ -73,7 +73,7 @@ import {
 } from "./cost-aware";
 import type { StayLookupBudget } from "../providers/budget";
 import type { RecordProviderCall, SourceTracker } from "./provenance";
-import type { WithheldRoutes } from "./types";
+import type { WithheldRoutes, WithheldTransfers } from "./types";
 
 /**
  * How far from the connection airport a bed may be and still belong to this stopover.
@@ -251,20 +251,33 @@ export function summariseWithheldRoutes(
   return { count: matching.length, quickest, straightLineKm };
 }
 
-/** Issue #119: one leg's refused driving and taxi routes, read straight off the outcome
- * that produced them so no caller has to re-measure the distance they were judged against.
- * `undefined` for a leg the query never asked for, which has no outcome and so nothing to
- * report, and for the ordinary leg where nothing was refused. */
-export function withheldRoadFor(
+/**
+ * One leg's refusals, read straight off the outcome that produced them so no caller has to
+ * re-measure the distance they were judged against. `undefined` for a leg the query never
+ * asked for, which has no outcome and so nothing to report, and for the ordinary leg where
+ * nothing was refused.
+ *
+ * Issue #119 started this with driving and taxi; issue #347 added walking, which was the one
+ * mode `isPlausibleTransfer` could refuse with nothing anywhere reporting it. Grouped rather
+ * than returned as a second `withheldWalkFor` beside the first: the two are the same
+ * observation about the same leg, and issue #296 is this repo's own note about what happens
+ * when one sentence gets a parallel copy instead of a shared home.
+ */
+export function withheldTransfersFor(
   outcome: TransferSearchOutcome | undefined,
-): WithheldRoutes | undefined {
-  return outcome
-    ? summariseWithheldRoutes(
-        outcome.rejected,
-        outcome.straightLineKm,
-        VEHICLE_TRANSFER_MODES,
-      )
-    : undefined;
+): WithheldTransfers | undefined {
+  if (!outcome) return undefined;
+  const withheld: WithheldTransfers = {
+    road: summariseWithheldRoutes(
+      outcome.rejected,
+      outcome.straightLineKm,
+      VEHICLE_TRANSFER_MODES,
+    ),
+    walk: summariseWithheldRoutes(outcome.rejected, outcome.straightLineKm, [
+      "walk",
+    ]),
+  };
+  return withheld.road || withheld.walk ? withheld : undefined;
 }
 
 /** Picks one `Transfer` to represent an A-to-B leg out of everything usable providers
@@ -650,13 +663,13 @@ export interface ConnectionResourcesWithStayCandidates extends ConnectionResourc
   /** Same idea as `transferToHotelCandidates`, for the return leg (hotel to connection
    * airport) — no landing buffer: this leg ends at a departure, not a runway. */
   transferToConnectionAirportCandidates: Transfer[];
-  /** Issue #119: the driving and taxi routes the road rule refused on the hotel-bound leg.
-   * Set on the degraded outcome too, and that is the case it exists for: a route slow
-   * enough to trip that rule leaves nothing behind it, so the leg has no transfer at all
-   * and the timeline row is the only place left to say what happened. */
-  transferToHotelWithheldRoad?: WithheldRoutes;
-  /** Same idea as `transferToHotelWithheldRoad`, for the return leg. */
-  transferToConnectionAirportWithheldRoad?: WithheldRoutes;
+  /** What `isPlausibleTransfer` refused on the hotel-bound leg, by mode. Set on the degraded
+   * outcome too, and for the road rule that is the case it exists for: a route slow enough
+   * to trip it leaves nothing behind it, so the leg has no transfer at all and the timeline
+   * row is the only place left to say what happened. */
+  transferToHotelWithheld?: WithheldTransfers;
+  /** Same idea as `transferToHotelWithheld`, for the return leg. */
+  transferToConnectionAirportWithheld?: WithheldTransfers;
 }
 
 /** The "nothing to travel to" outcome shared by the early-outs below — no bed this party
@@ -666,9 +679,9 @@ export interface ConnectionResourcesWithStayCandidates extends ConnectionResourc
 function withoutTransfers(
   stayCandidates: Stay[],
   stay?: Stay,
-  withheldRoad?: {
-    transferToHotel?: WithheldRoutes;
-    transferToConnectionAirport?: WithheldRoutes;
+  withheld?: {
+    transferToHotel?: WithheldTransfers;
+    transferToConnectionAirport?: WithheldTransfers;
   },
 ): ConnectionResourcesWithStayCandidates {
   return {
@@ -679,9 +692,8 @@ function withoutTransfers(
     stayCandidates,
     transferToHotelCandidates: [],
     transferToConnectionAirportCandidates: [],
-    transferToHotelWithheldRoad: withheldRoad?.transferToHotel,
-    transferToConnectionAirportWithheldRoad:
-      withheldRoad?.transferToConnectionAirport,
+    transferToHotelWithheld: withheld?.transferToHotel,
+    transferToConnectionAirportWithheld: withheld?.transferToConnectionAirport,
   };
 }
 
@@ -786,16 +798,10 @@ export async function fetchConnectionResources(
   // incomplete, result: the price is known and the way there is not, which is exactly what
   // AGENTS.md means by saying what you do not know. `algorithm/build.ts` already treats
   // both connection-side transfers as optional, so nothing downstream needs them to exist.
-  const withheldRoad = {
-    transferToHotel: summariseWithheldRoutes(
-      transferToHotelOutcome.rejected,
-      transferToHotelOutcome.straightLineKm,
-      VEHICLE_TRANSFER_MODES,
-    ),
-    transferToConnectionAirport: summariseWithheldRoutes(
-      transferToConnectionAirportOutcome.rejected,
-      transferToConnectionAirportOutcome.straightLineKm,
-      VEHICLE_TRANSFER_MODES,
+  const withheld = {
+    transferToHotel: withheldTransfersFor(transferToHotelOutcome),
+    transferToConnectionAirport: withheldTransfersFor(
+      transferToConnectionAirportOutcome,
     ),
   };
   if (
@@ -805,7 +811,7 @@ export async function fetchConnectionResources(
     // Carried into the degraded outcome, not dropped with the transfers. Issue #119's road
     // rule empties a leg far more often than it thins one, so this branch is where its
     // refusal usually lands and where the row that explains it has to read from.
-    return withoutTransfers(stayCandidates, stay, withheldRoad);
+    return withoutTransfers(stayCandidates, stay, withheld);
   }
 
   const landingBuffer = pickLandingToTransportTime(
@@ -822,7 +828,7 @@ export async function fetchConnectionResources(
   );
   const transferToHotel = pickBestTransfer(transferToHotelCandidates);
   if (!transferToHotel)
-    return withoutTransfers(stayCandidates, stay, withheldRoad); // unreachable: buffering cannot empty a non-empty list
+    return withoutTransfers(stayCandidates, stay, withheld); // unreachable: buffering cannot empty a non-empty list
 
   const transferToConnectionAirportCandidates =
     transferToConnectionAirportOutcome.candidates;
@@ -837,8 +843,7 @@ export async function fetchConnectionResources(
     stayCandidates,
     transferToHotelCandidates,
     transferToConnectionAirportCandidates,
-    transferToHotelWithheldRoad: withheldRoad.transferToHotel,
-    transferToConnectionAirportWithheldRoad:
-      withheldRoad.transferToConnectionAirport,
+    transferToHotelWithheld: withheld.transferToHotel,
+    transferToConnectionAirportWithheld: withheld.transferToConnectionAirport,
   };
 }

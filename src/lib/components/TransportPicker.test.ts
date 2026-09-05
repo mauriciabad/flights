@@ -15,7 +15,7 @@ import type {
 import { buildItineraries, type BuildItinerariesInput } from '../algorithm/build';
 import type { RecomputedSelection } from '../algorithm/recompute-selection';
 import type { FareEstimate } from '../domain';
-import type { TransitLegAnswer } from '../search/types';
+import type { TransitLegAnswer, WithheldTransfers } from '../search/types';
 import TransportPicker from './TransportPicker.svelte';
 
 const country: Country = { isoCode: 'FR', name: 'France' };
@@ -125,6 +125,7 @@ function mountPicker(props: {
 	alternatives: Transfer[];
 	referenceMoment?: LocalDateTime;
 	transitAnswer?: TransitLegAnswer;
+	withheld?: WithheldTransfers;
 	oncheckTransit?: () => void;
 	transitChecking?: boolean;
 	onselect?: (result: RecomputedSelection) => void;
@@ -141,6 +142,7 @@ function mountPicker(props: {
 			referenceMoment: props.referenceMoment,
 			referenceLabel: 'you land',
 			transitAnswer: props.transitAnswer,
+			withheld: props.withheld,
 			oncheckTransit: props.oncheckTransit,
 			transitChecking: props.transitChecking,
 			onselect: props.onselect ?? (() => {})
@@ -823,5 +825,65 @@ describe('TransportPicker: a fare priced for the party (issue #344)', () => {
 		expect(text).toContain('€60.00-€80.00');
 		expect(text).not.toContain('for 1');
 		expect(text).not.toContain('each');
+	});
+});
+
+describe('TransportPicker: telling "not walkable" from "nobody measured" (issue #347)', () => {
+	/** Gatwick's own numbers. The published airport point is 1.4 km from the terminal with a
+	 * runway between them, so OSRM routed a 32-minute walk as 1h 13m and the 45-minute cap
+	 * refused it. #348 moved 3,096 airports onto a real terminal; 653 have none mapped in
+	 * OpenStreetMap, so at those this still happens. */
+	const refusedWalk: WithheldTransfers = {
+		walk: { count: 1, quickest: 73 as Duration, straightLineKm: 1.4 }
+	};
+
+	it('says a walk was measured and refused, with both numbers it was judged on', () => {
+		const drive: Transfer = { mode: 'drive', duration: 8 as Duration, legs: [] };
+		const root = mountPicker({
+			itinerary: baseItinerary(drive),
+			alternatives: [drive],
+			withheld: refusedWalk
+		});
+
+		const notice = root.querySelector<HTMLElement>('[data-testid="walk-notice"]');
+		expect(notice).not.toBeNull();
+		// The duration alone would read as "this bed is too far to walk to". With the distance
+		// beside it, a traveller standing in the terminal can see it is the measurement that
+		// is wrong, which is the thing this app cannot work out for them.
+		expect(normalizedText(notice!)).toContain('1h 13m');
+		expect(normalizedText(notice!)).toContain('km');
+		expect(normalizedText(notice!)).toContain('Walking was checked');
+	});
+
+	it('stays quiet when a walk is on offer, because the row already says everything', () => {
+		const walk: Transfer = { mode: 'walk', duration: 20 as Duration, legs: [] };
+		const root = mountPicker({
+			itinerary: baseItinerary(walk),
+			alternatives: [walk],
+			withheld: refusedWalk
+		});
+
+		expect(root.querySelector('[data-testid="walk-notice"]')).toBeNull();
+	});
+
+	it('stays quiet on the ordinary leg where nothing was refused', () => {
+		const drive: Transfer = { mode: 'drive', duration: 8 as Duration, legs: [] };
+		const root = mountPicker({ itinerary: baseItinerary(drive), alternatives: [drive] });
+
+		expect(root.querySelector('[data-testid="walk-notice"]')).toBeNull();
+	});
+
+	it('leaves the refused drive to the timeline, because that rule empties the leg', () => {
+		// A road refusal takes the whole leg with it, so there is no picker left to read it
+		// in. Printing it here as well would be the same fact in two voices, which is what
+		// issue #296 removed the last time it happened.
+		const drive: Transfer = { mode: 'drive', duration: 8 as Duration, legs: [] };
+		const root = mountPicker({
+			itinerary: baseItinerary(drive),
+			alternatives: [drive],
+			withheld: { road: { count: 2, quickest: 1980 as Duration, straightLineKm: 156.6 } }
+		});
+
+		expect(root.querySelector('[data-testid="walk-notice"]')).toBeNull();
 	});
 });
