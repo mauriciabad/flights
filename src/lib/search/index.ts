@@ -29,6 +29,7 @@ export type {
 	SearchSnapshot,
 	SearchStage,
 	TransferLegOptions,
+	TransitLegAnswer,
 	WidenOption,
 	WidenRequest,
 	WidenTarget,

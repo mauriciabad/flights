@@ -72,7 +72,7 @@
 	import { SvelteMap } from 'svelte/reactivity';
 	import { DEFAULT_LANDING_TO_TRANSPORT_RULES } from '$lib/domain';
 	import { routeToProperty } from '$lib/search';
-	import type { PropertyRouting } from '$lib/search';
+	import type { PropertyRouting, TransitLegAnswer } from '$lib/search';
 	import { getProviderRegistry, hasUnconfiguredStayProvider, hasUsableStayProvider } from '$lib/results/provider-setup';
 	import { StayPicker, describeNoStays, groupByProperty, isSameProperty, propertyKey } from '$lib/stays';
 	import type { StayProviderOutcome } from '$lib/stays';
@@ -414,6 +414,29 @@
 	// what ends that.
 	const transitAnswers = $derived(!pickedAnAlternative && atDefaultLength ? group?.best.transit : undefined);
 
+	/**
+	 * Issue #267: the two in-city legs, once the traveller has swapped to a bed the search
+	 * never routed to. `routeToProperty` asks road modes only, so those legs carry a real
+	 * road route to the right address and no timetable at all, and the panel said nothing
+	 * about the difference. "Taxi, 1h 27m" with no further word reads as a claim that a
+	 * taxi is how you get there, when what happened is that nobody asked about the bus.
+	 *
+	 * Deliberately not a lookup. Putting a Transitous request behind a bed tap costs two
+	 * `/plan` requests per bed against a volunteer-run service this app rations to twelve
+	 * per whole search, so browsing five beds would spend most of a search's ration on
+	 * browsing. Saying which bed the timetable belongs to costs nothing and is true.
+	 */
+	const otherPropertyTransitAnswer: TransitLegAnswer = { answer: 'not-asked', reason: 'other-property' };
+	const swappedToAnotherProperty = $derived(
+		itinerary.stay !== undefined && !isSameProperty(itinerary.stay.property, routedProperty)
+	);
+	const hotelTransitAnswer = $derived(
+		swappedToAnotherProperty ? otherPropertyTransitAnswer : transitAnswers?.transferToHotel
+	);
+	const connectionAirportTransitAnswer = $derived(
+		swappedToAnotherProperty ? otherPropertyTransitAnswer : transitAnswers?.transferToConnectionAirport
+	);
+
 	// The timeline's "2 flights" / "3 options" marks: only rows whose fold offers more than
 	// one thing to pick, gated on the same conditions the fold itself renders under, so a
 	// mark never promises a choice the row cannot open. A stay list counts from one
@@ -479,7 +502,7 @@
 				{itinerary}
 				alternatives={hotelTransferOptions.candidates}
 				taxiFareEstimate={hotelTransferOptions.taxiFareEstimate}
-				transitAnswer={transitAnswers?.transferToHotel}
+				transitAnswer={hotelTransitAnswer}
 				referenceMoment={itinerary.outboundFlight.arrival}
 				referenceLabel="you land"
 				{minLayoverTime}
@@ -539,7 +562,7 @@
 				{itinerary}
 				alternatives={connectionAirportTransferOptions.candidates}
 				taxiFareEstimate={connectionAirportTransferOptions.taxiFareEstimate}
-				transitAnswer={transitAnswers?.transferToConnectionAirport}
+				transitAnswer={connectionAirportTransitAnswer}
 				{minLayoverTime}
 				onselect={applySelection}
 			/>

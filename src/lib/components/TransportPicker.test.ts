@@ -533,6 +533,27 @@ describe('TransportPicker: telling "no service" from "nobody asked" (issue #135)
 		expect(text).not.toContain('No public transport data for this area');
 	});
 
+	it('says the timetable belongs to another bed, once the traveller swaps property (issue #267)', () => {
+		// `routeToProperty` asks road modes only, so a swapped bed gets a real road journey
+		// to the right address and no bus times at all. Left silent, "Taxi, 1h 27m" reads as
+		// a claim that a taxi is how you get there.
+		const itinerary = baseItinerary({ mode: 'taxi', duration: 87 as Duration, legs: [] });
+
+		const text = normalizedText(
+			mountPicker({
+				itinerary,
+				alternatives: roadOnly,
+				transitAnswer: { answer: 'not-asked', reason: 'other-property' }
+			})
+		);
+
+		expect(text).toContain('Road journey only');
+		expect(text).toContain('not looked up for this property');
+		// The budget wording would name a ration this swap never touched.
+		expect(text).not.toContain('already used its timetable lookups');
+		expect(text).not.toContain('No public transport data for this area');
+	});
+
 	it('says a route came back and was refused, with the numbers it was refused on (issue #220)', () => {
 		const itinerary = baseItinerary({ mode: 'walk', duration: 316 as Duration, legs: [] });
 

@@ -180,8 +180,15 @@ export interface TransitLegAnswer {
 	error?: ProviderError;
 	/** Why nothing was asked, when `answer` is `'not-asked'`. `'no-provider'`: no usable
 	 * transit adapter at all. `'budget-spent'`: this search had already used its ration
-	 * (`transit-schedule.ts`'s `MAX_TRANSIT_LOOKUPS_PER_SEARCH`). */
-	reason?: 'no-provider' | 'budget-spent';
+	 * (`transit-schedule.ts`'s `MAX_TRANSIT_LOOKUPS_PER_SEARCH`).
+	 *
+	 * `'other-property'` (issue #267): the timetable on this leg was looked up for the bed
+	 * the search picked, and the traveller has since swapped to a different address.
+	 * `routeToProperty` asks road modes only, so the journey on screen is a real road
+	 * route to the right building with no bus times behind it. Without this the panel
+	 * reads "Taxi, 1h 27m" and nothing else, which a traveller takes as "a taxi is how you
+	 * get there" when what happened is that nobody asked about the bus. */
+	reason?: 'no-provider' | 'budget-spent' | 'other-property';
 	/**
 	 * Issue #220: a route came back for this leg and `search/resources.ts` refused it as
 	 * implausible for the distance. Only ever set alongside `answer: 'answered'`, and only

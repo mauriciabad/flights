@@ -207,6 +207,12 @@
 				return `Public transport could not be checked${when}: ${httpStatus ? `${httpStatus}: ` : ''}${error?.message ?? 'the lookup failed'}`;
 			}
 			case 'not-asked':
+				// Issue #267: three different reasons nobody asked, and a traveller can act
+				// on only one of them. Naming the property one is what stops a road-only
+				// answer reading as "a taxi is how you get there".
+				if (transitAnswer.reason === 'other-property') {
+					return `Road journey only. Public transport was not looked up for this property: the timetable belongs to the bed the search picked.`;
+				}
 				return transitAnswer.reason === 'budget-spent'
 					? `Public transport was not checked for this option: this search had already used its timetable lookups.`
 					: `Public transport was not checked: no timetable provider is available.`;
