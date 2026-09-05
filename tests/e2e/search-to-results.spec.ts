@@ -294,3 +294,154 @@ test.describe('on a phone', () => {
 		expect(scrollTop, 'the results should open at the top, not where the form was').toBe(0);
 	});
 });
+
+/**
+ * Issue #351: the history, reachable from a results page rather than only from the empty
+ * one. The owner: "Apart from 'Edit search' i shoudl be able to pick one from the history
+ * when a result is already open."
+ *
+ * The history is seeded into `localStorage` rather than run twice. Recording is already
+ * covered above, and what these tests are about is what the list does once it is beside
+ * its own results: which row is a destination, which row is the page you are reading, and
+ * whether looking at either costs you the results underneath.
+ */
+
+const CURRENT_QUERY = `arr=${ARRIVAL}&dep=${DEPARTURE}&from=BCN&to=TLL`;
+const OTHER_QUERY = `arr=${ARRIVAL}&dep=${DEPARTURE}&from=BCN&to=RIX`;
+
+/** Normalised the way `normalizeQuery` writes them: params sorted by key, so a seeded
+ * entry is the same string the results page derives from the URL on screen. Getting this
+ * wrong would leave the current search unmarked and the tests below would say so. */
+async function seedHistory(page: import('@playwright/test').Page, queries: string[]) {
+	await page.addInitScript(
+		([key, entries]: [string, string[]]) => {
+			window.localStorage.setItem(
+				key,
+				JSON.stringify(entries.map((query, index) => ({ query, lastRunAt: 1_700_000_000_000 - index })))
+			);
+		},
+		['flights.searchHistory.v1', queries] as [string, string[]]
+	);
+}
+
+test.describe('the history is reachable with results on screen', () => {
+	test('the editor offers the other searches and marks the one already on screen', async ({
+		page
+	}) => {
+		await mockConnectingFlights(page);
+		await seedHistory(page, [CURRENT_QUERY, OTHER_QUERY]);
+
+		await page.goto(`/results/?dep=${DEPARTURE}&arr=${ARRIVAL}&from=BCN&to=TLL`);
+		await waitForSearchToSettle(page, { timeout: 20_000 });
+
+		const editor = page.locator('#search-editor');
+		await expect(
+			editor.getByRole('heading', { name: 'Or pick up a recent search' }),
+			'the history belongs to the panel, not to the collapsed strip'
+		).toBeHidden();
+
+		await page.getByRole('button', { name: 'Edit search' }).click();
+		await expect(editor.getByRole('heading', { name: 'Or pick up a recent search' })).toBeVisible();
+
+		// The other search is somewhere to go.
+		await expect(editor.getByRole('link', { name: /BCN.*RIX/ })).toBeVisible();
+		// The one on screen is not. A link back to the page it is printed on is a dead end,
+		// so that row is a label, and it says which one it is.
+		await expect(editor.getByRole('link', { name: /BCN.*TLL/ })).toHaveCount(0);
+		const here = editor.locator('[aria-current="true"]');
+		await expect(here).toContainText('TLL');
+		await expect(here).toContainText('On screen now');
+		// Nor can you throw away the search you are reading, which the page would re-file on
+		// the next load anyway.
+		await expect(editor.getByRole('button', { name: /^Forget the search BCN to TLL/ })).toHaveCount(0);
+	});
+
+	test('opening the history keeps the results and their picked state underneath', async ({
+		page
+	}) => {
+		// #311's rule, applied here: a traveller may have picked a bed, nudged a waiting time
+		// and swapped a flight, and none of that is in the URL. So the marker below is put on
+		// the live card element itself. If the panel re-ran the search or tore the list down,
+		// the card carrying it would be gone and this would fail.
+		await mockConnectingFlights(page);
+		await seedHistory(page, [CURRENT_QUERY, OTHER_QUERY]);
+
+		await page.goto(`/results/?dep=${DEPARTURE}&arr=${ARRIVAL}&from=BCN&to=TLL`);
+		await waitForSearchToSettle(page, { timeout: 20_000 });
+		const url = page.url();
+
+		const card = page.locator('.result-card').first();
+		await expect(card).toBeVisible();
+		await card.evaluate((element) => element.setAttribute('data-survived', 'yes'));
+
+		await page.getByRole('button', { name: 'Edit search' }).click();
+		await expect(page.locator('#search-editor').getByRole('link', { name: /BCN.*RIX/ })).toBeVisible();
+
+		await expect(
+			page.locator('.result-card[data-survived="yes"]'),
+			'the card the traveller was reading was rebuilt'
+		).toHaveCount(1);
+		await expect(page.locator('[data-search-phase]')).toHaveAttribute('data-search-phase', 'settled');
+		expect(page.url(), 'looking at the history is not a navigation').toBe(url);
+	});
+
+	test('picking one from the keyboard runs it', async ({ page }) => {
+		await mockConnectingFlights(page);
+		await seedHistory(page, [CURRENT_QUERY, OTHER_QUERY]);
+
+		await page.goto(`/results/?dep=${DEPARTURE}&arr=${ARRIVAL}&from=BCN&to=TLL`);
+		await waitForSearchToSettle(page, { timeout: 20_000 });
+
+		await page.getByRole('button', { name: 'Edit search' }).click();
+		const other = page.locator('#search-editor').getByRole('link', { name: /BCN.*RIX/ });
+		await other.focus();
+		await page.keyboard.press('Enter');
+
+		await page.waitForURL(/to=RIX/);
+		await expect(page.getByRole('heading', { level: 1 })).toContainText('RIX');
+	});
+
+	test('a history holding only the search on screen offers nothing', async ({ page }) => {
+		// A first visit files one search and that search is this page. A heading over a row
+		// nobody can follow is the control that opens nothing.
+		await mockConnectingFlights(page);
+		await seedHistory(page, [CURRENT_QUERY]);
+
+		await page.goto(`/results/?dep=${DEPARTURE}&arr=${ARRIVAL}&from=BCN&to=TLL`);
+		await waitForSearchToSettle(page, { timeout: 20_000 });
+
+		await page.getByRole('button', { name: 'Edit search' }).click();
+		await expect(page.getByRole('button', { name: 'Search again' })).toBeVisible();
+		await expect(page.getByRole('heading', { name: 'Or pick up a recent search' })).toHaveCount(0);
+		await expect(page.getByText('On screen now')).toHaveCount(0);
+	});
+
+	test('opening and closing the panel leaves focus on a control, not the document', async ({
+		page
+	}) => {
+		// #283's defect, which #311 already had to fix once on the settings control. Driven
+		// from the keyboard, which is the only way to see it.
+		await mockConnectingFlights(page);
+		await seedHistory(page, [CURRENT_QUERY, OTHER_QUERY]);
+
+		await page.goto(`/results/?dep=${DEPARTURE}&arr=${ARRIVAL}&from=BCN&to=TLL`);
+		await waitForSearchToSettle(page, { timeout: 20_000 });
+
+		await page.getByRole('button', { name: 'Edit search' }).focus();
+		await page.keyboard.press('Enter');
+		await expect(page.locator('#search-editor').getByRole('link', { name: /BCN.*RIX/ })).toBeVisible();
+		expect(
+			await page.evaluate(() => document.activeElement?.tagName ?? 'NONE'),
+			'focus fell to the document after opening'
+		).not.toBe('BODY');
+
+		const close = page.getByRole('button', { name: 'Close' });
+		await close.focus();
+		await page.keyboard.press('Enter');
+		await expect(page.getByRole('button', { name: 'Edit search' })).toBeVisible();
+		expect(
+			await page.evaluate(() => document.activeElement?.tagName ?? 'NONE'),
+			'focus fell to the document after closing'
+		).not.toBe('BODY');
+	});
+});

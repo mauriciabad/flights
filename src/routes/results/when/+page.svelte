@@ -64,7 +64,7 @@
 	import { getProviderRegistry } from '$lib/results/provider-setup';
 	import { buildSearchQuery } from '$lib/search-form/model';
 	import { fieldsToSearchParams, searchParamsToFields } from '$lib/search-form/url-codec';
-	import { summarizeSearch } from '$lib/search-history';
+	import { normalizeQuery, summarizeSearch } from '$lib/search-history';
 	import SearchSummaryBar from '../SearchSummaryBar.svelte';
 	import WeekStub from './WeekStub.svelte';
 	import YearGrid from './YearGrid.svelte';
@@ -83,6 +83,13 @@
 	);
 	const parsedQuery = $derived(browser ? buildSearchQuery(searchFields) : null);
 	const summary = $derived(parsedQuery ? summarizeSearch(parsedQuery) : undefined);
+	/**
+	 * The search this view is pricing, in the exact spelling the history filed it under, so
+	 * the list inside the editor marks it rather than offering it. Through the codec rather
+	 * than off the URL, because this page's address also carries `stops`, a view-only
+	 * parameter that was never part of a search anybody ran.
+	 */
+	const currentQuery = $derived(normalizeQuery(fieldsToSearchParams(searchFields)));
 
 	/** The stopovers to price, from `stops`. See this component's header for why it is not
 	 * `via`. */
@@ -368,6 +375,7 @@
 			{today}
 			onsearch={submitSearch}
 			advisories={[]}
+			{currentQuery}
 		/>
 
 		<header class="page-head">
