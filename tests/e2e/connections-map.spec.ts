@@ -1,6 +1,7 @@
 import { test, expect, type Page } from './support/fixtures';
 import { FIXTURE_FLIGHT_NUMBERS, FIXTURE_PRICES } from './support/fixture-markers';
 import { AIRLINE_LOGO_BASE_URL, mockAllKeylessProviders, routeRyanairFlights } from './support/providers';
+import { waitForSearchToSettle } from '../shared/search-wait';
 
 /**
  * Issue #324: the map of every connection between two airports.
@@ -73,7 +74,7 @@ async function search(page: Page): Promise<void> {
 		to: 'TLL'
 	});
 	await page.goto(`/results/?${params}`);
-	await expect(page.getByText('still searching')).toHaveCount(0, { timeout: 20_000 });
+	await waitForSearchToSettle(page, { timeout: 20_000 });
 }
 
 /** Every request that left the browser for somebody else: not the test server's own bundle,
@@ -85,15 +86,18 @@ function isProviderCall(url: string, origin: string): boolean {
 /**
  * Blocks until the page has made no provider request for `quietMs`.
  *
- * This exists because "still searching" going away does NOT mean the page is quiet.
- * `stillSearching` is `searchesInFlight > 0`, and issue #293's background refresh
- * deliberately counts in `refreshesInFlight` instead, so a refetch keeps firing provider
- * requests behind a settled-looking page. Measured: 65 of them arrived in the six seconds
- * after the indicator cleared, before this dialog was opened at all.
+ * The 65 requests this was written against were the search's own, not a refresh's. Issue
+ * #337 measured where they came from: `expect(getByText('still searching')).toHaveCount(0)`
+ * returned about 30ms after `goto`, because the text is absent on a page that has not
+ * started searching as much as on one that has finished, so the six seconds counted from
+ * there were the six seconds the search was running in. Waiting for `data-search-phase` to
+ * reach `settled` instead, ten runs on this suite's fixture saw zero provider requests in
+ * the six seconds that followed.
  *
- * Without this the request assertion below is really measuring the tail of somebody else's
- * refresh, which it did: it passed nine runs locally and failed in CI, in the direction that
- * hides a real leak rather than inventing one.
+ * So `search()` above no longer returns early and this is no longer load-bearing. It is
+ * kept because a request count is the one assertion worth a second belt, and because a
+ * background refresh (#293) genuinely can fire behind a settled page when the cache has
+ * something past its TTL — which nothing in this spec sets up, but a later one might.
  */
 async function waitUntilQuiet(page: Page, origin: string, quietMs = 1500, maxMs = 30_000): Promise<void> {
 	let lastCall = Date.now();
@@ -276,9 +280,9 @@ test.describe('the connections map (issue #324)', () => {
 		await search(page);
 		const origin = new URL(page.url()).origin;
 
-		// The dialog's cost is measured against a QUIET page. See `waitUntilQuiet`: the
-		// results page keeps refetching after the search indicator clears, and counting from
-		// there measured somebody else's requests as this screen's.
+		// The dialog's cost is measured against a QUIET page, which the settled search
+		// already gives it. See `waitUntilQuiet` for why this is now a belt rather than the
+		// thing holding the assertion up.
 		await waitUntilQuiet(page, origin);
 
 		const requests: string[] = [];
