@@ -27,12 +27,7 @@
 
 	let { option, nights, selected, selectable, caveat, onselect }: Props = $props();
 
-	// A room whose dorm/private split was inferred rather than confirmed (issue #65)
-	// gets said outright instead of a label implying certainty - AGENTS.md: "Say what
-	// you do not know rather than guessing."
-	const label = $derived(
-		option.notStated === 'room-kind' ? 'Room type not stated' : ROOM_KIND_LABELS[option.stay.roomKind]
-	);
+	const label = $derived(ROOM_KIND_LABELS[option.stay.roomKind]);
 	const total = $derived(stayTotalForNights(option.stay.pricePerNight, nights));
 	const nightsLabel = $derived(nights === 1 ? '1 night' : `${nights} nights`);
 </script>
@@ -44,12 +39,7 @@
 	disabled={!selectable}
 	onclick={onselect}
 >
-	<span class="room-tile-label">
-		{label}
-		{#if option.notStated === 'female-only'}
-			<span class="room-tile-flag">(female-only status not stated)</span>
-		{/if}
-	</span>
+	<span class="room-tile-label">{label}</span>
 	<span class="room-tile-price font-mono tabular-nums">
 		{formatMoney(option.stay.pricePerNight)}<span class="room-tile-unit">/night</span>
 	</span>
@@ -107,14 +97,6 @@
 
 	.room-tile.is-selected .room-tile-label {
 		color: var(--color-accent);
-	}
-
-	.room-tile-flag {
-		display: block;
-		margin-top: var(--space-1);
-		font-size: var(--font-size-xs);
-		font-weight: var(--font-weight-regular);
-		color: var(--color-text-faint);
 	}
 
 	.room-tile-price {
