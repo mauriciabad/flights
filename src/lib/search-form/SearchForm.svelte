@@ -10,17 +10,37 @@
 	 * this now lives in `$lib` and the results page opens it in place, above its own
 	 * results, with the current query already in it.
 	 *
+	 * Issue #277 rebuilt the layout. It used to be five stacked cards in a narrow column
+	 * with two `<details>` hiding four fields, which is what the owner objected to: "i also
+	 * dont like that fields are collapsed, i like everything to be shown. the screen is big,
+	 * we can use full width on desktop to fit more elements in 1 screen". Nothing collapses
+	 * now, and the panel below is one surface divided by hairlines rather than a stack of
+	 * boxes, because five cards around five short groups is four fifths chrome.
+	 *
+	 * Width decides the layout, not the viewport: this same form renders full width on the
+	 * search screen and inside a narrower panel above the results, so it is a container
+	 * query container and every breakpoint below is about the space this form actually got.
+	 *
 	 * Field ids are fixed by `FIELD_INPUT_ID` (validation.ts) rather than generated,
 	 * because a failed submit has to move focus to the first field that is wrong and an
 	 * error summary has to link to it. One consequence: only one of these may be on a
 	 * page at a time, which is the case on both screens that use it.
 	 */
 	import { tick, untrack } from 'svelte';
-	import { Button, Card, DateField, Input } from '$lib/components';
-	import { DEFAULT_LANDING_TO_TRANSPORT_RULES, DEFAULT_WAITING_TIME_RULES } from '$lib/domain';
+	import { Button } from '$lib/components';
+	import {
+		DEFAULT_LANDING_TO_TRANSPORT_RULES,
+		DEFAULT_MIN_LAYOVER_TIME_MINUTES,
+		DEFAULT_TRAVELLERS,
+		DEFAULT_WAITING_TIME_RULES
+	} from '$lib/domain';
 	import AirportField from './AirportField.svelte';
 	import ChipListField from './ChipListField.svelte';
+	import CountField from './CountField.svelte';
+	import DateWindowPicker from './DateWindowPicker.svelte';
 	import LocationField from './LocationField.svelte';
+	import MinutesField from './MinutesField.svelte';
+	import type { DateWindowFields } from './date-window';
 	import type { SearchFormFields } from './model';
 	import TieredDurationField from './TieredDurationField.svelte';
 	import {
@@ -107,19 +127,6 @@
 		)
 	);
 
-	let useLatestDepartureOverride = $state(fields.latestDepartureOverride.trim() !== '');
-	let useSoonestArrivalOverride = $state(fields.soonestArrivalOverride.trim() !== '');
-
-	function setLatestDepartureOverride(enabled: boolean) {
-		useLatestDepartureOverride = enabled;
-		if (!enabled) fields.latestDepartureOverride = '';
-	}
-
-	function setSoonestArrivalOverride(enabled: boolean) {
-		useSoonestArrivalOverride = enabled;
-		if (!enabled) fields.soonestArrivalOverride = '';
-	}
-
 	/** `fields` plus everything the raw buffers and row editors resolve to. Computed, not
 	 * written back into `fields`, so nothing fights Svelte over who owns a field. */
 	const effectiveFields = $derived<SearchFormFields>({
@@ -158,22 +165,21 @@
 
 	let summaryEl = $state<HTMLDivElement | undefined>();
 
-	// The two window-narrowing dates live inside a closed disclosure, so an error on one
-	// of them has to open it or the summary would link to a field nobody can see.
-	let datesDisclosureOpen = $state(
-		untrack(
-			() =>
-				initialFields.latestDepartureOverride.trim() !== '' ||
-				initialFields.soonestArrivalOverride.trim() !== ''
-		)
-	);
-	const overrideHasError = $derived(
-		Boolean(errors.latestDepartureOverride || errors.soonestArrivalOverride)
-	);
-	// `open` plus `ontoggle` rather than `bind:open` and an effect that forces it: the
-	// disclosure has two owners (the traveller's click and an error that has to be
-	// reachable), and this way neither one has to write state from inside a reaction.
-	const datesDisclosureVisible = $derived(datesDisclosureOpen || overrideHasError);
+	/** The four dates as the calendar's own shape. It writes all four back at once, since
+	 * one tap can move a required date and drop an interior cut in the same gesture. */
+	const dateFields = $derived<DateWindowFields>({
+		soonestDeparture: fields.soonestDeparture,
+		latestDepartureOverride: fields.latestDepartureOverride,
+		latestArrival: fields.latestArrival,
+		soonestArrivalOverride: fields.soonestArrivalOverride
+	});
+
+	function setDates(next: DateWindowFields) {
+		fields.soonestDeparture = next.soonestDeparture;
+		fields.latestDepartureOverride = next.latestDepartureOverride;
+		fields.latestArrival = next.latestArrival;
+		fields.soonestArrivalOverride = next.soonestArrivalOverride;
+	}
 
 	function focusField(field: SearchFieldKey) {
 		document.getElementById(FIELD_INPUT_ID[field])?.focus();
@@ -205,6 +211,10 @@
 	const airportToken = upperCode(3);
 	const countryToken = upperCode(2);
 	const airlineToken = upperCode(2);
+
+	/** The layover answers people actually give, in the order they give them. The box beside
+	 * them still takes any number of minutes at all. */
+	const LAYOVER_PRESETS = [30, 45, 60, 90, 120];
 </script>
 
 <form novalidate onsubmit={handleSubmit} class="search-form">
@@ -243,234 +253,169 @@
 		</div>
 	{/if}
 
-	<Card variant="ticket" class="section">
-		{#snippet header()}Route{/snippet}
-		<div class="route-grid">
-			<AirportField
-				label="Origin airport"
-				id={FIELD_INPUT_ID.originAirport}
-				required
-				bind:value={fields.originAirport}
-				error={errors.originAirport}
-				onblur={() => markTouched('originAirport')}
-			/>
-			<button type="button" class="swap" onclick={swapAirports}>
-				<span class="swap-icon" aria-hidden="true">
-					<svg viewBox="0 0 24 24" fill="none">
-						<path
-							d="M7 4v13M7 17l-3-3M7 17l3-3M17 20V7M17 7l-3 3M17 7l3 3"
-							stroke="currentColor"
-							stroke-width="2"
-							stroke-linecap="round"
-							stroke-linejoin="round"
-						/>
-					</svg>
-				</span>
-				<span class="swap-label">Swap</span>
-			</button>
-			<AirportField
-				label="Destination airport"
-				id={FIELD_INPUT_ID.destinationAirport}
-				required
-				bind:value={fields.destinationAirport}
-				error={errors.destinationAirport}
-				onblur={() => markTouched('destinationAirport')}
-			/>
-		</div>
-		<details class="disclosure">
-			<summary>Add your exact start or end point</summary>
-			<div class="disclosure-body field-grid">
-				<LocationField label="Origin location" bind:value={fields.originLocation} />
-				<LocationField label="Destination location" bind:value={fields.destinationLocation} />
+	<div class="panel">
+		<section class="region region-route" aria-labelledby="region-route-title">
+			<h2 id="region-route-title">Route</h2>
+			<div class="route">
+				<AirportField
+					label="Origin airport"
+					id={FIELD_INPUT_ID.originAirport}
+					required
+					bind:value={fields.originAirport}
+					error={errors.originAirport}
+					onblur={() => markTouched('originAirport')}
+					class="route-from"
+				/>
+				<button type="button" class="swap" onclick={swapAirports}>
+					<span class="swap-icon" aria-hidden="true">
+						<svg viewBox="0 0 24 24" fill="none">
+							<path
+								d="M7 4v13M7 17l-3-3M7 17l3-3M17 20V7M17 7l-3 3M17 7l3 3"
+								stroke="currentColor"
+								stroke-width="2"
+								stroke-linecap="round"
+								stroke-linejoin="round"
+							/>
+						</svg>
+					</span>
+					<span class="swap-label">Swap</span>
+				</button>
+				<AirportField
+					label="Destination airport"
+					id={FIELD_INPUT_ID.destinationAirport}
+					required
+					bind:value={fields.destinationAirport}
+					error={errors.destinationAirport}
+					onblur={() => markTouched('destinationAirport')}
+					class="route-to"
+				/>
+				<!-- One short hint each. The component's default is a sentence about naming a
+				     place or using your device position, and printing it twice, two lines
+				     each, spent four lines of the panel saying one thing. -->
+				<LocationField
+					label="Start point"
+					hint="Where the trip starts, if not the airport."
+					bind:value={fields.originLocation}
+					class="route-from-place"
+				/>
+				<LocationField
+					label="End point"
+					hint="Where it ends, if not the airport."
+					bind:value={fields.destinationLocation}
+					class="route-to-place"
+				/>
 			</div>
-		</details>
-	</Card>
+		</section>
 
-	<Card variant="ticket" class="section">
-		{#snippet header()}Travel dates{/snippet}
-		<div class="field-grid">
-			<DateField
-				label="Soonest departure"
-				id={FIELD_INPUT_ID.soonestDeparture}
-				required
-				min={today}
-				bind:value={fields.soonestDeparture}
-				error={errors.soonestDeparture}
-				onblur={() => markTouched('soonestDeparture')}
-			/>
-			<DateField
-				label="Latest arrival"
-				id={FIELD_INPUT_ID.latestArrival}
-				required
-				min={fields.soonestDeparture || today}
-				bind:value={fields.latestArrival}
-				error={errors.latestArrival}
-				onblur={() => markTouched('latestArrival')}
-			/>
-		</div>
-		<details
-			class="disclosure"
-			open={datesDisclosureVisible}
-			ontoggle={(event) => (datesDisclosureOpen = event.currentTarget.open)}
-		>
-			<summary>Narrow the departure or arrival window further</summary>
-			<div class="disclosure-body">
-				<label class="checkbox-row">
-					<input
-						type="checkbox"
-						checked={useLatestDepartureOverride}
-						onchange={(event) => setLatestDepartureOverride(event.currentTarget.checked)}
-					/>
-					Use a different latest departure date
-				</label>
-				{#if useLatestDepartureOverride}
-					<DateField
-						label="Latest departure"
-						id={FIELD_INPUT_ID.latestDepartureOverride}
-						min={fields.soonestDeparture || today}
-						max={fields.latestArrival || undefined}
-						bind:value={fields.latestDepartureOverride}
-						error={errors.latestDepartureOverride}
-						onblur={() => markTouched('latestDepartureOverride')}
-					/>
-				{:else}
-					<p class="derived-note">
-						Defaults to your latest arrival date{#if fields.latestArrival}: <strong class="font-mono"
-							>{fields.latestArrival}</strong
-						>{/if}.
-					</p>
-				{/if}
-
-				<label class="checkbox-row">
-					<input
-						type="checkbox"
-						checked={useSoonestArrivalOverride}
-						onchange={(event) => setSoonestArrivalOverride(event.currentTarget.checked)}
-					/>
-					Use a different soonest arrival date
-				</label>
-				{#if useSoonestArrivalOverride}
-					<DateField
-						label="Soonest arrival"
-						id={FIELD_INPUT_ID.soonestArrivalOverride}
-						min={fields.soonestDeparture || today}
-						max={fields.latestArrival || undefined}
-						bind:value={fields.soonestArrivalOverride}
-						error={errors.soonestArrivalOverride}
-						onblur={() => markTouched('soonestArrivalOverride')}
-					/>
-				{:else}
-					<p class="derived-note">
-						Defaults to your soonest departure date{#if fields.soonestDeparture}: <strong
-							class="font-mono">{fields.soonestDeparture}</strong
-						>{/if}.
-					</p>
-				{/if}
+		<section class="region region-party" aria-labelledby="region-party-title">
+			<h2 id="region-party-title">Who is travelling</h2>
+			<div class="party">
+				<CountField
+					label="People"
+					id={FIELD_INPUT_ID.travellers}
+					bind:value={travellersRaw}
+					fallback={DEFAULT_TRAVELLERS}
+					min={1}
+					placeholder={String(DEFAULT_TRAVELLERS)}
+					hint="Defaults to 1."
+					error={errors.travellers}
+					onblur={() => markTouched('travellers')}
+				/>
+				<CountField
+					label="Of them female"
+					id={FIELD_INPUT_ID.females}
+					bind:value={femalesRaw}
+					fallback={0}
+					min={0}
+					placeholder="Any"
+					hint="Only checks whether female-only dorms fit your group. It never affects pricing."
+					error={errors.females}
+					onblur={() => markTouched('females')}
+				/>
 			</div>
-		</details>
-	</Card>
+		</section>
 
-	<Card class="section">
-		{#snippet header()}Who is travelling{/snippet}
-		<div class="field-grid">
-			<Input
-				label="Number of people"
-				id={FIELD_INPUT_ID.travellers}
-				type="number"
-				inputmode="numeric"
-				min="1"
-				placeholder="1"
-				hint="Defaults to 1 traveller."
-				bind:value={travellersRaw}
-				error={errors.travellers}
-				onblur={() => markTouched('travellers')}
+		<section class="region region-dates" aria-labelledby="date-window-heading">
+			<DateWindowPicker
+				fields={dateFields}
+				{today}
+				{errors}
+				onchange={setDates}
+				ontouch={markTouched}
 			/>
-			<Input
-				label="Female travellers"
-				id={FIELD_INPUT_ID.females}
-				type="number"
-				inputmode="numeric"
-				min="0"
-				placeholder="Not specified"
-				hint="Only used to check whether female-only hostel dorms are available for your group. It never affects pricing or anything else."
-				bind:value={femalesRaw}
-				error={errors.females}
-				onblur={() => markTouched('females')}
+		</section>
+
+		<section class="region region-connections" aria-labelledby="region-connections-title">
+			<h2 id="region-connections-title">Connections</h2>
+			<MinutesField
+				label="Minimum layover time"
+				id={FIELD_INPUT_ID.minLayoverTime}
+				bind:value={minLayoverRaw}
+				presets={LAYOVER_PRESETS}
+				fallback={DEFAULT_MIN_LAYOVER_TIME_MINUTES}
+				hint="Time between the two flights. Not the same as time at the airport."
+				error={errors.minLayoverTime}
+				onblur={() => markTouched('minLayoverTime')}
 			/>
-		</div>
-	</Card>
+			<div class="lists">
+				<ChipListField
+					label="Only these connection airports"
+					id={FIELD_INPUT_ID.allowedConnectionAirports}
+					hint="IATA codes, for example VIE. Empty allows any."
+					placeholder="Add a code and press enter"
+					rejectMessage="An airport code is three letters, like VIE."
+					transform={airportToken}
+					bind:values={fields.allowedConnectionAirports}
+					error={errors.allowedConnectionAirports}
+				/>
+				<ChipListField
+					label="Never these connection airports"
+					id={FIELD_INPUT_ID.forbiddenConnectionAirports}
+					hint="IATA codes to rule out entirely."
+					placeholder="Add a code and press enter"
+					rejectMessage="An airport code is three letters, like VIE."
+					transform={airportToken}
+					bind:values={fields.forbiddenConnectionAirports}
+					error={errors.forbiddenConnectionAirports}
+				/>
+				<ChipListField
+					label="Never these countries"
+					id={FIELD_INPUT_ID.forbiddenConnectionCountries}
+					hint="ISO country codes, for example RU."
+					placeholder="Add a code and press enter"
+					rejectMessage="A country code is two letters, like RU."
+					transform={countryToken}
+					bind:values={fields.forbiddenConnectionCountries}
+					error={errors.forbiddenConnectionCountries}
+				/>
+				<ChipListField
+					label="Airlines to avoid"
+					id={FIELD_INPUT_ID.airlinesToAvoid}
+					hint="Still shown, just greyed out and scored down, never dropped."
+					placeholder="Add a code and press enter"
+					rejectMessage="An airline code is two characters, like FR or U2."
+					transform={airlineToken}
+					bind:values={fields.airlinesToAvoid}
+					error={errors.airlinesToAvoid}
+				/>
+			</div>
+		</section>
 
-	<Card class="section">
-		{#snippet header()}Connections{/snippet}
-		<Input
-			label="Minimum layover time"
-			id={FIELD_INPUT_ID.minLayoverTime}
-			type="number"
-			inputmode="numeric"
-			min="0"
-			step="5"
-			placeholder="30"
-			hint="Minutes between flights. Defaults to 30 minutes if left blank."
-			bind:value={minLayoverRaw}
-			error={errors.minLayoverTime}
-			onblur={() => markTouched('minLayoverTime')}
-		/>
-		<ChipListField
-			label="Only search these connection airports"
-			id={FIELD_INPUT_ID.allowedConnectionAirports}
-			hint="IATA codes, for example VIE. Leave empty to allow any connection airport."
-			placeholder="Add an airport code and press enter"
-			rejectMessage="An airport code is three letters, like VIE."
-			transform={airportToken}
-			bind:values={fields.allowedConnectionAirports}
-			error={errors.allowedConnectionAirports}
-		/>
-		<ChipListField
-			label="Avoid these connection airports"
-			id={FIELD_INPUT_ID.forbiddenConnectionAirports}
-			hint="IATA codes to rule out entirely."
-			placeholder="Add an airport code and press enter"
-			rejectMessage="An airport code is three letters, like VIE."
-			transform={airportToken}
-			bind:values={fields.forbiddenConnectionAirports}
-			error={errors.forbiddenConnectionAirports}
-		/>
-		<ChipListField
-			label="Avoid these connection countries"
-			id={FIELD_INPUT_ID.forbiddenConnectionCountries}
-			hint="ISO country codes, for example RU."
-			placeholder="Add a country code and press enter"
-			rejectMessage="A country code is two letters, like RU."
-			transform={countryToken}
-			bind:values={fields.forbiddenConnectionCountries}
-			error={errors.forbiddenConnectionCountries}
-		/>
-		<ChipListField
-			label="Airlines to avoid"
-			id={FIELD_INPUT_ID.airlinesToAvoid}
-			hint="IATA airline codes, for example FR for Ryanair. Still fetched and shown, just greyed out and scored down, never dropped from results."
-			placeholder="Add an airline code and press enter"
-			rejectMessage="An airline code is two characters, like FR or U2."
-			transform={airlineToken}
-			bind:values={fields.airlinesToAvoid}
-			error={errors.airlinesToAvoid}
-		/>
-	</Card>
-
-	<Card variant="ticket" class="section">
-		{#snippet header()}Time at the airport{/snippet}
-		<TieredDurationField
-			label="Waiting time before a flight"
-			hint="How long before departure you want to be at the gate. Not the same as layover time between flights."
-			showFlightLength
-			bind:rows={waitingRows}
-		/>
-		<TieredDurationField
-			label="Landing to transport"
-			hint="How long after landing before you can realistically catch onward transport."
-			bind:rows={transportRows}
-		/>
-	</Card>
+		<section class="region region-ground" aria-labelledby="region-ground-title">
+			<h2 id="region-ground-title">Time at the airport</h2>
+			<TieredDurationField
+				label="Waiting time before a flight"
+				hint="How long before departure you want to be at the gate."
+				showFlightLength
+				bind:rows={waitingRows}
+			/>
+			<TieredDurationField
+				label="Landing to transport"
+				hint="How long after landing before you can realistically catch onward transport."
+				bind:rows={transportRows}
+			/>
+		</section>
+	</div>
 
 	<div class="actions">
 		<Button type="submit" size="lg" fullWidth={!oncancel}>{submitLabel}</Button>
@@ -482,14 +427,7 @@
 
 <style>
 	.search-form {
-		display: flex;
-		flex-direction: column;
-		gap: var(--space-5);
-	}
-
-	/* Svelte scopes styles by element, and `class` passed into <Card> lands on an
-	   element rendered by that component, so it needs :global to reach it. */
-	.search-form :global(.section) {
+		container-type: inline-size;
 		display: flex;
 		flex-direction: column;
 		gap: var(--space-4);
@@ -534,17 +472,54 @@
 		border-radius: var(--radius-sm);
 	}
 
-	.field-grid {
+	/* One surface with hairlines through it, not five cards. Five boxes around five short
+	   groups spends most of the screen on borders, which is the opposite of what the owner
+	   asked for. */
+	.panel {
 		display: grid;
-		grid-template-columns: 1fr;
-		gap: var(--space-4);
+		grid-template-columns: minmax(0, 1fr);
+		background: var(--color-bg-elevated);
+		border: 1px solid var(--color-border);
+		border-radius: var(--radius-lg);
+		box-shadow: var(--shadow-sm);
 	}
 
-	/* The two airports read as one control with a hinge in the middle, the way a
-	   boarding pass prints them, rather than as two unrelated text boxes. */
-	.route-grid {
+	.region {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-3);
+		min-width: 0;
+		padding: var(--space-4);
+		border-top: 1px solid var(--color-border);
+	}
+
+	.region:first-child {
+		border-top: 0;
+	}
+
+	h2 {
+		font-size: var(--font-size-sm);
+		line-height: var(--line-height-sm);
+		font-weight: var(--font-weight-semibold);
+		letter-spacing: var(--tracking-tight);
+		color: var(--color-text);
+	}
+
+	.route {
 		display: grid;
-		grid-template-columns: 1fr;
+		grid-template-columns: minmax(0, 1fr);
+		gap: var(--space-3);
+	}
+
+	.party {
+		display: grid;
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+		gap: var(--space-3);
+	}
+
+	.lists {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr);
 		gap: var(--space-3);
 	}
 
@@ -554,15 +529,13 @@
 		justify-content: center;
 		gap: var(--space-2);
 		align-self: start;
-		/* 44px, per WCAG 2.5.5, since this is a thumb target on a phone. */
-		min-height: 2.75rem;
-		min-width: 2.75rem;
+		min-height: var(--control-height);
+		min-width: var(--control-height);
 		padding-inline: var(--space-3);
 		background: var(--color-surface);
 		border: 1px solid var(--color-border-strong);
 		border-radius: var(--radius-full);
 		color: var(--color-text-muted);
-		font-family: inherit;
 		font-size: var(--font-size-sm);
 		font-weight: var(--font-weight-medium);
 		cursor: pointer;
@@ -578,11 +551,6 @@
 		border-color: var(--color-accent);
 	}
 
-	.swap:focus-visible {
-		outline: 2px solid var(--color-focus-ring);
-		outline-offset: 2px;
-	}
-
 	.swap:active {
 		transform: scale(0.96);
 	}
@@ -593,20 +561,32 @@
 		display: block;
 	}
 
-	@media (min-width: 30rem) {
-		.field-grid {
-			grid-template-columns: 1fr 1fr;
-		}
+	.actions {
+		display: flex;
+		flex-wrap: wrap;
+		gap: var(--space-3);
+	}
 
-		.route-grid {
-			grid-template-columns: 1fr auto 1fr;
-			align-items: end;
+	.actions :global(.btn) {
+		flex: 1 1 12rem;
+	}
+
+	/* Two across as soon as there is room for two 44px fields side by side. */
+	@container (min-width: 30rem) {
+		/* Top-aligned, not bottom-aligned. Bottom alignment looked identical until one of the
+		   two airports had an error under it, at which point that field grew downwards and
+		   shoved its own input above the other one. Errors now grow into the space below,
+		   where they belong, and the two inputs stay on one line. */
+		.route {
+			grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+			align-items: start;
 		}
 
 		.swap {
-			/* Sits on the field line, not on the label above it. */
-			margin-bottom: 0.125rem;
-			align-self: end;
+			/* Drops past the label above the inputs so it lands on the field line. The two
+			   values are `AirportField`'s own label line box and the gap under it. */
+			margin-block-start: calc(var(--line-height-sm) + var(--space-2));
+			align-self: start;
 		}
 
 		.swap-label {
@@ -617,62 +597,74 @@
 			clip-path: inset(50%);
 			white-space: nowrap;
 		}
+
+		.route :global(.route-from-place) {
+			grid-column: 1;
+		}
+
+		.route :global(.route-to-place) {
+			grid-column: 3;
+		}
+
+		.lists {
+			grid-template-columns: repeat(2, minmax(0, 1fr));
+		}
 	}
 
-	.disclosure {
-		border-top: 1px dashed var(--color-border);
-		padding-top: var(--space-3);
+	/* The desktop shape the owner asked for: route and party on one line, the calendar with
+	   the full width it needs under them, then the two rule groups side by side. Deliberately
+	   uneven columns rather than a tidy three-across, which is the layout every generated
+	   form arrives in. */
+	@container (min-width: 64rem) {
+		.panel {
+			grid-template-columns: repeat(12, minmax(0, 1fr));
+		}
+
+		/* Both of these are on the panel's first row here, so neither carries the divider
+		   that separates rows. */
+		.region-route,
+		.region-party {
+			border-top: 0;
+		}
+
+		.region-route {
+			grid-column: span 8;
+		}
+
+		.region-party {
+			grid-column: span 4;
+			border-left: 1px solid var(--color-border);
+		}
+
+		.region-dates {
+			grid-column: span 12;
+		}
+
+		.region-connections {
+			grid-column: span 7;
+		}
+
+		.region-ground {
+			grid-column: span 5;
+			border-left: 1px solid var(--color-border);
+		}
+
+		.party {
+			align-content: start;
+		}
+
+		.actions {
+			justify-content: flex-end;
+		}
+
+		.actions :global(.btn) {
+			flex: 0 1 16rem;
+		}
 	}
 
-	.disclosure summary {
-		cursor: pointer;
-		font-size: var(--font-size-sm);
-		font-weight: var(--font-weight-medium);
-		color: var(--color-accent);
-		/* A summary is a click target, so it gets a thumb-sized line box. */
-		padding-block: var(--space-2);
-	}
-
-	.disclosure summary:focus-visible {
-		outline: 2px solid var(--color-focus-ring);
-		outline-offset: 2px;
-		border-radius: var(--radius-sm);
-	}
-
-	.disclosure-body {
-		display: flex;
-		flex-direction: column;
-		gap: var(--space-3);
-		margin-top: var(--space-3);
-	}
-
-	.checkbox-row {
-		display: flex;
-		align-items: center;
-		gap: var(--space-2);
-		font-size: var(--font-size-sm);
-		color: var(--color-text);
-		min-height: 2.75rem;
-	}
-
-	.checkbox-row input {
-		width: 1.25rem;
-		height: 1.25rem;
-		accent-color: var(--color-accent);
-	}
-
-	.derived-note {
-		font-size: var(--font-size-sm);
-		color: var(--color-text-muted);
-	}
-
-	.actions {
-		display: flex;
-		flex-wrap: wrap;
-		gap: var(--space-3);
-	}
-
-	.actions :global(.btn) {
-		flex: 1 1 12rem;
+	@media (prefers-reduced-motion: reduce) {
+		.swap {
+			transition: none;
+		}
 	}
 </style>
