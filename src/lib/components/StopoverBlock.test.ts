@@ -23,7 +23,9 @@ function render(itinerary: Itinerary, connectionLabel = 'London'): string[] {
 	document.body.appendChild(target);
 	component = mount(StopoverBlock, { target, props: { itinerary, connectionLabel } });
 	flushSync();
-	return [...target.querySelectorAll('p')].map((p) => p.textContent!.trim());
+	// The city name is a field label rather than one of the block's lines, so it is not
+	// part of what the owner specified and does not belong in these assertions.
+	return [...target.querySelectorAll('p:not(.stopover-label)')].map((p) => p.textContent!.trim());
 }
 
 beforeEach(() => {
