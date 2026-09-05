@@ -388,9 +388,11 @@
 
 		const outcome = await checkTransitOnce(airport, budget);
 		transitChecks.set(key, { kind: 'checked', answers: outcome.answers });
-		// Same guard as `routePickedProperty`: a timetable that lands after the traveller
-		// has moved to another bed is banked under its own key and never written onto
-		// whatever is on screen now.
+		// Same guard as `routePickedProperty`, and the same counter on purpose. Pressing
+		// this while that bed's road route is still in flight abandons the road route,
+		// because a road answer landing second would rebuild the stay selection and wipe
+		// the bus this just paid two requests for. The road route stays banked under its
+		// own key, so tapping the bed again applies it.
 		if (generation !== routingGeneration) return;
 		itinerary = outcome.itinerary;
 	}
