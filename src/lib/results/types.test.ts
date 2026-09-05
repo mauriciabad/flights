@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { scoreItinerary } from '$lib/algorithm/score';
 import type { ItineraryGroup, ItineraryResult, PriceCalendarOutcome, ProviderStatus, WidenOption } from '$lib/search';
 import {
+	affordableWidenOptions,
 	describeProviderError,
 	deriveScoredResult,
 	groupWidenOptions,
@@ -9,6 +10,7 @@ import {
 	widenOptionGroupKey,
 	widenOptionKey
 } from './types';
+import type { WidenOptionGroup } from './types';
 import { makeItinerary } from './test-support';
 
 function providerStatus(overrides: Partial<ProviderStatus> = {}): ProviderStatus {
@@ -259,6 +261,67 @@ describe('widenOptionGroupKey', () => {
 			...overrides
 		};
 	}
+});
+
+/**
+ * Issue #244. The confirm row for the acceptance search covered five stopovers at once, and
+ * the panel took the whole row away when their combined cost went over the provider's cap.
+ * Sky Scrapper's cap is 15 (providers/budget/caps.ts, from a measured 20-a-month free tier),
+ * so a search that ranked enough stopovers left the owner's configured key with nothing it
+ * could ever be spent on.
+ */
+describe('affordableWidenOptions', () => {
+	function group(perStopover: number, stopovers: string[]): WidenOptionGroup {
+		const options: WidenOption[] = stopovers.map((code) => ({
+			providerId: 'skyscanner',
+			kind: 'flight',
+			tier: 'confirm',
+			label: 'Skyscanner (RapidAPI)',
+			candidateAirportCode: code,
+			requests: perStopover,
+			requiresKey: false
+		}));
+		return {
+			providerId: 'skyscanner',
+			kind: 'flight',
+			tier: 'confirm',
+			label: 'Skyscanner (RapidAPI)',
+			requests: options.reduce((sum, option) => sum + option.requests, 0),
+			requiresKey: false,
+			options
+		};
+	}
+
+	it('offers the whole row when the month can pay for it', () => {
+		// Six stopovers at two requests each is 12, inside Sky Scrapper's cap of 15.
+		const fits = affordableWidenOptions(group(2, ['VIE', 'PRG', 'MXP', 'BUD', 'ZRH', 'MUC']), 15);
+		expect(fits.requests).toBe(12);
+		expect(fits.options).toHaveLength(6);
+		expect(fits.skipped).toBe(0);
+	});
+
+	it('offers the stopovers that fit rather than none of them', () => {
+		// Issue #115's fallback sweep can rank 24 stopovers, which is 48 requests.
+		const codes = Array.from({ length: 24 }, (_, index) => `Z${String(index).padStart(2, '0')}`);
+		const fits = affordableWidenOptions(group(2, codes), 15);
+
+		expect(fits.options).toHaveLength(7);
+		expect(fits.requests).toBe(14);
+		expect(fits.skipped).toBe(17);
+		expect(fits.requests).toBeLessThanOrEqual(15);
+	});
+
+	it('keeps the group order, so the best-ranked stopovers are the ones bought', () => {
+		const fits = affordableWidenOptions(group(2, ['VIE', 'PRG', 'MXP']), 4);
+		expect(fits.options.map((option) => option.candidateAirportCode)).toEqual(['VIE', 'PRG']);
+	});
+
+	it('offers nothing when even one stopover is out of reach', () => {
+		const fits = affordableWidenOptions(group(2, ['VIE', 'PRG']), 1);
+		expect(fits.options).toEqual([]);
+		expect(fits.requests).toBe(0);
+		expect(fits.skipped).toBe(2);
+	});
 });
 
 describe('summarizePriceCalendarOutcome', () => {

@@ -388,6 +388,45 @@ export function widenOptionGroupKey(option: Pick<WidenOption, 'providerId' | 'ti
 	return `${option.providerId}:${option.tier}`;
 }
 
+/** As much of one grouped widen row as this month's remaining allowance can pay for. */
+export interface AffordableWiden {
+	/** The stopovers that fit, in the group's own ranking order (best candidate first, the
+	 * order `widenSearch` and `widenWithPriceCalendar` process targets in). */
+	options: WidenOption[];
+	/** What `options` costs. Never above `remaining`. */
+	requests: number;
+	/** Stopovers left out because the allowance ran out. Zero when the whole row fits. */
+	skipped: number;
+}
+
+/**
+ * Issue #244: the panel used to ask "does the whole bundle fit" and disable the row when it
+ * did not. On the acceptance search that bundle was every stopover at once, so a single
+ * number over the cap took the whole action away, and the Sky Scrapper key the owner
+ * configured was unreachable from any search. A row nobody can press is worse than no row,
+ * because it reads as the provider being broken.
+ *
+ * So the question becomes "how much of this fits", and the answer is a prefix rather than
+ * all-or-nothing. Both widen calls already take many candidates behind one shared ceiling
+ * and stop when it runs out (`widenSearch`'s `budget.remaining`), so spending a prefix is
+ * the behaviour they already have, not a new one — this only makes the panel say up front
+ * what it would have discovered halfway through.
+ *
+ * A prefix, not the cheapest subset: the group's order is the free tier's own candidate
+ * ranking, so the first N are the N stopovers most worth paying to confirm. Picking a
+ * cheaper tail instead would spend the month on worse answers.
+ */
+export function affordableWidenOptions(group: WidenOptionGroup, remaining: number): AffordableWiden {
+	const options: WidenOption[] = [];
+	let requests = 0;
+	for (const option of group.options) {
+		if (requests + option.requests > remaining) break;
+		options.push(option);
+		requests += option.requests;
+	}
+	return { options, requests, skipped: group.options.length - options.length };
+}
+
 /**
  * One line describing what a price-calendar widen found, issue #56's tier 2, "which
  * dates are cheap." Deliberately not rendered through `ResultCard`: a calendar answers a

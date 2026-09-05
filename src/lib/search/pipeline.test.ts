@@ -26,7 +26,9 @@ import type {
 	TransferProvider,
 	TransferSearchQuery
 } from '../providers/types';
+import { DEFAULT_MAX_CANDIDATES } from '../algorithm/connections';
 import { CALENDAR_DISCOVERY_HUB_POOL } from './calendar-discovery';
+import { confirmTargetFor } from './confirm-target';
 import { runSearch, widenSearch, widenWithPriceCalendar } from './pipeline';
 import type { FlightsSkyProvider, PriceCalendarDay, PriceCalendarQuery } from './price-calendar';
 import type { SearchDependencies, SearchSnapshot } from './types';
@@ -1176,7 +1178,7 @@ describe('widenSearch', () => {
 			widenSearch(
 				BASE_QUERY,
 				{
-					targets: [{ candidateAirportCode: FAST, earliestDeparture: '2026-10-01', latestDeparture: '2026-10-01' }],
+					targets: [confirmTargetFor(FAST, BASE_QUERY)],
 					maxMeteredRequests: 10
 				},
 				deps
@@ -1221,7 +1223,7 @@ describe('widenSearch', () => {
 			widenSearch(
 				BASE_QUERY,
 				{
-					targets: [{ candidateAirportCode: FAST, earliestDeparture: '2026-10-01', latestDeparture: '2026-10-01' }],
+					targets: [confirmTargetFor(FAST, BASE_QUERY)],
 					maxMeteredRequests: 0
 				},
 				deps
@@ -1282,18 +1284,14 @@ function calendarCapableMeteredProvider(id: string, costPerCalendarCall: number)
 }
 
 describe('runSearch: three-tier widen options', () => {
-	it('lists a distinct cheap "calendar" option and an expensive "confirm" option for the same provider', async () => {
+	/** Both tiers, for the same provider, at two search widths. */
+	async function tiersFor(latestDeparture: string, latestArrival: string) {
 		const free = createFakeFlightProvider({
 			id: 'free-flights',
 			routes: { [ORIGIN]: [FAST], [FAST]: [DEST] },
 			offerBuilder: standardOfferBuilder
 		});
-		// A ten-day departure window makes the "confirm" cost (one request per date) far
-		// larger than the flat "calendar" cost (one request per route) — the whole point of
-		// the mid-task finding.
-		const wideQuery: SearchQuery = { ...BASE_QUERY, latestDeparture: '2026-10-10' };
 		const calendarProvider = calendarCapableMeteredProvider('flights-sky', 1);
-
 		const registry = new ProviderRegistry([
 			free.provider,
 			calendarProvider,
@@ -1301,17 +1299,143 @@ describe('runSearch: three-tier widen options', () => {
 			createFakeTransferProvider()
 		]);
 		const deps: SearchDependencies = { registry, keys: {}, resolveAirport, currency: 'EUR' };
+		const query: SearchQuery = { ...BASE_QUERY, latestDeparture, latestArrival };
 
-		const snapshots = await drain(runSearch(wideQuery, deps));
-		const final = snapshots.at(-1)!;
+		const final = (await drain(runSearch(query, deps))).at(-1)!;
+		const forProvider = final.widenOptions.filter((o) => o.providerId === 'flights-sky' && o.candidateAirportCode === FAST);
+		return {
+			calendar: forProvider.find((o) => o.tier === 'calendar'),
+			confirm: forProvider.find((o) => o.tier === 'confirm')
+		};
+	}
 
-		const forProvider = final.widenOptions.filter((o) => o.providerId === 'flights-sky');
-		const calendarOption = forProvider.find((o) => o.tier === 'calendar');
-		const confirmOption = forProvider.find((o) => o.tier === 'confirm');
+	it('lists the cheap broad "calendar" tier and the exact "confirm" tier as separate options', async () => {
+		const { calendar, confirm } = await tiersFor('2026-10-02', '2026-10-05');
+		expect(calendar).toBeDefined();
+		expect(confirm).toBeDefined();
+	});
 
-		expect(calendarOption).toBeDefined();
-		expect(confirmOption).toBeDefined();
-		expect(calendarOption!.requests).toBeLessThan(confirmOption!.requests);
+	/**
+	 * Issue #244 replaced the property this used to assert. The confirm tier was once
+	 * strictly dearer than the calendar tier because it priced the search's whole date range
+	 * at one request per date, which is what put it out of reach of every free tier this app
+	 * has. It now prices one date on each leg, so what separates the two tiers is what they
+	 * answer, not what they cost, and neither grows when the traveller widens their dates.
+	 */
+	it('prices neither tier by how wide the search window is', async () => {
+		const narrow = await tiersFor('2026-10-02', '2026-10-05');
+		const wide = await tiersFor('2026-10-10', '2026-10-20');
+
+		expect(wide.calendar!.requests).toBe(narrow.calendar!.requests);
+		expect(wide.confirm!.requests).toBe(narrow.confirm!.requests);
+	});
+});
+
+/**
+ * Issue #244. "Confirm an exact price" quoted 55 requests against Sky Scrapper's 15-request
+ * cap and Flights Sky's 40, on the acceptance search (docs/ACCEPTANCE.md: BVC to PFO,
+ * departing 6-9 October, arriving by the 12th). Both rows rendered permanently disabled, so
+ * no reachable action in the app ever spent a Skyscanner request and the key the owner
+ * called non-negotiable was dead.
+ *
+ * 55 was five stopovers at 11 each, and 11 was the query's whole date range priced at one
+ * request per date: 4 departure days plus 7 arrival days. The widen never asked for that.
+ * `+page.svelte` narrowed the outbound leg to the one date already on screen before
+ * spending, which made the real cost 8 a stopover — still not 11, and still not something
+ * the panel's arithmetic knew about. The quote and the spend were two different queries.
+ *
+ * These pin them to one. `WIDE_QUERY` mirrors the acceptance search's shape.
+ */
+describe('confirm-tier widen quotes what the widen spends (issue #244)', () => {
+	const WIDE_QUERY: SearchQuery = {
+		...BASE_QUERY,
+		soonestDeparture: '2026-10-01',
+		latestDeparture: '2026-10-04',
+		latestArrival: '2026-10-07'
+	};
+
+	/** How many dates each `searchOffers` call spanned, which for a one-request-per-date
+	 * adapter is how many requests it spent. */
+	function datesAskedFor(fixture: FlightFixture): number[] {
+		return fixture.searchOffers.mock.calls.map((call) => {
+			const query = call[0] as FlightSearchQuery;
+			return enumerateDateCount(query.earliestDeparture, query.latestDeparture);
+		});
+	}
+
+	/** One request per date, Sky Scrapper's real shape (docs/PROVIDERS.md). */
+	function perDateProvider(id: string) {
+		return createFakeFlightProvider({
+			id,
+			needsKey: true,
+			routes: {},
+			costPerQuery: (query) => enumerateDateCount(query.earliestDeparture, query.latestDeparture),
+			offerBuilder: standardOfferBuilder
+		});
+	}
+
+	function registryWith(metered: FlightProvider) {
+		const free = createFakeFlightProvider({
+			id: 'free-flights',
+			routes: { [ORIGIN]: [FAST, SLOW], [FAST]: [DEST], [SLOW]: [DEST] },
+			offerBuilder: standardOfferBuilder
+		});
+		return new ProviderRegistry([free.provider, metered, createFakeStayProvider({ id: 'stays' }), createFakeTransferProvider()]);
+	}
+
+	it('quotes two requests a stopover, one date on each leg, not the whole search window', async () => {
+		const metered = perDateProvider('metered-flights');
+		const deps: SearchDependencies = { registry: registryWith(metered.provider), keys: {}, resolveAirport, currency: 'EUR' };
+
+		const final = (await drain(runSearch(WIDE_QUERY, deps))).at(-1)!;
+		const confirms = final.widenOptions.filter((o) => o.providerId === ('metered-flights' as ProviderId) && o.tier === 'confirm');
+
+		expect(confirms.length).toBeGreaterThan(0);
+		for (const option of confirms) expect(option.requests).toBe(2);
+		// Six stopovers, `DEFAULT_MAX_CANDIDATES`, is 12 requests — inside Sky Scrapper's
+		// 15-request cap (providers/budget/caps.ts) and its real 20-a-month free tier. The
+		// same six used to sum to 66.
+		expect(confirms.reduce((sum, o) => sum + o.requests, 0)).toBeLessThanOrEqual(2 * DEFAULT_MAX_CANDIDATES);
+	});
+
+	it('asks the provider for exactly the requests it quoted', async () => {
+		const metered = perDateProvider('metered-flights');
+		const keys: AvailableKeys = { ['metered-flights' as ProviderId]: { apiKey: 'secret' } };
+		const deps: SearchDependencies = { registry: registryWith(metered.provider), keys, resolveAirport, currency: 'EUR' };
+
+		const final = (await drain(runSearch(WIDE_QUERY, deps))).at(-1)!;
+		const quoted = final.widenOptions.find(
+			(o) => o.providerId === ('metered-flights' as ProviderId) && o.tier === 'confirm' && o.candidateAirportCode === FAST
+		)!;
+		expect(quoted).toBeDefined();
+
+		// runSearch never reaches a metered provider for offers (it passes no `widenTo`), so
+		// anything counted below belongs to the widen alone.
+		expect(metered.searchOffers).not.toHaveBeenCalled();
+
+		const target = confirmTargetFor(FAST, WIDE_QUERY);
+		await drain(widenSearch(WIDE_QUERY, { targets: [target], maxMeteredRequests: 99 }, deps));
+
+		const spent = datesAskedFor(metered).reduce((sum, dates) => sum + dates, 0);
+		expect(spent).toBe(quoted.requests);
+	});
+
+	it('narrows the onward leg too, not just the outbound one', async () => {
+		// The bug that made the two numbers disagree: `widenSearch` overrode the query's two
+		// departure fields and left the arrival pair alone, so `onwardLegQuery` kept spanning
+		// the trip's whole arrival window while the comment above it said the range had been
+		// narrowed. Seven dates on one leg instead of one.
+		const metered = perDateProvider('metered-flights');
+		const keys: AvailableKeys = { ['metered-flights' as ProviderId]: { apiKey: 'secret' } };
+		const deps: SearchDependencies = { registry: registryWith(metered.provider), keys, resolveAirport, currency: 'EUR' };
+
+		await drain(
+			widenSearch(WIDE_QUERY, { targets: [confirmTargetFor(FAST, WIDE_QUERY)], maxMeteredRequests: 99 }, deps)
+		);
+
+		const spans = datesAskedFor(metered);
+		expect(spans.length).toBeGreaterThan(0);
+		expect(spans).toEqual(spans.map(() => 1));
 	});
 });
 

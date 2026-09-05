@@ -34,7 +34,7 @@
 	import { hasBlockingIssue, validateSearchFields } from '$lib/search-form/validation';
 	import { normalizeQuery, RecentSearches, searchHistory, summarizeSearch } from '$lib/search-history';
 	import SearchSummaryBar from './SearchSummaryBar.svelte';
-	import { runSearch, widenSearch, widenWithPriceCalendar } from '$lib/search';
+	import { confirmTargetFor, runSearch, widenSearch, widenWithPriceCalendar } from '$lib/search';
 	import type {
 		ConnectionTransferOptions,
 		ItineraryGroup,
@@ -56,7 +56,7 @@
 	import { insertStable, slotsToResults, toSlot } from '$lib/results/stream-order';
 	import type { StreamSlot } from '$lib/results/stream-order';
 	import { connectionAirportCode, deriveScoredResult, summarizePriceCalendarOutcome, widenOptionGroupKey } from '$lib/results/types';
-	import type { ProviderStatus, WidenOptionGroup } from '$lib/results/types';
+	import type { AffordableWiden, ProviderStatus, WidenOptionGroup } from '$lib/results/types';
 	import FilterPanel from './FilterPanel.svelte';
 	import NoResultsBoard from './NoResultsBoard.svelte';
 	import ProviderStatusStrip from './ProviderStatusStrip.svelte';
@@ -527,26 +527,30 @@
 	 * so `ResultCard` never has to know what "not enough" looks like. */
 	const shownPriceBand = $derived(priceBand?.kind === 'band' ? priceBand : undefined);
 
-	/** The narrowest possible confirm-tier target: the exact date this candidate's
-	 * itinerary already found, never the query's whole range, PROVIDERS.md's own
-	 * warning ("a pipeline that loops over dates... is broken by construction") is
-	 * exactly what a wider window here would risk. Falls back to the query's soonest
-	 * departure only for a candidate with no itinerary on screen yet. */
+	/** The narrowest possible confirm-tier target: the exact dates this candidate's
+	 * itinerary already found, one per leg, never the query's whole range — PROVIDERS.md's
+	 * own warning ("a pipeline that loops over dates... is broken by construction") is
+	 * exactly what a wider window here would risk. `confirmTargetFor` is shared with the
+	 * cost estimate the panel showed (issue #244), so the row's number is this request's
+	 * real price rather than a second, larger guess at it. */
 	function buildConfirmTarget(option: WidenOption, activeQuery: SearchQuery): WidenTarget | undefined {
 		if (!option.candidateAirportCode) return undefined;
 		const existing = results.find((result) => result.id === option.candidateAirportCode);
-		const date = existing?.itinerary.outboundFlight.departure.local.slice(0, 10) ?? activeQuery.soonestDeparture;
-		return { candidateAirportCode: option.candidateAirportCode, earliestDeparture: date, latestDeparture: date };
+		return confirmTargetFor(option.candidateAirportCode, activeQuery, existing?.itinerary);
 	}
 
-	/** Issue #96: the panel now shows one row per provider, summing cost across every
-	 * candidate that provider's tier covers (`WidenOptionGroup`), rather than one row per
-	 * candidate. Spending it means widening every one of `group.options`' candidates in a
-	 * single call sharing `group.requests` as one ceiling. Both `widenSearch` (its
-	 * `targets` array) and `widenWithPriceCalendar` (its `candidateAirportCodes` array)
-	 * already accept many candidates behind one shared budget, so this is not a new
-	 * capability, only a caller that finally uses it for more than one candidate at a time. */
-	async function handleWiden(group: WidenOptionGroup) {
+	/** Issue #96: the panel shows one row per provider, summing cost across every candidate
+	 * that provider's tier covers (`WidenOptionGroup`), rather than one row per candidate.
+	 * Spending it means widening those candidates in a single call sharing one ceiling. Both
+	 * `widenSearch` (its `targets` array) and `widenWithPriceCalendar` (its
+	 * `candidateAirportCodes` array) already accept many candidates behind one shared budget,
+	 * so this is not a new capability, only a caller that finally uses it for more than one
+	 * candidate at a time.
+	 *
+	 * Issue #244: `affordable` is what the row actually offered, which is the whole group
+	 * whenever the month can pay for it and a prefix of it when it cannot. Spending
+	 * `group.requests` instead would quietly exceed the cap the panel just quoted against. */
+	async function handleWiden(group: WidenOptionGroup, affordable: AffordableWiden) {
 		const activeQuery = query;
 		if (!activeQuery) return;
 		const key = widenOptionGroupKey(group);
@@ -554,18 +558,18 @@
 		const controller = new AbortController();
 		try {
 			if (group.tier === 'confirm') {
-				const targets = group.options
+				const targets = affordable.options
 					.map((option) => buildConfirmTarget(option, activeQuery))
 					.filter((target): target is WidenTarget => target !== undefined);
 				if (targets.length === 0) return;
 				await consumeSearch(
-					widenSearch(activeQuery, { targets, maxMeteredRequests: group.requests }, deps(), {
+					widenSearch(activeQuery, { targets, maxMeteredRequests: affordable.requests }, deps(), {
 						signal: controller.signal
 					}),
 					{ trackWidenOptions: false }
 				);
 			} else {
-				const candidateAirportCodes = group.options
+				const candidateAirportCodes = affordable.options
 					.map((option) => option.candidateAirportCode)
 					.filter((code): code is IataAirportCode => code !== undefined);
 				if (candidateAirportCodes.length === 0) return;
@@ -573,7 +577,7 @@
 				try {
 					for await (const outcome of widenWithPriceCalendar(
 						activeQuery,
-						{ candidateAirportCodes, maxMeteredRequests: group.requests },
+						{ candidateAirportCodes, maxMeteredRequests: affordable.requests },
 						deps(),
 						{ signal: controller.signal }
 					)) {

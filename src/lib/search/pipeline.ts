@@ -39,6 +39,7 @@ import { DEFAULT_MAX_CANDIDATES, findConnectionCandidates, hasKnownDirectRoute }
 import type { ConnectionAirportInfo } from '../algorithm/connections';
 import { buildItineraries } from '../algorithm/build';
 import { discoverCandidateViaCalendar } from './calendar-discovery';
+import { confirmTargetFor, narrowToConfirmTarget } from './confirm-target';
 import { DEFAULT_SCORING_WEIGHTS, rankItineraries } from '../algorithm/score';
 import type { ScoringWeights } from '../algorithm/score';
 import { defaultStopover } from '../algorithm/stopover-length';
@@ -666,6 +667,13 @@ async function resolveOuterAirports(
  * `flightCostAwareSources`, which filters to usable providers only (correct for deciding
  * what can actually run, wrong for a preview that must still show "add a key to widen with
  * Skyscanner for ~2 requests" for a provider with no key yet).
+ *
+ * Priced against the query `widenSearch` will really run for this candidate, not against
+ * the search's own date range (issue #244). Those were different queries, and the gap
+ * between them is what made the row unpressable: the estimate spanned the whole range at
+ * one request per date, while the spend narrows to the single date on screen. The estimate
+ * needs no itinerary to be exact, because the number of dates is fixed by the tier rather
+ * than by which dates they are — see `confirmTargetFor`.
  */
 function confirmWidenOptions(
 	candidates: readonly ConnectionCandidate[],
@@ -676,8 +684,9 @@ function confirmWidenOptions(
 ): WidenOption[] {
 	const options: WidenOption[] = [];
 	for (const candidate of candidates) {
-		const outboundQuery = outboundLegQuery(query, query.originAirport, candidate.airportCode, currency);
-		const onwardQuery = onwardLegQuery(query, candidate.airportCode, query.destinationAirport, currency);
+		const confirmQuery = narrowToConfirmTarget(query, confirmTargetFor(candidate.airportCode, query));
+		const outboundQuery = outboundLegQuery(confirmQuery, query.originAirport, candidate.airportCode, currency);
+		const onwardQuery = onwardLegQuery(confirmQuery, candidate.airportCode, query.destinationAirport, currency);
 		for (const provider of allFlightProviders) {
 			const requests = provider.estimateSearchOffersCost(outboundQuery) + provider.estimateSearchOffersCost(onwardQuery);
 			if (requests <= 0) continue; // Free — not a widen option at all.
@@ -1195,14 +1204,11 @@ export async function* widenSearch(
 		const target = targetByCode.get(candidate.airportCode);
 		if (!target) continue; // Filtered into `candidates` above; present here for TS narrowing.
 
-		// Narrowed to exactly the window the traveller confirmed for this candidate — never
+		// Narrowed to exactly the windows the traveller confirmed for this candidate — never
 		// the original query's full range, which is what keeps this call cheap
-		// (docs/PROVIDERS.md: "Skyscanner is spent ... on that one route and date").
-		const narrowedQuery: SearchQuery = {
-			...query,
-			soonestDeparture: target.earliestDeparture,
-			latestDeparture: target.latestDeparture
-		};
+		// (docs/PROVIDERS.md: "Skyscanner is spent ... on that one route and date"). Shared
+		// with `confirmWidenOptions` above so the quote and the spend are one number.
+		const narrowedQuery = narrowToConfirmTarget(query, target);
 
 		// Sequential, not `Promise.all`, and against the ONE shared `budget` object above:
 		// two metered sources (or two legs) racing on the same "requests remaining" snapshot

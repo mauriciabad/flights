@@ -5,10 +5,10 @@
 	 * network call, so this panel can always be shown, even before any key is configured.
 	 *
 	 * Calendar and confirm are genuinely different actions, not two strengths of the same
-	 * "search harder" button: a calendar widen answers "which dates are cheap" for close to
-	 * free, a confirm widen spends a real, metered request to price one exact date. Grouping
-	 * them separately, with their own copy, is what keeps a traveller from reaching for the
-	 * expensive one out of habit when the cheap one already answers their question.
+	 * "search harder" button. A calendar widen answers "which dates are cheap" across a whole
+	 * year; a confirm widen prices the exact dates already on screen. Since issue #244 they
+	 * often cost the same, so the copy on each group has to say what it buys rather than
+	 * leaning on the price to tell them apart.
 	 *
 	 * Issue #96: `SearchSnapshot.widenOptions` carries one entry per connection candidate,
 	 * so a search considering five stopovers listed the same provider five times, with
@@ -16,17 +16,24 @@
 	 * (`$lib/results/types`) folds those into one row per provider, summing the cost across
 	 * every candidate it covers, since a traveller decides on a provider and a tier, not on
 	 * an unlabelled city they can't tell apart.
+	 *
+	 * Issue #244: that fold used to be all-or-nothing. Five stopovers summed to 55 requests
+	 * against Sky Scrapper's 15-request cap, the row rendered permanently disabled, and no
+	 * reachable action in the app ever spent a Skyscanner request. A row is now offered at
+	 * whatever size the month can pay for, and only disappears when it cannot pay for one
+	 * stopover.
 	 */
 	import { Button } from '$lib/components';
 	import { getProviderQuotaSnapshot } from '$lib/providers/budget';
-	import { groupWidenOptions, widenOptionGroupKey } from '$lib/results/types';
-	import type { WidenOption, WidenOptionGroup } from '$lib/results/types';
+	import { affordableWidenOptions, groupWidenOptions, widenOptionGroupKey } from '$lib/results/types';
+	import type { AffordableWiden, WidenOption, WidenOptionGroup } from '$lib/results/types';
 
 	interface Props {
 		options: WidenOption[];
 		/** Fires when the traveller commits to spending one group's combined cost, across
-		 * every candidate it covers. */
-		onWiden: (option: WidenOptionGroup) => void;
+		 * every candidate it covers — or, when the month cannot pay for all of them, across
+		 * the `affordable.options` prefix the row offered instead. */
+		onWiden: (option: WidenOptionGroup, affordable: AffordableWiden) => void;
 		/** The group currently in flight, if any, disables just that one button rather than
 		 * the whole panel, so widening one provider doesn't block reading another's cost
 		 * while it runs. */
@@ -35,22 +42,34 @@
 
 	let { options, onWiden, pendingKey }: Props = $props();
 
-	function requestsLabel(option: WidenOptionGroup): string {
-		const base = `~${option.requests} request${option.requests === 1 ? '' : 's'}`;
+	function requestsLabel(group: WidenOptionGroup, affordable: AffordableWiden): string {
+		// Nothing is being bought, so quote the row's own price rather than the zero it can
+		// afford — "~0 requests" beside a reason saying why is not information.
+		const buying = affordable.options.length === 0 ? group : affordable;
+		const count = buying.options.length;
+		const base = `~${buying.requests} request${buying.requests === 1 ? '' : 's'}`;
 		// Honest about the number being a sum, not one candidate's cost (issue #96: "if the
 		// number is an aggregate across candidates while the label reads as one action,
 		// make the label honest"). Only said out loud when there is more than one
 		// candidate behind it, since for exactly one it already reads as a single action.
-		return option.options.length > 1 ? `${base} across ${option.options.length} stopovers` : base;
+		if (count <= 1) return base;
+		// Issue #244: when the month cannot pay for every stopover the row still runs, on
+		// as many as it can, so the count has to name what is really being bought.
+		if (affordable.skipped > 0 && affordable.options.length > 0) {
+			return `${base} across ${count} of ${group.options.length} stopovers`;
+		}
+		return `${base} across ${count} stopovers`;
 	}
 
 	/**
-	 * Never offer a widen priced above what is actually left this month (issue #96): a row
-	 * quoting 40 requests against a 15-request cap cannot complete, so it renders disabled
-	 * with the reason instead of failing partway through, the same treatment `requiresKey`
-	 * already gets below. Reads `getProviderQuotaSnapshot` fresh on every call rather than
-	 * caching it, since the real remaining budget changes the moment any widen actually
-	 * spends, in this panel or another tab open on the same search.
+	 * How much of one row this month can pay for. Never more (issue #96: a widen priced
+	 * above the remaining allowance cannot complete, so offering it at that price means
+	 * failing partway through), and never all-or-nothing either (issue #244: a row covering
+	 * five stopovers used to vanish entirely because the five together were over the cap,
+	 * which is how a configured Sky Scrapper key ended up unreachable from every search).
+	 * Reads `getProviderQuotaSnapshot` fresh on every call rather than caching it, since the
+	 * real remaining budget changes the moment any widen actually spends, in this panel or
+	 * another tab open on the same search.
 	 *
 	 * Deliberately not `isQuotaGenerous` (`$lib/providers/budget`, issue #94): that answers
 	 * "is this provider's cap generous enough, relative to a typical cost, to spend the
@@ -67,11 +86,22 @@
 	 * offered, exactly what `remaining` alone gets right and a generosity ratio would have
 	 * wrongly blocked.
 	 */
-	function overBudgetReason(option: WidenOptionGroup): string | undefined {
-		if (option.requiresKey) return undefined; // "Add a key" below already covers this case.
-		const { remaining } = getProviderQuotaSnapshot(option.providerId);
-		if (option.requests <= remaining) return undefined;
-		return `Only ${remaining} request${remaining === 1 ? '' : 's'} left this month for ${option.label}. This needs ${option.requests}.`;
+	function affordable(group: WidenOptionGroup): AffordableWiden {
+		// `requiresKey` rows quote what widening WOULD cost once a key exists, so they are
+		// priced against the whole group rather than against a quota nothing is spending
+		// yet — "Add a key to use this" below is what they render instead of a button.
+		if (group.requiresKey) return { options: group.options, requests: group.requests, skipped: 0 };
+		return affordableWidenOptions(group, getProviderQuotaSnapshot(group.providerId).remaining);
+	}
+
+	/** Said only when the month cannot buy even one stopover in the row. Anything above that
+	 * is offered at its real, smaller size instead of being taken away. Quotes the first
+	 * stopover's cost rather than the row's total, since the total is no longer what pressing
+	 * the row would spend. */
+	function nothingAffordableReason(group: WidenOptionGroup): string {
+		const { remaining } = getProviderQuotaSnapshot(group.providerId);
+		const one = group.options[0]?.requests ?? group.requests;
+		return `Only ${remaining} request${remaining === 1 ? '' : 's'} left this month for ${group.label}. One stopover needs ${one}.`;
 	}
 
 	const calendarOptions = $derived(
@@ -82,25 +112,31 @@
 	);
 </script>
 
-{#snippet widenRow(option: WidenOptionGroup, pendingLabel: string, actionLabel: string)}
-	{@const key = widenOptionGroupKey(option)}
-	{@const reason = overBudgetReason(option)}
+{#snippet widenRow(group: WidenOptionGroup, pendingLabel: string, actionLabel: string)}
+	{@const key = widenOptionGroupKey(group)}
+	{@const fits = affordable(group)}
 	<div class="widen-row">
-		<span class="widen-row-label">{option.label}</span>
-		<span class="widen-row-cost font-mono tabular-nums">{requestsLabel(option)}</span>
-		{#if option.requiresKey}
+		<span class="widen-row-label">{group.label}</span>
+		<span class="widen-row-cost font-mono tabular-nums">{requestsLabel(group, fits)}</span>
+		{#if group.requiresKey}
 			<a class="widen-row-fix" href="/settings/">Add a key to use this</a>
-		{:else if reason}
-			<span class="widen-row-unavailable">{reason}</span>
+		{:else if fits.options.length === 0}
+			<span class="widen-row-unavailable">{nothingAffordableReason(group)}</span>
 		{:else}
 			<Button
 				size="sm"
 				variant="secondary"
 				disabled={pendingKey === key}
-				onclick={() => onWiden(option)}
+				onclick={() => onWiden(group, fits)}
 			>
 				{pendingKey === key ? pendingLabel : actionLabel}
 			</Button>
+			{#if fits.skipped > 0}
+				<span class="widen-row-partial">
+					{fits.skipped} more {fits.skipped === 1 ? 'stopover needs' : 'stopovers need'} requests this
+					month has not got.
+				</span>
+			{/if}
 		{/if}
 	</div>
 {/snippet}
@@ -123,7 +159,7 @@
 				<div class="widen-group">
 					<p class="widen-group-title">Confirm an exact price</p>
 					<p class="widen-group-hint">
-						Expensive and narrow: spends a real request to price the date already shown.
+						Narrow and exact: spends one request per leg to price the dates already shown.
 					</p>
 					{#each confirmOptions as option (widenOptionGroupKey(option))}
 						{@render widenRow(option, 'Confirming…', 'Confirm price')}
@@ -196,5 +232,14 @@
 		font-size: var(--font-size-sm);
 		font-weight: var(--font-weight-semibold);
 		color: var(--color-warning);
+	}
+
+	/* Quieter than `.widen-row-unavailable`: the action next to it still runs, and this only
+	   says how far the month's allowance reaches. It takes the whole width so the sentence
+	   sits under its own row rather than wrapping between the cost and the button. */
+	.widen-row-partial {
+		flex: 1 0 100%;
+		font-size: var(--font-size-sm);
+		color: var(--color-text-muted);
 	}
 </style>
