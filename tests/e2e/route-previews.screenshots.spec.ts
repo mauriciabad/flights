@@ -48,7 +48,7 @@ const VIEWPORTS = [
 
 const SCHEMES = ['dark', 'light'] as const;
 
-async function openResults(page: Page): Promise<void> {
+async function openResults(page: Page, toLoc = 'FIXTURE end point@59.4370,24.7536'): Promise<void> {
 	await mockAllKeylessProviders(page.context());
 	await routeRyanairFlights(page.context(), BCN_VIE_TLL);
 	// The network guard blocks everything no mock answered, so real tiles need letting
@@ -66,7 +66,7 @@ async function openResults(page: Page): Promise<void> {
 		from: 'BCN',
 		to: 'TLL',
 		fromLoc: 'FIXTURE start point@41.3851,2.1734',
-		toLoc: 'FIXTURE end point@59.4370,24.7536'
+		toLoc
 	});
 	await page.goto(`/results/?${params}`);
 	await waitForSearchToSettle(page, { timeout: 20_000 });
@@ -81,7 +81,7 @@ for (const viewport of VIEWPORTS) {
 			await openResults(page);
 
 			const card = page.locator('.result-card').first();
-			await expect(card.locator('.flight-shape-picture .route-preview')).toBeVisible();
+			await expect(card.locator('.flight-shape .route-preview')).toBeVisible();
 			await card.screenshot({ path: `docs/screenshots/280-card-${viewport.name}-${scheme}.png` });
 
 			await openTimeline(page);
@@ -107,3 +107,27 @@ for (const viewport of VIEWPORTS) {
 		});
 	}
 }
+
+/**
+ * The one ground preview that has water in it, which is what proves the backdrop is
+ * deciding rather than always filling (issue #346).
+ *
+ * Every other picture in this file is a fill: `land.ts` will not draw a coast into a
+ * window narrower than twelve times the outline's own measured placement error, and an
+ * airport-to-hotel hop is a 20 km window against 6.8 km of slack. Kuressaare is on
+ * Saaremaa, 180 km across the Baltic from Tallinn's airport, which is wide enough for the
+ * outline to be worth believing, so this one draws the sea between the two.
+ *
+ * It is here because a reviewer looking at a flat grey thumbnail cannot tell "the rule
+ * fired" from "the feature is broken", and one picture settles it.
+ */
+test('@screenshot ground preview across water', async ({ page }) => {
+	test.setTimeout(120_000);
+	await page.setViewportSize({ width: 1280, height: 1000 });
+	await openResults(page, 'FIXTURE island point@58.2528,22.4894');
+	await openTimeline(page);
+
+	const previews = page.locator('.result-detail .ground-legs-row');
+	await expect(previews.locator('.ground-leg')).toHaveCount(3);
+	await previews.screenshot({ path: 'docs/screenshots/346-ground-preview-across-water.png' });
+});

@@ -21,6 +21,19 @@
 	 * carries the measurement behind that; the short version is that four live MapLibre
 	 * instances per card walks a five-card results page into Chromium's sixteen-context
 	 * ceiling and blanks the first card.
+	 *
+	 * ## Why these three look no different inland after #346
+	 *
+	 * #346 put land and sea under every preview, and for most of these thumbnails the
+	 * answer is "all land", which is the grey they already had. That is not the feature
+	 * failing to arrive. A ground leg is an airport-to-hotel hop of a few kilometres, and
+	 * `land.ts` will not draw a coast into a window finer than the outline it ships can
+	 * place one in; it fills the box as land instead, which for a taxi ride between two
+	 * places a traveller stands is not a guess. What changed is that an island small
+	 * enough to fit in the window, or a long transfer down a coast, now shows the water.
+	 *
+	 * The alternative was a coastline fine enough for a 20 km window, measured at 218 kB
+	 * gzipped, on an app with no backend.
 	 */
 	import Icon from './Icon.svelte';
 	import RouteMapDialog from './RouteMapDialog.svelte';
