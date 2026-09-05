@@ -47,16 +47,36 @@
 	 * `tabindex` and arrow keys inside it: without that, a page of twenty cards would be
 	 * two hundred tab stops.
 	 *
-	 * Hover is not the only input, and this app is read on a phone. Hover opens after
-	 * 100ms so the strip does not flicker as a pointer crosses it and closes after a 150ms
-	 * grace; focus opens with no delay and blur closes; a tap opens and pins, and a second
-	 * tap on the same target closes. Escape and a click outside come free from
-	 * `popover="auto"`, as does closing card one's panel when card two's opens.
+	 * Hover opens after 100ms so the strip does not flicker as a pointer crosses it and
+	 * closes after a 150ms grace; keyboard focus opens with no delay and blur closes.
+	 * Escape and a click outside come free from `popover="auto"`, as does closing card
+	 * one's panel when card two's opens.
+	 *
+	 * ## Issue #278: it became a selector, and the preview became the expander
+	 *
+	 * Activating a cell hands its segment to the customise rail (a column beside the
+	 * results list on a wide screen, a sheet at the foot of a phone), which is where every
+	 * picker moved to. That rail's header prints this stub's own eyebrow, title, clocks
+	 * and duration from the same `segment-stub.ts` model, so a tap shows strictly more
+	 * than the pinned panel it replaced; what it no longer does is leave a popover over
+	 * the strip, which on a phone would sit on top of the sheet the tap just opened.
+	 *
+	 * Selection deliberately does NOT follow focus. Arrow keys walk the strip previewing
+	 * each segment, and Enter or Space is what moves the rail. W3C's APG names the reason:
+	 * selection following focus is "devastating" when displaying a new panel is not
+	 * instantaneous, and this panel mounts a stay list, a flight radiogroup or a transport
+	 * radiogroup.
+	 *
+	 * The stopover caption is now the control that unfolds the full timeline, because the
+	 * thing being unfolded is this preview and "1 night in Vienna" is the honest name for
+	 * the trip it opens. It costs the card no row: the control it replaced was a 54px band
+	 * under a dashed rule.
 	 */
 	import type { Airport, Itinerary } from '$lib/domain';
 	import { formatClockTime, formatDuration, formatLongDuration, formatWeekday, formatWeekdayLong } from '$lib/format';
+	import type { ItinerarySegmentId } from '$lib/itinerary-map/segment-id';
 	import { segmentStub, stripTargets } from './segment-stub';
-	import { tripStrip } from './trip-strip';
+	import { segmentIdOf, tripStrip } from './trip-strip';
 	import type { TripStripFreeSegment, TripStripTransferSegment } from './trip-strip';
 	import AirlineLogo from './AirlineLogo.svelte';
 	import SegmentStub from './SegmentStub.svelte';
@@ -75,9 +95,35 @@
 		connectionAirport?: Airport;
 		/** Colour-only quieting for an itinerary on an avoided airline. */
 		deprioritized?: boolean;
+		/**
+		 * Issue #278: which stretch of the trip the customise rail is showing, in the
+		 * vocabulary `ItineraryMap` and `ItineraryTimeline` already share. Read only. The
+		 * strip never owns the selection, because the rail shows one segment of one card
+		 * and the page is the only thing that can know which.
+		 */
+		selectedSegmentId?: ItinerarySegmentId | null;
+		/** Activating a segment. Absent on a strip with nowhere to put a selection, which
+		 * makes the cells hover-and-focus previews and nothing more. */
+		onSelectSegment?: (segment: ItinerarySegmentId) => void;
+		/** Whether the full timeline is unfolded under this strip. */
+		expanded?: boolean;
+		onToggleExpanded?: () => void;
+		/** `id` of the element the caption button unfolds, for `aria-controls`. */
+		controlsId?: string;
 	}
 
-	let { itinerary, connectionLabel, connectionCode, connectionAirport, deprioritized = false }: Props = $props();
+	let {
+		itinerary,
+		connectionLabel,
+		connectionCode,
+		connectionAirport,
+		deprioritized = false,
+		selectedSegmentId = null,
+		onSelectSegment,
+		expanded = false,
+		onToggleExpanded,
+		controlsId
+	}: Props = $props();
 
 	const strip = $derived(tripStrip(itinerary));
 	const stopoverCode = $derived(connectionCode ?? itinerary.outboundFlight.arrivalAirport);
@@ -150,6 +196,10 @@
 	});
 
 	const targets = $derived(stripTargets(strip.segments));
+	// Each target's stretch of the trip, in the shared vocabulary. A stopover target
+	// covers a run of day cells and they all answer `free-time`, which is the same row the
+	// timeline selects and the same key the stay picker has always been filed under.
+	const targetSegments = $derived(targets.map((target) => segmentIdOf(strip, target.from)));
 	const stubContext = $derived({
 		itinerary,
 		connectionLabel: stopoverName,
@@ -161,10 +211,15 @@
 
 	const panelId = $props.id();
 
-	/** How the panel that is up got there. A hover must not close a panel a tap pinned,
-	 * and a blur must not close one a hover is still over, so the opening gesture is state
-	 * rather than three booleans that can disagree. */
-	type OpenedBy = 'hover' | 'focus' | 'tap';
+	/** How the panel that is up got there. A blur must not close one a hover is still
+	 * over, so the opening gesture is state rather than two booleans that can disagree.
+	 *
+	 * Issue #278 removed the third value, `tap`. A tap now selects the segment, and the
+	 * customise rail it opens carries this panel's own facts in its header, built from the
+	 * same `segment-stub.ts` model. So the stub is the hover and keyboard preview and
+	 * nothing pins it, which also means there is no pinned panel left to suppress the
+	 * light-dismiss for. */
+	type OpenedBy = 'hover' | 'focus';
 
 	/** Long enough that a pointer crossing the strip does not flash four panels. */
 	const OPEN_DELAY = 100;
@@ -181,12 +236,17 @@
 
 	let openTimer: ReturnType<typeof setTimeout> | undefined;
 	let closeTimer: ReturnType<typeof setTimeout> | undefined;
-	// The browser light-dismisses an auto popover on pointerup, before our own click
-	// handler runs. A pointer that went down on a hit target is a toggle, and the click
-	// handler is what decides whether it opens or closes; treating that pointerup as a
-	// dismissal would close and immediately reopen, which reads as a flash.
-	let gestureOnHit = false;
-	let pointerSnapshot: { index: number | null; by: OpenedBy | null } | null = null;
+	/** True for the length of one pointer gesture on a hit target. Plain bookkeeping: the
+	 * focus handler reads it, nothing renders from it. Cleared in a macrotask, which lands
+	 * after the focus and the click the same press dispatches. */
+	let focusFromPointer = false;
+
+	function onHitPointerDown() {
+		focusFromPointer = true;
+		setTimeout(() => {
+			focusFromPointer = false;
+		}, 0);
+	}
 
 	const lastTarget = $derived(Math.max(0, targets.length - 1));
 	const panelIndex = $derived(Math.min(activeIndex ?? shownIndex, lastTarget));
@@ -221,7 +281,6 @@
 		// Letting it also open by hover would make the click read as a second tap.
 		if (event.pointerType !== 'mouse') return;
 		clearTimeout(closeTimer);
-		if (openedBy === 'tap') return;
 		if (activeIndex !== null) {
 			open(index, 'hover');
 			return;
@@ -244,36 +303,37 @@
 		}, CLOSE_GRACE);
 	}
 
-	function onHitPointerDown() {
-		gestureOnHit = true;
-		pointerSnapshot = { index: activeIndex, by: openedBy };
+	/**
+	 * Issue #278. Activating a segment hands it to the customise rail, and closes the
+	 * hover preview: on a phone the rail is a sheet at the foot of the screen and a
+	 * popover left up over the strip would sit on top of it. The rail's header prints
+	 * this segment's eyebrow, title, both clock readings and its duration from the same
+	 * `segment-stub.ts` model the panel uses, so nothing a tap used to show is lost.
+	 *
+	 * A second activation of the same segment clears the selection, which is how a
+	 * traveller closes the rail from the strip rather than hunting for the close button.
+	 */
+	function onHitActivate(index: number) {
+		const segment = targetSegments[index];
+		if (segment) onSelectSegment?.(segment);
+		close();
 	}
 
-	/** A pointer that went down on a hit and never produced a click, a drag off the strip,
-	 * must not leave the dismissal suppressed. The click, when there is one, is dispatched
-	 * in the same task as the pointerup, so a zero-delay timeout lands after it. */
-	function onHitPointerUp() {
-		setTimeout(() => {
-			gestureOnHit = false;
-		}, 0);
-	}
-
-	function onHitActivate(index: number, event: MouseEvent) {
-		// `detail === 0` is Enter or Space on the focused button, which has no pointerdown
-		// before it and so no snapshot; the live state is the right thing to compare.
-		const before = event.detail === 0 ? { index: activeIndex, by: openedBy } : (pointerSnapshot ?? { index: activeIndex, by: openedBy });
-		pointerSnapshot = null;
-		gestureOnHit = false;
-		if (before.index === index && before.by === 'tap') {
-			close();
-			return;
-		}
-		open(index, 'tap');
-	}
-
+	/**
+	 * A click focuses the button it lands on, and on a touch screen that focus is the only
+	 * thing that fires before the click. Opening the preview on every focus would put a
+	 * popover over the sheet the same tap opens, so a focus that arrives mid-gesture opens
+	 * nothing and the keyboard's own focus still does.
+	 *
+	 * Deliberately a flag rather than `matches(':focus-visible')`. That pseudo-class is a
+	 * browser heuristic about the last input a person used, and it does not apply to a
+	 * programmatic `element.focus()` with no keyboard interaction before it, which is
+	 * exactly what a test driver does. The behaviour under test would then depend on how
+	 * the test reached the button.
+	 */
 	function onHitFocus(index: number) {
 		focusIndex = index;
-		if (openedBy === 'tap') return;
+		if (focusFromPointer) return;
 		open(index, 'focus');
 	}
 
@@ -295,7 +355,6 @@
 	}
 
 	function onDismiss() {
-		if (gestureOnHit) return;
 		close();
 	}
 
@@ -352,18 +411,20 @@
 			<button
 				bind:this={hits[index]}
 				type="button"
-				class={['trip-strip-hit', `trip-strip-hit-${target.kind}`, { 'is-active': activeIndex === index }]}
+				class={[
+					'trip-strip-hit',
+					`trip-strip-hit-${target.kind}`,
+					{ 'is-active': activeIndex === index, 'is-selected': targetSegments[index] === selectedSegmentId }
+				]}
 				style:grid-column={`${target.from + 1} / ${target.to + 2}`}
 				tabindex={index === rovingIndex ? 0 : -1}
 				aria-label={stubs[index]?.label}
-				aria-expanded={activeIndex === index}
+				aria-pressed={targetSegments[index] === selectedSegmentId}
 				aria-describedby={activeIndex === index ? panelId : undefined}
 				onpointerenter={(event) => onHitEnter(index, event)}
 				onpointerleave={onHitLeave}
 				onpointerdown={onHitPointerDown}
-				onpointerup={onHitPointerUp}
-				onpointercancel={onHitPointerUp}
-				onclick={(event) => onHitActivate(index, event)}
+				onclick={() => onHitActivate(index)}
 				onfocus={() => onHitFocus(index)}
 				onblur={onHitBlur}
 				onkeydown={(event) => onHitKeydown(event, index)}
@@ -388,15 +449,49 @@
 
 	<p class="trip-strip-captions">
 		<span class="trip-strip-caption font-mono tabular-nums">{formatDuration(itinerary.outboundFlight.duration)}</span>
-		<span class="trip-strip-caption trip-strip-caption-mid">
-			{#if nights > 0}
-				<strong class="trip-strip-nights font-mono tabular-nums">{nights}</strong>
-				{nights === 1 ? 'night' : 'nights'} in {stopoverName}
-			{:else}
-				<strong class="trip-strip-nights font-mono tabular-nums">{formatLongDuration(itinerary.freeTime.duration)}</strong>
-				in {stopoverName}
-			{/if}
-		</span>
+		<!-- Issue #278: the preview is what unfolds, so the control lives on the preview and
+		     on its loudest line. The nights ARE the trip this app is selling, so "1 night in
+		     Vienna" is both the caption a reader wants and the honest label for "show me
+		     this trip in full". It costs the card no row of its own, which is the point: the
+		     control it replaced was a 54px band with a dashed rule above it.
+
+		     The visible words come first in the accessible name and the rest is appended
+		     out of sight, which is what WCAG 2.5.3 asks for; an `aria-label` starting with
+		     "Show the full timeline" would have put the spoken name and the printed one in
+		     different orders. -->
+		{#if onToggleExpanded}
+			<button
+				type="button"
+				class="trip-strip-caption trip-strip-caption-mid trip-strip-unfold"
+				aria-expanded={expanded}
+				aria-controls={controlsId}
+				onclick={() => onToggleExpanded?.()}
+			>
+				<span class="trip-strip-unfold-text">
+					{#if nights > 0}
+						<strong class="trip-strip-nights font-mono tabular-nums">{nights}</strong>
+						{nights === 1 ? 'night' : 'nights'} in {stopoverName}
+					{:else}
+						<strong class="trip-strip-nights font-mono tabular-nums">{formatLongDuration(itinerary.freeTime.duration)}</strong>
+						in {stopoverName}
+					{/if}
+					<span class="visually-hidden">, {expanded ? 'hide' : 'show'} the full timeline</span>
+				</span>
+				<svg class={['trip-strip-chevron', { 'is-open': expanded }]} viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+					<path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
+				</svg>
+			</button>
+		{:else}
+			<span class="trip-strip-caption trip-strip-caption-mid">
+				{#if nights > 0}
+					<strong class="trip-strip-nights font-mono tabular-nums">{nights}</strong>
+					{nights === 1 ? 'night' : 'nights'} in {stopoverName}
+				{:else}
+					<strong class="trip-strip-nights font-mono tabular-nums">{formatLongDuration(itinerary.freeTime.duration)}</strong>
+					in {stopoverName}
+				{/if}
+			</span>
+		{/if}
 		<span class="trip-strip-caption trip-strip-caption-end font-mono tabular-nums">
 			{formatDuration(itinerary.onwardFlight.duration)}
 			<span class="trip-strip-scale" title={scaleNote}>√ scale</span>
@@ -526,14 +621,96 @@
 		z-index: 1;
 	}
 
-	/* One ring for hover, focus and tap, so there is one thing to learn. Accent gold on
-	   every card including an avoided-airline one: it is an interaction colour, not a
-	   content colour. Nothing else on the strip changes, because dimming the neighbours
-	   would remove the comparison the strip exists for. */
+	/* One ring for hover and focus, so there is one thing to learn. Accent gold on every
+	   card including an avoided-airline one: it is an interaction colour, not a content
+	   colour. Nothing else on the strip changes, because dimming the neighbours would
+	   remove the comparison the strip exists for. */
 	.trip-strip-hit.is-active,
 	.trip-strip-hit:focus-visible {
 		outline: 2px solid var(--color-focus-ring);
 		outline-offset: 1px;
+	}
+
+	/* Selected is a ring INSIDE the cell, where the transient ones sit outside it. That is
+	   deliberate: focus and selection are different facts, a keyboard user has both at
+	   once while arrowing along a selected strip, and a design that drew them the same way
+	   would leave that reader unable to tell which segment the rail is showing. Drawn with
+	   `box-shadow` rather than `outline` so both can be on one element at one time. */
+	.trip-strip-hit.is-selected {
+		box-shadow: inset 0 0 0 2px var(--color-accent);
+		border-radius: var(--radius-sm);
+	}
+
+	/* The unfold control: the stopover caption, with a chevron. Styled from the caption it
+	   replaces so the row reads as text with an affordance rather than as a button bar. */
+	.trip-strip-unfold {
+		position: relative;
+		display: inline-flex;
+		align-items: baseline;
+		justify-content: center;
+		gap: var(--space-1);
+		min-width: 0;
+		padding: 0;
+		border: 0;
+		background: none;
+		font: inherit;
+		cursor: pointer;
+		transition: color var(--transition-fast);
+	}
+
+	/* 36px of target out of a 16px line, extended downward into the card's own gap so the
+	   strip's height is untouched and the cells' 44px hit areas above are not overlapped.
+	   Above WCAG 2.5.8's 24px floor rather than 2.5.5's 44px ideal, for the same reason
+	   the cells accept a narrow target: the strip's contract is that its layout is time,
+	   and this control is over 100px wide, so the area is generous even where the height
+	   is not. */
+	.trip-strip-unfold::before {
+		content: '';
+		position: absolute;
+		top: -0.5rem;
+		right: -0.25rem;
+		bottom: -0.75rem;
+		left: -0.25rem;
+	}
+
+	.trip-strip-unfold:hover {
+		color: var(--color-accent);
+	}
+
+	.trip-strip-unfold:focus-visible {
+		outline: 2px solid var(--color-focus-ring);
+		outline-offset: 3px;
+		border-radius: var(--radius-sm);
+	}
+
+	.trip-strip-unfold-text {
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	/* The one mark on this row that says "this does something". The words stay teal because
+	   teal is what the stopover is, and the chevron takes the accent because accent is what
+	   is interactive everywhere else in this app. Without it the control reads as a caption:
+	   a phone has no hover to discover it with, and colour alone would be the only signal. */
+	.trip-strip-chevron {
+		width: 0.85rem;
+		height: 0.85rem;
+		flex-shrink: 0;
+		align-self: center;
+		color: var(--color-accent);
+		transition:
+			transform var(--transition-fast),
+			color var(--transition-fast);
+	}
+
+	.trip-strip-unfold:hover .trip-strip-chevron {
+		color: var(--color-accent-hover);
+	}
+
+	.trip-strip-chevron.is-open {
+		transform: rotate(180deg);
 	}
 
 	/* Hidden until the cell is wide enough to hold it; a clipped mark or a clipped
@@ -622,6 +799,12 @@
 	.is-quiet .trip-strip-caption-mid,
 	.is-quiet .trip-strip-stamp-day {
 		color: var(--color-text-deprioritized);
+	}
+
+	/* The hover colour is an interaction colour, so it stays accent gold even here; what
+	   steps back is the resting state, which the rule above already handles. */
+	.is-quiet .trip-strip-unfold:hover {
+		color: var(--color-accent);
 	}
 
 	.is-quiet .trip-strip-cell-flight {

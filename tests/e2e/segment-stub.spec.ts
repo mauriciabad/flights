@@ -151,33 +151,95 @@ test.describe('the segment stub (issue #227)', () => {
 	});
 });
 
-/** The screen this app is actually read on, and the input `title=` never had. */
-test.describe('the segment stub on a phone', () => {
+/**
+ * The screen this app is actually read on, and the input `title=` never had.
+ *
+ * Issue #278 changed where a tap lands. It used to pin this popover; it now hands the
+ * segment to the customise sheet, which prints the same eyebrow, title, clocks and
+ * duration from the same `segment-stub.ts` model and adds the controls for that segment.
+ * A phone has no hover, so a tap was the only way to glance at a segment and it still is;
+ * what it opens is bigger than what it opened before.
+ *
+ * The popover itself is untouched for the two inputs that still use it, hover and keyboard
+ * focus, and every assertion above this line is unchanged.
+ */
+test.describe('tapping a segment on a phone', () => {
 	test.use({ viewport: { width: 375, height: 812 }, hasTouch: true, isMobile: true });
 
-	test('a thumb opens it with one tap and closes it with a second', async ({ page }) => {
+	test('a thumb opens the segment in the sheet, and a second tap closes it', async ({ page }) => {
 		const card = await openResults(page);
-		const panel = card.getByRole('tooltip');
+		const sheet = page.locator('.customise-sheet');
 		const flight = card.locator('.trip-strip-hit-flight').first();
 
 		await flight.tap();
-		await expect(panel).toBeVisible();
+		await expect(sheet).toBeVisible();
+		await expect(sheet.getByTestId('segment-customiser')).toHaveAttribute(
+			'data-segment',
+			'outbound-flight'
+		);
+
+		// No popover on top of the sheet. A tap focuses the button it lands on, and opening
+		// the preview on every focus would put one there; `:focus-visible` is what keeps the
+		// preview on the keyboard and the pointer's hover.
+		await expect(card.getByRole('tooltip')).toBeHidden();
 
 		await flight.tap();
-		await expect(panel).toBeHidden();
+		await expect(sheet).toBeHidden();
 	});
 
-	test('a tapped stopover panel stays up and fits inside a 375px screen', async ({ page }) => {
+	test('the sheet carries the stub\'s own words, and never covers the segment it describes', async ({
+		page
+	}) => {
 		const card = await openResults(page);
-		const panel = card.getByRole('tooltip');
+		const sheet = page.locator('.customise-sheet');
+		const strip = card.locator('.card-strip');
 
 		await card.locator('.trip-strip-hit-stopover').tap();
-		await expect(panel).toBeVisible();
-		await expect(panel).toContainText('STOPOVER');
+		await expect(sheet).toBeVisible();
+		// Straight from `segmentStubFor`, which is the same call the popover makes.
+		await expect(sheet).toContainText('STOPOVER');
 
-		const box = (await panel.boundingBox())!;
-		expect(box.x).toBeGreaterThanOrEqual(0);
-		expect(box.x + box.width).toBeLessThanOrEqual(375);
+		const sheetBox = (await sheet.boundingBox())!;
+		expect(sheetBox.x).toBeGreaterThanOrEqual(0);
+		expect(sheetBox.x + sheetBox.width).toBeLessThanOrEqual(375);
+
+		// Geometry, not semantics. A reader who taps a 3px transfer seam and gets a panel
+		// sitting on top of it has lost the context that made the tap mean something, and a
+		// panel that is merely present in the DOM proves nothing about that.
+		//
+		// Polled because the card scrolls the strip clear of the sheet, and that scroll is
+		// smooth: the assertion is about where this comes to rest, not about the frame the
+		// sheet appeared in.
+		await expect
+			.poll(
+				async () => {
+					const box = (await strip.boundingBox())!;
+					return box.y + box.height;
+				},
+				{ message: 'the trip strip is behind the sheet, so the segment that was tapped is not on screen' }
+			)
+			.toBeLessThanOrEqual(sheetBox.y);
+	});
+
+	test('the sheet closes on Escape, on its close button, and on a tap outside it', async ({ page }) => {
+		const card = await openResults(page);
+		const sheet = page.locator('.customise-sheet');
+		const flight = card.locator('.trip-strip-hit-flight').first();
+
+		await flight.tap();
+		await expect(sheet).toBeVisible();
+		await page.keyboard.press('Escape');
+		await expect(sheet).toBeHidden();
+
+		await flight.tap();
+		await expect(sheet).toBeVisible();
+		await sheet.getByRole('button', { name: 'Close' }).tap();
+		await expect(sheet).toBeHidden();
+
+		await flight.tap();
+		await expect(sheet).toBeVisible();
+		await page.locator('.results-subhead').tap();
+		await expect(sheet).toBeHidden();
 	});
 });
 

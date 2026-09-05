@@ -1,6 +1,7 @@
 import { test, expect, type Page } from './support/fixtures';
 import { FIXTURE_FLIGHT_NUMBERS, FIXTURE_PRICES } from './support/fixture-markers';
 import { mockAllKeylessProviders, routeRyanairFlights } from './support/providers';
+import { openTimeline } from './support/results-ui';
 
 /**
  * The pictures in `docs/screenshots/`, captured rather than described (issue #280).
@@ -82,7 +83,7 @@ for (const viewport of VIEWPORTS) {
 			await expect(card.locator('.flight-shape-picture .route-preview')).toBeVisible();
 			await card.screenshot({ path: `docs/screenshots/280-card-${viewport.name}-${scheme}.png` });
 
-			await page.getByRole('button', { name: 'Show details' }).first().click();
+			await openTimeline(page);
 			const previews = page.locator('.result-detail .ground-legs-row');
 			await expect(previews.locator('.ground-leg')).toHaveCount(3);
 			await previews.screenshot({

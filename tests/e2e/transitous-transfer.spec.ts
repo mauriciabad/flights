@@ -5,6 +5,7 @@ import {
 	mockHostelworld,
 	routeRyanairFlights
 } from './support/providers';
+import { openTimeline } from './support/results-ui';
 
 /**
  * Issue #242. Until this file, nothing anywhere asserted a Transitous transfer: not that
@@ -72,7 +73,7 @@ test.describe('a Transitous timetable reaches the timeline (issue #242)', () => 
 		await expect(card).toBeVisible();
 		await expect(card).toContainText('VIE');
 
-		await page.getByRole('button', { name: 'Show details' }).first().click();
+		await openTimeline(page);
 		const timeline = page.locator('.result-detail .itinerary-timeline');
 		await expect(timeline).toBeVisible();
 

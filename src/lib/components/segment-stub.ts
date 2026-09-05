@@ -59,7 +59,9 @@ import {
 import { formatDistanceKm, haversineDistanceKm } from '$lib/stays/distance';
 import { staleScheduleFact, transferDetailLine, transferFareNote } from './itinerary-timeline-format';
 import { technicalStopDetail } from './technical-stop-note';
+import { segmentIdOf, tripStrip } from './trip-strip';
 import type { TripStripSegment, TripStripTransferSegment } from './trip-strip';
+import type { ItinerarySegmentId } from '$lib/itinerary-map/segment-id';
 
 /** The four things a strip can be asked about. `transport` rather than the segment's own
  * `transfer` because that is the word the owner uses and the word the panel prints; the
@@ -286,7 +288,7 @@ function waitStub(segment: Extract<TripStripSegment, { kind: 'wait' }>, context:
 		// AGENTS.md, on never presenting an estimate as a fact. This is the one part of the
 		// schedule the traveller set themselves, so the panel says whose number it is and
 		// where to change it instead of letting it read as a measured queue.
-		footnote: `Your own buffer, not a measured queue. ${formatDuration(segment.minutes)} is the setting for this airport, and Show details is where you change it.`,
+		footnote: `Your own buffer, not a measured queue. ${formatDuration(segment.minutes)} is the setting for this airport, and picking this wait is where you change it.`,
 		facts: [
 			{ label: 'Before', value: `${next.carrier.name} ${next.flightNumber} to ${to}, ${formatClockTime(next.departure)}` }
 		],
@@ -516,4 +518,22 @@ export function segmentStub(
 	if (first.kind === 'flight') return flightStub(first, context);
 	if (first.kind === 'wait') return waitStub(first, context);
 	return transportStub(first as TripStripTransferSegment, context);
+}
+
+/**
+ * The same panel, asked for by segment rather than by strip position.
+ *
+ * Issue #278's customise rail is handed an `ItinerarySegmentId` and has to say which part
+ * of the trip it is about before it offers to change it. It could have printed a title of
+ * its own; it reads this instead, so the sentence over the picker and the sentence in the
+ * strip's own preview are one sentence, decided once, with this module's tests behind it.
+ *
+ * `undefined` for the two segments the strip never draws. `origin-location` and
+ * `destination-location` are places rather than stretches of time, so they have a timeline
+ * row and no cell, and the rail falls back to its own heading for them.
+ */
+export function segmentStubFor(segment: ItinerarySegmentId, context: StubContext): SegmentStub | undefined {
+	const strip = tripStrip(context.itinerary);
+	const target = stripTargets(strip.segments).find((candidate) => segmentIdOf(strip, candidate.from) === segment);
+	return target ? segmentStub(strip.segments, target, context) : undefined;
 }

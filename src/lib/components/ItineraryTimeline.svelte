@@ -87,6 +87,7 @@
 	import type { ModeIconKind } from './ModeIcon.svelte';
 	import MetricRail from './MetricRail.svelte';
 	import TimeCell from './TimeCell.svelte';
+	import WaitingTimeStepper from './WaitingTimeStepper.svelte';
 
 	interface Props {
 		/** Bindable, because the waiting-time stepper in the rows below edits it (issue
@@ -202,42 +203,16 @@
 		(itinerary.connectionWaitingTime + itinerary.freeTime.duration) as Duration
 	);
 
-	function clamp(value: number, min: number, max: number): number {
-		return Math.min(Math.max(value, min), max);
+	// `WaitingTimeStepper` clamps to the `max` it is handed and never emits a value outside
+	// it, so these take the minutes as given. The ceiling still belongs here: the
+	// connection's is real domain arithmetic and the origin's is a sane bound, and neither
+	// is a fact the control could work out for itself.
+	function setOriginWaitingTime(minutes: number) {
+		editWaitingTimes({ originWaitingTime: minutes as Duration });
 	}
 
-	function adjustOriginWaitingTime(deltaMinutes: number) {
-		editWaitingTimes({
-			originWaitingTime: clamp(
-				itinerary.originWaitingTime + deltaMinutes,
-				0,
-				ORIGIN_WAITING_TIME_INPUT_MAX_MINUTES
-			) as Duration
-		});
-	}
-
-	function adjustConnectionWaitingTime(deltaMinutes: number) {
-		editWaitingTimes({
-			connectionWaitingTime: clamp(
-				itinerary.connectionWaitingTime + deltaMinutes,
-				0,
-				maxConnectionWaitingTime
-			) as Duration
-		});
-	}
-
-	function handleOriginWaitingTimeInput(event: Event & { currentTarget: HTMLInputElement }) {
-		const minutes = event.currentTarget.valueAsNumber;
-		if (!Number.isFinite(minutes)) return;
-		editWaitingTimes({
-			originWaitingTime: clamp(minutes, 0, ORIGIN_WAITING_TIME_INPUT_MAX_MINUTES) as Duration
-		});
-	}
-
-	function handleConnectionWaitingTimeInput(event: Event & { currentTarget: HTMLInputElement }) {
-		const minutes = event.currentTarget.valueAsNumber;
-		if (!Number.isFinite(minutes)) return;
-		editWaitingTimes({ connectionWaitingTime: clamp(minutes, 0, maxConnectionWaitingTime) as Duration });
+	function setConnectionWaitingTime(minutes: number) {
+		editWaitingTimes({ connectionWaitingTime: minutes as Duration });
 	}
 
 	// A second activation of the selected row clears the selection: that is how a traveller
@@ -542,8 +517,7 @@
 	code: string,
 	minutes: Duration,
 	segment: ItinerarySegmentId,
-	onAdjust: (delta: number) => void,
-	onInput: (event: Event & { currentTarget: HTMLInputElement }) => void,
+	onSet: (minutes: number) => void,
 	maxMinutes: number
 )}
 	{@const inputId = `${uid}-${segment}`}
@@ -570,38 +544,13 @@
 			     only editable thing in the whole timeline (brief lines 39 and 69), so it
 			     stays a real 44px target; what it stopped doing is claiming a third row of
 			     its own on every itinerary. -->
-			<div class="tl-waiting-editor">
-				<label class="visually-hidden" for={inputId}>Waiting time at {airportLabel}, in minutes</label>
-				<button
-					type="button"
-					class="tl-stepper-btn"
-					onclick={() => onAdjust(-15)}
-					disabled={minutes <= 0}
-					aria-label="Decrease waiting time by 15 minutes"
-				>
-					&minus;
-				</button>
-				<input
-					id={inputId}
-					type="number"
-					inputmode="numeric"
-					class="tl-stepper-input font-mono tabular-nums"
-					min="0"
-					max={maxMinutes}
-					step="5"
-					value={minutes}
-					oninput={onInput}
-				/>
-				<button
-					type="button"
-					class="tl-stepper-btn"
-					onclick={() => onAdjust(15)}
-					disabled={minutes >= maxMinutes}
-					aria-label="Increase waiting time by 15 minutes"
-				>
-					&plus;
-				</button>
-			</div>
+			<WaitingTimeStepper
+				label={`Waiting time at ${airportLabel}`}
+				{minutes}
+				max={maxMinutes}
+				{inputId}
+				onChange={onSet}
+			/>
 		</div>
 		<div class="tl-meta">
 			<span class="tl-duration font-mono tabular-nums">{formatDuration(minutes)}</span>
@@ -689,8 +638,7 @@
 		itinerary.originAirport.iataCode,
 		itinerary.originWaitingTime,
 		'origin-waiting',
-		adjustOriginWaitingTime,
-		handleOriginWaitingTimeInput,
+		setOriginWaitingTime,
 		ORIGIN_WAITING_TIME_INPUT_MAX_MINUTES
 	)}
 
@@ -790,8 +738,7 @@
 		itinerary.outboundFlight.arrivalAirport,
 		itinerary.connectionWaitingTime,
 		'connection-waiting',
-		adjustConnectionWaitingTime,
-		handleConnectionWaitingTimeInput,
+		setConnectionWaitingTime,
 		maxConnectionWaitingTime
 	)}
 
@@ -1167,68 +1114,6 @@
 		align-items: center;
 		justify-content: space-between;
 		gap: var(--space-3);
-	}
-
-	.tl-waiting-editor {
-		display: flex;
-		align-items: center;
-		gap: var(--space-1);
-	}
-
-	.tl-stepper-btn {
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		/* 44px square, matching Button.svelte's own md size: WCAG 2.5.5, and this app is
-		   meant to be used one-handed. The row around it is dense; the control inside it is
-		   not, which is the correct place to spend the pixels. Shrinking the height to
-		   36px did save two rows a few pixels each and it was the wrong trade. */
-		width: 2.75rem;
-		height: 2.75rem;
-		flex-shrink: 0;
-		border: 1px solid var(--color-border-strong);
-		border-radius: var(--radius-md);
-		background: var(--color-surface);
-		color: var(--color-text);
-		font-size: var(--font-size-lg);
-		line-height: 1;
-		transition:
-			background-color var(--transition-fast),
-			border-color var(--transition-fast);
-	}
-
-	.tl-stepper-btn:hover:not(:disabled) {
-		background: var(--color-surface-hover);
-		border-color: var(--color-accent);
-	}
-
-	/* Tactile press feedback, matching Button.svelte's own convention. Reduced-motion users
-	   still get the instant state change, just without the tween (handled globally in
-	   app.css, which sets every transition-duration to near-zero under that preference). */
-	.tl-stepper-btn:not(:disabled):active {
-		transform: translateY(1px);
-	}
-
-	.tl-stepper-btn:disabled {
-		opacity: 0.4;
-		cursor: not-allowed;
-	}
-
-	.tl-stepper-input {
-		width: 3.25rem;
-		height: 2.75rem;
-		padding: 0 var(--space-1);
-		border: 1px solid var(--color-border-strong);
-		border-radius: var(--radius-md);
-		background: var(--color-surface);
-		color: var(--color-text);
-		font-size: var(--font-size-sm);
-		text-align: center;
-	}
-
-	.tl-stepper-input:focus-visible {
-		border-color: var(--color-accent);
-		box-shadow: 0 0 0 3px var(--color-accent-muted);
 	}
 
 	/* ---------------------------------------------------------------------

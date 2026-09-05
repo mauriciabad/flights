@@ -13,9 +13,6 @@
 	 *   screen, with the three payments that make it: flights, bed at its nightly rate,
 	 *   ground with its ride count. "€273" alone is a number you have to open a panel to
 	 *   trust.
-	 * - **Staying longer** (`StopoverNights`). Every length this city's fares support, each
-	 *   priced against the number above it. It sits directly under that number because a
-	 *   delta printed anywhere else is a figure with no anchor on screen.
 	 * - **The trip strip** (`TripStrip`), roughly proportional to real time. The shape of
 	 *   the trip is the fastest thing on the card to read, and it carries the two figures
 	 *   that matter most (nights, and how long the stopover runs) in the place where they
@@ -25,8 +22,27 @@
 	 *   `CARD_METRIC_IDS`). The figures that decide whether a cheap itinerary is actually
 	 *   cheap. Airport waiting in particular is the cost nobody quotes. Free time is a day
 	 *   count since issue #228, "2 full days" rather than the "2d 15h" the owner called
-	 *   misleading; the edge times and the stay it buys are in the expanded panel, because
-	 *   seven lines times four cards is not a results screen.
+	 *   misleading; the edge times and the stay it buys are in the unfolded timeline,
+	 *   because seven lines times four cards is not a results screen.
+	 *
+	 * ## Issue #278: the card stopped being a thing you open
+	 *
+	 * There was a "Show details" button under a dashed rule, and everything worth doing
+	 * was behind it. The owner: **"the card does not need to be expandable like now. we now
+	 * have a nice timeline preview already in the card, so the other timeline that is
+	 * hidden barely adds any info. we can keep bot timelines, basically we make the preview
+	 * expandable."**
+	 *
+	 * So the strip is the thing that opens, from its own caption, and the full timeline
+	 * unfolds directly under the preview it belongs to. Two blocks left this file for the
+	 * customise rail: `StopoverNights`, the "staying longer" ladder, which is now part of
+	 * the stopover's own panel because how long you stay is a property of the stopover;
+	 * and the control row itself. That is 76px and 54px of a 646px phone card, plus the
+	 * gaps around them.
+	 *
+	 * `variantsLabel` went with them. "+2 more flight times through here" existed to
+	 * advertise what the button hid, and nothing hides them now: the timeline marks the
+	 * rows that have alternatives, and the flight picker in the rail lists them.
 	 *
 	 * The header's freshness badge renders only when its tone is not neutral. "Current
 	 * price" and "Priced 3m ago" said the same thing as the footer's "fetched 3m ago" one
@@ -45,26 +61,19 @@
 	 * `view-model.ts`, all pure and tested. This file arranges markup and picks classes; it
 	 * never recomputes a duration or a price.
 	 */
-	import {
-		AirlineLogo,
-		Card,
-		FlightDetour,
-		Flag,
-		MetricRail,
-		PriceLine,
-		StopoverNights,
-		TripStrip
-	} from '$lib/components';
+	import type { Snippet } from 'svelte';
+	import { AirlineLogo, Card, Flag, FlightDetour, MetricRail, PriceLine, TripStrip } from '$lib/components';
 	import { CARD_METRIC_IDS } from '$lib/components/itinerary-metrics';
 	import { buildItineraryMapModel } from '$lib/itinerary-map/segments';
 	import { buildFlightShape } from '$lib/itinerary-map/previews';
-	import type { Airport } from '$lib/domain';
+	import type { Airport, Itinerary } from '$lib/domain';
+	import type { ItinerarySegmentId } from '$lib/itinerary-map/segment-id';
 	import { formatAge } from '$lib/format';
 	import { oneAdultFlightsTotal, placeInBand } from '$lib/results/price-band';
 	import type { PriceHistory } from '$lib/results/price-band';
 	import { connectionAirportCode } from '$lib/results/types';
 	import type { ScoredResult } from '$lib/results/types';
-	import { describePriceFreshness, describeVariants } from '$lib/results/view-model';
+	import { describePriceFreshness } from '$lib/results/view-model';
 	import { technicalStopDetail, technicalStopLabel } from '$lib/components/technical-stop-note';
 	import PriceBand from './PriceBand.svelte';
 
@@ -79,27 +88,67 @@
 		 * browser has not seen enough of this route to say anything, which is the default
 		 * for a first-time visitor and is why nothing renders. */
 		priceBand?: PriceHistory;
-		/** Issue #104: whether the full timeline/map/pickers are open below this card. */
-		expanded?: boolean;
-		onToggleExpand?: () => void;
-		/** Issue #224: the traveller pressed + or - on the nights control. The page owns
-		 * which length each connection is showing, so the whole card (price, strip, metrics)
-		 * re-derives from one place rather than this component keeping a private copy that
-		 * the next snapshot would overwrite. */
-		onNightsChange?: (nights: number) => void;
+		/**
+		 * Issue #278: the trip on screen. Usually `result.itinerary` straight from the
+		 * stream, and the traveller's own edited copy once they have changed something in
+		 * the customise rail. It arrives as a prop rather than being read off `result`
+		 * because the rail is a sibling of this card, not a child of it, and the page is
+		 * the one thing that can hold a trip both of them read. Two components deriving
+		 * their own copy of one trip is what #243, #250, #264, #265 and #266 all were.
+		 */
+		itinerary: Itinerary;
+		/** Which stretch of this trip the customise rail is showing, or `null` when the
+		 * rail is showing another card or nothing. */
+		selectedSegmentId?: ItinerarySegmentId | null;
+		onSelectSegment?: (segment: ItinerarySegmentId) => void;
+		/** Whether the full timeline is unfolded under the strip. */
+		timelineOpen?: boolean;
+		onToggleTimeline?: () => void;
+		/** The full timeline, map and stopover block. Rendered by the page so this card does
+		 * not have to know what any of them need. */
+		timeline?: Snippet;
 	}
 
 	let {
 		result,
+		itinerary,
 		connectionAirport,
 		priceBand,
-		expanded = false,
-		onToggleExpand,
-		onNightsChange
+		selectedSegmentId = null,
+		onSelectSegment,
+		timelineOpen = false,
+		onToggleTimeline,
+		timeline
 	}: Props = $props();
 
-	const itinerary = $derived(result.itinerary);
+	const timelineId = $props.id();
+
 	const connectionCode = $derived(connectionAirportCode(itinerary));
+
+	/**
+	 * Issue #278: on a phone the customise panel is a sheet at the foot of the screen, and a
+	 * reader who taps a 3px transfer seam and gets a panel sitting on top of it has lost the
+	 * context that made the tap mean anything.
+	 *
+	 * `scroll-margin-bottom` below inflates this block's box by the sheet's own height for
+	 * scrolling purposes only, so `block: 'nearest'` lands the strip above the sheet rather
+	 * than merely inside the viewport. On a wide screen the margin is zero and this call is a
+	 * no-op for a strip already on screen.
+	 *
+	 * An effect rather than a handler because the selection arrives as a prop: it can be set
+	 * from the timeline or the map as well as from the strip. It reads props and calls a DOM
+	 * method, and writes no state, so it cannot retrigger itself (AGENTS.md, the `$effect`
+	 * trap).
+	 */
+	let stripEl = $state<HTMLElement>();
+	$effect(() => {
+		if (!selectedSegmentId || !stripEl) return;
+		// `scrollIntoView` takes no notice of `prefers-reduced-motion` on its own, unlike the
+		// CSS transitions app.css already flattens for it. A reader who has asked for less
+		// motion gets the same final position without the travel.
+		const still = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+		stripEl.scrollIntoView({ block: 'nearest', behavior: still ? 'auto' : 'smooth' });
+	});
 
 	/**
 	 * Issue #280's flight ornament: the two arcs actually flown against the shortest line
@@ -157,7 +206,6 @@
 	// country he would be spending two nights in. Undefined until the airport record
 	// resolves, which is the same reason `connectionLabel` falls back to the bare code.
 	const connectionCountry = $derived(connectionAirport?.country.name);
-	const variantsLabel = $derived(describeVariants(result));
 
 	// Provenance: distinct provider labels behind this price, and the OLDEST of their
 	// fetch times, the same "oldest part wins" reasoning `types.ts`'s freshness
@@ -281,20 +329,23 @@
 			/>
 		{/if}
 
-		<!-- Issue #225: "Staying longer", directly under the number it is measured against,
-		     because a delta printed anywhere else is a figure with no anchor on screen. It
-		     used to be a stepper down in the controls row; the owner asked to see every
-		     length's price at once, which a stepper cannot do without being pressed. -->
-		<StopoverNights
-			itinerary={result.itinerary}
-			options={result.stopover.options}
-			isFlightChange={result.stopover.isFlightChange}
-			{connectionLabel}
-			deprioritized={isDeprioritized}
-			{onNightsChange}
-		/>
-
-		<TripStrip {itinerary} {connectionCode} {connectionLabel} {connectionAirport} deprioritized={isDeprioritized} />
+		<!-- Issue #278: the preview is the expander. Its stopover caption carries the
+		     control, so the affordance sits on the thing that opens and the card spends no
+		     row on a button of its own. -->
+		<div class="card-strip" bind:this={stripEl}>
+			<TripStrip
+				{itinerary}
+				{connectionCode}
+				{connectionLabel}
+				{connectionAirport}
+				deprioritized={isDeprioritized}
+				{selectedSegmentId}
+				{onSelectSegment}
+				expanded={timelineOpen}
+				onToggleExpanded={onToggleTimeline}
+				controlsId={timelineId}
+			/>
+		</div>
 
 		<!-- Issue #280. Beside the strip on purpose: the strip is the trip's shape in time,
 		     this is its shape in space, and the two questions a person asks about a
@@ -305,40 +356,16 @@
 			<FlightDetour shape={flightShape} />
 		{/if}
 
-		<MetricRail {itinerary} ids={CARD_METRIC_IDS} />
+		<!-- Under the two previews rather than below the totals, because the brief's own
+		     words are that the preview opens into the full timeline. It sits after #280's
+		     detour rather than between it and the strip: those two are one pair, the trip's
+		     shape in time beside its shape in space, and unfolding a timeline between them
+		     would separate a comparison somebody built on purpose. -->
+		{#if timelineOpen && timeline}
+			<div id={timelineId}>{@render timeline()}</div>
+		{/if}
 
-		<!-- Issue #104: "open the full trip." A plain controlled button. `aria-expanded`
-		     comes straight from a prop, never a locally-owned copy, so an external change
-		     is never stuck out of sync with what this card renders. That is the exact bug
-		     FilterPanel.svelte's own Chip usage documents as the failure mode of a
-		     `$bindable` prop nobody binds. -->
-		<div class="card-controls">
-			{#if variantsLabel}
-				<!-- Brief line 67's "+2 more flight times through here". Beside the button
-				     that opens the picker able to swap them, not inside it: a button's label
-				     is its accessible name, and "Show details +2 more flight times through
-				     here" is not a name. -->
-				<span class="variants">{variantsLabel}</span>
-			{/if}
-			<button type="button" class="details-toggle" aria-expanded={expanded} onclick={() => onToggleExpand?.()}>
-				<span class="details-toggle-label">{expanded ? 'Hide details' : 'Show details'}</span>
-				<svg
-					class={['details-chevron', { 'is-open': expanded }]}
-					viewBox="0 0 16 16"
-					aria-hidden="true"
-					focusable="false"
-				>
-					<path
-						d="M4 6l4 4 4-4"
-						fill="none"
-						stroke="currentColor"
-						stroke-width="1.5"
-						stroke-linecap="round"
-						stroke-linejoin="round"
-					/>
-				</svg>
-			</button>
-		</div>
+		<MetricRail {itinerary} ids={CARD_METRIC_IDS} />
 	</div>
 
 	{#snippet footer()}
@@ -497,64 +524,19 @@
 		background: var(--color-warning-bg);
 	}
 
+	/* A plain box around the strip, purely so there is something to scroll to and something
+	   to hang a scroll margin on. It changes no geometry: the strip is a flex column and
+	   this wrapper is a block of exactly its height. NOT `display: contents`, which would
+	   leave it with no box and make `scrollIntoView` a no-op. */
+	.card-strip {
+		min-width: 0;
+	}
+
 	.card-main {
 		display: flex;
 		flex-direction: column;
 		gap: var(--space-4);
 		padding: var(--space-4) var(--space-5);
-	}
-
-	/* The ticket's tear line, reused for the row of controls below the boarding-pass
-	   content rather than inventing a new divider treatment. */
-	.card-controls {
-		display: flex;
-		flex-wrap: wrap;
-		align-items: center;
-		justify-content: flex-end;
-		gap: var(--space-2) var(--space-3);
-		padding-top: var(--space-3);
-		border-top: 2px dashed var(--color-border-strong);
-	}
-
-	.details-toggle {
-		display: flex;
-		align-items: center;
-		gap: var(--space-2);
-		min-height: 2.75rem;
-		padding: 0 var(--space-2);
-		border-radius: var(--radius-md);
-		font-size: var(--font-size-sm);
-		font-weight: var(--font-weight-medium);
-		color: var(--color-accent);
-		transition: color var(--transition-fast);
-	}
-
-	.details-toggle:hover {
-		color: var(--color-accent-hover);
-	}
-
-	.details-toggle:focus-visible {
-		outline: 2px solid var(--color-focus-ring);
-		outline-offset: 2px;
-	}
-
-	.variants {
-		font-size: var(--font-size-xs);
-		color: var(--color-text-faint);
-	}
-
-	.details-toggle-label {
-		white-space: nowrap;
-	}
-
-	.details-chevron {
-		width: 0.9rem;
-		height: 0.9rem;
-		transition: transform var(--transition-fast);
-	}
-
-	.details-chevron.is-open {
-		transform: rotate(180deg);
 	}
 
 	/* One line, always. On a phone this footer spent three on "ZZ" and "via Ryanair (no
@@ -618,13 +600,25 @@
 	/* Desktop-sized padding and gaps were a third of what put the phone card over the
 	   620px it has under the header and tab bar; one card per screen means no comparing. */
 	@media (max-width: 34rem) {
+		/* The customise sheet's own ceiling (`min(50dvh, 26rem)` on the results page) plus a
+		   little air. `scrollIntoView({ block: 'nearest' })` treats this as part of the
+		   strip's box, so a selected segment scrolls clear of the sheet instead of sitting
+		   underneath it. */
+		.card-strip {
+			scroll-margin-bottom: calc(min(50dvh, 26rem) + var(--space-4));
+		}
+
 		.card-main {
 			padding: var(--space-3) var(--space-4);
 			gap: var(--space-3);
 		}
 
-		.card-controls {
-			padding-top: var(--space-2);
+		/* The customise sheet's own ceiling (`min(50dvh, 26rem)` on the results page) plus
+		   a little air. `scrollIntoView({ block: 'nearest' })` treats this as part of the
+		   strip's box, so a selected segment scrolls clear of the sheet instead of sitting
+		   underneath it. */
+		.card-strip {
+			scroll-margin-bottom: calc(min(50dvh, 26rem) + var(--space-4));
 		}
 
 		/* MetricRail's auto-fit grid seats three cells at this width, which leaves the

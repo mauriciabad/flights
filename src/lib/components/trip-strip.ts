@@ -53,6 +53,7 @@
  */
 
 import { addLocalMinutes } from '$lib/algorithm/build';
+import type { ItinerarySegmentId } from '$lib/itinerary-map/segment-id';
 import type {
 	Carrier,
 	FlightOffer,
@@ -395,3 +396,43 @@ export function tripStrip(itinerary: Itinerary): TripStrip {
 		scale: TRIP_STRIP_SCALE
 	};
 }
+
+/**
+ * Which stretch of the itinerary a strip segment stands for, in the vocabulary
+ * `ItineraryMap` and `ItineraryTimeline` already share (`itinerary-map/segment-id.ts`).
+ *
+ * Issue #278 gave the strip a selection, and a selection is only worth anything if the
+ * other two surfaces agree what was picked. They already agree with each other on eleven
+ * strings; this is the one translation the strip needed, and it is a translation rather
+ * than a second vocabulary because inventing a third set of names is how #243 and #250
+ * happened.
+ *
+ * A transfer knows its own leg. A flight and a wait do not, so both read their position
+ * against the two flight indices the strip already computes: everything before
+ * `outboundIndex` belongs to the origin, everything after it to the connection.
+ *
+ * Free time maps to `free-time`, which is what the timeline calls the stopover row and
+ * what `ResultDetail` has always keyed the stay picker on, so a run of day cells and the
+ * timeline's one stopover row select each other.
+ */
+export function segmentIdOf(strip: TripStrip, index: number): ItinerarySegmentId {
+	const segment = strip.segments[index];
+	if (!segment) throw new Error(`no strip segment at ${index}`);
+	switch (segment.kind) {
+		case 'free':
+			return 'free-time';
+		case 'transfer':
+			return TRANSFER_LEG_SEGMENT_IDS[segment.leg];
+		case 'flight':
+			return index === strip.outboundIndex ? 'outbound-flight' : 'onward-flight';
+		case 'wait':
+			return index < strip.outboundIndex ? 'origin-waiting' : 'connection-waiting';
+	}
+}
+
+const TRANSFER_LEG_SEGMENT_IDS: Record<TripStripTransferSegment['leg'], ItinerarySegmentId> = {
+	'to-origin-airport': 'transfer-to-origin-airport',
+	'to-city': 'transfer-to-hotel',
+	'to-connection-airport': 'transfer-to-connection-airport',
+	'to-destination': 'transfer-to-destination-location'
+};

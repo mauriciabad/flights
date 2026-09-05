@@ -1,6 +1,7 @@
 import { expect, test } from './support/fixtures';
 import { FIXTURE_FLIGHT_NUMBERS, FIXTURE_PRICES } from './support/fixture-markers';
 import { mockAllKeylessProviders, mockHostelworld, routeRyanairFlights } from './support/providers';
+import { openTimeline } from './support/results-ui';
 
 /**
  * Issue #279's bed block, measured rather than read.
@@ -230,11 +231,11 @@ test.describe('the picked bed on the card (issue #279)', () => {
 	});
 });
 
-/** The bed block lives inside the expanded result detail today. Issue #278 is moving where
- * that renders, and when it lands this is the one helper that needs rewriting rather than
- * both tests above. */
+/** The bed block lives in the full timeline, which issue #278 made the trip strip unfold
+ * into rather than something a card-level button opens. This is the one helper that had to
+ * change for that, which is what its previous version predicted. */
 async function openTheDetail(page: import('@playwright/test').Page) {
 	await expect(page.locator('.result-card').first()).toBeVisible();
-	await page.getByRole('button', { name: 'Show details' }).first().click();
+	await openTimeline(page);
 	await expect(page.locator('.stopover').first()).toBeVisible();
 }

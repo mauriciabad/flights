@@ -20,7 +20,7 @@ export { default as PriceLine } from './PriceLine.svelte';
 export { default as StopoverNights } from './StopoverNights.svelte';
 export { ALL_METRIC_IDS, CARD_METRIC_IDS, itineraryMetrics, priceBreakdown } from './itinerary-metrics';
 export type { ItineraryMetric, ItineraryMetricId, PriceBreakdown, PricePart } from './itinerary-metrics';
-export { tripStrip } from './trip-strip';
+export { segmentIdOf, tripStrip } from './trip-strip';
 export type { TripStrip as TripStripModel, TripStripSegment } from './trip-strip';
 export { default as ItineraryMap } from './ItineraryMap.svelte';
 // Issue #280's frozen previews. `RoutePreview` draws one; the other two are the surfaces
@@ -37,3 +37,5 @@ export type { ProviderIssueReason } from './ErrorState.svelte';
 export { default as ItineraryTimeline } from './ItineraryTimeline.svelte';
 export { default as FlightPicker } from './FlightPicker.svelte';
 export { default as TransportPicker } from './TransportPicker.svelte';
+export { default as WaitingTimeStepper } from './WaitingTimeStepper.svelte';
+export { default as SegmentStub } from './SegmentStub.svelte';

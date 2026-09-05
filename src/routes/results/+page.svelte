@@ -18,7 +18,8 @@
 	 * provider does. A link carrying `from=BCN&to=BCN` or `people=0` used to run a full
 	 * search to discover it could not answer.
 	 */
-	import { untrack } from 'svelte';
+	import { tick, untrack } from 'svelte';
+	import { SvelteMap } from 'svelte/reactivity';
 	import { browser } from '$app/environment';
 	import { goto } from '$app/navigation';
 	import { base } from '$app/paths';
@@ -26,7 +27,8 @@
 	import { Button, Card, EmptyState, ErrorState, Skeleton } from '$lib/components';
 	import { getAirport } from '$lib/data/airports';
 	import { DEFAULT_SEARCH_CURRENCY } from '$lib/domain';
-	import type { Airport, IataAirportCode, SearchQuery, Stay } from '$lib/domain';
+	import type { Airport, IataAirportCode, Itinerary, SearchQuery, Stay } from '$lib/domain';
+	import type { ItinerarySegmentId } from '$lib/itinerary-map/segment-id';
 	import { recordItineraryGroup } from '$lib/flexible-dates';
 	import { keyStore } from '$lib/keys';
 	import { buildSearchQuery } from '$lib/search-form/model';
@@ -55,6 +57,7 @@
 	import { explainNoResults } from '$lib/results/no-results';
 	import type { PriceBand } from '$lib/results/price-band';
 	import { collectPriceBand } from '$lib/results/price-band-source';
+	import { ItineraryDraft } from '$lib/results/itinerary-draft.svelte';
 	import { getProviderRegistry, stayProviderOutcomes } from '$lib/results/provider-setup';
 	import { createSearchDependencies } from '$lib/results/search-dependencies';
 	import { compareResults, sortResults } from '$lib/results/sort';
@@ -62,12 +65,13 @@
 	import { insertStable, slotsToResults, toSlot } from '$lib/results/stream-order';
 	import type { StreamSlot } from '$lib/results/stream-order';
 	import { connectionAirportCode, deriveScoredResult, summarizePriceCalendarOutcome, widenOptionGroupKey } from '$lib/results/types';
-	import type { AffordableWiden, ProviderStatus, WidenOptionGroup } from '$lib/results/types';
+	import type { AffordableWiden, ProviderStatus, ScoredResult, WidenOptionGroup } from '$lib/results/types';
 	import FilterPanel from './FilterPanel.svelte';
 	import NoResultsBoard from './NoResultsBoard.svelte';
 	import ProviderStatusStrip from './ProviderStatusStrip.svelte';
 	import ResultCard from './ResultCard.svelte';
 	import ResultDetail from './ResultDetail.svelte';
+	import SegmentCustomiser from './SegmentCustomiser.svelte';
 	import StayKeyNotice from './StayKeyNotice.svelte';
 	import WidenOptionsPanel from './WidenOptionsPanel.svelte';
 
@@ -165,8 +169,39 @@
 	 * this being `> 0`, not off any single stream's own `done` flag. */
 	let searchesInFlight = $state(0);
 	let pendingWidenKey = $state<string | undefined>(undefined);
-	/** Issue #104: which single card, if any, has its timeline/map/pickers open below it. */
-	let expandedId = $state<string | null>(null);
+	/**
+	 * Issue #278: which single card, if any, has its full timeline unfolded under its trip
+	 * strip. One at a time, the same rule the card-level expander had: two timelines open
+	 * is a wall of rows to scroll past, and this list exists for comparing cards.
+	 */
+	let openTimelineId = $state<string | null>(null);
+
+	/**
+	 * Issue #278: which card the customise rail is showing, and which stretch of it.
+	 *
+	 * One selection for the whole page, not one per card. There is one rail, so picking a
+	 * segment on card B has to clear card A's, and a per-card copy would leave two cards
+	 * both drawing themselves as selected. The strip, the timeline and the map all read
+	 * this same value, which is what issue #73's shared `ItinerarySegmentId` vocabulary
+	 * exists for.
+	 */
+	let customising = $state<{ resultId: string; segment: ItinerarySegmentId | null } | null>(null);
+
+	/**
+	 * Issue #278: the trip each card is showing, once the traveller has changed something
+	 * about it.
+	 *
+	 * Absent means "whatever the stream last said", which is every card until somebody
+	 * edits one. A draft is created on the first edit and never re-synced afterwards:
+	 * `SearchSnapshot.itineraryGroups` is rebuilt whole on every snapshot, so a card that
+	 * re-read its prop would throw away the flight the traveller just picked the moment an
+	 * unrelated provider answered. `ResultDetail` used to freeze its own copy for exactly
+	 * this reason; the copy moved out here because the rail that edits it is a sibling of
+	 * the card that shows it, not a child.
+	 *
+	 * A `SvelteMap` because the cards read it while the handlers below write it.
+	 */
+	const drafts = new SvelteMap<string, ItineraryDraft>();
 	/** Issue #104: the full `ItineraryGroup` behind each connection, kept alongside `order`
 	 * only for the alternatives `variants` carries — `ScoredResult` itself only exposes a
 	 * `variantCount`, not the variants a flight picker needs to show as rows. */
@@ -247,8 +282,16 @@
 	 * already fetched, and the bed's nightly rate was quoted once for the whole stay;
 	 * `buildItineraries` multiplied it out per pairing when the search ran.
 	 */
-	function chooseNights(code: string, nights: number) {
-		chosenNightsByConnection = { ...chosenNightsByConnection, [code]: nights };
+	function chooseNights(result: ScoredResult, nights: number) {
+		chosenNightsByConnection = { ...chosenNightsByConnection, [result.id]: nights };
+		// A different length is a different onward flight, so any flight, transfer or bed
+		// picked against the old one was for a trip that no longer exists. The draft starts
+		// again from the trip at the new length, taken off the very option the ladder just
+		// priced rather than derived a second time here: `StopoverLengthOption` carries the
+		// itinerary precisely so a control can price a rung before it is taken.
+		const option = result.stopover.options.find((candidate) => candidate.nights === nights);
+		if (option) drafts.set(result.id, new ItineraryDraft(option.itinerary));
+		else drafts.delete(result.id);
 	}
 
 	/**
@@ -427,8 +470,10 @@
 		sequenceByConnection.clear();
 		nextSequence = 1;
 		// A new query is an unrelated search: yesterday's connection codes have no business
-		// staying "expanded" against whatever streams in next.
-		expandedId = null;
+		// staying open, selected, or carrying an edit against whatever streams in next.
+		openTimelineId = null;
+		customising = null;
+		drafts.clear();
 		// Issue #224: a new query is a new set of stopovers, so a length chosen for
 		// yesterday's London card has no business applying to whatever LGW turns out to be
 		// this time.
@@ -620,9 +665,137 @@
 		filters = emptyFilters();
 	}
 
-	function toggleExpanded(id: string) {
-		expandedId = expandedId === id ? null : id;
+	function toggleTimeline(result: ScoredResult) {
+		const opening = openTimelineId !== result.id;
+		openTimelineId = opening ? result.id : null;
+		if (opening) draftFor(result.id, result.itinerary);
 	}
+
+	/**
+	 * The trip one card is showing. Its draft once there is one, and the stream's own
+	 * itinerary until then. Every surface for that card is handed this same value, which
+	 * is the invariant #243, #250, #264, #265 and #266 each restored after something broke
+	 * it.
+	 */
+	function shownItinerary(id: string, streamed: Itinerary): Itinerary {
+		return drafts.get(id)?.itinerary ?? streamed;
+	}
+
+	/**
+	 * The draft for one card, made if it does not exist yet.
+	 *
+	 * Only ever called from an event handler. Writing a `SvelteMap` while a template or a
+	 * `$derived` is evaluating is `state_unsafe_mutation`, and a lazily-created draft read
+	 * during render is exactly that. Every path that can lead to an edit goes through a
+	 * handler first: you unfold a timeline or pick a segment before you can change
+	 * anything, and both of those create the draft on the way in.
+	 */
+	function draftFor(id: string, streamed: Itinerary): ItineraryDraft {
+		const existing = drafts.get(id);
+		if (existing) return existing;
+		const created = new ItineraryDraft(streamed);
+		drafts.set(id, created);
+		return created;
+	}
+
+	/** The render-safe half: reads, never writes. */
+	function draftOf(id: string): ItineraryDraft | undefined {
+		return drafts.get(id);
+	}
+
+	/**
+	 * Picking a stretch of one trip, from the strip, the timeline or the map. `null` is
+	 * that surface clearing its own selection, which leaves the rail on this card with
+	 * nothing picked rather than closing it: on a wide screen the rail is always there,
+	 * and on a phone the sheet then closes on its own because it only mounts with a
+	 * segment.
+	 *
+	 * ## Focus goes to the panel, and comes back
+	 *
+	 * The panel is the last thing in the layout on a wide screen and a fixed overlay on a
+	 * phone, so without this a keyboard user who pressed Enter on a strip segment would
+	 * have to tab through every remaining card, the provider strip and the widen panel to
+	 * reach the control they just asked for. Moving focus in response to a deliberate
+	 * activation is the ordinary contract for a panel a control opens; what makes it safe
+	 * is the other half, that closing it puts focus back on the segment that opened it.
+	 *
+	 * The panel is a `tabindex="-1"` region rather than a control, so a mouse user sees
+	 * nothing change: there is no focus ring on it and nothing about the pointer path
+	 * moves.
+	 */
+	function selectSegment(id: string, streamed: Itinerary, segment: ItinerarySegmentId | null) {
+		draftFor(id, streamed);
+		const opening = segment !== null;
+		if (opening && !focusReturn && document.activeElement instanceof HTMLElement) {
+			focusReturn = document.activeElement;
+		}
+		customising = { resultId: id, segment };
+		if (opening) void focusPanel();
+		else restoreFocus();
+	}
+
+	function closeCustomiser() {
+		customising = null;
+		restoreFocus();
+	}
+
+	/** The control the panel was opened from, so closing it hands the traveller back to
+	 * the segment they were on rather than to the top of the document. Plain bookkeeping:
+	 * nothing renders from it. */
+	let focusReturn: HTMLElement | null = null;
+	let panelEl = $state<HTMLElement>();
+
+	async function focusPanel() {
+		// After the render that mounts or refills it. `tick` rather than an effect: this
+		// runs from a click handler and writes no state, so there is no reactive loop to
+		// create (AGENTS.md, the `$effect` trap).
+		await tick();
+		panelEl?.focus();
+	}
+
+	function restoreFocus() {
+		const target = focusReturn;
+		focusReturn = null;
+		// A card can have been re-ordered or filtered away while the panel was open, and
+		// focusing a detached node silently drops the traveller at the top of the page.
+		if (target && document.contains(target)) target.focus();
+	}
+
+	/**
+	 * Whether this viewport has room for side columns. Issue #139 measured the first result
+	 * card at about 1,650px down a 375px viewport, behind the sort control, four range
+	 * sliders, two chip rows and four widen blocks: "The person who typed a search wants
+	 * the answer." So the filters collapse behind a button on a phone, and issue #278's
+	 * customise panel becomes a sheet.
+	 *
+	 * Read from `matchMedia` rather than branched on in CSS alone, because `aria-expanded`,
+	 * `hidden` and which of the two customise containers is mounted all have to tell the
+	 * truth at both widths. The initial value is computed inline, not in an effect, so a
+	 * desktop browser hydrates with the columns already open.
+	 */
+	let sidebarIsColumn = $state(browser ? window.matchMedia('(min-width: 64rem)').matches : false);
+	$effect(() => {
+		const media = window.matchMedia('(min-width: 64rem)');
+		const sync = () => (sidebarIsColumn = media.matches);
+		sync();
+		media.addEventListener('change', sync);
+		return () => media.removeEventListener('change', sync);
+	});
+
+	/** The card the rail is about. `undefined` when a filter has taken that card off the
+	 * list since it was picked, which is the one way the rail can outlive its subject. */
+	const customisingResult = $derived.by(() => {
+		const picked = customising;
+		return picked ? filteredResults.find((result) => result.id === picked.resultId) : undefined;
+	});
+	const customisingCode = $derived(
+		customisingResult ? connectionAirportCode(customisingResult.itinerary) : undefined
+	);
+	const customisingSegment = $derived(customisingResult ? (customising?.segment ?? null) : null);
+	const customisingDraft = $derived(customisingResult ? draftOf(customisingResult.id) : undefined);
+	/** The sheet only exists on a phone, and only with something picked. A sheet holding
+	 * the idle prompt would cover the results to say nothing. */
+	const sheetIsOpen = $derived(!sidebarIsColumn && customisingResult !== undefined && customisingSegment !== null);
 
 	/** A refined search is a navigation to this same page with different params, which is
 	 * what makes the browser's back button walk back through the searches the traveller
@@ -633,23 +806,67 @@
 	}
 
 	/**
-	 * Filters and the widen panel are a sidebar on a wide screen and a collapsed sheet on
-	 * a phone. Issue #139 measured the first result card at about 1,650px down a 375px
-	 * viewport, behind the sort control, four range sliders, two chip rows and four widen
-	 * blocks: "The person who typed a search wants the answer."
+	 * Issue #278, the phone half of the owner's sidebar. There is no room for a third
+	 * column at 375px, so the customise panel becomes a sheet at the foot of the screen:
+	 * out of the card's flow, so choosing never makes the card taller, and non-modal, so
+	 * the price it changes stays readable above it while it is up. NN/g's own split is
+	 * that a modal sheet is for something you must resolve and a non-modal one is for
+	 * reference alongside the page, which is exactly this.
 	 *
-	 * Read from `matchMedia` rather than branched on in CSS alone so `aria-expanded` and
-	 * `hidden` tell the truth at both widths. The initial value is computed inline, not in
-	 * an effect, so a desktop browser hydrates with the panel already open.
+	 * Three ways out, because #227's popover gave a tap-opened panel light dismissal and a
+	 * sheet that only closed on a button press would be a step backwards: a visible close
+	 * button (NN/g again: a grab handle alone is not enough), Escape, a pointer down
+	 * outside it, and a downward drag on the handle.
 	 */
-	let sidebarIsColumn = $state(browser ? window.matchMedia('(min-width: 64rem)').matches : false);
-	$effect(() => {
-		const media = window.matchMedia('(min-width: 64rem)');
-		const sync = () => (sidebarIsColumn = media.matches);
-		sync();
-		media.addEventListener('change', sync);
-		return () => media.removeEventListener('change', sync);
-	});
+	let sheetEl = $state<HTMLElement>();
+	/** How far the sheet has been dragged down, in px, while a drag is in progress. */
+	let sheetDragY = $state(0);
+	let sheetDragFrom: number | null = null;
+	/** Far enough that it reads as a deliberate throw rather than a slipped thumb. */
+	const SHEET_DISMISS_PX = 64;
+
+	function onSheetDragStart(event: PointerEvent) {
+		sheetDragFrom = event.clientY;
+		(event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
+	}
+
+	function onSheetDragMove(event: PointerEvent) {
+		if (sheetDragFrom === null) return;
+		// Downward only: dragging up would let the sheet cover the card it describes.
+		sheetDragY = Math.max(0, event.clientY - sheetDragFrom);
+	}
+
+	function onSheetDragEnd() {
+		if (sheetDragFrom === null) return;
+		const travelled = sheetDragY;
+		sheetDragFrom = null;
+		sheetDragY = 0;
+		if (travelled > SHEET_DISMISS_PX) closeCustomiser();
+	}
+
+	/** A pointer down anywhere that is neither the sheet nor a card closes it. Cards are
+	 * excluded because every way of picking a segment is inside one, and closing on the
+	 * gesture that selects would open and shut in the same tap. */
+	function onDocumentPointerDown(event: PointerEvent) {
+		if (!sheetIsOpen) return;
+		const target = event.target;
+		if (!(target instanceof Node)) return;
+		if (sheetEl?.contains(target)) return;
+		if (target instanceof Element && target.closest('.result-card')) return;
+		closeCustomiser();
+	}
+
+	function onDocumentKeydown(event: KeyboardEvent) {
+		if (event.key !== 'Escape' || !customising) return;
+		// Whatever is in the top layer owns Escape while it is up, and issue #280's route map
+		// is a real `<dialog>` reached from a ground preview inside the timeline. A press
+		// there means "close the map", and closing the customise panel underneath it as well
+		// would take away the selection the map just made. The dialog is still open when this
+		// runs: its own close is the keydown's default action, which happens after listeners.
+		if (document.querySelector('dialog[open]')) return;
+		closeCustomiser();
+	}
+
 	let filtersOpenOnPhone = $state(false);
 	const filtersVisible = $derived(sidebarIsColumn || filtersOpenOnPhone);
 	const activeFilterCount = $derived(
@@ -663,6 +880,53 @@
 		].filter(Boolean).length
 	);
 </script>
+
+<svelte:window onpointerdown={onDocumentPointerDown} onkeydown={onDocumentKeydown} />
+
+<!-- One panel, two containers. The rail and the sheet are never both mounted, so there is
+     one `SegmentCustomiser` instance at a time and no pair of them to disagree. -->
+{#snippet customisePanel()}
+	{#if customisingResult && customisingDraft && customisingCode && query}
+		<SegmentCustomiser
+			draft={customisingDraft}
+			segment={customisingSegment}
+			stopoverOptions={customisingResult.stopover.options}
+			isFlightChange={customisingResult.stopover.isFlightChange}
+			atDefaultLength={shownItinerary(customisingResult.id, customisingResult.itinerary).nightsInConnection ===
+				customisingResult.stopover.minimum}
+			group={groupsByConnection[customisingResult.id]}
+			stayCandidates={stayCandidatesByConnection[customisingCode] ?? []}
+			transferOptions={transferOptionsByConnection[customisingCode]}
+			{outerTransferOptions}
+			connectionAirport={connectionAirports[customisingCode]}
+			travellers={query.travellers}
+			females={query.females}
+			minLayoverTime={query.minLayoverTime}
+			searchDone={primarySearchDone && !stillSearching}
+			{stayProviders}
+			{transitLookupBudget}
+			onNightsChange={(nights) => chooseNights(customisingResult, nights)}
+		/>
+	{:else}
+		<p class="customise-idle">
+			Pick a step on any trip to change it here. Flights, ground transport, how many nights
+			you stay and where you sleep.
+		</p>
+	{/if}
+{/snippet}
+
+{#snippet customiseSubject()}
+	{#if customisingResult}
+		{@const trip = shownItinerary(customisingResult.id, customisingResult.itinerary)}
+		<p class="customise-subject font-mono">
+			{trip.originAirport.iataCode}
+			<span aria-hidden="true">&rarr;</span>
+			<span class="customise-subject-stop">{connectionAirportCode(trip)}</span>
+			<span aria-hidden="true">&rarr;</span>
+			{trip.destinationAirport.iataCode}
+		</p>
+	{/if}
+{/snippet}
 
 <svelte:head>
 	<title
@@ -804,41 +1068,37 @@
 					<ul class="results-list">
 						{#each filteredResults as result (result.id)}
 							{@const code = connectionAirportCode(result.itinerary)}
+							{@const itinerary = shownItinerary(result.id, result.itinerary)}
+							{@const selected = customising?.resultId === result.id ? customising.segment : null}
 							<li>
 								<ResultCard
 									{result}
+									{itinerary}
 									connectionAirport={connectionAirports[code]}
 									priceBand={shownPriceBand}
-									expanded={expandedId === result.id}
-									onToggleExpand={() => toggleExpanded(result.id)}
-									onNightsChange={(nights) => chooseNights(result.id, nights)}
-								/>
-								{#if expandedId === result.id}
-									<!-- Keyed on the stopover length: `ResultDetail` freezes its itinerary
-									     at mount so a streaming snapshot cannot wipe out a traveller's
-									     in-progress pick, which also means it cannot follow a length
-									     change made on the card above it. Remounting is the honest
-									     answer rather than the cheap one: a different length is a
-									     different onward flight, so any flight or transfer picked inside
-									     the panel was for a trip that no longer exists. -->
-									{#key result.itinerary.nightsInConnection}
-									<ResultDetail
-										itinerary={result.itinerary}
-										atDefaultLength={result.itinerary.nightsInConnection === result.stopover.minimum}
-										group={groupsByConnection[result.id]}
-										stayCandidates={stayCandidatesByConnection[code] ?? []}
-										transferOptions={transferOptionsByConnection[code]}
-										{outerTransferOptions}
-										connectionAirport={connectionAirports[code]}
-										travellers={query.travellers}
-										females={query.females}
-										minLayoverTime={query.minLayoverTime}
-										searchDone={primarySearchDone && !stillSearching}
-										{stayProviders}
-										{transitLookupBudget}
-									/>
-									{/key}
-								{/if}
+									selectedSegmentId={selected}
+									onSelectSegment={(segment) =>
+										selectSegment(result.id, result.itinerary, selected === segment ? null : segment)}
+									timelineOpen={openTimelineId === result.id}
+									onToggleTimeline={() => toggleTimeline(result)}
+								>
+									{#snippet timeline()}
+										{@const draft = draftOf(result.id)}
+										{#if draft}
+										<ResultDetail
+											{draft}
+											selectedSegmentId={selected}
+											onSelectSegment={(segment) => selectSegment(result.id, result.itinerary, segment)}
+											group={groupsByConnection[result.id]}
+											stayCandidates={stayCandidatesByConnection[code] ?? []}
+											transferOptions={transferOptionsByConnection[code]}
+											{outerTransferOptions}
+											connectionAirport={connectionAirports[code]}
+											minLayoverTime={query.minLayoverTime}
+										/>
+										{/if}
+									{/snippet}
+								</ResultCard>
 							</li>
 						{/each}
 						{#if stillSearching}
@@ -879,10 +1139,77 @@
 						{/if}
 					</section>
 				</div>
+
+				<!-- Issue #278, the owner: "in the desktop we can make that we have a right
+				     sidebar, like the filters, that dynamically shows the customizing options
+				     for the selected segment, so we dont make the card larger." A sibling of
+				     the filter rail, on the other side, and sticky for the same reason: the
+				     thing it is about is a card you are scrolling past.
+
+				     Rendered only when it is a column. Below 64rem the same panel is the sheet
+				     at the foot of this file, and mounting both would put two copies of every
+				     picker on the page. -->
+				{#if sidebarIsColumn}
+					<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+					<aside
+						bind:this={panelEl}
+						class="results-customise"
+						aria-label="Customise the selected trip"
+						tabindex="-1"
+					>
+						<div class="results-customise-head">
+							<h2 class="results-customise-title">Customise</h2>
+							{#if customisingResult}
+								{@render customiseSubject()}
+								<button type="button" class="customise-close" onclick={closeCustomiser}>
+									Clear
+								</button>
+							{/if}
+						</div>
+						{@render customisePanel()}
+					</aside>
+				{/if}
 			</div>
 		{/if}
 	{/if}
 </div>
+
+<!-- Issue #278's mobile answer. A phone has no room for a third column, so the same panel
+     becomes a sheet: fixed to the foot of the viewport, out of the card's flow so picking
+     never makes the card taller, and non-modal so the price it changes stays readable
+     above it. Capped well under half the screen, because a sheet that covered the strip
+     the traveller just tapped would take away the thing that made the tap mean something.
+     `<aside>` rather than `role="dialog"`: it is a complementary panel beside the page,
+     not a thing to be trapped in. -->
+{#if sheetIsOpen}
+	<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+	<aside
+		bind:this={sheetEl}
+		class="customise-sheet"
+		aria-label="Customise the selected trip"
+		tabindex="-1"
+		style:translate={sheetDragY > 0 ? `0 ${sheetDragY}px` : undefined}
+		style:transition={sheetDragY > 0 ? 'none' : undefined}
+	>
+		<!-- svelte-ignore a11y_no_static_element_interactions -->
+		<div
+			class="customise-sheet-grip"
+			onpointerdown={onSheetDragStart}
+			onpointermove={onSheetDragMove}
+			onpointerup={onSheetDragEnd}
+			onpointercancel={onSheetDragEnd}
+		>
+			<span class="customise-sheet-handle" aria-hidden="true"></span>
+		</div>
+		<div class="customise-sheet-head">
+			{@render customiseSubject()}
+			<button type="button" class="customise-close" onclick={closeCustomiser}>Close</button>
+		</div>
+		<div class="customise-sheet-body">
+			{@render customisePanel()}
+		</div>
+	</aside>
+{/if}
 
 <style>
 	/* Issue #71's entry point. A single row, not a card: it sits between the result count
@@ -1098,23 +1425,186 @@
 		min-height: 15rem;
 	}
 
+	/* ---------------------------------------------------------------------
+	 * Issue #278: the customise surface. One panel, two containers, never
+	 * both mounted at once.
+	 * ------------------------------------------------------------------- */
+
+	.results-customise {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-4);
+		min-width: 0;
+	}
+
+	.results-customise-head {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: baseline;
+		gap: var(--space-2) var(--space-3);
+		padding-bottom: var(--space-3);
+		border-bottom: 1px solid var(--color-border);
+	}
+
+	.results-customise-title {
+		margin: 0;
+		font-size: var(--font-size-xs);
+		font-weight: var(--font-weight-semibold);
+		text-transform: uppercase;
+		letter-spacing: var(--tracking-wide);
+		color: var(--color-text-faint);
+	}
+
+	/* Which card the panel is about. Three codes rather than three city names: it sits
+	   beside a list where every card prints both, and the code is what fits a 16rem rail
+	   without wrapping. */
+	.customise-subject {
+		margin: 0;
+		font-size: var(--font-size-sm);
+		font-weight: var(--font-weight-semibold);
+		color: var(--color-text-muted);
+	}
+
+	.customise-subject-stop {
+		color: var(--color-stopover);
+	}
+
+	.customise-close {
+		margin-left: auto;
+		min-height: 2.75rem;
+		touch-action: manipulation;
+		padding-inline: var(--space-2);
+		border-radius: var(--radius-md);
+		font-size: var(--font-size-sm);
+		font-weight: var(--font-weight-medium);
+		color: var(--color-accent);
+		transition: color var(--transition-fast);
+	}
+
+	.customise-close:hover {
+		color: var(--color-accent-hover);
+	}
+
+	.customise-close:focus-visible {
+		outline: 2px solid var(--color-focus-ring);
+		outline-offset: 2px;
+	}
+
+	.customise-idle {
+		margin: 0;
+		font-size: var(--font-size-sm);
+		color: var(--color-text-muted);
+		text-wrap: pretty;
+	}
+
+	/* Focused on open so a keyboard reaches the controls it just asked for, which is why
+	   it must not draw a ring: it is a region, not a control, and a ring here would read as
+	   "you are on something you can press". */
+	.results-customise:focus,
+	.customise-sheet:focus {
+		outline: none;
+	}
+
+	.customise-sheet {
+		position: fixed;
+		inset-inline: 0;
+		bottom: 0;
+		z-index: var(--z-overlay);
+		display: flex;
+		flex-direction: column;
+		/* Under half the screen, so the card and the strip that was tapped stay readable
+		   above it. `dvh` rather than `vh`: a phone browser's address bar is the difference
+		   between a sheet that fits and one whose close button is off screen. */
+		max-height: min(50dvh, 26rem);
+		background: var(--color-bg-elevated);
+		border-top: 2px dashed var(--color-border-strong);
+		border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+		box-shadow: var(--shadow-lg);
+		transition: translate var(--transition-base);
+	}
+
+	/* The drag target. Its own row rather than a decoration on the header, so a thumb
+	   landing anywhere along the top of the sheet starts the drag. */
+	.customise-sheet-grip {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		height: 1.75rem;
+		flex-shrink: 0;
+		/* The browser must not claim the vertical drag for scrolling, and a mouse drag along
+		   the top of the sheet must not select the text under it. */
+		touch-action: none;
+		user-select: none;
+		-webkit-user-select: none;
+		cursor: grab;
+	}
+
+	.customise-sheet-handle {
+		width: 2.5rem;
+		height: 0.25rem;
+		border-radius: var(--radius-full);
+		background: var(--color-border-strong);
+	}
+
+	.customise-sheet-head {
+		display: flex;
+		align-items: center;
+		gap: var(--space-3);
+		flex-shrink: 0;
+		padding: 0 var(--space-4) var(--space-2);
+		border-bottom: 1px solid var(--color-border);
+	}
+
+	.customise-sheet-body {
+		flex: 1;
+		min-height: 0;
+		overflow-y: auto;
+		overscroll-behavior: contain;
+		/* The home indicator on a phone without a hardware button sits over the last few
+		   pixels of anything flush to the bottom edge. */
+		padding: var(--space-4) var(--space-4) calc(var(--space-4) + env(safe-area-inset-bottom));
+	}
+
 	@media (min-width: 64rem) {
 		.results-layout {
-			grid-template-columns: 18rem 1fr;
+			/* The filter rail, the answers, and the controls for whichever trip is being
+			   customised. The middle column takes what is left, which is what keeps a card
+			   from growing when a picker opens. */
+			grid-template-columns: 17rem minmax(0, 1fr) 20rem;
 			align-items: start;
 			gap: var(--space-6);
 		}
 
-		.results-filters {
+		.results-filters,
+		.results-customise {
 			position: sticky;
 			/* Clears the search summary strip pinned above it, so the two never overlap. */
 			top: 6rem;
+		}
+
+		/* The rail can outrun the viewport once a stay list is in it, and a sticky column
+		   taller than the screen strands its own bottom. */
+		.results-customise {
+			max-height: calc(100dvh - 8rem);
+			overflow-y: auto;
+			overscroll-behavior: contain;
+			padding-right: var(--space-2);
 		}
 
 		/* A sidebar is already open; a button that says so would be a control with
 		   nothing to do. */
 		.filters-toggle {
 			display: none;
+		}
+	}
+
+	/* Between the phone and the three-column desktop there is room for the filters beside
+	   the answers but not for a third column, so the sheet covers that band too. */
+	@media (min-width: 48rem) and (max-width: 63.99rem) {
+		.results-layout {
+			grid-template-columns: 16rem minmax(0, 1fr);
+			align-items: start;
+			gap: var(--space-5);
 		}
 	}
 </style>

@@ -2,6 +2,7 @@ import { test, expect } from './support/fixtures';
 import { routeRyanairFlights } from './support/providers';
 import { FIXTURE_FLIGHT_NUMBERS, FIXTURE_NAMES, FIXTURE_PRICES } from './support/fixture-markers';
 import { mockHostelworld, mockKiwiPublic } from './support/providers';
+import { openTimeline } from './support/results-ui';
 
 /**
  * Issue #118: the owner's own complaint, verified against a real search end to end
@@ -284,7 +285,7 @@ test.describe('itinerary map: every transfer leg, distinct markers, honest geome
 		await expect(card).toBeVisible();
 		await expect(card).toContainText('OSL');
 
-		await page.getByRole('button', { name: 'Show details' }).first().click();
+		await openTimeline(page);
 		const detail = page.locator('.result-detail');
 		await expect(detail).toBeVisible();
 		// Issue #280: what mounts here now is one frozen preview per ground leg. All four

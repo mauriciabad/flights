@@ -230,7 +230,7 @@ describe('the airport wait stub', () => {
 	it('says the wait is the traveller\'s own setting, not a measured queue', () => {
 		const stub = stubOf(itineraryFor(), 'wait');
 		expect(stub.footnote).toBe(
-			'Your own buffer, not a measured queue. 2h is the setting for this airport, and Show details is where you change it.'
+			'Your own buffer, not a measured queue. 2h is the setting for this airport, and picking this wait is where you change it.'
 		);
 	});
 
