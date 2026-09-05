@@ -2,10 +2,9 @@
  * Types the stay picker (issue #27) needs beyond the shared Stay/RoomKind domain
  * (domain/stay.ts, issue #1) and the StayProvider contract (providers/types.ts, issue
  * #2). Picker-local rather than added to either shared file: issue #10's Agoda/Booking
- * adapters (PR #67) return a plain `Stay[]` for a search; grouping those into "one
- * property, its room kinds" and flagging a row the source didn't actually confirm
- * (issue #65) are both display concerns this component owns, not something every
- * StayProvider caller needs.
+ * adapters (PR #67) return a plain `Stay[]` for a search, and grouping those into "one
+ * property, its room kinds" is a display concern this component owns, not something
+ * every StayProvider caller needs.
  *
  * AGENTS.md: "If your issue depends on something that does not exist yet, do not
  * invent a competing version of it... define the narrowest possible interface." This
@@ -17,23 +16,22 @@
 import type { Property, Stay } from '$lib/domain';
 
 /**
- * One priced room-kind option, plus whether the source actually told us its dorm/private
- * split or its female-only status, versus that having been inferred from a room name (or
- * not determined at all). Issue #65: Booking's `is_dormitory` was never confirmed
- * against a real dorm room, and neither Agoda nor Booking exposes a confirmed
- * female-only signal beyond name matching. `undefined` means the source stands behind
- * this row's classification.
+ * One priced room-kind option at a property.
  *
- * No shipped adapter sets this yet - PR #67's classifiers always resolve to one of the
- * three RoomKinds by design (agoda-mapper.ts `classifyAgodaRoomKind`, booking-mapper.ts
- * `classifyBookingRoomKind` both return a definite kind, never "unsure"). This field
- * exists so the picker already honours "say what you don't know" (AGENTS.md, "When the
- * data is missing") the moment a provider can say so, instead of needing a second UI
- * change later.
+ * This carried a `notStated` marker until issue #300, meant for a row whose dorm/private
+ * split or female-only status the source had not confirmed. Nothing ever set it, in any
+ * of the three adapters, because every mapper resolves a `Stay` to a definite `RoomKind`
+ * before it reaches here.
+ *
+ * Deleted rather than given a producer. The one honest case is a Hostelworld property
+ * quoting a dorm price with no room breakdown, and `tools/probe-female-dorms.mjs` counted
+ * that at 0 of 91 properties across Rome, London, Berlin and Paphos on 2026-09-05, since
+ * `show-rooms=1` is mandatory. Bring the marker back when a provider can actually say
+ * "unsure". It will need a carrier on `Stay` first, because this type only ever sees what
+ * the mappers already decided.
  */
 export interface StayOption {
 	stay: Stay;
-	notStated?: 'room-kind' | 'female-only';
 }
 
 /**

@@ -234,11 +234,7 @@
 				<div class="stay-room-kinds" role="group" aria-label="Room type for this stay">
 					{#each openGroup.options as option (option.stay.roomKind)}
 						{@const selectable = isOptionSelectable(option, travellers, females)}
-						{@const caveat =
-							stayGenderFitMessage(option.stay, travellers, females) ??
-							(option.notStated === 'female-only'
-								? "Female-only status not confirmed for this room - it may not fit your whole group."
-								: undefined)}
+						{@const caveat = stayGenderFitMessage(option.stay, travellers, females)}
 						<RoomKindTile
 							{option}
 							{nights}
@@ -252,8 +248,8 @@
 
 				{#if hasDormOptions}
 					<!-- Issue #288: this used to point at a "not stated" marker no adapter could ever
-					     set, so it described a distinction the page never drew. What it says now is
-					     checkable on the tiles above it. -->
+					     set, so it described a distinction the page never drew. Issue #300 deleted the
+					     marker itself. What this says now is checkable on the tiles above it. -->
 					<p class="stay-data-note">
 						A dorm is shown as women-only or men-only when the provider's own room listing says so, and as a
 						plain dorm bed only when that listing holds a mixed room. It is the listing's word, not a guess

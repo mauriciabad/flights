@@ -16,11 +16,7 @@ import { stopoverStayCostMinorUnits } from "./stopover-cost";
 import type { PropertyStayOptions, StayOption } from "./types";
 
 /** Whether one option can be THIS group's whole itinerary stay. An unrestricted room kind
- * is always fine; a women-only or men-only one goes through `gendered-room-fit.ts`'s rule.
- * Note this asks "can the group book this at all," not "is this row's classification
- * confirmed" - `StayOption.notStated` is a display concern (the picker still offers a
- * `not-stated` row, just without asserting a fact the source didn't give it), not an
- * eligibility one. */
+ * is always fine; a women-only or men-only one goes through `gendered-room-fit.ts`'s rule. */
 export function isOptionSelectable(
   option: StayOption,
   travellers: number | undefined,
