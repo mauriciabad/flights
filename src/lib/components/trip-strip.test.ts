@@ -241,6 +241,98 @@ describe('tripStrip', () => {
 		expect(strip.onwardIndex).toBe(7);
 	});
 
+	it('gives every part the clock readings it runs between, with no gap and no overlap', () => {
+		const strip = tripStrip(
+			makeItinerary({
+				departs: '2026-10-06T08:00:00',
+				outboundMinutes: 470,
+				stopoverMinutes: 18 * 60 + 50,
+				onwardMinutes: 400,
+				toOriginAirport: transfer('drive', 35),
+				toCity: transfer('transit', 40),
+				toAirport: transfer('transit', 40),
+				toDestination: transfer('walk', 20)
+			})
+		);
+		expect(strip.segments.map((segment) => [segment.start.local, segment.end.local])).toEqual([
+			['2026-10-06T05:25:00', '2026-10-06T06:00:00'],
+			['2026-10-06T06:00:00', '2026-10-06T08:00:00'],
+			['2026-10-06T08:00:00', '2026-10-06T15:50:00'],
+			['2026-10-06T15:50:00', '2026-10-06T16:30:00'],
+			['2026-10-06T16:30:00', '2026-10-07T00:00:00'],
+			['2026-10-07T00:00:00', '2026-10-07T08:00:00'],
+			['2026-10-07T08:00:00', '2026-10-07T08:40:00'],
+			['2026-10-07T08:40:00', '2026-10-07T10:40:00'],
+			['2026-10-07T10:40:00', '2026-10-07T17:20:00'],
+			['2026-10-07T17:20:00', '2026-10-07T17:40:00']
+		]);
+	});
+
+	it('measures each part between its own two readings, so the drawn width and the printed time agree', () => {
+		const strip = tripStrip(
+			makeItinerary({
+				departs: '2026-10-06T08:00:00',
+				outboundMinutes: 470,
+				stopoverMinutes: 18 * 60 + 50,
+				onwardMinutes: 400,
+				toCity: transfer('transit', 40),
+				toAirport: transfer('transit', 40)
+			})
+		);
+		for (const segment of strip.segments) {
+			const elapsed = (Date.parse(`${segment.end.local}Z`) - Date.parse(`${segment.start.local}Z`)) / 60_000;
+			expect(elapsed).toBe(segment.minutes);
+		}
+	});
+
+	it('reads the stopover ends off freeTime rather than re-deriving them, so the block and the strip agree', () => {
+		const itinerary = makeItinerary({
+			departs: '2026-10-06T08:00:00',
+			outboundMinutes: 470,
+			stopoverMinutes: 18 * 60 + 50,
+			onwardMinutes: 400,
+			toCity: transfer('transit', 40),
+			toAirport: transfer('transit', 40)
+		});
+		const free = tripStrip(itinerary).segments.filter((segment) => segment.kind === 'free');
+		expect(free[0]?.start.local).toBe(itinerary.freeTime.start.local);
+		expect(free.at(-1)?.end.local).toBe(itinerary.freeTime.end.local);
+	});
+
+	it('keeps every stopover reading on the stopover clock, never on the viewer\'s', () => {
+		const itinerary = makeItinerary({
+			departs: '2026-10-06T08:00:00',
+			outboundMinutes: 470,
+			stopoverMinutes: 18 * 60 + 50,
+			onwardMinutes: 400,
+			toCity: transfer('transit', 40)
+		});
+		for (const segment of tripStrip(itinerary).segments) {
+			if (segment.kind !== 'free') continue;
+			expect(segment.start.timeZone).toBe(itinerary.freeTime.start.timeZone);
+			expect(segment.start.utcOffsetMinutes).toBe(itinerary.freeTime.start.utcOffsetMinutes);
+			expect(segment.end.utcOffsetMinutes).toBe(itinerary.freeTime.start.utcOffsetMinutes);
+		}
+	});
+
+	it('hands each part the thing it stands for, so a reader never has to guess which leg it has', () => {
+		const toCity = transfer('transit', 40);
+		const itinerary = makeItinerary({
+			departs: '2026-10-06T08:00:00',
+			outboundMinutes: 470,
+			stopoverMinutes: 18 * 60 + 50,
+			onwardMinutes: 400,
+			toCity
+		});
+		const strip = tripStrip(itinerary);
+		const flights = strip.segments.filter((segment) => segment.kind === 'flight');
+		const waits = strip.segments.filter((segment) => segment.kind === 'wait');
+		const transfers = strip.segments.filter((segment) => segment.kind === 'transfer');
+		expect(flights.map((segment) => segment.offer)).toEqual([itinerary.outboundFlight, itinerary.onwardFlight]);
+		expect(waits.map((segment) => segment.beforeFlight)).toEqual([itinerary.outboundFlight, itinerary.onwardFlight]);
+		expect(transfers.map((segment) => segment.transfer)).toEqual([toCity]);
+	});
+
 	it('draws the outer ground legs only when the query gave it somewhere to start or finish', () => {
 		const bare = tripStrip(
 			makeItinerary({ departs: '2026-10-06T08:00:00', outboundMinutes: 120, stopoverMinutes: 360, onwardMinutes: 120 })

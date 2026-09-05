@@ -52,7 +52,16 @@
  * time, and that piece is still the day the traveller lived through.
  */
 
-import type { Carrier, IsoLocalDateTimeString, Itinerary, LocalDateTime, TransferMode } from '$lib/domain';
+import { addLocalMinutes } from '$lib/algorithm/build';
+import type {
+	Carrier,
+	FlightOffer,
+	IsoLocalDateTimeString,
+	Itinerary,
+	LocalDateTime,
+	TransferMode,
+	Transfer
+} from '$lib/domain';
 
 /** The one scale rule the strip draws with. Exported so the component prints it and the
  * tests pin it, not to offer a choice: see the header for what the alternatives cost. */
@@ -62,6 +71,22 @@ interface SegmentBase {
 	/** Wall-clock minutes this part covers. Printed or spoken as text, so the scaled
 	 * `share` below never has to be read as a measurement. */
 	minutes: number;
+	/**
+	 * When this part begins and ends, each on the clock of the place it happens at
+	 * (AGENTS.md: "all times should be in the local timezone of the place they reffer
+	 * to"). A flight therefore starts on one clock and ends on another, and a segment
+	 * whose two offsets differ is exactly the case a reader has to be told about, since
+	 * `end - start` on the digits is then not the duration.
+	 *
+	 * Derived here rather than in a component (issue #227) by walking the schedule out
+	 * from the two flights, which are the only readings the itinerary stores: everything
+	 * else is a buffer or a leg measured against them. `build.ts` fixes the two ends of
+	 * the stopover the same way, so `freeTime.start` and `freeTime.end` are used directly
+	 * rather than re-derived, and the walk cannot drift from the window the rest of the
+	 * app prints.
+	 */
+	start: LocalDateTime;
+	end: LocalDateTime;
 	/** Fraction of the bar's width on the square-root scale. Sums to 1 across the strip.
 	 * The component floors each track at a few pixels so a very short part stays a
 	 * visible seam; that floor is a CSS `minmax`, not a share adjustment. */
@@ -71,6 +96,9 @@ interface SegmentBase {
 export interface TripStripTransferSegment extends SegmentBase {
 	kind: 'transfer';
 	mode: TransferMode;
+	/** The leg itself, so a reader can print its route, its fare and its timetable
+	 * without looking it up on the itinerary again and risking the wrong one. */
+	transfer: Transfer;
 	/** Which of the brief's four ground legs this is (docs/prompts/001, lines 45, 48, 50,
 	 * 53), so the component can say where it goes without re-deriving it. */
 	leg: 'to-origin-airport' | 'to-city' | 'to-connection-airport' | 'to-destination';
@@ -80,6 +108,9 @@ export interface TripStripWaitSegment extends SegmentBase {
 	kind: 'wait';
 	/** IATA code of the airport the traveller waits at. */
 	airport: string;
+	/** The flight this buffer is spent waiting for. A wait means nothing on its own; what
+	 * a traveller wants to know is what it ends in. */
+	beforeFlight: FlightOffer;
 }
 
 export interface TripStripFlightSegment extends SegmentBase {
@@ -87,16 +118,16 @@ export interface TripStripFlightSegment extends SegmentBase {
 	from: string;
 	to: string;
 	carrier: Carrier;
+	/** The offer itself: its number, fare, baggage, aircraft and technical stops. */
+	offer: FlightOffer;
 }
 
 export interface TripStripFreeSegment extends SegmentBase {
 	kind: 'free';
-	/** Calendar date on the stopover's own clock, `YYYY-MM-DD`. */
-	date: string;
-	/** Wall-clock readings at the stopover for the piece's two ends. A piece that ends at
+	/** Calendar date on the stopover's own clock, `YYYY-MM-DD`. The piece's two ends are
+	 * `start` and `end` on the base, both on the stopover's clock; a piece that ends at
 	 * midnight ends at `T00:00:00` of the next date, the way a hotel night does. */
-	start: IsoLocalDateTimeString;
-	end: IsoLocalDateTimeString;
+	date: string;
 	/** `true` when this piece runs from one local midnight to the next. */
 	wholeDay: boolean;
 	/** `true` when the piece begins at 00:00: a morning after a night, or a whole day. */
@@ -165,6 +196,13 @@ function isoDate(wallMinutes: number): string {
 /** The local midnight that starts the calendar day containing `wallMinutes`. */
 function startOfDay(wallMinutes: number): number {
 	return Date.parse(`${isoDate(wallMinutes)}T00:00:00Z`) / 60_000;
+}
+
+/** A reading inside the stopover, carrying the stopover's own zone. Every free-time piece
+ * is cut off `freeTime.start`'s wall clock, so it belongs to that clock and to no other:
+ * rebuilding it against the viewer's zone is how an overnight loses a night (AGENTS.md). */
+function atStopoverClock(window: LocalDateTime, local: IsoLocalDateTimeString): LocalDateTime {
+	return { local, timeZone: window.timeZone, utcOffsetMinutes: window.utcOffsetMinutes };
 }
 
 /** One piece of a free-time window, before it gets a share of the bar. */
@@ -245,52 +283,104 @@ export function tripStrip(itinerary: Itinerary): TripStrip {
 
 	const parts: Unshared[] = [];
 
+	// The whole schedule hangs off four stored readings: the two flights' departures and
+	// arrivals. Everything between them is a buffer or a leg measured against one of those,
+	// so each part below is anchored to the flight beside it rather than accumulated from
+	// the front, where one absent leg would shift every later clock.
+	const originWaitStart = addLocalMinutes(outboundFlight.departure, -originWaitingTime);
+	const connectionWaitStart = addLocalMinutes(onwardFlight.departure, -connectionWaitingTime);
+
 	if (transferToOriginAirport) {
 		parts.push({
 			kind: 'transfer',
 			mode: transferToOriginAirport.mode,
+			transfer: transferToOriginAirport,
 			leg: 'to-origin-airport',
-			minutes: transferToOriginAirport.duration
+			minutes: transferToOriginAirport.duration,
+			start: addLocalMinutes(originWaitStart, -transferToOriginAirport.duration),
+			end: originWaitStart
 		});
 	}
-	parts.push({ kind: 'wait', airport: originAirport.iataCode, minutes: originWaitingTime });
+	parts.push({
+		kind: 'wait',
+		airport: originAirport.iataCode,
+		beforeFlight: outboundFlight,
+		minutes: originWaitingTime,
+		start: originWaitStart,
+		end: outboundFlight.departure
+	});
 	const outboundIndex = parts.length;
 	parts.push({
 		kind: 'flight',
 		from: outboundFlight.departureAirport,
 		to: outboundFlight.arrivalAirport,
 		carrier: outboundFlight.carrier,
-		minutes: outboundFlight.duration
+		offer: outboundFlight,
+		minutes: outboundFlight.duration,
+		start: outboundFlight.departure,
+		end: outboundFlight.arrival
 	});
 	if (transferToHotel) {
-		parts.push({ kind: 'transfer', mode: transferToHotel.mode, leg: 'to-city', minutes: transferToHotel.duration });
+		parts.push({
+			kind: 'transfer',
+			mode: transferToHotel.mode,
+			transfer: transferToHotel,
+			leg: 'to-city',
+			minutes: transferToHotel.duration,
+			// `build.ts` sets `freeTime.start` to exactly this leg's arrival, so reading it
+			// back is the same number rather than a second derivation of it.
+			start: outboundFlight.arrival,
+			end: freeTime.start
+		});
 	}
 	for (const piece of splitFreeTimeAtLocalMidnight(freeTime.start, freeTime.end)) {
-		parts.push({ kind: 'free', ...piece });
+		const { start, end, ...rest } = piece;
+		parts.push({
+			kind: 'free',
+			...rest,
+			start: atStopoverClock(freeTime.start, start),
+			end: atStopoverClock(freeTime.start, end)
+		});
 	}
 	if (transferToConnectionAirport) {
 		parts.push({
 			kind: 'transfer',
 			mode: transferToConnectionAirport.mode,
+			transfer: transferToConnectionAirport,
 			leg: 'to-connection-airport',
-			minutes: transferToConnectionAirport.duration
+			minutes: transferToConnectionAirport.duration,
+			start: freeTime.end,
+			end: connectionWaitStart
 		});
 	}
-	parts.push({ kind: 'wait', airport: onwardFlight.departureAirport, minutes: connectionWaitingTime });
+	parts.push({
+		kind: 'wait',
+		airport: onwardFlight.departureAirport,
+		beforeFlight: onwardFlight,
+		minutes: connectionWaitingTime,
+		start: connectionWaitStart,
+		end: onwardFlight.departure
+	});
 	const onwardIndex = parts.length;
 	parts.push({
 		kind: 'flight',
 		from: onwardFlight.departureAirport,
 		to: onwardFlight.arrivalAirport,
 		carrier: onwardFlight.carrier,
-		minutes: onwardFlight.duration
+		offer: onwardFlight,
+		minutes: onwardFlight.duration,
+		start: onwardFlight.departure,
+		end: onwardFlight.arrival
 	});
 	if (transferToDestinationLocation) {
 		parts.push({
 			kind: 'transfer',
 			mode: transferToDestinationLocation.mode,
+			transfer: transferToDestinationLocation,
 			leg: 'to-destination',
-			minutes: transferToDestinationLocation.duration
+			minutes: transferToDestinationLocation.duration,
+			start: onwardFlight.arrival,
+			end: addLocalMinutes(onwardFlight.arrival, transferToDestinationLocation.duration)
 		});
 	}
 	const minutes = parts.map((part) => Math.max(0, part.minutes));
