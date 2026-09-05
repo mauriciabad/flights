@@ -29,7 +29,7 @@
  *   for two travellers on a Ryanair fare it is one adult's price, and printing it as it
  *   stands would understate the leg by half. The scope lives on the offer because the
  *   answer differs per provider (issue #109).
- * - An absent transfer fare goes through `unpricedTransferNote`, which already separates
+ * - A transfer fare goes through `transferFareNote`, which already separates
  *   the walk that is genuinely free from the ride nobody quoted (issue #212). Only the
  *   second is marked `unknown`, and neither is ever a blank or a zero (issue #204).
  * - "If you miss it" is `readMissedService`, the one reader of a `TransitSchedule`, so the
@@ -57,7 +57,7 @@ import {
 	formatUtcOffset
 } from '$lib/format';
 import { formatDistanceKm, haversineDistanceKm } from '$lib/stays/distance';
-import { staleScheduleFact, transferDetailLine, unpricedTransferNote } from './itinerary-timeline-format';
+import { staleScheduleFact, transferDetailLine, transferFareNote } from './itinerary-timeline-format';
 import { technicalStopDetail } from './technical-stop-note';
 import type { TripStripSegment, TripStripTransferSegment } from './trip-strip';
 
@@ -430,11 +430,14 @@ function transportStub(segment: TripStripTransferSegment, context: StubContext):
 	const facts: StubFact[] = [];
 	// Issue #227, the owner: every transport panel carries the fare. Where there is none,
 	// which of the two absences it is (#212), never a blank and never a zero (#204).
-	facts.push(
-		transfer.price
-			? { label: 'Fare', value: formatMoney(transfer.price) }
-			: { label: 'Fare', value: unpricedTransferNote(transfer.mode), unknown: transfer.mode !== 'walk' }
-	);
+	// Issue #249: a rate-card range counts as a value rather than an absence, so the panel
+	// prints it plainly instead of greying out a number the app has.
+	const fare = transferFareNote(transfer);
+	facts.push({
+		label: 'Fare',
+		value: fare.estimated ? `${fare.text} (estimate)` : fare.text,
+		unknown: fare.unknown
+	});
 	const distance = distanceFact(segment, context);
 	if (distance) facts.push(distance);
 	const missed = missedFact(segment, context);

@@ -74,7 +74,7 @@
 		formatPropertyRating,
 		staleScheduleNote,
 		transferDetailLine,
-		unpricedTransferNote,
+		transferFareNote,
 		unroutedLegNote
 	} from './itinerary-timeline-format';
 	import type { UnroutedLeg } from './itinerary-timeline-format';
@@ -523,13 +523,14 @@
 		<div class="tl-meta">
 			{#if transfer}
 				<span class="tl-duration font-mono tabular-nums">{formatDuration(transfer.duration)}</span>
-				{#if transfer.price}
-					<span class="tl-price font-mono tabular-nums">{formatMoney(transfer.price)}</span>
-				{:else}
-					<!-- Issue #119: "no fare" for a walk, "price n/a" for a mode that has one
-					     and nobody quoted it. See unpricedTransferNote. -->
-					<span class="tl-price-unknown">{unpricedTransferNote(transfer.mode, true)}</span>
-				{/if}
+				{@const fare = transferFareNote(transfer, true)}
+				<!-- Issue #119: "no fare" for a walk, "price n/a" for a mode that has one and
+				     nobody quoted it. Issue #249 adds the rate-card range and #246's refusal
+				     to guess past it, which is why one function decides all five and this row
+				     only chooses a class. -->
+				<span class={fare.unknown ? 'tl-price-unknown' : 'tl-price font-mono tabular-nums'}>
+					{fare.text}{#if fare.estimated}<span class="tl-price-estimate">est</span>{/if}
+				</span>
 			{/if}
 		</div>
 		{@render rowExpansion(segment)}

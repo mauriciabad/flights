@@ -48,7 +48,7 @@
 		isDifferentCalendarDate,
 		summariseTransferLegs,
 		transferModeLabel,
-		unpricedTransferNote
+		transferFareNote
 	} from './itinerary-timeline-format';
 
 	type TransferLegField =
@@ -271,6 +271,12 @@
 			     depending on a prop about the leg. -->
 			{@const taxiFare = row.transfer.fareEstimate}
 			{@const summary = summariseTransferLegs(row.transfer.legs)}
+			<!-- Issue #249: five answers, one function. A walk says "No fare", which is a fact
+			     about walking rather than a gap in what a provider told us (#119); a rate-card
+			     range says roughly what the meter will read; a ride past that card's range says
+			     so and leaves the reason to the disclosure below, which the price column is far
+			     too narrow for (#246). -->
+			{@const fare = transferFareNote(row.transfer)}
 			<label
 				class={[
 					'picker-row',
@@ -300,19 +306,10 @@
 					</span>
 				</span>
 				<span class="row-price font-mono tabular-nums">
-					{#if taxiFare?.kind === 'estimate'}
-						{formatMoneyRange(taxiFare.lowMinorUnits, taxiFare.highMinorUnits, taxiFare.currency)}
-						<span class="estimate-tag">estimate</span>
-					{:else if taxiFare?.kind === 'out-of-range'}
-						<!-- Issue #246: this column is too narrow for the reason, so the reason is
-						     one tap away in the disclosure below and this states the fact. -->
-						<span class="price-unknown">No fare estimate</span>
-					{:else if row.transfer.price}
-						{formatMoney(row.transfer.price)}
+					{#if fare.unknown}
+						<span class="price-unknown">{fare.text}</span>
 					{:else}
-						<!-- Issue #119: a walk says "No fare", which is a fact about walking, not
-						     a gap in what a provider told us. See unpricedTransferNote. -->
-						<span class="price-unknown">{unpricedTransferNote(row.transfer.mode)}</span>
+						{fare.text}{#if fare.estimated}<span class="estimate-tag">estimate</span>{/if}
 					{/if}
 				</span>
 				<span class="row-delta">
