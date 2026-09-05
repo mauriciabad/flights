@@ -161,9 +161,29 @@
 	 * still proportional to the square root of its time, and the strip's own screen-reader
 	 * sentence still says so.
 	 */
+	/* Scaled so the smallest positive share is exactly `1fr`, which is what makes the strip
+	   fill its track at every width. `sqrtShares` normalises to a total of 1, so every raw
+	   share is below 1, and CSS grid treats a flex factor below 1 as a fraction of the
+	   leftover space rather than an instruction to fill it. That is harmless while nothing
+	   clamps: at 1440 the factors still total 1 and the strip ends exactly on its right
+	   edge. At 375 the floors bind, seven tracks freeze at 24px and leave the flexible set,
+	   and the survivors' factors then total far less than 1. Measured on production at
+	   390px, the last cell ended 75.5px short of a 316px track, a quarter of the strip left
+	   blank, which is what the owner reported.
+
+	   Scaling every factor by the same constant leaves the proportions untouched, so a
+	   segment is still as wide as the square root of its time says it should be. */
+	const shareScale = $derived.by(() => {
+		const positive = strip.segments.map((segment) => segment.share).filter((share) => share > 0);
+		return positive.length > 0 ? 1 / Math.min(...positive) : 1;
+	});
+
 	const template = $derived(
 		strip.segments
-			.map((segment) => `minmax(${segment.kind === 'free' ? '3px' : '24px'}, ${segment.share.toFixed(4)}fr)`)
+			.map(
+				(segment) =>
+					`minmax(${segment.kind === 'free' ? '3px' : '24px'}, ${(segment.share * shareScale).toFixed(4)}fr)`
+			)
 			.join(' ')
 	);
 
