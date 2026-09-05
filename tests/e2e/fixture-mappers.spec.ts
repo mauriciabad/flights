@@ -143,6 +143,18 @@ const CHECKS: Record<string, FixtureCheck> = {
 	// covered by unit tests and by nothing that runs the real adapter. This check maps the
 	// file and then asserts the URLs actually came out, because "the mapper accepted it" is
 	// exactly the guarantee that hid issue #194.
+	// Issue #288's property: one female dorm, one male dorm, no mixed one, and a
+	// property-level `lowestAverageDormPricePerNight` all the same. Counted as restricted
+	// stays rather than as stays, so this fails if the mapper ever goes back to selling
+	// that unqualified figure as a mixed bed - which is the whole defect.
+	'hostelworld/properties-vienna-restricted-dorms.json': {
+		readBy: 'providers/stays/hostelworld-mapper.ts mapPropertiesToStays',
+		yields: 'some',
+		map: (raw) =>
+			mapPropertiesToStays((raw as { properties?: never[] }).properties, AIRPORT, 25, 1).filter(
+				(stay) => stay.roomKind === 'female-dorm' || stay.roomKind === 'male-dorm'
+			).length
+	},
 	'hostelworld/properties-vienna-photos.json': {
 		readBy: 'providers/stays/hostelworld-mapper.ts mapPropertiesToStays',
 		yields: 'some',

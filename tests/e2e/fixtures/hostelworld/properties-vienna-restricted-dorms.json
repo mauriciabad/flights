@@ -1,0 +1,112 @@
+{
+ "properties": [
+  {
+   "id": 991012,
+   "isPromoted": false,
+   "hbid": 0,
+   "name": "FIXTURE Lodge",
+   "starRating": 0,
+   "overallRating": {
+    "overall": 82,
+    "numberOfRatings": "511"
+   },
+   "latitude": 48.110298,
+   "longitude": 16.5697,
+   "isFeatured": false,
+   "type": "HOSTEL",
+   "address1": "1 FIXTURE Street",
+   "freeCancellationAvailable": true,
+   "lowestPricePerNight": {
+    "value": "9111.11",
+    "currency": "EUR"
+   },
+   "lowestPrivatePricePerNight": {
+    "value": "9333.33",
+    "currency": "EUR"
+   },
+   "lowestDormPricePerNight": {
+    "value": "9111.11",
+    "currency": "EUR"
+   },
+   "lowestAveragePricePerNight": {
+    "value": "9111.11",
+    "currency": "EUR"
+   },
+   "lowestAverageDormPricePerNight": {
+    "value": "9111.11",
+    "currency": "EUR"
+   },
+   "lowestAveragePrivatePricePerNight": {
+    "value": "9333.33",
+    "currency": "EUR"
+   },
+   "distance": {
+    "value": 1.96,
+    "units": "km"
+   },
+   "city": {
+    "id": "991001",
+    "name": "FIXTURELAND",
+    "hrpRating": "80"
+   },
+   "country": {
+    "id": "15",
+    "name": "FIXTURELAND"
+   },
+   "rooms": {
+    "dorms": [
+     {
+      "id": 991013,
+      "name": "FIXTURE 8 Bed Female Dorm",
+      "capacity": "8",
+      "basicType": "Female Dorm",
+      "ensuite": false,
+      "averagePrice": {
+       "value": "9444.44",
+       "currency": "EUR"
+      }
+     },
+     {
+      "id": 991014,
+      "name": "FIXTURE 8 Bed Male Dorm",
+      "capacity": "8",
+      "basicType": "Male Dorm",
+      "ensuite": false,
+      "averagePrice": {
+       "value": "9555.55",
+       "currency": "EUR"
+      }
+     }
+    ],
+    "privates": [
+     {
+      "id": 991015,
+      "name": "FIXTURE Twin Private",
+      "capacity": "2",
+      "basicType": "Private",
+      "ensuite": false,
+      "averagePrice": {
+       "value": "9333.33",
+       "currency": "EUR"
+      }
+     }
+    ]
+   },
+   "images": []
+  }
+ ],
+ "location": {
+  "city": {
+   "id": 991001,
+   "name": "FIXTURELAND",
+   "idCountry": 15,
+   "country": "FIXTURELAND"
+  }
+ },
+ "pagination": {
+  "next": "",
+  "prev": "",
+  "numberOfPages": 1,
+  "totalNumberOfItems": 1
+ }
+}
