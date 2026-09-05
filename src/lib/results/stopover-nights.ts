@@ -22,14 +22,43 @@
  *   minus three euros.
  */
 
+import { isOvernightWait } from '$lib/algorithm/nights';
 import type { FlightOffer, Itinerary } from '$lib/domain';
-import { formatMoneyDelta } from '$lib/format';
+import { formatDuration, formatMoneyDelta } from '$lib/format';
 
 /** "Flight change", "1 night", "3 nights". The one string the control's value and every
- * label built from it read, so they can never disagree about what zero means. */
+ * label built from it read, so they can never disagree about what zero means.
+ *
+ * Zero has meant two different trips since issue #231, and this function can only see the
+ * number. Prefer `stopoverLengthLabelFor` wherever the itinerary itself is to hand. */
 export function stopoverLengthLabel(nights: number): string {
 	if (nights <= 0) return 'Flight change';
 	return `${nights} ${nights === 1 ? 'night' : 'nights'}`;
+}
+
+/**
+ * The same label, told apart by which kind of nightless trip this is.
+ *
+ * Issue #231 split zero in two. A same-day connection lands and leaves before midnight and
+ * is a flight change. A gap from 11pm to 5am also books no bed, but calling that a flight
+ * change would say the traveller sleeps at home: they are awake in a terminal at 3am, and
+ * the card has to be able to say so. Both totals are the flights alone; only one of them
+ * costs a night's sleep.
+ */
+export function stopoverLengthLabelFor(itinerary: Itinerary): string {
+	if (itinerary.nightsInConnection > 0) return stopoverLengthLabel(itinerary.nightsInConnection);
+	return isOvernightWait(itinerary.freeTime.start, itinerary.freeTime.end) ? 'Overnight wait' : 'Flight change';
+}
+
+/**
+ * What the overnight wait actually is, for the one place with room to say it: how long the
+ * traveller is on the ground and why no bed is priced for it. `undefined` for every trip
+ * that is not one, so a caller can render this or nothing without asking twice.
+ */
+export function overnightWaitNote(itinerary: Itinerary): string | undefined {
+	if (itinerary.nightsInConnection > 0) return undefined;
+	if (!isOvernightWait(itinerary.freeTime.start, itinerary.freeTime.end)) return undefined;
+	return `Overnight wait, ${formatDuration(itinerary.freeTime.duration)}, too short to be worth a bed`;
 }
 
 /** Which flights a longer stopover had to reach for. Both change when a city's next
@@ -127,7 +156,9 @@ export function stopoverLadder(
 		const isCurrent = option.nights === shown.nightsInConnection;
 		const deltaMinorUnits = option.itinerary.totalPrice.minorUnits - shown.totalPrice.minorUnits;
 		const currency = option.itinerary.totalPrice.currency;
-		const label = stopoverLengthLabel(option.nights);
+		// Issue #231: `...LabelFor`, not `...Label`, so a rung whose trip crosses a midnight
+		// it cannot sleep through reads "Overnight wait" rather than "Flight change".
+		const label = stopoverLengthLabelFor(option.itinerary);
 		const delta = isCurrent ? undefined : formatMoneyDelta(deltaMinorUnits, currency);
 		return {
 			nights: option.nights,

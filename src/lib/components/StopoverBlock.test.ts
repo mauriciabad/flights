@@ -164,3 +164,39 @@ describe('the 24-hour setting', () => {
 		expect(lines.slice(0, 3)).toEqual(['Fri 9 from 21:10', '2 full days: Sat, Sun', 'Mon 12 until 09:05']);
 	});
 });
+
+describe('a short overnight wait (issue #231)', () => {
+	/** In at 11:30pm, out at 2:30am. The clock crosses a date and the traveller sleeps
+	 * nowhere, which is exactly the card the owner was looking at. */
+	function overnightWait(overrides: Parameters<typeof makeItinerary>[0] = {}): Itinerary {
+		return makeItinerary({
+			freeTimeStart: '2026-10-06T23:30:00',
+			freeTimeEnd: '2026-10-07T02:30:00',
+			freeTimeMinutes: 180,
+			nightsInConnection: 0,
+			...overrides
+		});
+	}
+
+	it('names the wait and its length instead of a property nobody is checking into', () => {
+		const lines = render(overnightWait());
+		expect(lines).toContain('Overnight wait, 3h, too short to be worth a bed');
+		expect(lines).not.toContain('Test stay');
+		expect(lines.join(' ')).not.toContain('/night');
+	});
+
+	it('still shows both edges of the window, so the date change is not hidden', () => {
+		expect(render(overnightWait()).slice(0, 3)).toEqual([
+			'Tue 6 from 11:30pm',
+			'No full days',
+			'Wed 7 until 2:30am'
+		]);
+	});
+
+	it('does not tell a traveller awake at 3am that their connection is same-day', () => {
+		const unrouted = overnightWait();
+		const { stay: _stay, ...withoutStay } = unrouted;
+		const lines = render({ ...withoutStay, transferToHotel: undefined } as Itinerary);
+		expect(lines).toContain('Overnight wait, so there is no hotel leg here.');
+	});
+});

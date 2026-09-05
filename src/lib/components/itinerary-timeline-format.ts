@@ -150,8 +150,9 @@ export type UnroutedLeg =
  *
  * Each sentence below is a fact about this itinerary, readable straight off it:
  *
- * - Zero nights is a same-day connection. There is no hotel leg to price and the row is
- *   not waiting on one. The row still renders: `ItineraryTimeline` prints every schedule
+ * - Zero nights is a same-day connection, or since issue #231 an overnight wait too short
+ *   to sleep through. Either way there is no hotel leg to price and the row is not waiting
+ *   on one, and `overnightWait` picks which of the two it says. The row still renders: `ItineraryTimeline` prints every schedule
  *   step in a fixed order, so a row that vanishes for one itinerary and not another makes
  *   two trips harder to read against each other. Saying why it is empty is the fix,
  *   deleting it is not.
@@ -171,11 +172,16 @@ export type UnroutedLeg =
  */
 export function unroutedLegNote(
 	leg: UnroutedLeg,
-	context: { hasStay: boolean; nightsInConnection: number }
+	context: { hasStay: boolean; nightsInConnection: number; overnightWait?: boolean }
 ): string {
 	if (leg === 'to-hotel' || leg === 'from-hotel') {
 		if (!context.hasStay && context.nightsInConnection === 0) {
-			return 'Same-day connection, so there is no hotel leg here.';
+			// Issue #231 split the nightless trip in two. Both book nothing, but one of them
+			// is awake in a terminal at 3am, and telling that traveller their connection is
+			// same-day is the app describing a different journey from the one they are on.
+			return context.overnightWait
+				? 'Overnight wait, so there is no hotel leg here.'
+				: 'Same-day connection, so there is no hotel leg here.';
 		}
 		if (!context.hasStay) {
 			// Issue #185: the row's own fact and nothing else. It used to open with "No bed

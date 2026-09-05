@@ -1,0 +1,338 @@
+Skip to content
+Layover
+BVC→
+to
+PFO
+
+6 Oct to 12 Oct 2026
+
+Edit search
+
+4 of 4 itineraries shown
+
+Flexible dates? See which week is cheapest
+from prices already cached for 4 stopovers
+Filter and sort
+Boa Vista
+BVC
+→
+London
+LGW
+→
+Paphos
+PFO
+
+from€304.85
+
+Flights
+€252.00
+Bed, 1 night x €52.85
+€52.85
+Ground, 2 rides
+not priced
+BVC
+LGW
+PFO
+Tue
+Wed
+
+5h 50m
+1 night in London
+4h 40m
+√ scale
+
+FREE TIME
+No full days
+IN FLIGHT
+10h 30m
+AIRPORT WAIT
+4h
+DOOR TO DOOR
+1d 7h
+1 night
++6 more flight times
+Hide details
+
+TUI Airways
+easyJet
+via Kiwi.com (no key required) & Hostelworld (no key required) & Transitous, fetched this minute
+
+BVC
+LGW
+PFO
+© CARTO, © OpenStreetMap contributors
+
+Showing the whole route.
+
+Your route
+The free city
+
+LONDON
+
+Tue 6 from 9:37pm
+
+No full days
+
+Wed 7 until 12:39pm
+
+The Gatwick White House Hotel
+
+Private room · 2.8 km from the airport
+
+1 night, €52.85/night
+
+Public transport, 1h 7m from the airport, price not available
+
+Tap a step to see its alternatives. Picking one previews this trip and does not change your saved results.
+
+Waiting at BVC
+
+Waiting time at Aristides Pereira International Airport (BVC), in minutes
+−
++
+2h
+12:40pm
+Tue, 6 Oct
+UTC-1
+8:30pm
+UTC+1
+
+BVC
+→
+LGW
+2 flights
+
+TUI Airways BY259
+
+5h 50m
+€173.00
+9:23pm
+
+To The Gatwick White House Hotel · Bus, then bus (1 change)
+
+Next: 9:40pm, 9:48pm, 10:10pm, 10:18pm, 10:40pm
+
+1h 7m
+price n/a
+9:37pm
+11:59pm
+
+Day stopover in London 33 stays
+
+The Gatwick White House Hotel · private
+
+No full days
+12:42pm
+
+To the connection airport · Bus, then bus, then bus (2 changes)
+
+Last departure that still gets you there by 1:20pm.
+
+41m
+price n/a
+
+Waiting at LGW
+
+Waiting time at the connection airport (LGW), in minutes
+−
++
+14h 40m
+3:20pm
++1
+day later
+Wed, 7 Oct
+10pm
+UTC+3
+
+LGW
+→
+PFO
+20 flights
+
+easyJet U28655
+
+4h 40m
+€79.00
+IN FLIGHT
+10h 30m
+AIRPORT WAIT
+16h 40m
+FREE TIME
+No full days
+NIGHTS
+0
+DOOR TO DOOR
+1d 7h
+TOTAL PRICE
+€252.00 excludes unpriced ground transport
+Boa Vista
+BVC
+→
+Manchester
+MAN
+→
+Paphos
+PFO
+
+from€301.50
+
+Flights
+€266.00
+Bed, 1 night x €35.50
+€35.50
+Ground, 2 rides
+not priced
+BVC
+MAN
+PFO
+Tue
+Wed
+
+6h
+1 night in Manchester
+4h 50m
+√ scale
+
+FREE TIME
+No full days
+IN FLIGHT
+10h 50m
+AIRPORT WAIT
+4h
+DOOR TO DOOR
+1d 6h
+1 night
++9 more flight times
+Show details
+
+TUI Airways
+easyJet
+via Kiwi.com (no key required) & Hostelworld (no key required) & OSRM (walking & driving), fetched this minute
+
+Boa Vista
+BVC
+→
+Rome
+FCO
+→
+Paphos
+PFO
+
+from€318.55
+
+Flights
+€293.55
+Bed, 1 night x €25.00
+€25.00
+Ground, 2 rides
+not priced
+BVC
+FCO
+PFO
+Fri
+Sat
+
+7h 10m
+1 night in Rome
+3h
+√ scale
+
+FREE TIME
+1 full day
+IN FLIGHT
+10h 10m
+AIRPORT WAIT
+4h
+DOOR TO DOOR
+2d 8h
++1 more flight time
+Show details
+
+Neos Air
+Ryanair
+1 stop, no plane change
+via Kiwi.com (no key required) & Ryanair (no key required) & Hostelworld (no key required) & OSRM (walking & driving), fetched this minute
+
+Boa Vista
+BVC
+→
+Birmingham
+BHX
+→
+Paphos
+PFO
+
+from€344.96
+
+Flights
+€316.00
+Bed, 1 night x €28.96
+€28.96
+Ground, 2 rides
+not priced
+BVC
+BHX
+PFO
+Fri
+
+5h 50m
+1 night in Birmingham
+4h 45m
+√ scale
+
+FREE TIME
+No full days
+IN FLIGHT
+10h 35m
+AIRPORT WAIT
+4h
+DOOR TO DOOR
+1d 6h
+1 night
+Show details
+
+TUI Airways
+Jet2
+via Kiwi.com (no key required) & Hostelworld (no key required) & OSRM (walking & driving), fetched this minute
+
+PROVIDERS ASKED
+
+Ryanair (no key required)
+ANSWERED
+21 reqs
+Kiwi.com (no key required)
+ANSWERED
+30 reqs
+Travelpayouts cheap routes (build-time)
+ANSWERED
+0 reqs
+Hostelworld (no key required)
+ANSWERED
+18 reqs
+OSRM (walking & driving)
+ANSWERED
+12 reqs
+Transitous
+ANSWERED
+8 reqs
+
+WIDEN THIS SEARCH
+
+See a month of prices
+
+Cheap and broad: which dates are worth confirming.
+
+Flights Sky (RapidAPI)
+~10 requests across 5 stopovers
+Add a key to use this
+
+Confirm an exact price
+
+Expensive and narrow: spends a real request to price the date already shown.
+
+Flights Sky (RapidAPI)
+~55 requests across 5 stopovers
+Add a key to use this
+Skyscanner (RapidAPI)
+~55 requests across 5 stopovers
+Add a key to use this
