@@ -186,6 +186,27 @@ test.describe('frozen route previews (issue #280)', () => {
 		await expect(trigger).toBeFocused();
 	});
 
+	test('ten opens and closes leave no map behind', async ({ page }) => {
+		await search(page, BOTH_ENDS);
+		await page.getByRole('button', { name: 'Show details' }).first().click();
+
+		const previews = page.locator('.result-detail .ground-leg');
+		const dialog = page.locator('dialog.route-dialog');
+		const canvases = page.locator('canvas.maplibregl-canvas');
+
+		// One open and close proves teardown runs. Ten prove it runs every time, which is
+		// the shape this defect would have: nothing visibly wrong until Chromium evicts the
+		// oldest of sixteen live contexts, long after the change that caused it.
+		for (let round = 0; round < 10; round++) {
+			await previews.nth(round % 3).click();
+			await expect(dialog).toBeVisible();
+			await expect(canvases).toHaveCount(1);
+			await page.keyboard.press('Escape');
+			await expect(dialog).toHaveCount(0);
+			await expect(canvases).toHaveCount(0);
+		}
+	});
+
 	test('the dialog opens framed on the leg that was tapped', async ({ page }) => {
 		await search(page, BOTH_ENDS);
 		await page.getByRole('button', { name: 'Show details' }).first().click();
@@ -198,6 +219,8 @@ test.describe('frozen route previews (issue #280)', () => {
 		// The map's own status line names what it is showing, and it is the leg the button
 		// carried rather than the whole route.
 		await expect(dialog.locator('.map-status')).not.toContainText('Showing the whole route');
-		await expect(dialog.getByRole('heading')).toContainText('Transfer to');
+		// The heading names the leg the button named; the caveat-bearing sentence is under
+		// the map, in the status line asserted above.
+		await expect(dialog.getByRole('heading')).toHaveText('The stopover');
 	});
 });

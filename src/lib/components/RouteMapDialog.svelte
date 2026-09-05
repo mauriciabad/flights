@@ -23,8 +23,8 @@
 	 * once a page holds more than sixteen; a map left behind on every open would walk a
 	 * session into that ceiling one dialog at a time, slowly enough that nobody would
 	 * connect the blank map to the eight dialogs they opened an hour ago.
-	 * `tools/probe-dialog-map.mjs` opens and closes this ten times and asserts the live
-	 * canvas count returns to zero.
+	 * `route-previews.spec.ts` opens and closes this ten times and asserts the live canvas
+	 * count returns to zero every time.
 	 *
 	 * ## Keyboard and focus
 	 *

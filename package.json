@@ -17,7 +17,7 @@
 		"data:city-centres": "node scripts/prepare-city-centres.mjs",
 		"data:cheap-routes": "node scripts/fetch-cheap-routes.mjs",
 		"data:ryanair-network": "node scripts/fetch-ryanair-network.mjs",
-		"test:e2e": "playwright test --grep-invert @live",
+		"test:e2e": "playwright test --grep-invert \"@live|@screenshot\"",
 		"test:e2e:live": "ALLOW_LIVE_TESTS=1 playwright test --grep @live",
 		"test:e2e:report": "playwright show-report",
 		"qa": "playwright test --config qa.config.ts",

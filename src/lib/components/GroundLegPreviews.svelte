@@ -46,6 +46,14 @@
 	// exactly as long as the dialog does.
 	let openTitle = $state<string | undefined>();
 
+	/**
+	 * The heading is the short label, not the leg's full sentence. Joining two legs' own
+	 * labels produced "Transfer to Vienna (straight-line estimate). Transfer to VIE
+	 * (straight-line estimate)" across three lines of a phone's dialog header, which is a
+	 * heading nobody reads and a caveat printed twice. The full sentence still reaches
+	 * everyone: it is this button's accessible name, and `ItineraryMap`'s own status line
+	 * prints it under the map the moment the dialog opens.
+	 */
 	function open(title: string, segmentId: ItinerarySegmentId | null): void {
 		selectedSegmentId = segmentId;
 		openTitle = title;
@@ -65,7 +73,7 @@
 	<ul class="ground-legs-row">
 		{#each previews as preview (preview.id)}
 			<li class="ground-legs-item">
-				<button type="button" class="ground-leg" onclick={() => open(preview.title, preview.focusSegmentId)}>
+				<button type="button" class="ground-leg" onclick={() => open(preview.label, preview.focusSegmentId)}>
 					<span class="ground-leg-frame">
 						<RoutePreview lines={preview.lines} points={preview.points} width={120} height={88} />
 						<svg class="ground-leg-expand" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
@@ -104,6 +112,11 @@
 	.ground-legs-row {
 		display: flex;
 		gap: var(--space-2);
+		/* Capped, because these are thumbnails and a full-width desktop row turns each into
+		   a 260px picture of one line. The owner asked for "3 smaller maps"; at 34rem they
+		   are about 165px each, which is the size at which a leg's shape reads and stops
+		   competing with the timeline under it. */
+		max-width: 34rem;
 		margin: 0;
 		padding: 0;
 		list-style: none;
@@ -141,18 +154,27 @@
 	}
 
 	/* Always drawn, not only on hover: on a phone there is no hover, and a picture with no
-	   affordance is a picture nobody taps. Quiet until the leg is pointed at or focused. */
+	   affordance is a picture nobody taps. Quiet until the leg is pointed at or focused.
+
+	   Top right, and carrying the panel's own colour as a pad: a leg running south-east
+	   ends its stroke in the bottom-right corner, and the glyph sat on top of the endpoint
+	   dot there. Every corner can hold a line, so the glyph clears its own space instead of
+	   hoping for an empty one. */
 	.ground-leg-expand {
 		position: absolute;
-		right: var(--space-1);
-		bottom: var(--space-1);
+		top: 0;
+		right: 0;
+		box-sizing: content-box;
 		width: 0.75rem;
 		height: 0.75rem;
+		padding: 0.1875rem;
+		border-bottom-left-radius: var(--radius-md);
+		background: var(--color-bg-inset);
 		color: var(--color-text-faint);
 		transition:
 			color 140ms ease-out,
 			opacity 140ms ease-out;
-		opacity: 0.7;
+		opacity: 0.75;
 	}
 
 	.ground-leg.is-fallback {

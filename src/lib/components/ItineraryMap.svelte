@@ -700,6 +700,39 @@
 		height: 2.25rem;
 	}
 
+	/* MapLibre ships white chrome. That was a small bright square on a card-sized map and
+	   it is a pair of them plus an attribution bar on issue #280's near-fullscreen dark
+	   dialog, which is where the app stops looking like one thing. The control surfaces
+	   take this app's own tokens; the glyphs inside them are black SVGs baked into
+	   background images, so dark mode flips them rather than recolouring them. */
+	.itinerary-map-canvas :global(.maplibregl-ctrl-group),
+	.itinerary-map-canvas :global(.maplibregl-ctrl-attrib) {
+		border: 1px solid var(--color-border);
+		background: var(--color-bg-elevated);
+		color: var(--color-text-muted);
+		box-shadow: var(--shadow-sm);
+	}
+
+	.itinerary-map-canvas :global(.maplibregl-ctrl-group button + button) {
+		border-top-color: var(--color-border);
+	}
+
+	.itinerary-map-canvas :global(.maplibregl-ctrl-attrib a) {
+		color: var(--color-text-muted);
+	}
+
+	.itinerary-map-canvas :global(.maplibregl-ctrl-icon) {
+		filter: invert(1);
+	}
+
+	/* `prefers-color-scheme: light`, matching src/app.css's own override exactly: dark is
+	   this app's default, so the flip is undone rather than applied. */
+	@media (prefers-color-scheme: light) {
+		.itinerary-map-canvas :global(.maplibregl-ctrl-icon) {
+			filter: none;
+		}
+	}
+
 	.itinerary-map-loading,
 	.itinerary-map-overlay {
 		position: absolute;
