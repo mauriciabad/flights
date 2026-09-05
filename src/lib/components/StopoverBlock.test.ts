@@ -200,3 +200,37 @@ describe('a short overnight wait (issue #231)', () => {
 		expect(lines).toContain('Overnight wait, so there is no hotel leg here.');
 	});
 });
+
+describe('how far out the bed is (issue #219)', () => {
+	/** Gatwick, and a bed 2.8 km from it in Horley - the pair the issue measured. */
+	const GATWICK = { latitude: 51.1537, longitude: -0.1821 };
+
+	function withBedAt(latitude: number, longitude: number): Itinerary {
+		const base = londonStopover();
+		return {
+			...base,
+			stay: { ...base.stay!, property: { ...base.stay!.property, coordinates: { latitude, longitude } } }
+		};
+	}
+
+	function renderWithAirport(itinerary: Itinerary): string[] {
+		target = document.createElement('div');
+		document.body.appendChild(target);
+		component = mount(StopoverBlock, {
+			target,
+			props: { itinerary, connectionLabel: 'London', connectionCoordinates: GATWICK }
+		});
+		flushSync();
+		return [...target.querySelectorAll('p:not(.stopover-label)')].map((p) => p.textContent!.trim());
+	}
+
+	it('prints the distance beside the room kind', () => {
+		// 0.0252 degrees of latitude north of Gatwick is 2.8 km.
+		const lines = renderWithAirport(withBedAt(GATWICK.latitude + 0.0252, GATWICK.longitude));
+		expect(lines).toContain('Private room · 2.8 km from the airport');
+	});
+
+	it('says the room kind alone when no airport position was resolved', () => {
+		expect(render(londonStopover())).toContain('Private room');
+	});
+});

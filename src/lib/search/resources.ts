@@ -65,6 +65,10 @@ import {
   isWomenOnlyStay,
 } from "../stays/female-dorm-fit";
 import {
+  NIGHTS_ASSUMED_BEFORE_A_PAIRING_EXISTS,
+  stopoverStayCostMinorUnits,
+} from "../stays/stopover-cost";
+import {
   getTaxiFareEstimate,
   OSRM_PROVIDER_ID,
 } from "../providers/transfers/osrm";
@@ -121,12 +125,18 @@ import type { RecordProviderCall, SourceTracker } from "./provenance";
 export const DEFAULT_STAY_RADIUS_KM = 50;
 
 /**
- * Every `Stay` this candidate's usable providers returned, cheapest first, so a caller can
- * fall back to the next-cheapest if the top pick turns out to be unavailable — `build.ts`
- * itself only ever consumes the first one (`ConnectionResources.stay` is singular), but
- * picking "which stay a traveller might actually book instead" (brief line 65: "user can
- * select to update total") is a UI concern this module hands the option list to rather than
- * decides.
+ * Every `Stay` this candidate's usable providers returned, best first, so a caller can fall
+ * back to the next one if the top pick turns out to be unavailable — `build.ts` itself only
+ * ever consumes the first one (`ConnectionResources.stay` is singular), but picking "which
+ * stay a traveller might actually book instead" (brief line 65: "user can select to update
+ * total") is a UI concern this module hands the option list to rather than decides.
+ *
+ * Issue #219: best is no longer cheapest. This used to sort on `pricePerNight` alone, and a
+ * dorm bed in a big city is structurally cheaper than a private room beside a runway, so
+ * with a 50 km radius the first entry was essentially always the far one — a EUR 13.00 bed
+ * 48.3 km from Gatwick, over a EUR 52.82 room 2.8 km away, on the owner's own route. The
+ * order now weighs the room against getting out to it and back; `stays/stopover-cost.ts`
+ * owns that rule, the assumption behind it and the argument for both.
  *
  * Compares raw minor units with no currency conversion, which is safe only because
  * `fetchCheapestStay` has already dropped every stay not quoted in the search's own
@@ -136,9 +146,14 @@ export const DEFAULT_STAY_RADIUS_KM = 50;
  * bug. Nothing asked providers for a currency at all, so mismatches were the normal case
  * and sorting them by bare minor units ranked 2000 USD below 2200 EUR.
  */
-export function rankStaysByPrice(stays: readonly Stay[]): Stay[] {
+export function rankStaysForStopover(
+  stays: readonly Stay[],
+  connectionCoordinates: Coordinates,
+): Stay[] {
   return [...stays].sort(
-    (a, b) => a.pricePerNight.minorUnits - b.pricePerNight.minorUnits,
+    (a, b) =>
+      stopoverStayCostMinorUnits(a, connectionCoordinates, NIGHTS_ASSUMED_BEFORE_A_PAIRING_EXISTS) -
+      stopoverStayCostMinorUnits(b, connectionCoordinates, NIGHTS_ASSUMED_BEFORE_A_PAIRING_EXISTS),
   );
 }
 
@@ -475,6 +490,11 @@ interface StaySearchOutcome {
  * after — the previous version ranked by raw price alone and returned index `[0]`, which
  * could and did hand a female-only dorm to a group with no female travellers. A price for
  * a bed nobody in the party can book is not a cheaper option, it is a wrong answer.
+ *
+ * Issue #219: and "cheapest" is `rankStaysForStopover`'s reading of it, the room plus the
+ * ride, rather than the nightly rate on its own. The bed this returns is the one a card
+ * opens on and totals, so a rate that ignores a 48 km journey twice is not a cheaper
+ * option either.
  */
 async function fetchCheapestStay(
   query: StaySearchQuery,
@@ -510,7 +530,7 @@ async function fetchCheapestStay(
       query.currency === undefined ||
       stay.pricePerNight.currency === query.currency,
   );
-  const candidates = rankStaysByPrice(inSearchCurrency);
+  const candidates = rankStaysForStopover(inSearchCurrency, query.near);
   const selected = candidates.find((stay) =>
     isStaySelectable(stay, travellers, females),
   );

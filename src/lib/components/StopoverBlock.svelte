@@ -28,7 +28,9 @@
 	 *   money edge. The card's price breakdown composes the same two pieces into its own
 	 *   "Bed, 2 nights × €13.00 each", so the panel and the card cannot quote two different
 	 *   figures for one bed (issue #206).
-	 * - The room kind is `ROOM_KIND_LABELS`, the same table the stay picker's tiles use.
+	 * - The room kind is `ROOM_KIND_LABELS`, the same table the stay picker's tiles use, and
+	 *   the distance beside it is `stays/distance.ts`, the same straight line and the same
+	 *   formatter every row of that picker prints (issue #219).
 	 * - The transfer's duration, mode and fare are `itinerary.transferToHotel` through
 	 *   `formatDuration`, `transferModeLabel` and `unpricedTransferNote`, and when nothing
 	 *   routed to the bed at all, `unroutedLegNote`.
@@ -61,10 +63,10 @@
 	 * same content. This component is what it should render rather than writing a second
 	 * one; it takes an `Itinerary` and nothing else, so a popover can call it unchanged.
 	 */
-	import type { Itinerary } from '$lib/domain';
+	import type { Coordinates, Itinerary } from '$lib/domain';
 	import { formatDuration, formatMoney } from '$lib/format';
 	import { overnightWaitNote } from '$lib/results/stopover-nights';
-	import { bedNightlyRate, ROOM_KIND_LABELS } from '$lib/stays';
+	import { bedNightlyRate, formatDistanceKm, haversineDistanceKm, ROOM_KIND_LABELS } from '$lib/stays';
 	import { freeTimeDays } from './free-time-days';
 	import { transferModeLabel, unpricedTransferNote, unroutedLegNote } from './itinerary-timeline-format';
 
@@ -74,9 +76,15 @@
 		 * itinerary carries only the IATA code (domain/itinerary.ts), so a component that
 		 * derived this itself would print a code where the rest of the card prints a city. */
 		connectionLabel: string;
+		/** Issue #219: the connection airport's position, so the block can say how far out
+		 * the bed is. Optional, and the line degrades to the room kind alone without it: the
+		 * itinerary carries no connection `Airport` (domain/itinerary.ts holds the IATA code
+		 * and nothing else), and a caller that has not resolved one must not be forced to
+		 * invent a point. */
+		connectionCoordinates?: Coordinates;
 	}
 
-	let { itinerary, connectionLabel }: Props = $props();
+	let { itinerary, connectionLabel, connectionCoordinates }: Props = $props();
 
 	// `undefined` for a window with no length: a same-day change whose whole gap is eaten
 	// by the waiting rule and the transfers. Three lines about nothing is worse than none.
@@ -87,6 +95,24 @@
 	// Issue #231: set only when the stopover crosses a midnight it is too short to sleep
 	// through. Both lines below need it, so it is derived once rather than asked twice.
 	const waitNote = $derived(overnightWaitNote(itinerary));
+
+	/**
+	 * "Dorm bed - 48.3 km from the airport". Issue #219: the app picked a bed that far out
+	 * and the card said nothing about it, so the one number that made the pick look absurd
+	 * was the one number missing from the screen.
+	 *
+	 * Straight-line, the same figure and the same formatter the stay picker's rows use
+	 * (`stays/distance.ts`), never a second measurement that could disagree with the list
+	 * a tap away. The transfer line below is the other half of the answer: how long the
+	 * journey actually takes, which is a route rather than a line.
+	 */
+	const roomLine = $derived.by(() => {
+		if (!stay) return undefined;
+		const kind = ROOM_KIND_LABELS[stay.roomKind];
+		if (!connectionCoordinates) return kind;
+		const km = haversineDistanceKm(stay.property.coordinates, connectionCoordinates);
+		return `${kind} · ${formatDistanceKm(km)} from the airport`;
+	});
 
 	// Issue #206: the rate, and who it covers. `bedNightlyRate` owns that decision so this
 	// line and the card's own "Bed, 2 nights × €13.00 each" can never quote two different
@@ -161,7 +187,7 @@
 		     the two they are being told. -->
 		{#if stay && nights > 0}
 			<p class="stopover-property">{stay.property.name}</p>
-			<p class="stopover-room">{ROOM_KIND_LABELS[stay.roomKind]}</p>
+			<p class="stopover-room">{roomLine}</p>
 			{#if nightsAndRate}
 				<p class="stopover-rate font-mono tabular-nums">{nightsAndRate}</p>
 			{/if}

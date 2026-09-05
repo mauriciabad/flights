@@ -966,3 +966,62 @@ describe('DEFAULT_STAY_RADIUS_KM', () => {
 		expect(DEFAULT_STAY_RADIUS_KM).toBeGreaterThanOrEqual(MIN_SEARCH_RADIUS_KM);
 	});
 });
+
+describe('fetchConnectionResources: the bed it picks is the one you can reach (issue #219)', () => {
+	/** A point `km` due north of the connection airport, so a fixture can name a distance
+	 * rather than a latitude. One degree of latitude is 111.19 km. */
+	function stayAtKm(name: string, roomKind: Stay['roomKind'], minorUnits: number, km: number): Stay {
+		return {
+			property: {
+				name,
+				coordinates: {
+					latitude: CONNECTION_COORDINATES.latitude + km / 111.19,
+					longitude: CONNECTION_COORDINATES.longitude
+				},
+				images: []
+			},
+			roomKind,
+			pricePerNight: { minorUnits, currency: 'EUR' }
+		};
+	}
+
+	it('prefers the walkable room to a dorm 48 km out, which is the card the owner rejected', async () => {
+		// Both figures are measured, off the Gatwick card on issue #219: London Backpackers
+		// at EUR 13.00 a night and 48.3 km, The Gatwick White House Hotel at EUR 52.82 and
+		// 2.8 km. Price alone picked the first one and the owner called it "TOO FAR away to
+		// be an acceptable result".
+		const stays = [
+			stayAtKm('London Backpackers', 'dorm', 1300, 48.3),
+			stayAtKm('The Gatwick White House Hotel', 'private', 5282, 2.8)
+		];
+		const input = baseInput([fakeStayProvider('stays', stays)], { currency: 'EUR' });
+
+		const resources = await fetchConnectionResources(input);
+
+		expect(resources.stay?.property.name).toBe('The Gatwick White House Hotel');
+		expect(resources.stayCandidates.map((s) => s.property.name)).toEqual([
+			'The Gatwick White House Hotel',
+			'London Backpackers'
+		]);
+	});
+
+	it('still keeps the far bed as a candidate rather than filtering it out', async () => {
+		// The radius decides what is a candidate at all; this ordering only decides which
+		// one a card opens on. The picker has to be able to offer the other.
+		const stays = [stayAtKm('Far and cheap', 'dorm', 1300, 45), stayAtKm('Near and dear', 'private', 5000, 1)];
+		const resources = await fetchConnectionResources(
+			baseInput([fakeStayProvider('stays', stays)], { currency: 'EUR' })
+		);
+
+		expect(resources.stayCandidates).toHaveLength(2);
+	});
+
+	it('leaves two beds at the same distance ordered by price', async () => {
+		const stays = [stayAtKm('Dearer', 'dorm', 4000, 9), stayAtKm('Cheaper', 'dorm', 2000, 9)];
+		const resources = await fetchConnectionResources(
+			baseInput([fakeStayProvider('stays', stays)], { currency: 'EUR' })
+		);
+
+		expect(resources.stay?.property.name).toBe('Cheaper');
+	});
+});
