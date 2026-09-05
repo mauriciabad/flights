@@ -1,12 +1,20 @@
 /**
  * Reads one flight picker's rows exactly as they render, one line per row.
  *
- *   node tools/probe-flight-picker-dates.mjs '<results url>' [--leg onward] [--keep-cache]
+ *   node tools/probe-flight-picker-dates.mjs '<results url>' [--leg onward] [--width 375]
+ *                                            [--keep-cache]
  *
  * Issue #317: the list spans several dates and no row prints one, and rows the app has
  * already ruled out still carry a price delta. Both are claims about the rendered text of
  * a row, so this prints that text with the departure date the app holds beside it, and
  * counts how many distinct dates the list covers.
+ *
+ * It also reports overlapping cells, which is not decoration. Adding the date cost the
+ * schedule line 52px, and in the roughly 300px rail issue #278 put this picker in, that was
+ * enough for the arrival clock to run under the price delta at 375, 768 and 1280 alike. The
+ * row still measured the same height and `scrollWidth` still matched `clientWidth`, so
+ * nothing but a box comparison or a screenshot could see it. Run this at several widths
+ * before believing a picker layout change.
  *
  * Its own Chromium, closed at the end, and it clears the IndexedDB cache unless told not
  * to. Both for the reasons AGENTS.md gives about the shared browser and about
@@ -25,6 +33,8 @@ const url = process.argv[2];
 if (!url) throw new Error('pass a results URL');
 const legIndex = process.argv.indexOf('--leg');
 const leg = legIndex === -1 ? 'outbound' : process.argv[legIndex + 1];
+const widthIndex = process.argv.indexOf('--width');
+const width = widthIndex === -1 ? 1280 : Number(process.argv[widthIndex + 1]);
 const keepCache = process.argv.includes('--keep-cache');
 const appOrigin = new URL(url).origin;
 
@@ -32,7 +42,7 @@ const browser = await chromium.launch();
 const context = await browser.newContext({
 	userAgent:
 		'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36',
-	viewport: { width: 1280, height: 900 }
+	viewport: { width, height: 900 }
 });
 const page = await context.newPage();
 page.on('console', (m) => {
@@ -96,6 +106,24 @@ const rows = await picker.locator('.picker-row').evaluateAll((nodes) =>
 	}))
 );
 
+const overlaps = await picker.evaluate((node) => {
+	const found = [];
+	for (const row of node.querySelectorAll('.picker-row')) {
+		const cells = [...row.querySelectorAll('.row-schedule, .row-meta, .row-price, .row-delta')]
+			.map((cell) => ({ name: cell.className.split(' ')[0], box: cell.getBoundingClientRect() }))
+			.filter((cell) => cell.box.width > 0);
+		for (let i = 0; i < cells.length; i++)
+			for (let j = i + 1; j < cells.length; j++) {
+				const a = cells[i].box;
+				const b = cells[j].box;
+				if (a.left < b.right - 1 && b.left < a.right - 1 && a.top < b.bottom - 1 && b.top < a.bottom - 1)
+					found.push(`${cells[i].name} over ${cells[j].name}`);
+			}
+	}
+	return found;
+});
+
+console.log(`viewport: ${width}px, picker: ${await picker.evaluate((el) => Math.round(el.getBoundingClientRect().width))}px`);
 console.log(`rows: ${rows.length}`);
 for (const row of rows) {
 	console.log(`  [${row.height}px] ${row.text}`);
@@ -107,5 +135,6 @@ console.log(`rows with a "no connection" warning AND a price delta: ${pricedImpo
 const datedRows = rows.filter((row) => /\b(Mon|Tue|Wed|Thu|Fri|Sat|Sun)\b/.test(row.text));
 console.log(`rows carrying a weekday: ${datedRows.length} of ${rows.length}`);
 console.log(`picker height: ${await picker.evaluate((el) => Math.round(el.getBoundingClientRect().height))}px`);
+console.log(`overlapping cells: ${overlaps.length === 0 ? 'none' : overlaps.join(', ')}`);
 
 await browser.close();
