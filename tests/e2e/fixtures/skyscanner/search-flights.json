@@ -33,8 +33,44 @@
 									"name": "FIXTURE Airways",
 									"logoUrl": "https://logos.skyscnr.com/images/airlines/favicon/FIXTURE.png"
 								}
-							]
-						}
+							],
+							"operationType": "fully_operated"
+						},
+						"segments": [
+							{
+								"id": "FIXTURE-segment-stn-vie-1",
+								"origin": {
+									"flightPlaceId": "STN",
+									"displayCode": "STN",
+									"name": "FIXTURE Alpha",
+									"type": "Airport"
+								},
+								"destination": {
+									"flightPlaceId": "VIE",
+									"displayCode": "VIE",
+									"name": "FIXTURE Bravo",
+									"type": "Airport"
+								},
+								"departure": "2027-03-08T06:20:00",
+								"arrival": "2027-03-08T09:35:00",
+								"durationInMinutes": 195,
+								"flightNumber": "0005",
+								"marketingCarrier": {
+									"id": 1851,
+									"name": "FIXTURE Airways",
+									"alternateId": "ZZ",
+									"allianceId": 0,
+									"displayCode": "ZZ"
+								},
+								"operatingCarrier": {
+									"id": 1851,
+									"name": "FIXTURE Airways",
+									"alternateId": "ZZ",
+									"allianceId": 0,
+									"displayCode": "ZZ"
+								}
+							}
+						]
 					}
 				],
 				"isSelfTransfer": false,

@@ -713,6 +713,62 @@ describe('runSearch: transfer alternatives and request count (issue #114)', () =
 	});
 });
 
+describe('runSearch: a candidate with no flights is never asked about (issue #213)', () => {
+	it('asks no stay or transfer provider about a connection neither leg has fares for', async () => {
+		// `SLOW` is in the route graph both ways, so it is a real candidate, and it has no
+		// fares on these dates. Ryanair's own graph is seasonal, so this is the ordinary
+		// case rather than a contrived one — and on the search
+		// `provider-answered-nothing.spec.ts` runs, EVERY candidate looks like this.
+		const free = createFakeFlightProvider({
+			id: 'free-flights',
+			routes: { [ORIGIN]: [FAST, SLOW], [FAST]: [DEST], [SLOW]: [DEST] },
+			offerBuilder: (query) => (query.origin === SLOW ? [] : standardOfferBuilder(query))
+		});
+
+		const stayNear: Coordinates[] = [];
+		const stays: StayProvider = {
+			...createFakeStayProvider({ id: 'stays' }),
+			async searchStays(query, ctx) {
+				stayNear.push(query.near);
+				return createFakeStayProvider({ id: 'stays' }).searchStays(query, ctx);
+			}
+		};
+
+		const transferEnds: Coordinates[] = [];
+		const base = createConfigurableTransferProvider([
+			{ mode: 'drive', duration: 20 as Duration, legs: [] }
+		]);
+		const transfers: TransferProvider = {
+			...base,
+			async searchTransfers(query, ctx) {
+				transferEnds.push(query.from, query.to);
+				return base.searchTransfers(query, ctx);
+			}
+		};
+
+		const registry = new ProviderRegistry([free.provider, stays, transfers]);
+		const deps: SearchDependencies = { registry, keys: {}, resolveAirport, currency: 'EUR' };
+
+		const final = (await drain(runSearch(BASE_QUERY, deps))).at(-1)!;
+
+		const slow = AIRPORTS[SLOW].coordinates;
+		const isSlow = (point: Coordinates) =>
+			point.latitude === slow.latitude && point.longitude === slow.longitude;
+
+		expect(
+			transferEnds.filter(isSlow),
+			'no route should have been asked for to or from an airport the traveller cannot fly to'
+		).toEqual([]);
+		expect(stayNear.filter(isSlow), 'no bed should have been priced there either').toEqual([]);
+
+		// And the candidate that DOES have flights was asked about, so this is not passing
+		// because the search did nothing at all.
+		const fast = AIRPORTS[FAST].coordinates;
+		expect(transferEnds.some((point) => point.latitude === fast.latitude)).toBe(true);
+		expect(final.itineraryGroups.length).toBeGreaterThan(0);
+	});
+});
+
 describe('runSearch: quota-aware stay pricing (issue #94)', () => {
 	/** A stay provider with a REAL `ProviderId` (`'agoda'`, `'booking'`, or, for the
 	 * Sky-Scrapper-tight case below, `'skyscanner'` cast to a stay adapter purely to reuse

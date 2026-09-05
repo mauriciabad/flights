@@ -27,6 +27,25 @@ If the real shape turns out to differ once an adapter is written against it, fix
 fixture, not the mock helper in `tests/e2e/support/providers.ts` — the helper is just
 plumbing, the fixture is the contract.
 
+## Every file here goes through the code that reads it
+
+`../fixture-mappers.spec.ts` maps each fixture through the mapper for its shape and fails
+when one has no entry, so a new fixture opts in rather than slipping past. Adapters were
+written after most of these were hand-built, and three of them had drifted apart without
+anything noticing:
+
+- `transitous/plan.json` had no `duration` on its only leg, which `isValidLeg` is right
+  to refuse, so both suites spent months measuring the malformed-response branch (#194,
+  #242). Fixed in #248.
+- `booking/hotels-search.json` answered with `data.hotels[].property.name`;
+  `booking-mapper.ts` reads `data.result[].hotel_name`.
+- `skyscanner/search-flights.json` had no `segments` array, and `mapDirectItinerary`
+  returns nothing without one.
+
+The last two produced zero results every time and no spec used either mock, which is why
+they sat there. Both are now rewritten from the captured responses in
+`src/lib/providers/*/fixtures/`, which is where to look when a check here fails.
+
 ## A fixture must be worthless as an answer
 
 An agent reported the app returning "BVC → LGW → PFO, EUR 238, via Ryanair, with zero
