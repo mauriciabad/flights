@@ -1,6 +1,7 @@
 import { test, expect, type Page } from './support/fixtures';
 import { FIXTURE_FLIGHT_NUMBERS, FIXTURE_PRICES } from './support/fixture-markers';
 import { mockAllKeylessProviders, routeRyanairFlights } from './support/providers';
+import { openTimeline } from './support/results-ui';
 
 /**
  * Issue #141: three map defects, each with an assertion that fails on the code before the
@@ -106,7 +107,7 @@ async function openDetail(page: Page, options: { originLocation?: boolean } = {}
 		: '';
 	await page.goto(`/results/?dep=2027-03-08&arr=2027-03-27&from=BCN&to=TLL${origin}`);
 	await expect(page.getByText('still searching')).toHaveCount(0, { timeout: 20_000 });
-	await page.getByRole('button', { name: 'Show details' }).first().click();
+	await openTimeline(page);
 
 	const detail = page.locator('.result-detail');
 	// Issue #280 moved the map off the panel and into a dialog behind the frozen previews,

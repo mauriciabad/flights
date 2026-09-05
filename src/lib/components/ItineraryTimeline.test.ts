@@ -603,8 +603,8 @@ describe('ItineraryTimeline, selection binding for the map (issue #73)', () => {
 		const { root, harness } = renderSelectionHarness(itinerary);
 
 		const row = root.querySelector<HTMLLIElement>('[data-segment="origin-waiting"]')!;
-		const input = row.querySelector<HTMLInputElement>('.tl-stepper-input')!;
-		const [decrease, increase] = Array.from(row.querySelectorAll<HTMLButtonElement>('.tl-stepper-btn'));
+		const input = row.querySelector<HTMLInputElement>('.waiting-stepper-input')!;
+		const [decrease, increase] = Array.from(row.querySelectorAll<HTMLButtonElement>('.waiting-stepper-btn'));
 		const before = Number(input.value);
 
 		increase.click();
@@ -636,7 +636,7 @@ describe('ItineraryTimeline, selection binding for the map (issue #73)', () => {
 		flushSync();
 
 		const row = root.querySelector<HTMLLIElement>('[data-segment="connection-waiting"]')!;
-		row.querySelectorAll<HTMLButtonElement>('.tl-stepper-btn')[1].click();
+		row.querySelectorAll<HTMLButtonElement>('.waiting-stepper-btn')[1].click();
 		flushSync();
 
 		expect(harness.currentSelection()).toBe('connection-waiting');
