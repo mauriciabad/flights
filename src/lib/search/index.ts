@@ -34,3 +34,8 @@ export type {
 	WidenTarget,
 	WidenTier
 } from './types';
+
+/** Issue #267: routing the two in-city legs for a bed the pipeline never picked, so the
+ * detail panel can answer a swap with a real journey instead of "nothing routed here". */
+export { routeToProperty } from './route-to-property';
+export type { PropertyRouting, RouteToPropertyInput } from './route-to-property';
