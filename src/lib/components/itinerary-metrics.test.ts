@@ -189,8 +189,12 @@ describe('priceBreakdown', () => {
 
 	it('omits a ground line while no transfer provider prices one', () => {
 		// domain/transfer.ts: no adapter populates `Transfer.price` today. A zero row here
-		// would read as "the transfers are free", which is a claim nobody measured.
-		expect(priceBreakdown(makeItinerary({})).parts.some((part) => part.id === 'ground')).toBe(false);
+		// would read as "this taxi is free", which is a claim nobody measured. A taxi on
+		// purpose rather than `makeItinerary`'s walked default, because the claim really is
+		// true of a walk and `walkedTransferCount` is where that belongs.
+		const taxi = { mode: 'taxi' as const, duration: 30 as Duration, legs: [] };
+		const byTaxi = { ...makeItinerary({}), transferToHotel: taxi, transferToConnectionAirport: taxi };
+		expect(priceBreakdown(byTaxi).parts.some((part) => part.id === 'ground')).toBe(false);
 	});
 
 	it('says how many rides a ground line paid for', () => {
@@ -278,5 +282,77 @@ describe('priceBreakdown', () => {
 		// A same-day connection walked at both ends really is completely priced, and
 		// warning about it would invent a cost the trip never had (issue #140).
 		expect(itineraryMetrics(makeItinerary({ nightsInConnection: 0 }), ['total-price'])[0]!.note).toBeUndefined();
+	});
+
+	// Issue #249 --------------------------------------------------------------
+
+	it('counts the walked legs as well as the ones nobody quoted', () => {
+		// The shape measured on production on 2026-09-05 with an origin and a destination
+		// location filled in: the walk to the departure airport, then three taxis. The card
+		// read "Ground, 3 rides not priced" and said nothing whatsoever about the walk,
+		// which is the one ground leg whose price this app actually knows.
+		const walk = { mode: 'walk' as const, duration: 15 as Duration, legs: [] };
+		const taxi = { mode: 'taxi' as const, duration: 30 as Duration, legs: [] };
+		const breakdown = priceBreakdown({
+			...makeItinerary({ nightsInConnection: 1 }),
+			transferToOriginAirport: walk,
+			transferToHotel: taxi,
+			transferToConnectionAirport: taxi,
+			transferToDestinationLocation: taxi
+		});
+
+		expect(breakdown.walkedTransferCount).toBe(1);
+		expect(breakdown.unpricedTransferCount).toBe(3);
+	});
+
+	it('counts a walked trip as walked rather than as nothing', () => {
+		// `makeItinerary`'s two default legs are walks. Both counts were zero here, so the
+		// receipt printed no ground line, which reads identically to a trip that has no
+		// ground legs at all.
+		const breakdown = priceBreakdown(makeItinerary({ nightsInConnection: 1 }));
+		expect(breakdown.walkedTransferCount).toBe(2);
+		expect(breakdown.unpricedTransferCount).toBe(0);
+	});
+
+	it('keeps the total complete when every ground leg is walked', () => {
+		// The other half of the same rule, and the half that was already right: a trip whose
+		// ground costs nothing is fully priced and must not apologise for itself. Pinned
+		// because the walk count is now read on the same screen and the two must not drift.
+		expect(itineraryMetrics(makeItinerary({ nightsInConnection: 1 }), ['total-price'])[0]!.note).toBeUndefined();
+	});
+
+	it('claims no walk on a leg nobody could route', () => {
+		// Issue #211: a leg that does not exist is neither free nor quoted. Counting it as a
+		// walk would turn a routing failure into good news.
+		const { transferToHotel: _to, transferToConnectionAirport: _back, ...unrouted } = makeItinerary({
+			nightsInConnection: 3
+		});
+		const breakdown = priceBreakdown(unrouted as Itinerary);
+
+		expect(breakdown.walkedTransferCount).toBe(0);
+		expect(breakdown.unpricedTransferCount).toBe(2);
+	});
+
+	it('counts a walk somebody quoted as money, not as a free leg', () => {
+		// Nothing produces a priced walk today. If a provider ever quotes a shuttle as one,
+		// its fare belongs in the ground total rather than in a count whose whole claim is
+		// that these legs cost nothing.
+		const paidWalk = {
+			mode: 'walk' as const,
+			duration: 15 as Duration,
+			legs: [],
+			price: { minorUnits: 200, currency: 'EUR' }
+		};
+		const breakdown = priceBreakdown({
+			...makeItinerary({ nightsInConnection: 1 }),
+			transferToHotel: paidWalk,
+			transferToConnectionAirport: paidWalk
+		});
+
+		expect(breakdown.walkedTransferCount).toBe(0);
+		expect(breakdown.parts.find((part) => part.id === 'ground')?.money).toEqual({
+			minorUnits: 400,
+			currency: 'EUR'
+		});
 	});
 });

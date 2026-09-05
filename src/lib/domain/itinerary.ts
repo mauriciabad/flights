@@ -195,3 +195,27 @@ export function unpricedTransferLegs(legs: Pick<Itinerary, ItineraryTransferLeg>
 	}
 	return unpriced;
 }
+
+/**
+ * The legs of this trip that are walked, and therefore cost nothing.
+ *
+ * `unpricedTransferLegs` above is one half of `costIsUnknown`; this is the other. An
+ * absent `Transfer.price` on a walk is a fact the app knows and an absent one on a taxi is
+ * a number nobody measured (`transfer.ts`), and a caller that only ever asks the first
+ * question can state the second silence but not the first. Every per-leg screen already
+ * says "No fare" against a walk and "Price not available" against an unquoted ride
+ * (`components/itinerary-timeline-format.ts`). The receipt on the results card had no way
+ * to ask, so it said nothing at all about a walked leg, and a trip of three taxis and one
+ * walk read as "Ground, 3 rides" with the fourth leg missing from the only place the trip
+ * is added up.
+ *
+ * A walk carrying a price is deliberately not here. Nothing produces one today, and if a
+ * provider ever quotes a shuttle as a walk, its money belongs in the priced total rather
+ * than in a list whose whole claim is that these legs are free.
+ */
+export function walkedTransferLegs(legs: Pick<Itinerary, ItineraryTransferLeg>): ItineraryTransferLeg[] {
+	return TRANSFER_LEGS_IN_TRIP_ORDER.filter((leg) => {
+		const transfer = legs[leg];
+		return transfer?.mode === 'walk' && transfer.price === undefined;
+	});
+}
