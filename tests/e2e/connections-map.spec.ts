@@ -27,11 +27,19 @@ const EMPTY_MAP_STYLE = JSON.stringify({ version: 8, name: 'empty', sources: {},
 /**
  * Two stopovers out of Barcelona, and only one of them works.
  *
- * Vienna pairs: the outbound lands at 10:15 and the onward leaves two days later. Milan
+ * Vienna pairs: the outbound lands at 10:15 and the onward leaves two days later. Budapest
  * deliberately does not. A flight reaches it and nothing leaves it for Tallinn, which is
  * the `no-onward-flight` refusal rather than the `no-outbound-flight` one, and separating
  * those two is most of why this screen exists: a city with no pairing never becomes a
  * result card, so the map is the only place in the app it can appear at all.
+ *
+ * It was Milan until issue #340, and the swap is bookkeeping rather than a change of
+ * subject. Ranking a stopover on how evenly it splits the journey drops Milan out of
+ * Barcelona to Tallinn's candidates altogether — Milan is southeast and Tallinn is
+ * northeast, so it is a corner cut off the journey rather than a halfway point — and this
+ * test needs a city the search still proposes. Budapest is the second the panel lists.
+ * Measured rather than picked: with Milan gone the panel reads Vienna, Budapest, Berlin,
+ * Charleroi, Kraków, Stansted, and the five after Vienna all say "No trip".
  */
 const BCN_VIE_TLL = [
 	{
@@ -52,7 +60,7 @@ const BCN_VIE_TLL = [
 	},
 	{
 		dep: 'BCN',
-		arr: 'MXP',
+		arr: 'BUD',
 		depDate: '2027-03-08T09:00:00',
 		arrDate: '2027-03-08T10:40:00',
 		price: FIXTURE_PRICES.second,
@@ -183,13 +191,13 @@ test.describe('the connections map (issue #324)', () => {
 		await openMap(page);
 
 		const dialog = page.locator('dialog.connections-dialog');
-		// Milan is reachable and goes nowhere onward, so it never becomes a card. The list is
-		// the only place in the app it can appear at all.
-		const milan = dialog.locator('.panel-row').filter({ hasText: 'MXP' });
-		await expect(milan).toHaveCount(1);
-		await expect(milan).toContainText('No trip');
+		// Budapest is reachable and goes nowhere onward, so it never becomes a card. The list
+		// is the only place in the app it can appear at all.
+		const budapest = dialog.locator('.panel-row').filter({ hasText: 'BUD' });
+		await expect(budapest).toHaveCount(1);
+		await expect(budapest).toContainText('No trip');
 
-		await milan.click();
+		await budapest.click();
 		// Why, not only that. "Nothing flies onward" and "the gap is too short" are different
 		// answers and only one of them is worth changing a date over.
 		await expect(dialog.locator('.panel-block-headline')).toContainText('Nothing flies onward');
