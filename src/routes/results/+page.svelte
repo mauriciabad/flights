@@ -64,6 +64,19 @@
 	import { getProviderRegistry, stayProviderOutcomes } from '$lib/results/provider-setup';
 	import { createSearchDependencies } from '$lib/results/search-dependencies';
 	import {
+		bedForLength,
+		reapplyWaitingTimes,
+		recordChoice,
+		recordStaySwap
+	} from '$lib/results/traveller-choices';
+	import type {
+		StaySwapsByResult,
+		TravellerChoices,
+		TravellerChoicesByResult
+	} from '$lib/results/traveller-choices';
+	import { applyBedToDraft, isSameBed, journeyForBed, routeBedForDraft } from '$lib/results/pick-bed';
+	import { stopoverForRanking } from '$lib/stays';
+	import {
 		buildConnectionsMapModel,
 		ConnectionsMapDialog,
 		type ConnectionBlock
@@ -337,18 +350,26 @@
 	 */
 	let transitLookupBudget = $state(createTransitLookupBudget());
 	/**
-	 * Issue #224: how many nights the traveller has chosen for a given stopover, for the
-	 * ones they have touched. Absent means "whatever the card opens on", which is the
-	 * shortest length that connection can do.
+	 * Issues #224 and #367: everything the traveller has decided about a stopover, for the
+	 * ones they have touched. An absent field means "whatever the app recommends", so an
+	 * absent record is a card nobody has edited.
 	 *
 	 * It lives here rather than inside `ResultCard` because a card's price, trip strip and
 	 * metric rail all derive from one itinerary, and the pipeline replaces every group on
-	 * every snapshot: a length held inside the card would be overwritten the moment an
-	 * unrelated provider answered. Kept per connection code, the same key `order` and
-	 * `sequenceByConnection` already use, so a card's chosen length survives the group
-	 * behind it being rebuilt.
+	 * every snapshot: a decision held inside the card would be overwritten the moment an
+	 * unrelated provider answered. `chooseNights` below destroys and rebuilds the whole
+	 * `ItineraryDraft` as well, so the draft cannot hold them either. Kept per connection
+	 * code, the same key `order` and `sequenceByConnection` already use, so a card's
+	 * decisions survive the group behind it being rebuilt.
 	 */
-	let chosenNightsByConnection = $state<Record<string, number>>({});
+	let choicesByResult = $state<TravellerChoicesByResult>({});
+	/**
+	 * Issue #367: a bed this app moved on the traveller's behalf, per result, until they
+	 * answer it. Apart from `choicesByResult` because it is the opposite thing: that record
+	 * is what the traveller decided, this one is what the app decided for them and owes them
+	 * a sentence about. A bed they chose never appears here, because it never moves.
+	 */
+	let staySwapByResult = $state<StaySwapsByResult>({});
 
 	// Plain mutable bookkeeping, not `$state`: neither needs to trigger a render on its
 	// own, only the `$state` fields written from inside the functions below do that.
@@ -404,30 +425,84 @@
 	 * `deriveScoredResult`, rather than being rounded to the nearest. See its doc comment.
 	 */
 	function requestedNightsFor(code: string): number | undefined {
-		return chosenNightsByConnection[code] ?? filters.minNights;
+		return choicesByResult[code]?.nights ?? filters.minNights;
 	}
 
 	/**
-	 * Records the length the traveller picked. Nothing else: `results` below re-derives
-	 * that card from the group it already has, so the card's content changes and its
-	 * POSITION does not. A list that reordered itself under the finger that just pressed +
-	 * is the exact instability `stream-order.ts` exists to prevent, and leaving `order`
-	 * alone is the cheapest possible way to guarantee it.
+	 * The length the traveller picked, and the trip that follows from it.
 	 *
-	 * Zero provider requests, now or ever. Every length is a flight pairing this search
-	 * already fetched, and the bed's nightly rate was quoted once for the whole stay;
-	 * `buildItineraries` multiplied it out per pairing when the search ran.
+	 * `results` below re-derives this card from the group it already has, so the card's
+	 * content changes and its POSITION does not. A list that reordered itself under the
+	 * finger that just pressed + is the exact instability `stream-order.ts` exists to
+	 * prevent, and leaving `order` alone is the cheapest possible way to guarantee it.
+	 *
+	 * ## Why the bed is re-decided here
+	 *
+	 * More nights is more free time, and free time is what makes a central bed worth paying
+	 * for (issue #366). The picker's list has re-sorted on every length change since #219
+	 * while the booked bed stayed where the pipeline put it, which ranked it for one night
+	 * and no days out. So the length change re-asks the question, and `bedForLength` answers
+	 * it with the traveller's own bed whenever they have chosen one.
+	 *
+	 * ## What it costs
+	 *
+	 * Nothing from a stay provider or a timetable. Every length is a flight pairing this
+	 * search already fetched, every candidate bed was quoted once for the whole stay, and
+	 * a swapped bed's timetable stays behind issue #267's press. A bed that actually moves
+	 * costs the 2 OSRM road requests that already follow any bed swap, and OSRM is free.
 	 */
 	function chooseNights(result: ScoredResult, nights: number) {
-		chosenNightsByConnection = { ...chosenNightsByConnection, [result.id]: nights };
-		// A different length is a different onward flight, so any flight, transfer or bed
-		// picked against the old one was for a trip that no longer exists. The draft starts
-		// again from the trip at the new length, taken off the very option the ladder just
-		// priced rather than derived a second time here: `StopoverLengthOption` carries the
+		choicesByResult = recordChoice(choicesByResult, result.id, { nights });
+		const previousStay = shownItinerary(result.id, result.itinerary).stay;
+		// A different length is a different onward flight, so any flight or transfer picked
+		// against the old one was for a trip that no longer exists. The draft starts again
+		// from the trip at the new length, taken off the very option the ladder just priced
+		// rather than derived a second time here: `StopoverLengthOption` carries the
 		// itinerary precisely so a control can price a rung before it is taken.
 		const option = result.stopover.options.find((candidate) => candidate.nights === nights);
-		if (option) drafts.set(result.id, new ItineraryDraft(option.itinerary));
-		else drafts.delete(result.id);
+		if (!option) {
+			drafts.delete(result.id);
+			staySwapByResult = recordStaySwap(staySwapByResult, result.id, undefined);
+			return;
+		}
+
+		const choices = choicesByResult[result.id] ?? {};
+		// Before the ranking, because an airport buffer the traveller typed is time the
+		// stopover does not get to spend in the city, and days in the city are half of what
+		// decides which bed is worth the fare out to it.
+		const itinerary = reapplyWaitingTimes(option.itinerary, choices);
+		const airport = connectionAirports[result.id];
+		const bed = bedForLength({
+			previous: previousStay,
+			chosen: choices.stay,
+			candidates: stayCandidatesByConnection[result.id] ?? [],
+			stopover: airport
+				? stopoverForRanking(itinerary, airport, query?.travellers, query?.females)
+				: undefined
+		});
+
+		const draft = new ItineraryDraft(itinerary);
+		drafts.set(result.id, draft);
+		staySwapByResult = recordStaySwap(staySwapByResult, result.id, bed.swap);
+
+		// No bed to apply means nothing rankable arrived, not that this trip should lose the
+		// one the pipeline priced. The same bed means the rebuild would change nothing on
+		// screen and would still mark the draft as edited, which is what takes the search's
+		// own timetables away.
+		if (!bed.stay || isSameBed(bed.stay, itinerary.stay)) return;
+		applyBedToDraft(draft, bed.stay, journeyForBed(draft, bed.stay), query?.minLayoverTime);
+		if (airport) void routeBedForDraft(draft, bed.stay, airport, query?.minLayoverTime);
+	}
+
+	/**
+	 * One decision made in the customiser, kept where a rebuilt draft cannot reach it.
+	 *
+	 * Choosing a bed by hand is also the answer to a swap this app announced, and so is
+	 * handing one back, so anything that mentions the bed at all retires the notice.
+	 */
+	function recordCustomiserChoice(id: string, choice: Partial<TravellerChoices>) {
+		choicesByResult = recordChoice(choicesByResult, id, choice);
+		if ('stay' in choice) staySwapByResult = recordStaySwap(staySwapByResult, id, undefined);
 	}
 
 	/**
@@ -848,10 +923,11 @@
 		openTimelineId = null;
 		customising = null;
 		drafts.clear();
-		// Issue #224: a new query is a new set of stopovers, so a length chosen for
+		// Issue #224: a new query is a new set of stopovers, so a length or a bed chosen for
 		// yesterday's London card has no business applying to whatever LGW turns out to be
 		// this time.
-		chosenNightsByConnection = {};
+		choicesByResult = {};
+		staySwapByResult = {};
 		groupsByConnection = {};
 		candidateCodes = [];
 		confirmedBeyondCap = [];
@@ -1327,6 +1403,9 @@
 			{stayProviders}
 			{transitLookupBudget}
 			onNightsChange={(nights) => chooseNights(customisingResult, nights)}
+			staySwap={staySwapByResult[customisingResult.id]}
+			stayIsChosen={choicesByResult[customisingResult.id]?.stay !== undefined}
+			onchoice={(choice) => recordCustomiserChoice(customisingResult.id, choice)}
 		/>
 	{:else}
 		<p class="customise-idle">

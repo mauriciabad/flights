@@ -39,17 +39,16 @@
 	 *
 	 * ## No `$effect`, and nothing async outside a handler
 	 *
-	 * `routePickedProperty` writes `$state` and awaits a fetch. As an `$effect` that is
+	 * `routeBedForDraft` writes `$state` and awaits a fetch. As an `$effect` that is
 	 * AGENTS.md's own trap, the one that froze every search in #87. It runs from a click
-	 * and from nowhere else.
+	 * and from nowhere else, and `results/pick-bed.ts` says so where it is defined.
 	 */
 	import { base } from '$app/paths';
 	import type { Airport, Duration, Itinerary, Stay } from '$lib/domain';
 	import { DEFAULT_LANDING_TO_TRANSPORT_RULES } from '$lib/domain';
 	import type { ItinerarySegmentId } from '$lib/itinerary-map/segment-id';
 	import { recomputeItineraryWaitingTimes } from '$lib/algorithm/build';
-	import { recomputeItinerarySelection } from '$lib/algorithm/recompute-selection';
-	import { FlightPicker, Skeleton, StopoverNights, TransportPicker, WaitingTimeStepper } from '$lib/components';
+	import { Button, FlightPicker, Skeleton, StopoverNights, TransportPicker, WaitingTimeStepper, visitDaysOf } from '$lib/components';
 	import { segmentStubFor } from '$lib/components/segment-stub';
 	import { unroutedLegNote } from '$lib/components/itinerary-timeline-format';
 	import { waitsOvernight } from '$lib/algorithm/nights';
@@ -69,15 +68,23 @@
 		SourceTracker,
 		TRANSIT_LEGS_TO_A_PROPERTY,
 		fetchTransitSchedules,
-		pickLandingToTransportTime,
-		routeToProperty
+		pickLandingToTransportTime
 	} from '$lib/search';
 	import { keyStore } from '$lib/keys';
 	import { getProviderRegistry, hasUnconfiguredStayProvider, hasUsableStayProvider } from '$lib/results/provider-setup';
-	import { createSearchDependencies } from '$lib/results/search-dependencies';
-	import type { ItineraryDraft, PropertyRouteState } from '$lib/results/itinerary-draft.svelte';
+	import { applyBedToDraft, journeyForBed, routeBedForDraft } from '$lib/results/pick-bed';
+	import type { AutomaticStaySwap, TravellerChoices } from '$lib/results/traveller-choices';
+	import type { ItineraryDraft } from '$lib/results/itinerary-draft.svelte';
 	import type { StopoverLengthOption } from '$lib/results/types';
-	import { StayPicker, describeNoStays, groupByProperty, isSameProperty, propertyKey } from '$lib/stays';
+	import {
+		StayPicker,
+		describeNoStays,
+		groupByProperty,
+		isSameProperty,
+		propertyKey,
+		recommendedStay,
+		stopoverForRanking
+	} from '$lib/stays';
 	import type { StayProviderOutcome } from '$lib/stays';
 
 	interface Props {
@@ -120,6 +127,19 @@
 		 */
 		transitLookupBudget?: TransitLookupBudget;
 		onNightsChange?: (nights: number) => void;
+		/**
+		 * Issue #367: a bed this app moved when the length last changed, held until the
+		 * traveller answers it. Never set for a bed they chose, because that one never moves.
+		 */
+		staySwap?: AutomaticStaySwap;
+		/** Whether the bed on this trip is the traveller's own pick rather than the app's. */
+		stayIsChosen?: boolean;
+		/**
+		 * Every decision made in this panel, sent to whoever can keep it. This panel edits a
+		 * draft, and changing the stopover's length destroys that draft, so a decision that
+		 * lived only here would be lost by the next press of the nights ladder.
+		 */
+		onchoice?: (choice: Partial<TravellerChoices>) => void;
 	}
 
 	/** Issue #114: no alternatives yet, which is the state before a connection's own
@@ -147,7 +167,10 @@
 		searchDone = false,
 		stayProviders = [],
 		transitLookupBudget,
-		onNightsChange
+		onNightsChange,
+		staySwap,
+		stayIsChosen = false,
+		onchoice
 	}: Props = $props();
 
 	const itinerary = $derived(draft.itinerary);
@@ -249,12 +272,21 @@
 	// regardless, so a traveller is never shown a total they cannot inspect.
 	const stayIsRelevant = $derived(itinerary.nightsInConnection > 0 || itinerary.stay !== undefined);
 
+	// Days rather than nights, because this is what the stay ranking weighs a walk into
+	// town against: a bed near the centre only earns its keep on a day you can go into
+	// town, and a night asleep is not one of those.
+	const visitDays = $derived(visitDaysOf(itinerary));
+
 	// The ceiling on the connection buffer is real arithmetic: every minute it takes is a
 	// minute free time gives up, both carved from one fixed layover.
 	const maxConnectionWaitingTime = $derived(itinerary.connectionWaitingTime + itinerary.freeTime.duration);
 
 	function setWaitingTime(field: 'originWaitingTime' | 'connectionWaitingTime', minutes: number) {
-		draft.itinerary = recomputeItineraryWaitingTimes(itinerary, { [field]: minutes as Duration });
+		// One object for both, since a buffer the traveller typed is both an override to
+		// apply now and a decision to keep across the next rebuild of this draft.
+		const choice: Partial<TravellerChoices> = { [field]: minutes as Duration };
+		draft.itinerary = recomputeItineraryWaitingTimes(itinerary, choice);
+		onchoice?.(choice);
 	}
 
 	/**
@@ -266,66 +298,48 @@
 	 *
 	 * The search's own transfers travel with the swap only when the traveller lands back on
 	 * the property the pipeline routed to. Everything else is honestly unrouted until
-	 * `routePickedProperty` below has asked.
+	 * `routeBedForDraft` has asked, which since issue #367 is the same pair of functions the
+	 * results page runs when a nights change moves the bed.
 	 */
 	function applyStaySelection(stay: Stay) {
-		const routed = isSameProperty(stay.property, draft.routedProperty);
-		applyStayWithJourney(stay, routed ? draft.routedJourney : draft.routingFor(stay));
-		void routePickedProperty(stay);
+		applyBedToDraft(draft, stay, journeyForBed(draft, stay), minLayoverTime);
+		if (connectionAirport) void routeBedForDraft(draft, stay, connectionAirport, minLayoverTime);
+		// Touching the bed is what makes it the traveller's, and from here on the length
+		// ladder leaves it alone. It is also the answer to any swap this panel announced.
+		onchoice?.({ stay });
 	}
 
-	/** Writes one bed and whatever journey is known for it. Every branch goes through here
-	 * rather than through its own `recomputeItinerarySelection` call, so a routed answer
-	 * and an unrouted one cannot rebuild the trip two different ways. `transferToHotel:
-	 * undefined` is what makes the panel say "Nothing routed to this property":
-	 * `recomputeItinerarySelection` sets `transferAnchor: 'unrouted-stay'` from exactly
-	 * that (issue #264). */
-	function applyStayWithJourney(stay: Stay, routing: PropertyRouteState) {
-		const journey = routing.kind === 'routed' ? routing : undefined;
-		draft.apply(
-			recomputeItinerarySelection(
-				itinerary,
-				{
-					staySelection: {
-						stay,
-						transferToHotel: journey?.transferToHotel,
-						transferToConnectionAirport: journey?.transferToConnectionAirport
-					}
-				},
-				minLayoverTime
-			)
-		);
+	/** One sentence for both the region a screen reader hears and the words on screen, so
+	 * the two cannot drift apart. */
+	function swapSentence(swap: AutomaticStaySwap): string {
+		const length = swap.nights === 1 ? '1 night' : `${swap.nights} nights`;
+		return `${length} moved the bed from ${swap.from.property.name} to ${swap.to.property.name}.`;
 	}
+
+	/** The bed the ranking puts first for the trip as it now stands, which is what the
+	 * picker below is drawing at the head of its own list. */
+	const recommendedForNow = $derived(
+		connectionAirport
+			? recommendedStay(
+					stayCandidates,
+					stopoverForRanking(itinerary, connectionAirport, travellers, females)
+				)
+			: undefined
+	);
 
 	/**
-	 * Issue #267. The search routes to the one property it picks and to no other, so until
-	 * this ran, picking any other bed could only ever say the journey to it was unknown.
-	 * This asks OSRM the same question the pipeline asks, for the bed just tapped.
+	 * Hands the bed back to the app: it takes the recommendation now, and follows it again
+	 * the next time the length changes. Excel's "Restore to Calculated Column Formula".
 	 *
-	 * `routingGeneration` is bumped on every pick and a resolved route only reaches the
-	 * trip while its own generation is current. Without that, tapping bed A then bed B and
-	 * having A's slower route land second would put A's journey under B's name, which is
-	 * #243's defect reintroduced through the back door by the fix for it. The answer is
-	 * banked either way: it cost a request, it is true about that property, and tapping
-	 * back to it is then instant.
+	 * Deliberately not `applyStaySelection`, which would record this as a choice and pin the
+	 * very bed the traveller just stopped pinning.
 	 */
-	async function routePickedProperty(stay: Stay) {
-		const key = propertyKey(stay.property);
-		if (isSameProperty(stay.property, draft.routedProperty)) return;
-		const known = draft.propertyRouting.get(key);
-		if (known && known.kind !== 'unrouted') return;
-		if (!connectionAirport) return;
-
-		const generation = ++draft.routingGeneration;
-		draft.propertyRouting.set(key, { kind: 'routing' });
-
-		const routing = await routeOnce(stay, connectionAirport);
-		draft.propertyRouting.set(key, routing);
-		// Superseded: the traveller picked something else while this was in the queue. The
-		// answer is banked above and dropped here, never written onto whatever bed is on
-		// screen now.
-		if (generation !== draft.routingGeneration) return;
-		if (routing.kind === 'routed') applyStayWithJourney(stay, routing);
+	function useRecommendedBed() {
+		const stay = recommendedForNow;
+		if (!stay) return;
+		applyBedToDraft(draft, stay, journeyForBed(draft, stay), minLayoverTime);
+		if (connectionAirport) void routeBedForDraft(draft, stay, connectionAirport, minLayoverTime);
+		onchoice?.({ stay: undefined });
 	}
 
 	/**
@@ -349,7 +363,7 @@
 	 * refuses the claim and answers `not-asked` / `budget-spent`, which the picker already
 	 * knows how to say. The request is never sent.
 	 *
-	 * A handler, never an `$effect`, for the same reason `routePickedProperty` is one.
+	 * A handler, never an `$effect`, for the same reason `routeBedForDraft` is one.
 	 */
 	async function checkTransitForPickedProperty() {
 		const stay = itinerary.stay;
@@ -364,7 +378,7 @@
 
 		const outcome = await checkTransitOnce(airport, budget);
 		draft.transitChecks.set(key, { kind: 'checked', answers: outcome.answers });
-		// Same guard as `routePickedProperty`, and the same counter on purpose. Pressing
+		// Same guard as `routeBedForDraft`, and the same counter on purpose. Pressing
 		// this while that bed's road route is still in flight abandons the road route,
 		// because a road answer landing second would rebuild the stay selection and wipe the
 		// bus this just paid two requests for. The road route stays banked under its own
@@ -419,45 +433,6 @@
 			answer: 'failed',
 			error: { code: 'unknown', message: error instanceof Error ? error.message : String(error) }
 		};
-	}
-
-	async function routeOnce(stay: Stay, airport: Airport): Promise<PropertyRouteState> {
-		const controller = new AbortController();
-		try {
-			return await routeToProperty({
-				connectionCoordinates: airport.coordinates,
-				propertyCoordinates: stay.property.coordinates,
-				transferProviders: getProviderRegistry().ofKind('transfer'),
-				keys: keyStore.availableKeys,
-				signal: controller.signal,
-				landingToTransportRules: DEFAULT_LANDING_TO_TRANSPORT_RULES,
-				connectionAirportSize: airport.sizeClass,
-				// Issue #356: the two arguments that decide whether this ride carries a fare
-				// at all. Without the country `osrm.ts` hands back a taxi with no estimate,
-				// so a swapped bed was being compared against the search's own bed with a
-				// price on one side and nothing on the other, and the unpriced one looked
-				// cheaper than it is.
-				connectionCountryCode: airport.country.isoCode,
-				// Through `createSearchDependencies` rather than a second
-				// `keyStore.currency ?? DEFAULT_SEARCH_CURRENCY` written here. That function
-				// IS the app's answer to "what currency is this search in", and issue #158
-				// moved it out of a component closure precisely because a copy living in one
-				// could not be tested and was wrong. Read live, the way the keys two lines up
-				// are, so a currency picked in settings in another tab reaches this tap.
-				displayCurrency: createSearchDependencies(keyStore.availableKeys, keyStore.currency)
-					.currency,
-				// The trip's own party rather than the `travellers` prop, which is the search
-				// query's and can be absent. Every other figure on this panel is already the
-				// one `itinerary.travellers` describes.
-				travellers: itinerary.travellers,
-				// Deliberately dropped rather than folded into `SearchSnapshot.providers`:
-				// this call happens after the search is over, and counting it there would
-				// change a provider row the traveller reads as "what this search did".
-				record: () => {}
-			});
-		} catch (error) {
-			return { kind: 'failed', message: error instanceof Error ? error.message : String(error) };
-		}
 	}
 
 	// `describeNoStays` titles are headings, and one of them ("Looking for stays in X…")
@@ -619,6 +594,31 @@
 					{connectionLabel}
 					{onNightsChange}
 				/>
+				<!-- Issue #367. WCAG 4.1.3 governs how a change reported without moving focus is
+				     announced, and the region has to be in the accessibility tree before the
+				     change: a `role="status"` created together with its own text is usually not
+				     read at all. So the live region is mounted with the ladder and only its
+				     sentence appears, which is `ConnectionsPanel`'s pattern. It carries the
+				     sentence alone, because `role="status"` is atomic and would otherwise read
+				     the button's label as part of the announcement. -->
+				<p class="visually-hidden" role="status">{staySwap ? swapSentence(staySwap) : ''}</p>
+				{#if staySwap}
+					{@const swap = staySwap}
+					<!-- An announcement, not a question: the bed has already moved and the price on
+					     the card is the new one. Pressing the button both puts the previous bed
+					     back and makes it the traveller's, so it stops moving: Google Docs'
+					     autocorrect undo, which is what makes announcing this worth its room. -->
+					<div class="bed-swap" data-testid="bed-swap">
+						<p class="bed-swap-line">{swapSentence(swap)}</p>
+						<Button
+							size="md"
+							variant="secondary"
+							class="bed-swap-action"
+							data-testid="keep-previous-bed"
+							onclick={() => applyStaySelection(swap.from)}>Keep {swap.from.property.name}</Button
+						>
+					</div>
+				{/if}
 				{#if stayIsRelevant}
 					{#if !connectionAirport}
 						<Skeleton height="6rem" />
@@ -647,6 +647,7 @@
 							properties={stayProperties}
 							{connectionAirport}
 							nights={itinerary.nightsInConnection}
+							{visitDays}
 							{travellers}
 							{females}
 							selected={itinerary.stay}
@@ -655,6 +656,8 @@
 							{searchDone}
 							{stayProviders}
 							hasUnconfiguredStayProvider={hasWiderProviderToAdd}
+							chosen={stayIsChosen}
+							onuseRecommended={useRecommendedBed}
 						/>
 					{/if}
 				{/if}
@@ -808,6 +811,36 @@
 		display: flex;
 		flex-direction: column;
 		gap: var(--space-3);
+	}
+
+	/* The one warm rule on a navy panel, which is what the accent means everywhere else
+	   here: this is the thing that changed. Wraps to two rows in the 300px rail and sits on
+	   one as soon as there is room, with no breakpoint to keep in step. */
+	.bed-swap {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: var(--space-2) var(--space-3);
+		padding: var(--space-3);
+		background: var(--color-surface);
+		border: 1px solid var(--color-border);
+		border-left: 3px solid var(--color-accent);
+		border-radius: var(--radius-md);
+	}
+
+	.bed-swap-line {
+		flex: 1 1 12rem;
+		margin: 0;
+		font-size: var(--font-size-sm);
+		color: var(--color-text);
+		text-wrap: pretty;
+	}
+
+	/* A property name is as long as its owner made it, so this button cannot keep
+	   `Button`'s own `white-space: nowrap`. */
+	.bed-swap :global(.bed-swap-action) {
+		white-space: normal;
+		text-align: center;
 	}
 
 	.stay-notice {

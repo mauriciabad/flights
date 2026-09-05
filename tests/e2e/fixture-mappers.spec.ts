@@ -137,6 +137,16 @@ const CHECKS: Record<string, FixtureCheck> = {
 		map: (raw) =>
 			mapPropertiesToStays((raw as { properties?: never[] }).properties, AIRPORT, 25, 1).length
 	},
+	// Issue #367: two beds priced and placed so the ranking's answer genuinely moves between
+	// one night and three, which is what `bed-pinning.spec.ts` needs in order to watch a
+	// recommended bed change and a chosen one hold. Read at 50 km so the central one stays
+	// reachable; the fixture proves nothing if the far bed drops out of the list.
+	'hostelworld/properties-vienna-crossover.json': {
+		readBy: 'providers/stays/hostelworld-mapper.ts mapPropertiesToStays',
+		yields: 'some',
+		map: (raw) =>
+			mapPropertiesToStays((raw as { properties?: never[] }).properties, AIRPORT, 50, 1).length
+	},
 	// Issue #356: two beds far enough out that both get a taxi rather than a walk, which is
 	// what makes the swapped one's missing fare visible beside the search's own. Read at 50 km
 	// so both stay reachable; the fixture is pointless if either drops out.

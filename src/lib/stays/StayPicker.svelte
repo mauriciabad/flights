@@ -21,8 +21,9 @@
 	import { formatDistanceKm, haversineDistanceKm } from './distance';
 	import { stayTotalDelta, stayTotalForNights } from './pricing';
 	import { cheapestSelectableOption, isOptionSelectable, rankProperties } from './rank';
+	import { firstBookableStay } from './recommended-bed';
 	import { describeNoStays, type StayProviderOutcome } from './no-stays-reason';
-	import { propertyOf, type PropertyStayOptions } from './types';
+	import { isSameBed, isSameProperty, propertyOf, type PropertyStayOptions } from './types';
 
 	interface Props {
 		/** Every candidate property for this connection, each with its priced room-kind
@@ -35,6 +36,9 @@
 		/** Nights the itinerary spends in the connection city (domain/itinerary.ts
 		 * `nightsInConnection`) - what a nightly price is multiplied by for "the stay". */
 		nights: number;
+		/** Days the traveller can actually use the city (`components/free-time-days.ts`
+		 * `fullDayCount + usablePartDayCount`). */
+		visitDays?: number;
 		/** Mirrors domain/search-query.ts `SearchQuery.travellers`/`.females` exactly,
 		 * defaults included - see gendered-room-fit.ts for how these decide women-only and
 		 * men-only room eligibility. */
@@ -60,12 +64,25 @@
 		/** Whether a registered stay provider is still waiting on a key, so "add a key" is
 		 * offered only where it could change the answer. */
 		hasUnconfiguredStayProvider?: boolean;
+		/**
+		 * Issue #367: whether the bed on screen is one the traveller picked rather than this
+		 * app's own answer. The card says which, because those two are the same object and
+		 * behave differently: only the recommendation moves when the stopover gets longer.
+		 */
+		chosen?: boolean;
+		/**
+		 * Hands the bed back to the app, so it follows the recommendation again. Offered only
+		 * where it would change something: the traveller has chosen a bed AND the ranking now
+		 * puts a different property first.
+		 */
+		onuseRecommended?: () => void;
 	}
 
 	let {
 		properties,
 		connectionAirport,
 		nights,
+		visitDays = 0,
 		travellers,
 		females,
 		selected = $bindable(),
@@ -73,7 +90,9 @@
 		stayProviderConfigured = true,
 		searchDone = false,
 		stayProviders = [],
-		hasUnconfiguredStayProvider = false
+		hasUnconfiguredStayProvider = false,
+		chosen = false,
+		onuseRecommended
 	}: Props = $props();
 
 	// Issue #140: why this list is empty, never "not yet". Issue #203: and never "they had
@@ -92,22 +111,42 @@
 	// the nights on screen, so extending the stopover reorders this list under the
 	// traveller. That is the point: a dorm across town is the wrong bed for one night and
 	// the right one for four, and the list should say so rather than hold still.
+	// The centre is the other half of that argument. Getting to the terminal happens twice
+	// whatever the length, while going into town happens once per day there is a day to
+	// spend there, so days in the city pull this list toward the centre rather than only
+	// toward the cheap bed across town.
 	const ranked = $derived(
 		rankProperties(properties, {
 			travellers,
 			females,
 			connectionAirport: connectionAirport.coordinates,
-			nights
+			cityCentre: connectionAirport.city.coordinates,
+			nights,
+			visitDays
 		})
 	);
 
-	const fallbackStay = $derived(ranked[0] ? cheapestSelectableOption(ranked[0], travellers, females)?.stay : undefined);
+	const fallbackStay = $derived(firstBookableStay(ranked, travellers, females));
 	const effectiveSelected = $derived(selected ?? fallbackStay);
 
+	// Structurally, not by reference. `stayCandidatesByConnection` is replaced wholesale on
+	// every snapshot while a draft holds its own frozen itinerary, so the bed this trip
+	// books and the identical bed in this list stop being one object the moment a
+	// background refresh lands. On reference equality the card then opened on whatever the
+	// ranking happened to put first, which since issue #366 is often not the booked bed at
+	// all, and issue #367's mark on that card would have named the wrong property.
 	const openGroup = $derived(
-		ranked.find((group) => group.options.some((option) => option.stay === effectiveSelected)) ?? ranked[0]
+		ranked.find((group) => group.options.some((option) => isSameBed(option.stay, effectiveSelected))) ??
+			ranked[0]
 	);
 	const openProperty = $derived(openGroup ? propertyOf(openGroup) : undefined);
+
+	// The head of the list the traveller is looking at, which is also what the results page
+	// would put on this trip if they had not chosen. Offering the swap only when those two
+	// differ keeps the action off a card that is already the recommendation.
+	const recommendationMoved = $derived(
+		chosen && openProperty !== undefined && !isSameProperty(fallbackStay?.property, openProperty)
+	);
 
 	/**
 	 * Every candidate as a row, with what swapping to it would cost measured from the stay
@@ -209,6 +248,23 @@
 			{/snippet}
 
 			<div class="stay-open-body">
+				<!-- Issue #367. Which of the two this bed is, said on the card rather than set
+				     there: a bed follows the recommendation until somebody picks one, the way
+				     an HTML input keeps its default until it is typed into. -->
+				<div class="stay-mark-row">
+					<span class="stay-mark" class:is-chosen={chosen} data-testid="stay-mark">
+						{chosen ? 'Your pick' : 'Recommended'}
+					</span>
+					{#if recommendationMoved}
+						<Button
+							size="md"
+							variant="ghost"
+							class="stay-mark-action"
+							data-testid="use-recommended-bed"
+							onclick={() => onuseRecommended?.()}>Use the recommended bed</Button
+						>
+					{/if}
+				</div>
 				<!-- Issue #307, "the carrousel for hotel should be used in more places". This box
 				     used to draw the first photograph with a "1 / 2" counter under it and no way
 				     to reach the second: a label promising a picture the page would not show.
@@ -240,7 +296,7 @@
 						<RoomKindTile
 							{option}
 							{nights}
-							selected={option.stay === effectiveSelected}
+							selected={isSameBed(option.stay, effectiveSelected)}
 							{selectable}
 							{caveat}
 							onselect={() => choose(option.stay)}
@@ -338,6 +394,42 @@
 		display: flex;
 		flex-direction: column;
 		gap: var(--space-4);
+	}
+
+	/* Mobile first: in the 300px rail the label and the action stack, and they sit on one
+	   line as soon as there is room for both. */
+	.stay-mark-row {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: var(--space-2) var(--space-3);
+	}
+
+	/* A stub, in the ticket language the panel around this already speaks: small caps, wide
+	   tracking, a full-radius outline. Colour is never the only signal here, because the two
+	   states say different words. */
+	.stay-mark {
+		border: 1px solid var(--color-border);
+		border-radius: var(--radius-full);
+		padding: var(--space-1) var(--space-3);
+		background: var(--color-bg-inset);
+		color: var(--color-text-muted);
+		font-size: var(--font-size-xs);
+		font-weight: var(--font-weight-semibold);
+		letter-spacing: var(--tracking-wide);
+	}
+
+	.stay-mark.is-chosen {
+		border-color: var(--color-accent);
+		color: var(--color-accent);
+	}
+
+	/* `Button` sets `white-space: nowrap`, which this label cannot honour in the 300px
+	   desktop rail. Wrapping to two lines inside the button is the honest answer there;
+	   shortening the words would make the action vaguer everywhere else. */
+	.stay-mark-row :global(.stay-mark-action) {
+		white-space: normal;
+		text-align: center;
 	}
 
 	/* 16/9 rather than the carousel's own 16/10, because the open card's photograph is the

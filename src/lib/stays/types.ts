@@ -98,6 +98,18 @@ export function isSameProperty(a?: Property, b?: Property): boolean {
 	return propertyKey(a) === propertyKey(b);
 }
 
+/**
+ * Whether two stays are the same room at the same address.
+ *
+ * Reference equality does not answer this. A stay read back out of IndexedDB has been
+ * through JSON, so the candidate list and the itinerary can hold structurally equal but
+ * distinct copies of one hostel, which is the same trap `propertyKey` exists for (#188).
+ */
+export function isSameBed(a?: Stay, b?: Stay): boolean {
+	if (!a || !b) return false;
+	return a.roomKind === b.roomKind && isSameProperty(a.property, b.property);
+}
+
 export function groupByProperty(stays: readonly Stay[]): PropertyStayOptions[] {
 	const groups: PropertyStayOptions[] = [];
 	const indexByKey = new Map<string, number>();

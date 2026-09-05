@@ -486,3 +486,25 @@ cannot kill request number one — and that Node and `curl` from the same machin
 at the same moment.
 
 So when a provider looks down from a browser, try it from Node before believing the browser.
+
+## A string in the markup is not a thing on the page
+
+Finding a name in a page's source does not mean the page lists it. A search URL echoes its
+own query back into the HTML, so grepping the response for the thing you searched for finds
+the thing you searched for, every time, whether or not it is there.
+
+On 2026-09-06 an agent checking whether Agoda carries a Porto property that Hostelworld does
+not `curl`ed `agoda.com/search?...&text=Oporto%20Sea%20Rooms` and grepped the body. Two hits.
+It nearly reported "Agoda lists it". The body was a JavaScript shell with **zero** property
+names in it, and both hits were the `text=` parameter reflected into the markup. The same
+question put to a real browser, waiting for the page to render and reading `innerText`,
+answered it properly: Agoda's search errored, and Booking.com does carry the property.
+
+So when you want to know whether a page contains something, read the rendered DOM in your own
+browser, and check that the page rendered results at all before believing either answer. A
+count of zero property names is the tell. `curl` plus `grep` is fine for an API that returns
+JSON and worthless against a page that builds itself in the client.
+
+The same trap has a sibling worth naming: a flattened `innerText` match can come from a
+heading, a filter chip or a "no results for X" line as easily as from a result. If the
+distinction matters, assert against the element you mean, not against the whole page.

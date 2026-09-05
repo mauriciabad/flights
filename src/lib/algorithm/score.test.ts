@@ -536,6 +536,98 @@ describe('scoreItinerary / rankItineraries', () => {
 		);
 	});
 
+	/**
+	 * The owner's **"no transport hoping to change bus or metro line"**, as four cases.
+	 *
+	 * `bedAtDistance` puts the same transfer on both the hotel leg and the leg back to the
+	 * connection airport, so every figure below is two legs' worth. A one-ride journey is
+	 * therefore 2 x 3 = 6 and a two-ride journey 2 x 6 = 12.
+	 */
+	const directMetro: Transfer = {
+		mode: 'transit',
+		duration: 45 as Duration,
+		legs: [{ mode: 'transit', vehicle: 'Metro', duration: 45 as Duration }]
+	};
+	const coachThenMetro: Transfer = {
+		mode: 'transit',
+		duration: 45 as Duration,
+		legs: [
+			{ mode: 'transit', vehicle: 'Coach', duration: 20 as Duration },
+			{ mode: 'transit', vehicle: 'Metro', duration: 25 as Duration }
+		]
+	};
+
+	it('charges a change of vehicle a second ticket', () => {
+		const direct = scoreItinerary(bedAtDistance(4000, directMetro)).breakdown.unpricedTransfers;
+		const changing = scoreItinerary(bedAtDistance(4000, coachThenMetro)).breakdown.unpricedTransfers;
+
+		expect(direct).toBeCloseTo(-6, 6);
+		expect(changing).toBeCloseTo(-12, 6);
+		expect(changing).toBeCloseTo(2 * direct, 6);
+	});
+
+	it('charges the walks inside a transit journey nothing', () => {
+		// Same distinction `costIsUnknown` draws for a whole leg, applied inside one. The
+		// walk to the stop and the walk off at the far end are free, so this journey buys
+		// one ticket rather than three.
+		const walkRideWalk: Transfer = {
+			mode: 'transit',
+			duration: 45 as Duration,
+			legs: [
+				{ mode: 'walk', duration: 8 as Duration },
+				{ mode: 'transit', vehicle: 'Metro', duration: 30 as Duration },
+				{ mode: 'walk', duration: 7 as Duration }
+			]
+		};
+
+		const charge = scoreItinerary(bedAtDistance(4000, walkRideWalk)).breakdown.unpricedTransfers;
+		expect(charge).toBeCloseTo(-6, 6);
+		expect(charge).toBeCloseTo(
+			scoreItinerary(bedAtDistance(4000, directMetro)).breakdown.unpricedTransfers,
+			6
+		);
+	});
+
+	it('charges a leg that itemises no rides one fare, not none', () => {
+		// The property every other case in this block rests on, since they all pass
+		// `legs: []`. OSRM answers with one leg and Transitous with several, but a cached
+		// `Transfer` or a provider that itemises nothing must not come out free. Nobody
+		// listing the rides is not the same claim as nobody taking one.
+		const unlisted: Transfer = { mode: 'transit', duration: 45 as Duration, legs: [] };
+
+		expect(scoreItinerary(bedAtDistance(4000, unlisted)).breakdown.unpricedTransfers).toBeCloseTo(
+			-6,
+			6
+		);
+	});
+
+	it('leaves a taxi meter alone however many legs the ride is cut into', () => {
+		// A taxi that changes cars has still covered the same ground, so only the ticket
+		// half of the charge counts vehicles. One leg is 2 * (3 + 70 * 0.75) = 111 and two
+		// legs is 2 * (6 + 52.5) = 117, six apart, which is exactly the extra fare.
+		const oneCar: Transfer = {
+			...taxiToBed,
+			legs: [{ mode: 'taxi', duration: 45 as Duration }]
+		};
+		const twoCars: Transfer = {
+			...taxiToBed,
+			legs: [
+				{ mode: 'taxi', duration: 20 as Duration },
+				{ mode: 'taxi', duration: 25 as Duration }
+			]
+		};
+
+		const oneCarCharge = scoreItinerary(bedAtDistance(4000, oneCar)).breakdown.unpricedTransfers;
+		const twoCarCharge = scoreItinerary(bedAtDistance(4000, twoCars)).breakdown.unpricedTransfers;
+
+		expect(oneCarCharge).toBeCloseTo(-111, 6);
+		expect(twoCarCharge).toBeCloseTo(-117, 6);
+		expect(oneCarCharge - twoCarCharge).toBeCloseTo(
+			2 * DEFAULT_SCORING_WEIGHTS.assumedUnpricedTransferBaseCost,
+			6
+		);
+	});
+
 	it('stops charging a leg the moment a provider does quote it', () => {
 		const quoted: Transfer = { ...taxiToBed, price: { minorUnits: 4500, currency: 'EUR' } };
 		expect(scoreItinerary(bedAtDistance(4000, quoted)).breakdown.unpricedTransfers).toBe(0);
