@@ -6,6 +6,7 @@ import {
 	greatCircleArc,
 	longitudeNear,
 	POINT_VIEW_ZOOM,
+	projectToBox,
 	viewForCoordinates
 } from './geo';
 
@@ -143,5 +144,57 @@ describe('longitudeNear', () => {
 
 	it('crosses as many worlds as it takes, since an arc can already be past 180', () => {
 		expect(longitudeNear(540, 175)).toBe(535);
+	});
+});
+
+describe('projectToBox', () => {
+	const box = { width: 100, height: 50, padding: 5 };
+
+	it('fits a shape inside the padding on its wider axis', () => {
+		const shape = projectToBox([[{ latitude: 0, longitude: -10 }, { latitude: 0, longitude: 10 }]], [], box);
+		const xs = shape.paths[0].match(/-?\d+(\.\d+)?(?= )/g)!.map(Number);
+
+		expect(Math.min(...xs)).toBeCloseTo(box.padding, 5);
+		expect(Math.max(...xs)).toBeCloseTo(box.width - box.padding, 5);
+	});
+
+	it('centres the shape on the axis it does not fill', () => {
+		const shape = projectToBox([], [{ latitude: 0, longitude: -10 }, { latitude: 0, longitude: 10 }], box);
+
+		expect(shape.points.map((p) => p.y)).toEqual([box.height / 2, box.height / 2]);
+	});
+
+	it('puts north at the top, because an SVG y axis runs the other way from a latitude', () => {
+		const shape = projectToBox([], [{ latitude: 40, longitude: 0 }, { latitude: 60, longitude: 0 }], box);
+
+		expect(shape.points[1].y).toBeLessThan(shape.points[0].y);
+	});
+
+	it('collapses a journey that does not move to a dot at the centre, not to NaN', () => {
+		const here = { latitude: 48.2, longitude: 16.37 };
+		const shape = projectToBox([[here, here]], [here], box);
+
+		expect(shape.points).toEqual([{ x: box.width / 2, y: box.height / 2 }]);
+		expect(shape.paths[0]).toBe('M50 25L50 25');
+	});
+
+	it('scales an east-west line and a north-south line to the same span', () => {
+		const eastWest = projectToBox([], [{ latitude: 0, longitude: 0 }, { latitude: 0, longitude: 5 }], box);
+		const northSouth = projectToBox([], [{ latitude: 0, longitude: 0 }, { latitude: 5, longitude: 0 }], box);
+
+		expect(eastWest.points[1].x - eastWest.points[0].x).toBeCloseTo(box.width - box.padding * 2, 5);
+		expect(northSouth.points[0].y - northSouth.points[1].y).toBeCloseTo(box.height - box.padding * 2, 5);
+	});
+
+	it('keeps a shape written past the antimeridian in one piece', () => {
+		// `singleFrame` hands out longitudes past 180 for a trip that crosses it. Projecting
+		// 185 as if it were -175 would fold the picture in half.
+		const shape = projectToBox([[{ latitude: 0, longitude: 175 }, { latitude: 0, longitude: 185 }]], [], box);
+
+		expect(shape.paths[0]).toBe(`M${box.padding} 25L${box.width - box.padding} 25`);
+	});
+
+	it('draws nothing for nothing', () => {
+		expect(projectToBox([], [], box)).toEqual({ paths: [], points: [] });
 	});
 });

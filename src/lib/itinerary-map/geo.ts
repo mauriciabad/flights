@@ -120,6 +120,104 @@ export function greatCircleArc(from: Coordinates, to: Coordinates, segments = 64
 	return unwrapLongitudes(points);
 }
 
+/**
+ * Issue #280: the same Web Mercator this app's basemap uses, in degree units, so a shape
+ * drawn as a plain `<svg>` and the same shape drawn by MapLibre curve identically.
+ *
+ * Latitude is clamped an eighth of a degree short of the projection's own singularity at
+ * ±85.051129. Longyearbyen at 78.2°N is the northernmost airport in the dataset, so
+ * nothing real comes close; the clamp exists so a bad coordinate produces a squashed
+ * picture rather than an `Infinity` that silently voids the whole preview's bounding box.
+ */
+const MERCATOR_LATITUDE_LIMIT = 85;
+
+function mercatorY(latitude: number): number {
+	const clamped = Math.min(MERCATOR_LATITUDE_LIMIT, Math.max(-MERCATOR_LATITUDE_LIMIT, latitude));
+	return (Math.log(Math.tan(Math.PI / 4 + (clamped * Math.PI) / 360)) * 180) / Math.PI;
+}
+
+/** Where a preview's drawing area starts and stops, in the SVG's own user units. */
+export interface PreviewBox {
+	width: number;
+	height: number;
+	/** Blank kept inside every edge, so a stroke and its end dots never clip. */
+	padding: number;
+}
+
+export interface ProjectedPoint {
+	x: number;
+	y: number;
+}
+
+export interface ProjectedShape {
+	/** One SVG path `d` string per input polyline, in input order. */
+	paths: string[];
+	/** One projected point per input point, in input order. */
+	points: ProjectedPoint[];
+}
+
+/**
+ * Fits polylines and points into a fixed box, aspect preserved and centred.
+ *
+ * Every preview is scaled to its own content, so a 3 km walk and a 40 km taxi both fill
+ * their thumbnail. That is deliberate and it is the one thing these pictures do not say:
+ * they answer "what shape is this leg" and never "how far is it". The distance is printed
+ * in words by the timeline row next to them, and the dialog draws the leg on a real
+ * basemap at a real scale.
+ *
+ * A shape with no extent in either direction (one point, or two coordinates that round to
+ * the same place at this size) collapses to the centre of the box rather than dividing by
+ * zero. A dot is the honest picture of a journey that does not move.
+ */
+export function projectToBox(
+	lines: readonly (readonly Coordinates[])[],
+	points: readonly Coordinates[],
+	box: PreviewBox
+): ProjectedShape {
+	const projectedLines = lines.map((line) => line.map((c) => ({ x: c.longitude, y: mercatorY(c.latitude) })));
+	const projectedPoints = points.map((c) => ({ x: c.longitude, y: mercatorY(c.latitude) }));
+	const all = [...projectedLines.flat(), ...projectedPoints];
+	if (all.length === 0) return { paths: [], points: [] };
+
+	let minX = all[0].x;
+	let maxX = all[0].x;
+	let minY = all[0].y;
+	let maxY = all[0].y;
+	for (const p of all) {
+		minX = Math.min(minX, p.x);
+		maxX = Math.max(maxX, p.x);
+		minY = Math.min(minY, p.y);
+		maxY = Math.max(maxY, p.y);
+	}
+
+	const spanX = maxX - minX;
+	const spanY = maxY - minY;
+	const usableWidth = box.width - box.padding * 2;
+	const usableHeight = box.height - box.padding * 2;
+	const scale = spanX === 0 && spanY === 0 ? 0 : Math.min(spanX === 0 ? Infinity : usableWidth / spanX, spanY === 0 ? Infinity : usableHeight / spanY);
+	const offsetX = (box.width - spanX * scale) / 2;
+	const offsetY = (box.height - spanY * scale) / 2;
+
+	// Two decimals is under a tenth of a pixel at every size these previews render at,
+	// and it keeps a 65-point great-circle arc from writing a kilobyte of path data into
+	// the DOM once per card.
+	const round = (n: number) => Math.round(n * 100) / 100;
+	const place = (p: ProjectedPoint): ProjectedPoint => ({
+		x: round((p.x - minX) * scale + offsetX),
+		y: round((maxY - p.y) * scale + offsetY)
+	});
+
+	return {
+		paths: projectedLines.map((line) =>
+			line
+				.map(place)
+				.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x} ${p.y}`)
+				.join('')
+		),
+		points: projectedPoints.map(place)
+	};
+}
+
 /** `[west, south, east, north]` — the corner order MapLibre's `fitBounds` accepts as
  *  two `[lng, lat]` pairs. */
 export type LngLatBounds = readonly [west: number, south: number, east: number, north: number];
