@@ -225,6 +225,12 @@ export function createSkyscannerFlightProvider(
 
 		const offers: FlightOffer[] = [];
 		let sawMalformedDate = false;
+		// Issue #370: airports that were the one thing standing between a real, nonstop,
+		// priced Skyscanner itinerary and a `FlightOffer`. Tracked across every date in this
+		// call, so `offers.length === 0` at the end can be told apart from "this route
+		// genuinely has nothing" — the distinction #130/#144's provider-answer states carry
+		// to the screen, and the one this adapter was the last of three still losing.
+		const unresolvedTimeZoneAirports = new Set<string>();
 		/**
 		 * When the first fare response of this call landed, and the age this result is
 		 * stamped with. One date per request means a range is answered over as many round
@@ -295,8 +301,10 @@ export function createSkyscannerFlightProvider(
 			}
 
 			try {
-				offers.push(...mapSearchFlightsToOffers(result.data, { currency, travellers, timeZones }));
+				const mapped = mapSearchFlightsToOffers(result.data, { currency, travellers, timeZones });
+				offers.push(...mapped.offers);
 				oldestResponseAt ??= clock();
+				for (const code of mapped.unresolvedTimeZoneAirports) unresolvedTimeZoneAirports.add(code);
 			} catch (cause) {
 				if (cause instanceof SkyscannerMalformedResponseError) {
 					sawMalformedDate = true;
@@ -311,6 +319,25 @@ export function createSkyscannerFlightProvider(
 				{
 					code: 'malformed-response',
 					message: 'Sky Scrapper responses for every requested date had an unrecognised shape'
+				},
+				requestsUsed
+			);
+		}
+		// Issue #370, the third and last adapter to get this. Skyscanner sold a nonstop on a
+		// day in this window, named the carrier and priced it, and this app could not say when
+		// it lands. An empty ok result reaches the connections map as "Nothing flies here",
+		// which is a false sentence about a real flight, so name the airports that blocked it.
+		if (offers.length === 0 && unresolvedTimeZoneAirports.size > 0) {
+			const airports = [...unresolvedTimeZoneAirports].sort();
+			return fail(
+				{
+					// `no-time-zone`, not `malformed-response`: Skyscanner's answer parsed fine
+					// and this app's zone table did not. AGENTS.md, "show the error you got,
+					// never the one you assumed" — these are the codes that actually blocked
+					// mapping, not a guess at the cause.
+					code: 'no-time-zone',
+					message: `Sky Scrapper returned a real, nonstop itinerary this app could not price: no known time zone for ${airports.join(', ')}`,
+					airports
 				},
 				requestsUsed
 			);
