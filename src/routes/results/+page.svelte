@@ -30,6 +30,7 @@
 	import { DEFAULT_SEARCH_CURRENCY } from '$lib/domain';
 	import type { Airport, IataAirportCode, Itinerary, SearchQuery, Stay } from '$lib/domain';
 	import type { ItinerarySegmentId } from '$lib/itinerary-map/segment-id';
+	import { BOTTOM_SHEET_ATTRIBUTE } from '$lib/results/reveal-scroll';
 	import { recordItineraryGroup } from '$lib/flexible-dates';
 	import { keyStore } from '$lib/keys';
 	import { buildSearchQuery } from '$lib/search-form/model';
@@ -849,7 +850,11 @@
 		// runs from a click handler and writes no state, so there is no reactive loop to
 		// create (AGENTS.md, the `$effect` trap).
 		await tick();
-		panelEl?.focus();
+		// Issue #308: `preventScroll`, because focusing an element scrolls it into view by
+		// default and the panel is the second thing that was moving the page under a
+		// traveller who only tapped a segment. The panel is sticky at the top of its own
+		// column on the only width where it is focused at all, so it is already on screen.
+		panelEl?.focus({ preventScroll: true });
 	}
 
 	function restoreFocus() {
@@ -1285,6 +1290,7 @@
 	<aside
 		bind:this={sheetEl}
 		class="customise-sheet"
+		{...{ [BOTTOM_SHEET_ATTRIBUTE]: '' }}
 		aria-label="Customise the selected trip"
 		tabindex="-1"
 		style:translate={sheetDragY > 0 ? `0 ${sheetDragY}px` : undefined}
@@ -1362,11 +1368,20 @@
 		line-height: var(--line-height-xs);
 	}
 
+	/* Issue #310, the owner: "the search results page could be wider in desktop to use mroe
+	   space". It was capped at `--layout-max-width` (72rem), which the search form itself had
+	   already outgrown: that page uses the wide token. Measured fraction of the viewport in
+	   use, before and after: 90% and 98% at 1280, 80% and 98% at 1440, 60% and 80% at 1920.
+
+	   The list is not the only thing that grows. #278 put a customise panel on the right at
+	   64rem, so three columns share this row, and stretching only the middle one would leave
+	   a stay list and a filter rail at their phone widths beside a very wide card. Both side
+	   columns take a share at the widest breakpoint below. */
 	.results-page {
 		display: flex;
 		flex-direction: column;
 		gap: var(--space-5);
-		max-width: var(--layout-max-width);
+		max-width: var(--layout-max-width-wide);
 		margin: 0 auto;
 	}
 
@@ -1390,6 +1405,20 @@
 		flex-direction: column;
 		gap: var(--space-4);
 		min-width: 0;
+	}
+
+	/* Issue #310: "the sort by haas no padding top and when scroll it is too close to the top
+	   element". The rail is sticky below 64rem's breakpoint and parks under the search summary
+	   strip, and `Sort by`'s label was the first pixel of it, so the two met with nothing
+	   between them the moment the list scrolled. The resting state looked fine, which is why
+	   this survived: the owner was reading the scrolled one.
+
+	   Padding rather than a bigger `top` offset alone, because the offset decides where the
+	   rail parks and this decides how the first control sits inside it. Both changed: the
+	   offset below now clears the strip with room, and this keeps the label off the rail's
+	   own top edge. */
+	.results-filters-body {
+		padding-top: var(--space-2);
 	}
 
 	/* A grid item's `min-width` is `auto`, so the widest thing inside a result card (a
@@ -1677,14 +1706,17 @@
 		.results-filters,
 		.results-customise {
 			position: sticky;
-			/* Clears the search summary strip pinned above it, so the two never overlap. */
-			top: 6rem;
+			/* Clears the search summary strip pinned above it with room to spare. At 6rem the
+			   two did not overlap and did touch, which is issue #310: the strip's own bottom
+			   edge and `Sort by`'s label met with nothing between them as soon as the list
+			   scrolled. */
+			top: 7.5rem;
 		}
 
 		/* The rail can outrun the viewport once a stay list is in it, and a sticky column
 		   taller than the screen strands its own bottom. */
 		.results-customise {
-			max-height: calc(100dvh - 8rem);
+			max-height: calc(100dvh - 9.5rem);
 			overflow-y: auto;
 			overscroll-behavior: contain;
 			padding-right: var(--space-2);
@@ -1694,6 +1726,16 @@
 		   nothing to do. */
 		.filters-toggle {
 			display: none;
+		}
+	}
+
+	/* Issue #310: past the three-column breakpoint there is real room, and the side columns
+	   take a share of it rather than leaving the list to absorb all of it. A filter rail at
+	   its phone width beside a 900px card reads as an oversight, and the customise panel is
+	   the one that holds a stay list with photographs. */
+	@media (min-width: 90rem) {
+		.results-layout {
+			grid-template-columns: 19rem minmax(0, 1fr) 24rem;
 		}
 	}
 

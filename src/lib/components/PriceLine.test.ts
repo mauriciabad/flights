@@ -91,9 +91,11 @@ describe('the ground lines on the receipt', () => {
 	it('says the walked legs are free and the unquoted ones are not priced', () => {
 		expect(rows(threeTaxisAndAWalk())).toEqual([
 			{ line: 'Flights -> €118.00', missing: false },
-			{ line: 'Bed, 1 night × €20.00 -> €20.00', missing: false },
-			{ line: 'Ground, 1 walk -> free', missing: false },
-			{ line: 'Ground, 3 rides -> not priced', missing: true }
+			{ line: 'Hotel -> €20.00/night', missing: false },
+			{ line: '1 required night -> €20.00', missing: false },
+			{ line: 'Ride from origin -> free', missing: false },
+			{ line: 'Rides from and to hotel -> not priced', missing: true },
+			{ line: 'Ride to destination -> not priced', missing: true }
 		]);
 	});
 
@@ -106,8 +108,9 @@ describe('the ground lines on the receipt', () => {
 		const walked = makeItinerary({ nightsInConnection: 1 });
 		expect(rows(walked)).toEqual([
 			{ line: 'Flights -> €118.00', missing: false },
-			{ line: 'Bed, 1 night × €20.00 -> €20.00', missing: false },
-			{ line: 'Ground, 2 walks -> free', missing: false }
+			{ line: 'Hotel -> €20.00/night', missing: false },
+			{ line: '1 required night -> €20.00', missing: false },
+			{ line: 'Rides from and to hotel -> free', missing: false }
 		]);
 	});
 
@@ -131,8 +134,9 @@ describe('the ground lines on the receipt', () => {
 		});
 		expect(rows(unrouted as Itinerary).map((row) => row.line)).toEqual([
 			'Flights -> €118.00',
-			'Bed, 1 night × €20.00 -> €20.00',
-			'Ground, 2 rides -> not priced'
+			'Hotel -> €20.00/night',
+			'1 required night -> €20.00',
+			'Rides from and to hotel -> not priced'
 		]);
 	});
 });
@@ -146,14 +150,19 @@ describe('an estimated ground line (issue #249)', () => {
 		};
 	}
 
-	it('prints the range on its own row, tagged as an estimate and untinted', () => {
+	it('prints the range on the row for the legs it covers, untinted and unlabelled', () => {
 		// Untinted on purpose. The warning tint means "the total is short by this much and
 		// nobody knows how much"; this row says how much, so wearing the same colour would
 		// make a number the app has read as a hole it is confessing to.
+		//
+		// Issue #305 took the ESTIMATE tag off at the owner's request. A range with a dash in
+		// it is already not a quote, and the row is named after the ride rather than after a
+		// count, so the word was carrying nothing the two numbers did not.
 		expect(rows(twoRatedTaxis()).map((row) => ({ ...row, line: row.line.replace(/\s+/g, ' ') }))).toEqual([
 			{ line: 'Flights -> €118.00', missing: false },
-			{ line: 'Bed, 1 night × €20.00 -> €20.00', missing: false },
-			{ line: 'Ground, 2 rides -> £48.52-£76.60 estimate', missing: false }
+			{ line: 'Hotel -> €20.00/night', missing: false },
+			{ line: '1 required night -> €20.00', missing: false },
+			{ line: 'Rides from and to hotel -> £48.52-£76.60', missing: false }
 		]);
 	});
 
@@ -207,9 +216,10 @@ describe('an estimated ground line (issue #249)', () => {
 
 		expect(rows(trip).map((row) => ({ ...row, line: row.line.replace(/\s+/g, ' ') }))).toEqual([
 			{ line: 'Flights -> €118.00', missing: false },
-			{ line: 'Bed, 1 night × €20.00 -> €20.00', missing: false },
-			{ line: 'Ground, 1 ride -> £24.26-£38.30 estimate', missing: false },
-			{ line: 'Ground, 1 ride -> not priced', missing: true }
+			{ line: 'Hotel -> €20.00/night', missing: false },
+			{ line: '1 required night -> €20.00', missing: false },
+			{ line: 'Ride to hotel -> £24.26-£38.30', missing: false },
+			{ line: 'Ride from hotel -> not priced', missing: true }
 		]);
 	});
 });

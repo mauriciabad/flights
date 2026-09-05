@@ -65,7 +65,9 @@ describe('the 5am rule', () => {
 describe('counting', () => {
 	it('uses the singular for one day', () => {
 		const days = freeTimeDays(at('2026-10-09T21:10:00'), at('2026-10-11T09:05:00'));
-		expect(days?.count).toBe('1 full day');
+		// 9:05am is under three hours of the 8am-6pm window, so no `+`. The middle line keeps
+		// #228's "full day" wording; only the compact cell label changed with #306.
+		expect(days?.count).toBe('1 day');
 		expect(days?.fullDays).toBe('1 full day: Sat');
 	});
 
@@ -98,5 +100,77 @@ describe('the 24-hour setting', () => {
 		timeFormat.set('24h');
 		const days = freeTimeDays(at('2026-10-09T21:10:00'), at('2026-10-12T09:05:00'));
 		expect(days?.block).toBe('Fri 9 from 21:10\n2 full days: Sat, Sun\nMon 12 until 09:05');
+	});
+});
+
+// Issue #306 -----------------------------------------------------------------
+
+describe('the + suffix, and what it is allowed to claim', () => {
+	it('adds nothing for an edge morning nobody could use', () => {
+		// The case the issue names. 6:05am is five hours of free time and no morning at all,
+		// and a `+` for it would be the app overclaiming a day it has not got.
+		const days = freeTimeDays(at('2026-10-09T21:10:00'), at('2026-10-12T06:05:00'));
+		expect(days?.count).toBe('2 days');
+		expect(days?.countMeaning).toBeUndefined();
+	});
+
+	it('adds one for a morning that reaches into the afternoon', () => {
+		const days = freeTimeDays(at('2026-10-09T21:10:00'), at('2026-10-12T13:15:00'));
+		expect(days?.count).toBe('2+ days');
+		expect(days?.countMeaning).toBe('Plus a usable morning on the day you leave');
+	});
+
+	it('adds one for an arrival with an afternoon left in it', () => {
+		const days = freeTimeDays(at('2026-10-09T11:00:00'), at('2026-10-12T06:05:00'));
+		expect(days?.count).toBe('2+ days');
+		expect(days?.countMeaning).toBe('Plus a usable afternoon on the day you arrive');
+	});
+
+	it('adds two when both edges are worth something', () => {
+		const days = freeTimeDays(at('2026-10-09T11:00:00'), at('2026-10-12T13:15:00'));
+		expect(days?.count).toBe('2++ days');
+		expect(days?.countMeaning).toBe(
+			'Plus a usable afternoon on the day you arrive and a usable morning on the day you leave'
+		);
+	});
+
+	it('draws the line at three hours of daylight, either side of it', () => {
+		// 3pm leaves exactly three hours before the window closes at 6pm and counts. 4pm
+		// leaves two and does not, because an afternoon that starts at 4pm is an evening.
+		// And "1+ days", not "1+ day": the suffix says there is more than a day here, so the
+		// noun agrees with the whole figure rather than with the digit in front of it.
+		expect(freeTimeDays(at('2026-10-09T15:00:00'), at('2026-10-11T06:00:00'))?.count).toBe('1+ days');
+		expect(freeTimeDays(at('2026-10-09T16:00:00'), at('2026-10-11T06:00:00'))?.count).toBe('1 day');
+	});
+
+	it('never counts an arrival day twice, once as full and again as a part', () => {
+		// #228's landing rule already gives a 2:15am arrival its whole day. Counting the same
+		// hours again as a usable afternoon would print "3+ days" for three days.
+		const days = freeTimeDays(at('2026-10-10T02:15:00'), at('2026-10-13T06:00:00'));
+		expect(days?.count).toBe('3 days');
+		expect(days?.usablePartDayCount).toBe(0);
+	});
+
+	it('does not read a one-day window as two edges', () => {
+		// A single piece is the arrival edge and the departure edge at once, and counting it
+		// twice would give a seven-hour stopover a `++`.
+		const days = freeTimeDays(at('2026-10-10T09:00:00'), at('2026-10-10T17:00:00'));
+		expect(days?.usablePartDayCount).toBe(1);
+		expect(days?.count).toBe('Part of a day');
+	});
+});
+
+describe('zero whole days', () => {
+	it('says "No full days" when neither edge is worth anything, as the owner wrote it', () => {
+		const days = freeTimeDays(at('2026-10-08T21:55:00'), at('2026-10-09T04:55:00'));
+		expect(days?.count).toBe('No full days');
+	});
+
+	it('never prints "0+ days", which reads as a bug rather than as an answer', () => {
+		// The issue asks what happens here. A suffix on a zero is the same objection the
+		// owner made to "0 full days" on #228, so the noun changes instead of the number.
+		const days = freeTimeDays(at('2026-10-09T10:00:00'), at('2026-10-10T13:00:00'));
+		expect(days?.count).toBe('Parts of 2 days');
+		expect(days?.count).not.toContain('0');
 	});
 });

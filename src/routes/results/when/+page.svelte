@@ -33,10 +33,10 @@
 	 */
 	import { untrack } from 'svelte';
 	import { browser } from '$app/environment';
-	import { goto } from '$app/navigation';
+	import { afterNavigate, goto } from '$app/navigation';
 	import { base } from '$app/paths';
 	import { page } from '$app/state';
-	import { Button, EmptyState, ErrorState, Select, Skeleton } from '$lib/components';
+	import { Button, EmptyState, ErrorState, Icon, Select, Skeleton } from '$lib/components';
 	import { getAirport } from '$lib/data/airports';
 	import { DEFAULT_SEARCH_CURRENCY } from '$lib/domain';
 	import type { IataAirportCode, IsoCalendarDate, IsoCurrencyCode } from '$lib/domain';
@@ -308,6 +308,33 @@
 		browser ? `${base}/results/?${page.url.searchParams.toString()}` : `${base}/results/`
 	);
 
+	/**
+	 * Issue #311: a way out of here that goes back rather than forward.
+	 *
+	 * The owner: "On the flexible dates there should be a clear way to go back to the last
+	 * page with the last results." Following `backToResults` as an ordinary link pushes a
+	 * third history entry and leaves the traveller's own results page sitting behind two
+	 * back presses. Walking the history instead lands them on the entry they came from, with
+	 * the browser's own scroll restoration, and leaves the back button meaning what it meant
+	 * before they came here.
+	 *
+	 * `href` is still the real destination, so cmd-click, middle-click and a right-click menu
+	 * all work, and somebody who arrived from a bookmark or a shared link gets a plain
+	 * navigation because there is nothing behind them to go back to.
+	 */
+	let cameFromResults = $state(false);
+	afterNavigate((navigation) => {
+		cameFromResults = navigation.from?.url.pathname === `${base}/results/`;
+	});
+
+	function goBackToResults(event: MouseEvent) {
+		if (!cameFromResults) return;
+		// Let the browser handle every gesture that means "open this somewhere else".
+		if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0) return;
+		event.preventDefault();
+		history.back();
+	}
+
 	const nightOptions = Array.from({ length: 15 }, (_, i) => ({
 		value: String(i),
 		label: i === 1 ? '1 night' : `${i} nights`
@@ -344,6 +371,14 @@
 		/>
 
 		<header class="page-head">
+			<!-- Issue #311. Above the heading, which is where a reader looks for the way out of
+			     a screen they opened from somewhere else, and present whether or not this view
+			     has anything to show: the empty state used to be the only place that offered
+			     it, so a traveller who reached a working calendar had no way back at all. -->
+			<a class="back-link" href={backToResults} onclick={goBackToResults}>
+				<Icon name="chevron-left" />
+				Back to your results
+			</a>
 			<h2>When should I go?</h2>
 			<p class="lede">
 				Built from prices this browser already holds. Nothing on this page is fetched to answer a
@@ -524,6 +559,37 @@
 </div>
 
 <style>
+	/* A way out, sized as a real target (WCAG 2.5.5) and quiet enough not to compete with
+	   the heading under it. */
+	.back-link {
+		display: inline-flex;
+		align-items: center;
+		gap: var(--space-1);
+		align-self: start;
+		min-height: 2.75rem;
+		margin-left: calc(var(--space-2) * -1);
+		padding-inline: var(--space-2);
+		border-radius: var(--radius-md);
+		color: var(--color-text-muted);
+		font-size: var(--font-size-sm);
+		font-weight: var(--font-weight-medium);
+		text-decoration: none;
+	}
+
+	.back-link:hover {
+		color: var(--color-accent);
+		background: var(--color-accent-muted);
+	}
+
+	.back-link:focus-visible {
+		outline: 2px solid var(--color-focus-ring);
+		outline-offset: 2px;
+	}
+
+	.back-link {
+		--icon-size: 1.125rem;
+	}
+
 	.when-page {
 		display: flex;
 		flex-direction: column;

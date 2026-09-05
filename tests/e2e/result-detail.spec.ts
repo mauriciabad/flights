@@ -90,7 +90,11 @@ test.describe('result detail (issue #104)', () => {
 		// or destination location, so the stopover is the only ground leg it has.
 		await expect(detail.locator('.ground-legs-item')).toHaveCount(1);
 
-		const totalPriceRow = detail.locator('.itinerary-timeline-totals .metric', { hasText: 'Total price' });
+		// Issue #309: the total belongs to the card's own headline and to nothing else. The
+		// timeline used to print it again in a totals rail directly under the card's rail,
+		// which is the duplication that issue removed, so this reads the surface that owns
+		// the figure rather than the copy that no longer exists.
+		const totalPriceRow = card.locator('.price-total');
 		// 9,222.22 (the 9 March outbound) + 9,333.33 onward. Absurd figures on purpose, see
 		// support/fixture-markers.ts, but the sum is still the real arithmetic under test.
 		//

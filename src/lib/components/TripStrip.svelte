@@ -10,14 +10,14 @@
 	 * are (hatched), and that the ground legs exist at all (the thin solid seams), which
 	 * the old three-span strip dropped.
 	 *
-	 * The captions carry the two flight times and the nights as real text, the metric rail
-	 * under it carries the totals, and the whole thing is announced to a screen reader as
-	 * one sentence through `aria-label`, since a bar read cell by cell is worse than
-	 * useless.
-	 *
-	 * The scale is printed on the strip, "√ scale", because a bar that looks proportional
-	 * and is not would be the app asserting something untrue about the one quantity this
-	 * product exists to talk about.
+	 * The captions carry the two flight times and the nights as real text, on the same grid
+	 * tracks as the blocks they name (issue #315: they were a three-item flex under a
+	 * seven-block strip, so each flight's duration printed under the airport wait beside it,
+	 * on every card). The metric rail under the strip carries the totals, and the whole
+	 * thing is announced to a screen reader as one sentence through `aria-label`, since a
+	 * bar read cell by cell is worse than useless. That sentence is also where the scale is
+	 * now stated: issue #310 took the printed "√ scale" footnote off at the owner's request,
+	 * and the scale itself is unchanged.
 	 *
 	 * The codes and the bar share one grid whose tracks are the segments' shares, so a
 	 * code lands on the place it names. Tracks are `minmax(3px, Nfr)` rather than plain
@@ -35,12 +35,20 @@
 	 *
 	 * They are siblings of the cells rather than the cells themselves, so a cell keeps its
 	 * entire visual and a button carries only the hit area, the ring and the semantics. The
-	 * hit area is 44px tall against a 28px cell and never narrower than 24px, centred on
-	 * the cell it stands for; the cell's own width never changes, because the strip's one
-	 * contract is that width is time. A 3px transfer seam therefore has a target smaller
-	 * than the 44x44 guideline, which this design accepts rather than hides: widening the
-	 * cell would lie about the schedule, and a mis-tap opens a neighbour whose panel names
-	 * itself in its first line, so the correction costs one more tap.
+	 * hit area is 44px tall against a 28px cell and exactly as wide as the track.
+	 *
+	 * Issue #316 is why "exactly as wide" rather than "never narrower than 24px". That
+	 * earlier version gave a 15px transfer a 24px hit area, which reads as compliant and is
+	 * not: measured on production at 375px, adjacent blocks were 2px apart, so two 24px
+	 * areas centred 17px apart overlapped and a z-index decided who won the tap. The block
+	 * a traveller worries about most was the hardest one on the card to hit, wedged between
+	 * two targets three times its width. So the floor moved into the track itself: every
+	 * non-free segment is at least 24px drawn, which is the only version where the thing
+	 * you can hit and the thing you can see are the same object. The free day cells keep
+	 * the 3px floor, because their target is one button spanning the whole run.
+	 *
+	 * `share` is untouched by that floor. Every track above it is still proportional to the
+	 * square root of its time.
 	 *
 	 * The strip is a `role="group"` rather than a `role="img"` now that it contains
 	 * controls, keeping the same one-sentence label. One tab stop per strip, with roving
@@ -133,7 +141,31 @@
 	const stopoverCode = $derived(connectionCode ?? itinerary.outboundFlight.arrivalAirport);
 	const stopoverName = $derived(connectionLabel ?? stopoverCode);
 	const nights = $derived(itinerary.nightsInConnection);
-	const template = $derived(strip.segments.map((segment) => `minmax(3px, ${segment.share.toFixed(4)}fr)`).join(' '));
+	/**
+	 * Issue #316: how narrow a track is allowed to get.
+	 *
+	 * Every non-free segment is a tap target in its own right, and WCAG 2.2 SC 2.5.8 wants
+	 * 24 CSS pixels with 24px between the centres of neighbours. Measured on production at
+	 * 375px, a ground transfer drew at 15px with a 2px gap to each side, so a 24px circle
+	 * centred on it overlapped both neighbours: the Spacing exception could not rescue it,
+	 * and the block a traveller worries about most was the hardest one on the card to hit.
+	 * Padding cannot fix that. Two 24px hit areas centred 17px apart still collide, whatever
+	 * they are made of, so the drawn width is what has to change.
+	 *
+	 * The free days keep the 3px floor. Their target is one button spanning the whole run
+	 * (`stripTargets`), so an individual day cell is never a target of its own, and holding
+	 * each of six of them at 24px would take the picture away from the part of the trip this
+	 * app exists to sell.
+	 *
+	 * This is a floor, not a rescaling: `share` is untouched, every track above the floor is
+	 * still proportional to the square root of its time, and the strip's own screen-reader
+	 * sentence still says so.
+	 */
+	const template = $derived(
+		strip.segments
+			.map((segment) => `minmax(${segment.kind === 'free' ? '3px' : '24px'}, ${segment.share.toFixed(4)}fr)`)
+			.join(' ')
+	);
 
 	// Grid lines are 1-based. The origin code sits over the wait before the outbound
 	// flight, the destination code over the onward flight's end, and the stopover code is
@@ -141,9 +173,11 @@
 	const originColumn = $derived(String(strip.outboundIndex));
 	const stopoverColumns = $derived(`${strip.outboundIndex + 2} / ${strip.onwardIndex + 1}`);
 	const destinationColumn = $derived(String(strip.onwardIndex + 1));
-
-	const scaleNote =
-		'Widths follow the square root of each part’s time, so a short transfer stays visible beside a multi-day stopover. A part four times as long is drawn twice as wide. The printed durations are exact.';
+	// Issue #315: the two flight captions ride their own flights' tracks. Same 1-based grid
+	// lines the cells are placed on, read from the same `strip`, so a caption cannot end up
+	// over a block it is not about.
+	const outboundFlightColumn = $derived(String(strip.outboundIndex + 1));
+	const onwardFlightColumn = $derived(String(strip.onwardIndex + 1));
 
 	function transferWhere(segment: TripStripTransferSegment): string {
 		switch (segment.leg) {
@@ -451,25 +485,20 @@
 				onkeydown={(event) => onHitKeydown(event, index)}
 			></button>
 		{/each}
-	</div>
 
-	{#if stubs[panelIndex]}
-		<SegmentStub
-			stub={stubs[panelIndex]}
-			id={panelId}
-			{anchor}
-			open={activeIndex !== null}
-			{itinerary}
-			connectionLabel={stopoverName}
-			{deprioritized}
-			{onDismiss}
-			onPointerEnter={() => clearTimeout(closeTimer)}
-			onPointerLeave={startGrace}
-		/>
-	{/if}
+		<!-- Issue #315: the captions sit on this grid, in their own segments' columns, and
+		     that is the whole fix. They used to be a three-item `space-between` flex laid
+		     under a seven-block strip, so the leftmost caption landed under the wrong block
+		     every time: measured at 1280px, a flight's "2h 55m" spanned x 381-424 while the
+		     flight it named ran 448-526 and the airport wait it was sitting over ran 381-446.
+		     Three cards, three identical misses, on the one picture on the card. Sharing the
+		     cells' own tracks makes that unrepresentable rather than merely corrected, since
+		     there is no second copy of the geometry left to drift. -->
+		<span
+			class="trip-strip-caption trip-strip-caption-leg font-mono tabular-nums"
+			style:grid-column={outboundFlightColumn}>{formatDuration(itinerary.outboundFlight.duration)}</span
+		>
 
-	<p class="trip-strip-captions">
-		<span class="trip-strip-caption font-mono tabular-nums">{formatDuration(itinerary.outboundFlight.duration)}</span>
 		<!-- Issue #278: the preview is what unfolds, so the control lives on the preview and
 		     on its loudest line. The nights ARE the trip this app is selling, so "1 night in
 		     Vienna" is both the caption a reader wants and the honest label for "show me
@@ -484,6 +513,7 @@
 			<button
 				type="button"
 				class="trip-strip-caption trip-strip-caption-mid trip-strip-unfold"
+				style:grid-column={stopoverColumns}
 				aria-expanded={expanded}
 				aria-controls={controlsId}
 				onclick={() => onToggleExpanded?.()}
@@ -501,7 +531,7 @@
 				<Icon name="chevron-down" class={['trip-strip-chevron', { 'is-open': expanded }]} />
 			</button>
 		{:else}
-			<span class="trip-strip-caption trip-strip-caption-mid">
+			<span class="trip-strip-caption trip-strip-caption-mid" style:grid-column={stopoverColumns}>
 				{#if nights > 0}
 					<strong class="trip-strip-nights font-mono tabular-nums">{nights}</strong>
 					{nights === 1 ? 'night' : 'nights'} in {stopoverName}
@@ -511,11 +541,32 @@
 				{/if}
 			</span>
 		{/if}
-		<span class="trip-strip-caption trip-strip-caption-end font-mono tabular-nums">
-			{formatDuration(itinerary.onwardFlight.duration)}
-			<span class="trip-strip-scale" title={scaleNote}>√ scale</span>
-		</span>
-	</p>
+
+		<!-- Issue #310 took the "√ scale" footnote off the caption that used to carry it. The
+		     fact it printed is true and still holds: widths follow the square root of each
+		     part's time, so a 40-minute hop stays visible beside a 14-hour flight. What
+		     changed is that the owner does not want it on screen. It is still in the strip's
+		     own screen-reader sentence, which ends "Drawn on a square-root time scale." -->
+		<span
+			class="trip-strip-caption trip-strip-caption-leg font-mono tabular-nums"
+			style:grid-column={onwardFlightColumn}>{formatDuration(itinerary.onwardFlight.duration)}</span
+		>
+	</div>
+
+	{#if stubs[panelIndex]}
+		<SegmentStub
+			stub={stubs[panelIndex]}
+			id={panelId}
+			{anchor}
+			open={activeIndex !== null}
+			{itinerary}
+			connectionLabel={stopoverName}
+			{deprioritized}
+			{onDismiss}
+			onPointerEnter={() => clearTimeout(closeTimer)}
+			onPointerLeave={startGrace}
+		/>
+	{/if}
 </div>
 
 <style>
@@ -525,10 +576,13 @@
 		gap: var(--space-1);
 	}
 
-	/* Codes on row 1, cells on row 2, both on the scaled tracks. */
+	/* Codes on row 1, cells on row 2, captions on row 3, all three on the scaled tracks.
+	   Issue #315 moved the captions in here: a caption's only job is to name a block, and
+	   the one arrangement in which it cannot name the wrong one is the one where it shares
+	   that block's own grid column. */
 	.trip-strip-track {
 		display: grid;
-		grid-template-rows: auto auto;
+		grid-template-rows: auto auto auto;
 		align-items: center;
 		row-gap: var(--space-1);
 		column-gap: 2px;
@@ -620,17 +674,16 @@
 		-webkit-tap-highlight-color: transparent;
 	}
 
-	/* 44px tall out of a 28px cell, never narrower than 24px, centred on the cell it
-	   stands for. The cell keeps its true width: widening it would lie about time, which
-	   is the one thing this strip exists to tell the truth about. */
+	/* 44px tall out of a 28px cell, centred on the cell it stands for.
+	   Issue #316 took the `width: max(100%, 24px)` off this. It gave a 15px transfer a 24px
+	   hit area, which reads as compliant and is not: two of those centred 17px apart still
+	   overlap, so the neighbour's z-index decided who won the tap. The width is now the
+	   track's, and the track has a 24px floor (see `template`), which is the only version of
+	   this where the thing you can hit and the thing you can see are the same object. */
 	.trip-strip-hit::before {
 		content: '';
 		position: absolute;
-		top: -8px;
-		bottom: -8px;
-		left: 50%;
-		width: max(100%, 24px);
-		translate: -50% 0;
+		inset: -8px 0;
 	}
 
 	/* A 3px seam beside a 35px day: the thin one wins the overlap, or it could never be
@@ -669,7 +722,7 @@
 		justify-content: center;
 		gap: var(--space-1);
 		min-width: 0;
-		padding: 0;
+		padding-inline: 0;
 		border: 0;
 		background: none;
 		font: inherit;
@@ -677,18 +730,26 @@
 		transition: color var(--transition-fast);
 	}
 
-	/* 36px of target out of a 16px line, extended downward into the card's own gap so the
-	   strip's height is untouched and the cells' 44px hit areas above are not overlapped.
-	   Above WCAG 2.5.8's 24px floor rather than 2.5.5's 44px ideal, for the same reason
-	   the cells accept a narrow target: the strip's contract is that its layout is time,
-	   and this control is over 100px wide, so the area is generous even where the height
-	   is not. */
+	/* Issue #316: the control's own box is 24px tall, not a 19px box with a taller
+	   pseudo-element over it. An audit reads `getBoundingClientRect()`, and so does anyone
+	   checking this against SC 2.5.8; a target whose measured height is 19px is a finding
+	   whatever is painted around it. Padding grows the box and a matching negative margin
+	   gives the height back to the layout, so the strip is exactly as tall as it was.
+
+	   The `::before` still extends the area downward into the card's own gap, which is free
+	   room below the last row of the strip. It stops short of the cells' 44px hit areas
+	   above rather than overlapping them. */
+	.trip-strip-unfold {
+		padding-block: 0.3rem;
+		margin-block: -0.3rem;
+	}
+
 	.trip-strip-unfold::before {
 		content: '';
 		position: absolute;
-		top: -0.5rem;
+		top: -0.2rem;
 		right: -0.25rem;
-		bottom: -0.75rem;
+		bottom: -0.5rem;
 		left: -0.25rem;
 	}
 
@@ -787,23 +848,25 @@
 		}
 	}
 
-	/* Outside the scaled grid on purpose: a caption's width must never distort a track.
-	   The side columns take their content and the middle one gives way, so a long city
-	   name ellipsises rather than wrapping the row. */
-	.trip-strip-captions {
-		display: grid;
-		grid-template-columns: max-content minmax(0, 1fr) max-content;
-		align-items: baseline;
-		gap: var(--space-2);
-	}
-
 	.trip-strip-caption {
+		grid-row: 3;
 		font-size: var(--font-size-xs);
 		line-height: 1.3;
 		color: var(--color-text-muted);
 		white-space: nowrap;
 	}
 
+	/* A flight's duration, centred on that flight's own track. Overflow stays visible, the
+	   same choice the codes on row 1 make and for the same reason: a track is sized by time,
+	   so a caption that could widen one would put the picture out. `min-width: 0` is what
+	   stops a grid item's automatic minimum size doing exactly that. */
+	.trip-strip-caption-leg {
+		justify-self: center;
+		min-width: 0;
+	}
+
+	/* The stopover caption spans everything between the two flights, which is the stretch it
+	   is about, and gives way rather than pushing: a long city name ellipsises. */
 	.trip-strip-caption-mid {
 		min-width: 0;
 		overflow: hidden;
@@ -812,26 +875,9 @@
 		color: var(--color-stopover);
 	}
 
-	.trip-strip-caption-end {
-		display: inline-flex;
-		align-items: baseline;
-		gap: var(--space-2);
-	}
-
 	.trip-strip-nights {
 		font-size: var(--font-size-sm);
 		font-weight: var(--font-weight-bold);
-	}
-
-	/* The scale, printed as a footnote to the onward duration. Faint on purpose: it is
-	   there for the reader who would otherwise measure the bar, and it must not compete
-	   with the numbers. */
-	.trip-strip-scale {
-		padding-left: var(--space-2);
-		border-left: 1px solid var(--color-border);
-		font-weight: var(--font-weight-regular);
-		color: var(--color-text-faint);
-		cursor: help;
 	}
 
 	/* Avoided airlines: quiet, never hidden, and colour only. The teal is what carries the

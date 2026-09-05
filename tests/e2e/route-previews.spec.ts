@@ -68,13 +68,13 @@ const BOTH_ENDS = {
 };
 
 test.describe('frozen route previews (issue #280)', () => {
-	test('the card carries a flight picture with real size, captioned against a direct flight', async ({
+	test('the card carries a flight picture with real size, drawn against a direct flight', async ({
 		page
 	}) => {
 		await search(page, BOTH_ENDS);
 
 		const card = page.locator('.result-card').first();
-		const picture = card.locator('.flight-shape-picture .route-preview');
+		const picture = card.locator('.flight-shape .route-preview');
 		await expect(picture).toBeVisible();
 
 		// Not "an svg exists". A drawing nobody can see is the defect this asserts against.
@@ -83,13 +83,23 @@ test.describe('frozen route previews (issue #280)', () => {
 		expect(box!.width).toBeGreaterThan(60);
 		expect(box!.height).toBeGreaterThan(40);
 
-		// Three strokes drawn: the two flown legs, and the direct line that is not one.
-		await expect(card.locator('.flight-shape-picture path.rp-leg')).toHaveCount(2);
-		await expect(card.locator('.flight-shape-picture path.rp-baseline')).toHaveCount(1);
+		// Three strokes drawn: the two flown legs, and the direct line that is not one. The
+		// dashed baseline is the thing worth pinning, because it is the one line on the card
+		// that no carrier flies. Issue #305 removed the caption that used to say so in words
+		// at the owner's request ("The flight map should not have the text"), so the stroke is
+		// now the only place that distinction lives and `RoutePreview`'s own header records
+		// why the two strokes must never be tidied into one.
+		await expect(card.locator('.flight-shape path.rp-leg')).toHaveCount(2);
+		await expect(card.locator('.flight-shape path.rp-baseline')).toHaveCount(1);
+		const dash = await card
+			.locator('.flight-shape path.rp-baseline')
+			.evaluate((path) => getComputedStyle(path).strokeDasharray);
+		expect(dash, 'the direct line must not read as a flown leg').not.toBe('none');
 
-		// The caption is what stops the dashed line reading as a route, so it is the thing
-		// worth pinning in words.
-		await expect(card.locator('.flight-shape-caption')).toContainText('direct flight');
+		// And #305's other half: the grey tray is gone, so the arcs sit on the card's own
+		// surface rather than on a rectangle that reads as a screenshot of a map.
+		const background = await picture.evaluate((svg) => getComputedStyle(svg).backgroundColor);
+		expect(background).toBe('rgba(0, 0, 0, 0)');
 	});
 
 	test('the previews make no WebGL context, however many cards are on screen', async ({ page }) => {

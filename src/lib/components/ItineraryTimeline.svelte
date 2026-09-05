@@ -28,13 +28,21 @@
 	 * - The waiting rows lost "Buffer before Ryanair FR1234 boards". The very next row is
 	 *   that flight, with that flight number on it.
 	 *   The stepper moved onto the label's own line.
-	 * - The totals bar is now `MetricRail`, shared with the results card, which is what
-	 *   stopped the two of them disagreeing about which figures an itinerary even has.
+	 * - The totals bar is gone. Issue #309: it printed Free time, In flight, Airport wait
+	 *   and Door to door a second time, a few centimetres under the identical rail on the
+	 *   card, because #278 turned the card-level expander into a timeline that unfolds
+	 *   inside the card rather than replacing it. The owner's rule is the wider one: "all
+	 *   info should already be in the card, so expanding shouldn change". So the card owns
+	 *   every summary figure and this component owns the step-by-step detail, and the two
+	 *   sets no longer overlap at all. `Nights` and `Total price` went with the rail rather
+	 *   than being kept as the two that happened not to be duplicated: the trip strip's own
+	 *   caption prints "2 nights in Vienna" in bold teal, and the card's headline is the
+	 *   total with its receipt under it.
 	 *
 	 * ## DOM shape
 	 *
-	 * This component's root is the `<ol>` itself, with no wrapping `<div>`, followed by a
-	 * sibling totals rail. Each schedule step is one `<li class="tl-row">`, always in the
+	 * This component's root is the `<ol>` itself, with no wrapping `<div>` and nothing
+	 * after it. Each schedule step is one `<li class="tl-row">`, always in the
 	 * same order, and every row has exactly four children which subgrid this list's four
 	 * columns. That is a change from two, and it is what makes clocks line up under clocks
 	 * and prices under prices however tall any one row turns out to be.
@@ -62,8 +70,6 @@
 	import type { Snippet } from 'svelte';
 	import type { Airport, Duration, FlightOffer, Itinerary, LocalDateTime, Location, TransitLegField } from '../domain';
 	import { transferRideDuration } from '../domain';
-	import { recomputeItineraryWaitingTimes } from '../algorithm/build';
-	import type { WaitingTimeOverrides } from '../algorithm/build';
 	import { isOvernightWait } from '../algorithm/nights';
 	import { readMissedService, readStaleSchedule } from '../algorithm/transit-schedule';
 	import type { ItinerarySegmentId } from '../itinerary-map/segment-id';
@@ -82,19 +88,18 @@
 	import type { UnroutedLeg } from './itinerary-timeline-format';
 	import type { WithheldRoutes } from '../search/types';
 	import { freeTimeDays } from './free-time-days';
-	import { ALL_METRIC_IDS } from './itinerary-metrics';
 	import { technicalStopDetail } from './technical-stop-note';
 	import AirlineLogo from './AirlineLogo.svelte';
 	import ModeIcon from './ModeIcon.svelte';
 	import { transferIconKind, type ModeIconKind } from './mode-icon';
-	import MetricRail from './MetricRail.svelte';
 	import TimeCell from './TimeCell.svelte';
-	import WaitingTimeStepper from './WaitingTimeStepper.svelte';
 
 	interface Props {
-		/** Bindable, because the waiting-time stepper in the rows below edits it (issue
-		 * #250). A caller that binds gets the traveller's edit; one that only passes a value
-		 * gets a timeline that edits its own copy, which is what the unit tests mount. */
+		/** The trip to draw. Read only since issue #313: this component edited exactly one
+		 * thing, the waiting-time steppers inside its two wait rows, and those are gone. The
+		 * `bind:` that carried their edits back to the caller (issue #250) went with them,
+		 * which is the honest shape for a component that now only reads. `SegmentCustomiser`
+		 * owns the one remaining stepper and writes the draft directly. */
 		itinerary: Itinerary;
 		/**
 		 * Issue #73: the selection half of the contract `ItineraryMap` (issue #26) already
@@ -140,7 +145,7 @@
 	}
 
 	let {
-		itinerary = $bindable(),
+		itinerary,
 		selectedSegmentId = $bindable(null),
 		connectionAirport,
 		expansion,
@@ -148,31 +153,6 @@
 		withheldRoad,
 		class: className
 	}: Props = $props();
-
-	/** The origin buffer has no domain-side ceiling (unlike the connection buffer, it never
-	 * borrows from free time), so this is purely a sane upper bound for the number input. */
-	const ORIGIN_WAITING_TIME_INPUT_MAX_MINUTES = 720 as Duration;
-
-	/**
-	 * The inline waiting-time editor (brief lines 39 & 69: "airport waiting times can be
-	 * edited afterwards", called out twice) writes the edited itinerary straight back to
-	 * the caller.
-	 *
-	 * Issue #250: it used to keep the edit in two private override fields and render a
-	 * derived copy nobody outside this component could see. `ResultDetail` puts
-	 * `StopoverBlock` eight lines above this timeline off the same itinerary, so pushing
-	 * the connection buffer to 700 minutes dropped the bed out of the total printed here
-	 * while the block above went on naming that bed, its nightly rate and a checkout time
-	 * the trip no longer had. Two trips, one screen. Editing the caller's itinerary is what
-	 * makes that unrepresentable rather than merely fixed.
-	 *
-	 * The reset effect that used to clear those overrides on a new itinerary identity went
-	 * with them: there is no second copy left to fall out of step, and a caller that wants
-	 * the search's own buffers back re-mounts or re-assigns.
-	 */
-	function editWaitingTimes(overrides: WaitingTimeOverrides) {
-		itinerary = recomputeItineraryWaitingTimes(itinerary, overrides);
-	}
 
 	/** "Bergamo", or "BGY" until the airport record resolves. Never both, and never a
 	 * guess: the code is a fact this component always has. */
@@ -195,45 +175,25 @@
 		onwardArrival: itinerary.onwardFlight.departure
 	});
 
-	// The connection buffer can grow only as far as free time allows before it would push
-	// freeTime.duration negative. It is a UI input range, not a rule the domain model itself
-	// enforces, so it lives here rather than in recomputeItineraryWaitingTimes. The sum
-	// holds still while the buffer is edited, which is why it can be read off the edited
-	// itinerary: every minute the buffer takes is a minute free time gives up, both carved
-	// from one fixed layover (`recomputeItineraryWaitingTimes`'s own doc comment).
-	const maxConnectionWaitingTime = $derived(
-		(itinerary.connectionWaitingTime + itinerary.freeTime.duration) as Duration
-	);
-
-	// `WaitingTimeStepper` clamps to the `max` it is handed and never emits a value outside
-	// it, so these take the minutes as given. The ceiling still belongs here: the
-	// connection's is real domain arithmetic and the origin's is a sane bound, and neither
-	// is a fact the control could work out for itself.
-	function setOriginWaitingTime(minutes: number) {
-		editWaitingTimes({ originWaitingTime: minutes as Duration });
-	}
-
-	function setConnectionWaitingTime(minutes: number) {
-		editWaitingTimes({ connectionWaitingTime: minutes as Duration });
-	}
-
 	// A second activation of the selected row clears the selection: that is how a traveller
 	// folds a row's expansion away and hands the map back the whole route.
 	function selectSegment(segment: ItinerarySegmentId) {
 		selectedSegmentId = selectedSegmentId === segment ? null : segment;
 	}
 
-	// The row's onclick fires for any click inside the `<li>`, and once a picker is unfolded
-	// in it that includes every radio, button and link the picker draws. Picking an
-	// alternative must not also fold the picker that offered it, and a press on the
-	// waiting-time stepper never meant "show me this on the map" either.
+	// The row's onclick fires for any click inside the `<li>`, and once an `expansion`
+	// snippet is unfolded in it that includes every radio, button and link that snippet
+	// draws. Picking an alternative must not also fold the thing that offered it.
 	//
-	// Issue #141's third defect is the stepper half of that sentence: minus and plus used
-	// to bubble up here, select the row, and fly the map to that airport, so four nudges of
-	// a buffer meant four flights of the map and the traveller's panned view thrown away
-	// each time. `button, input` is what stops it; `ItineraryTimeline.test.ts` holds that
-	// down from both directions, including that the number still changes and that a
-	// selection already on the row survives being adjusted.
+	// Issue #141's third defect was the other half of this: the waiting-time stepper's minus
+	// and plus bubbled up here, selected the row, and flew the map to that airport, so four
+	// nudges of a buffer threw the traveller's panned view away four times. Issue #313
+	// removed that stepper, and with it the last control this component renders of its own,
+	// so on every screen the app draws today the guard now matches nothing. It is kept
+	// because `expansion` is still a prop: a caller that hands in a snippet with a control
+	// in it gets #141's behaviour back the moment the guard goes. The only caller that does
+	// so is the unit-test harness, which is a fact worth acting on separately rather than
+	// inside this issue.
 	function handleRowClick(event: MouseEvent, segment: ItinerarySegmentId) {
 		const target = event.target as Element | null;
 		if (target?.closest('.tl-expansion, button, input, label, a, select, summary, details')) return;
@@ -330,7 +290,6 @@
 			: undefined
 	);
 
-	const uid = $props.id();
 
 	const routeDescription = $derived(
 		`Itinerary from ${itinerary.originAirport.iataCode} to ${itinerary.destinationAirport.iataCode} via ${itinerary.outboundFlight.arrivalAirport}`
@@ -525,15 +484,7 @@
 	</li>
 {/snippet}
 
-{#snippet waitingRow(
-	airportLabel: string,
-	code: string,
-	minutes: Duration,
-	segment: ItinerarySegmentId,
-	onSet: (minutes: number) => void,
-	maxMinutes: number
-)}
-	{@const inputId = `${uid}-${segment}`}
+{#snippet waitingRow(airportLabel: string, code: string, minutes: Duration, segment: ItinerarySegmentId)}
 	<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 	<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 	<li
@@ -551,19 +502,12 @@
 		<span class="tl-rail">{@render marker('wait', 'muted')}</span>
 		<div class="tl-content tl-content-waiting">
 			<!-- The code, not the airport's name: the flight row directly under this one prints
-			     the same code, and the name is one hover (or one aria-label read) away. -->
+			     the same code, and the name is one hover (or one aria-label read) away.
+			     Issue #313 took the stepper off this line. The row still says how long the wait
+			     is, in the duration cell to its right, which is the row's whole job; what it no
+			     longer does is offer a second control editing the number the customise panel's
+			     own stepper already edits. -->
 			<p class="tl-label" title={airportLabel}>Waiting at {code}{@render optionMark(segment)}</p>
-			<!-- The stepper sits on the label's own line rather than under it. It is the
-			     only editable thing in the whole timeline (brief lines 39 and 69), so it
-			     stays a real 44px target; what it stopped doing is claiming a third row of
-			     its own on every itinerary. -->
-			<WaitingTimeStepper
-				label={`Waiting time at ${airportLabel}`}
-				{minutes}
-				max={maxMinutes}
-				{inputId}
-				onChange={onSet}
-			/>
 		</div>
 		<div class="tl-meta">
 			<span class="tl-duration font-mono tabular-nums">{formatDuration(minutes)}</span>
@@ -650,9 +594,7 @@
 		`${itinerary.originAirport.name} (${itinerary.originAirport.iataCode})`,
 		itinerary.originAirport.iataCode,
 		itinerary.originWaitingTime,
-		'origin-waiting',
-		setOriginWaitingTime,
-		ORIGIN_WAITING_TIME_INPUT_MAX_MINUTES
+		'origin-waiting'
 	)}
 
 	{@render flightRow(
@@ -750,9 +692,7 @@
 		`the connection airport (${itinerary.outboundFlight.arrivalAirport})`,
 		itinerary.outboundFlight.arrivalAirport,
 		itinerary.connectionWaitingTime,
-		'connection-waiting',
-		setConnectionWaitingTime,
-		maxConnectionWaitingTime
+		'connection-waiting'
 	)}
 
 	{@render flightRow(
@@ -773,8 +713,6 @@
 		{@render locationRow(itinerary.destinationLocation, 'Arrive', 'destination-location')}
 	{/if}
 </ol>
-
-<MetricRail {itinerary} ids={ALL_METRIC_IDS} class="itinerary-timeline-totals" />
 
 <style>
 	/* ---------------------------------------------------------------------
@@ -1216,15 +1154,6 @@
 	   Without this a selected "Start" row would open onto a dashed, padded box of air. */
 	.tl-expansion:empty {
 		display: none;
-	}
-
-	/* ---------------------------------------------------------------------
-	 * Totals. `MetricRail` draws them; this only places the block.
-	 * ------------------------------------------------------------------- */
-	:global(.itinerary-timeline-totals) {
-		margin-top: var(--space-4);
-		padding-top: var(--space-3);
-		border-top: 2px dashed var(--color-border-strong);
 	}
 
 	/* ---------------------------------------------------------------------

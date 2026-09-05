@@ -25,6 +25,21 @@
 	 *   misleading; the edge times and the stay it buys are in the unfolded timeline,
 	 *   because seven lines times four cards is not a results screen.
 	 *
+	 * ## Issue #309: this card owns every summary figure, and nothing repeats it
+	 *
+	 * The owner, on the expanded card: **"at the bottom info is duplicaded and messy. all
+	 * info should be already in the card, so expanding shouldn change."** Four of the six
+	 * figures were printed twice, once by the rail at the foot of this file and again by an
+	 * identical rail the timeline rendered a few centimetres lower, which is what #278's
+	 * restructure left behind when the expanded panel moved inside the card instead of
+	 * replacing it.
+	 *
+	 * So the rule is now a rule and not an accident. Every summary figure has exactly one
+	 * surface: the four above are this rail's, the night count is the trip strip's caption,
+	 * and the total is the headline with its receipt under it. The timeline unfolds detail,
+	 * step by step, and restates none of it. Anything added to the timeline that this card
+	 * already prints is the same defect coming back.
+	 *
 	 * ## Issue #278: the card stopped being a thing you open
 	 *
 	 * There was a "Show details" button under a dashed rule, and everything worth doing
@@ -62,7 +77,16 @@
 	 * never recomputes a duration or a price.
 	 */
 	import type { Snippet } from 'svelte';
-	import { AirlineLogo, Card, Flag, FlightDetour, MetricRail, PriceLine, TripStrip } from '$lib/components';
+	import {
+		AirlineLogo,
+		Card,
+		Flag,
+		FlightDetour,
+		MetricRail,
+		PriceLine,
+		SourceNote,
+		TripStrip
+	} from '$lib/components';
 	import { CARD_METRIC_IDS } from '$lib/components/itinerary-metrics';
 	import { buildItineraryMapModel } from '$lib/itinerary-map/segments';
 	import { buildFlightShape } from '$lib/itinerary-map/previews';
@@ -72,7 +96,13 @@
 	import type { PriceHistory } from '$lib/results/price-band';
 	import { connectionAirportCode } from '$lib/results/types';
 	import type { ScoredResult } from '$lib/results/types';
-	import { describePriceFreshness, describeSources } from '$lib/results/view-model';
+	import { revealMinimally } from '$lib/results/reveal-scroll';
+	import {
+		describePriceFreshness,
+		describeSourceGroups,
+		describeSources,
+		describeStaleSources
+	} from '$lib/results/view-model';
 	import { technicalStopDetail, technicalStopLabel } from '$lib/components/technical-stop-note';
 	import PriceBand from './PriceBand.svelte';
 
@@ -127,12 +157,16 @@
 	/**
 	 * Issue #278: on a phone the customise panel is a sheet at the foot of the screen, and a
 	 * reader who taps a 3px transfer seam and gets a panel sitting on top of it has lost the
-	 * context that made the tap mean anything.
+	 * context that made the tap mean anything. So a covered strip is scrolled clear.
 	 *
-	 * `scroll-margin-bottom` below inflates this block's box by the sheet's own height for
-	 * scrolling purposes only, so `block: 'nearest'` lands the strip above the sheet rather
-	 * than merely inside the viewport. On a wide screen the margin is zero and this call is a
-	 * no-op for a strip already on screen.
+	 * Issue #308 is what that cost. It was `scroll-margin-bottom` plus
+	 * `scrollIntoView({ block: 'nearest' })`, and the margin inflated this block's box by the
+	 * sheet's whole height for scrolling purposes, so an entirely visible strip read as one
+	 * that did not fit and every tap moved the page. The owner: "it updates my scroll and is
+	 * anoying." `revealMinimally` states the same intent as arithmetic instead: it measures
+	 * what a bottom sheet is actually covering right now and scrolls by the smallest amount
+	 * that clears it, which on a wide screen, where the panel is a sidebar covering nothing,
+	 * is exactly zero.
 	 *
 	 * An effect rather than a handler because the selection arrives as a prop: it can be set
 	 * from the timeline or the map as well as from the strip. It reads props and calls a DOM
@@ -142,11 +176,7 @@
 	let stripEl = $state<HTMLElement>();
 	$effect(() => {
 		if (!selectedSegmentId || !stripEl) return;
-		// `scrollIntoView` takes no notice of `prefers-reduced-motion` on its own, unlike the
-		// CSS transitions app.css already flattens for it. A reader who has asked for less
-		// motion gets the same final position without the travel.
-		const still = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-		stripEl.scrollIntoView({ block: 'nearest', behavior: still ? 'auto' : 'smooth' });
+		revealMinimally(stripEl);
 	});
 
 	/**
@@ -208,11 +238,21 @@
 
 	// Provenance, issue #289: every source behind this price, each at its own age. They do
 	// not share a TTL, so one "fetched N ago" over all of them printed the age of whatever
-	// had the longest one. `describeSources` owns the wording and is tested against it.
+	// had the longest one. `view-model.ts` owns the wording and is tested against it.
 	//
-	// One string for both the footer text and its `title`: the footer is a single line
-	// and this end of it ellipsises on a phone, so the full sentence is one hover away.
+	// Issue #312 took this off the footer as prose. It was one ellipsised line showing about
+	// a tenth of its text at 375px, and `title` was carrying the rest, which is no fallback
+	// at all on a touch screen. `SourceNote` is the control that reveals it; `staleNote` is
+	// what stays on the card, because the brief asks for stale results to be marked visibly
+	// and a fact behind a deliberate tap is not marked.
+	//
+	// `Date.now()` is read on every re-render rather than snapshotted. Since #293 a card
+	// follows the refetch it started, and these ages move while the traveller watches:
+	// measured, "fetched 1 hour ago" becomes "fetched this minute" inside 1.5 seconds. A
+	// cached reading here would put that defect straight back.
+	const sourceGroups = $derived(describeSourceGroups(result.price.parts, Date.now()));
 	const sourceText = $derived(describeSources(result.price.parts, Date.now()));
+	const staleNote = $derived(describeStaleSources(result.price.parts, Date.now()));
 
 	// Both carriers, deduped: a single-airline itinerary should say the airline once. The
 	// strip already shows each leg's mark, so this row is the names, in the footer where
@@ -304,7 +344,19 @@
 	{/snippet}
 
 	<div class="card-main">
-		<PriceLine {itinerary} cityCentre={connectionAirport?.city.coordinates} />
+		<!-- Issue #305, the owner: the flight map "is placed to the left of the Getting
+		     there price breakdown, so space is better used". The two answer the pair of
+		     questions a person asks about a connection, what it costs and how far out of
+		     the way it goes, and side by side they cost one block of card height instead of
+		     two. The detour renders only once the page has resolved the connection airport,
+		     since without it there is no second flight leg to compare, and the receipt then
+		     takes the whole row on its own. -->
+		<div class="card-getting-there">
+			{#if flightShape}
+				<FlightDetour shape={flightShape} />
+			{/if}
+			<PriceLine {itinerary} requiredNights={result.stopover.minimum} />
+		</div>
 
 		<!-- Issue #232: directly under the receipt, because the band is about the figure in
 		     it and a comparison printed anywhere else is a rank with no anchor on screen.
@@ -338,20 +390,8 @@
 			/>
 		</div>
 
-		<!-- Issue #280. Beside the strip on purpose: the strip is the trip's shape in time,
-		     this is its shape in space, and the two questions a person asks about a
-		     connection ("how long does it cost me" and "how far out of the way is it") then
-		     sit next to each other. Renders only once the page has resolved the connection
-		     airport, since without it there is no second flight leg to compare. -->
-		{#if flightShape}
-			<FlightDetour shape={flightShape} />
-		{/if}
-
-		<!-- Under the two previews rather than below the totals, because the brief's own
-		     words are that the preview opens into the full timeline. It sits after #280's
-		     detour rather than between it and the strip: those two are one pair, the trip's
-		     shape in time beside its shape in space, and unfolding a timeline between them
-		     would separate a comparison somebody built on purpose. -->
+		<!-- Under the preview it unfolds, because the brief's own words are that the
+		     preview opens into the full timeline. -->
 		{#if timelineOpen && timeline}
 			<div id={timelineId}>{@render timeline()}</div>
 		{/if}
@@ -379,10 +419,23 @@
 					<span class="technical-stop" title={note.detail}>{note.label}</span>
 				{/each}
 			</span>
-			<!-- Absent, not empty, when no part of this itinerary carries a tracked source:
-			     the row used to render a bare "via" with nothing after it. -->
+			<!-- Issue #312. Absent, not empty, when no part of this itinerary carries a tracked
+			     source: the row used to render a bare "via" with nothing after it, and now it
+			     renders no control at all rather than one that opens onto nothing.
+
+			     The age beside the icon is the staleness signal, and it is deliberately not
+			     inside the panel. The brief asks that stale cached results be marked visibly,
+			     and hiding the last trace of it behind a tap would trade an unreadable row for
+			     a worse defect. It says "oldest" because that is what it is: #289 exists
+			     because one age printed over sources whose TTLs range from 5 minutes to 30 days
+			     read as a claim about all of them. -->
 			{#if sourceText}
-				<span class="provenance-source" title={sourceText}>{sourceText}</span>
+				<span class="provenance-source">
+					{#if staleNote}
+						<span class="provenance-stale">{staleNote}</span>
+					{/if}
+					<SourceNote groups={sourceGroups} summary={sourceText} />
+				</span>
 			{/if}
 		</p>
 	{/snippet}
@@ -534,9 +587,23 @@
 		padding: var(--space-4) var(--space-5);
 	}
 
-	/* One line, always. On a phone this footer spent three on "ZZ" and "via Ryanair (no
-	   key required) & OSRM (walking & driving), fetched this minute"; the carriers keep
-	   their full width and the source text gives way, its full sentence on `title`. */
+	/* Issue #305: the detour drawing and the receipt share one row. The drawing is a fixed
+	   6.5rem (`FlightDetour` owns that, and owns why it must not resize per route), so the
+	   receipt takes what is left and `min-width: 0` is what lets its long labels wrap
+	   inside the column instead of widening it. Top-aligned rather than centred: the
+	   headline is the thing a reader lands on, and it has to sit on the card's own first
+	   line whatever height the receipt below it turns out to be. */
+	.card-getting-there {
+		display: flex;
+		align-items: flex-start;
+		gap: var(--space-4);
+	}
+
+	/* One line, always, and since issue #312 a short one. The provenance used to be a
+	   sentence competing with the carriers for the row and losing, ellipsised to about a
+	   tenth of itself at 375px. What sits here now is an age when there is one worth showing
+	   and a 24px control, so the carriers get the width they need without anything having to
+	   give way. */
 	.provenance {
 		display: flex;
 		flex-wrap: nowrap;
@@ -557,9 +624,17 @@
 	}
 
 	.provenance-source {
-		min-width: 0;
-		overflow: hidden;
-		text-overflow: ellipsis;
+		display: inline-flex;
+		align-items: center;
+		flex-shrink: 0;
+		gap: var(--space-2);
+	}
+
+	/* Visible, and quiet. An hour-old card is not an error, so this is not warning-tinted:
+	   the tone that means "the total is short by something nobody has measured" belongs to
+	   the receipt's own chips, and wearing it here would make a cached road route read as a
+	   missing price. */
+	.provenance-stale {
 		white-space: nowrap;
 	}
 
@@ -595,27 +670,6 @@
 	/* Desktop-sized padding and gaps were a third of what put the phone card over the
 	   620px it has under the header and tab bar; one card per screen means no comparing. */
 	@media (max-width: 34rem) {
-		/* The customise sheet's own ceiling (`min(50dvh, 26rem)` on the results page) plus a
-		   little air. `scrollIntoView({ block: 'nearest' })` treats this as part of the
-		   strip's box, so a selected segment scrolls clear of the sheet instead of sitting
-		   underneath it. */
-		.card-strip {
-			scroll-margin-bottom: calc(min(50dvh, 26rem) + var(--space-4));
-		}
-
-		.card-main {
-			padding: var(--space-3) var(--space-4);
-			gap: var(--space-3);
-		}
-
-		/* The customise sheet's own ceiling (`min(50dvh, 26rem)` on the results page) plus
-		   a little air. `scrollIntoView({ block: 'nearest' })` treats this as part of the
-		   strip's box, so a selected segment scrolls clear of the sheet instead of sitting
-		   underneath it. */
-		.card-strip {
-			scroll-margin-bottom: calc(min(50dvh, 26rem) + var(--space-4));
-		}
-
 		/* MetricRail's auto-fit grid seats three cells at this width, which leaves the
 		   fourth figure alone on a second row: two by two reads as two pairs, three plus
 		   one reads as a leftover. Scoped to this card because the timeline's totals

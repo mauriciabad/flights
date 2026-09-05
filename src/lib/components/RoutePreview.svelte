@@ -105,12 +105,18 @@
 </svg>
 
 <style>
+	/* Issue #305: the drawing's ground and the ring around each endpoint dot are two
+	   custom properties rather than fixed tokens, because a caller decides whether this is
+	   a thumbnail sitting in its own tray (`GroundLegPreviews`, which keeps the default
+	   inset) or an ornament drawn straight onto the card (`FlightDetour`, which sets both
+	   to the card's own surface). The owner on the second case: "i expect tat it shows the
+	   sea white (same as bg in parent element)". */
 	.route-preview {
 		display: block;
 		width: 100%;
 		height: auto;
 		border-radius: var(--radius-md);
-		background: var(--color-bg-inset);
+		background: var(--route-preview-bg, var(--color-bg-inset));
 	}
 
 	/* Stroke widths in screen pixels, not viewBox units: the same route drawn 100px wide
@@ -151,9 +157,10 @@
 
 	.rp-dot {
 		fill: var(--color-accent);
-		/* The panel's own colour, so a dot sitting on the line it terminates still reads as
-		   an endpoint rather than a thickening. */
-		stroke: var(--color-bg-inset);
+		/* The ground's own colour, so a dot sitting on the line it terminates still reads as
+		   an endpoint rather than a thickening. Never `transparent`, whatever the caller
+		   made the background: the ring's whole job is to cut the line. */
+		stroke: var(--route-preview-ring, var(--color-bg-inset));
 		stroke-width: 1.5;
 		vector-effect: non-scaling-stroke;
 	}
