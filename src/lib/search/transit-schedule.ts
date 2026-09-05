@@ -42,6 +42,7 @@ import type { Coordinates, Duration, Itinerary, Transfer, TransitPlanMoment } fr
 import { greatCircleDistanceKm } from '../domain';
 import { addLocalMinutes } from '../algorithm/build';
 import { recomputeItinerarySelection } from '../algorithm/recompute-selection';
+import { transitLegMoment } from '../algorithm/transit-schedule';
 import type { AvailableKeys, ProviderError, ProviderResult, TransferProvider } from '../providers/types';
 import { applyLandingBuffer, fetchBestTransfer, summariseWithheldRoutes } from './resources';
 import type { RecordProviderCall, SourceTracker } from './provenance';
@@ -140,17 +141,17 @@ export function planTransitLegs(input: PlanTransitLegsInput): TransitLegPlan[] {
 	const { itinerary } = input;
 	const plans: TransitLegPlan[] = [];
 
-	if (itinerary.originLocation) {
+	// The check-in deadline, not the flight: `originWaitingTime` is the pre-boarding buffer
+	// the traveller chose (brief line 39, default 2h), so being at the airport by this moment
+	// is the actual requirement. `transitLegMoment` owns that arithmetic, because issue #266
+	// needs the same moment recomputed later to notice the answer has stopped applying.
+	const originMoment = transitLegMoment(itinerary, 'transferToOriginAirport');
+	if (itinerary.originLocation && originMoment) {
 		plans.push({
 			field: 'transferToOriginAirport',
 			from: itinerary.originLocation.coordinates,
 			to: itinerary.originAirport.coordinates,
-			// The check-in deadline, not the flight: `originWaitingTime` is the pre-boarding
-			// buffer the traveller chose (brief line 39, default 2h), so being at the airport
-			// by this moment is the actual requirement. Local wall clock throughout — the
-			// flight's own `LocalDateTime` carries the airport's offset with it, and
-			// collapsing it to UTC here is how an early-morning departure loses its date.
-			moment: { time: addLocalMinutes(itinerary.outboundFlight.departure, -itinerary.originWaitingTime), arriveBy: true }
+			moment: originMoment
 		});
 	}
 
@@ -161,15 +162,15 @@ export function planTransitLegs(input: PlanTransitLegsInput): TransitLegPlan[] {
 			to: itinerary.stay.property.coordinates,
 			moment: { time: addLocalMinutes(itinerary.outboundFlight.arrival, input.connectionLandingBuffer), arriveBy: false }
 		});
-		plans.push({
-			field: 'transferToConnectionAirport',
-			from: itinerary.stay.property.coordinates,
-			to: input.connectionCoordinates,
-			moment: {
-				time: addLocalMinutes(itinerary.onwardFlight.departure, -itinerary.connectionWaitingTime),
-				arriveBy: true
-			}
-		});
+		const connectionMoment = transitLegMoment(itinerary, 'transferToConnectionAirport');
+		if (connectionMoment) {
+			plans.push({
+				field: 'transferToConnectionAirport',
+				from: itinerary.stay.property.coordinates,
+				to: input.connectionCoordinates,
+				moment: connectionMoment
+			});
+		}
 	}
 
 	if (itinerary.destinationLocation) {

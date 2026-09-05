@@ -60,3 +60,17 @@ export interface TransitSchedule {
 	earlier?: LocalDateTime[];
 	plannedFor: TransitPlanMoment;
 }
+
+/**
+ * The four transfer legs of an itinerary, named the way `Itinerary` names them so a leg
+ * identifier can be used as a key into either.
+ *
+ * Here rather than in `search/`, because issue #266 gave the vocabulary a second reader:
+ * `algorithm/transit-schedule.ts` has to say which leg a stale timetable belongs to, and
+ * `algorithm/` sits below `search/`.
+ */
+export type TransitLegField =
+	| 'transferToOriginAirport'
+	| 'transferToHotel'
+	| 'transferToConnectionAirport'
+	| 'transferToDestinationLocation';

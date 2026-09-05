@@ -84,7 +84,7 @@ function busTo(plannedFor: LocalDateTime): Transfer {
 	return {
 		mode: 'transit',
 		duration: 41 as Duration,
-		source: 'transitous',
+		legs: [],
 		transitSchedule: schedule({ plannedFor: { time: plannedFor, arriveBy: true } })
 	};
 }
