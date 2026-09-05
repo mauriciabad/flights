@@ -61,12 +61,14 @@
 	import type { RecomputedSelection } from '$lib/algorithm/recompute-selection';
 	import {
 		FlightPicker,
-		ItineraryMap,
+		GroundLegPreviews,
 		ItineraryTimeline,
 		Skeleton,
 		StopoverBlock,
 		TransportPicker
 	} from '$lib/components';
+	import { buildItineraryMapModel } from '$lib/itinerary-map/segments';
+	import { buildGroundLegPreviews } from '$lib/itinerary-map/previews';
 	import { distinctFlightCount, hasSwappableAlternatives } from '$lib/components/picker-alternatives';
 	import { keyStore } from '$lib/keys';
 	import { SvelteMap } from 'svelte/reactivity';
@@ -166,6 +168,16 @@
 	// svelte-ignore state_referenced_locally
 	let itinerary = $state(initialItinerary);
 	let selectedSegmentId = $state<ItinerarySegmentId | null>(null);
+
+	/**
+	 * Issue #280: one preview per ground leg this trip actually has, so the row is three
+	 * thumbnails or two, and never an empty slot. Re-derives with `itinerary`, which is
+	 * what keeps a swapped transfer's new geometry on screen: picking a different bus
+	 * redraws its thumbnail, and a picked bed moves the stopover preview's endpoint.
+	 */
+	const groundLegPreviews = $derived(
+		connectionAirport ? buildGroundLegPreviews(buildItineraryMapModel(itinerary, connectionAirport)) : []
+	);
 
 	/** Whether the traveller has replaced a flight, a transfer or the bed. A waiting-time
 	 * edit is not one of these: it changes how long they wait, never which leg they take,
@@ -755,9 +767,13 @@
 {/snippet}
 
 <div class="result-detail">
-	<div class="result-detail-map">
-		<ItineraryMap {itinerary} bind:selectedSegmentId />
-	</div>
+	<!-- Issue #280. The always-on MapLibre map that used to sit here is now inside
+	     `RouteMapDialog`, reached by tapping one of these. Three frozen SVG previews cost
+	     nothing to render down a results list; the map that replaced them cost 12.6 seconds
+	     to settle at four cards and stopped working entirely at five, which
+	     `tools/probe-map-cost.mjs` measures on demand. A leg the itinerary does not have
+	     gets no preview, so this row is three items or two, slightly wider. -->
+	<GroundLegPreviews {itinerary} previews={groundLegPreviews} />
 
 	<!-- Issue #228's block, in full. It lands here rather than on the card because seven
 	     lines repeated down a results list is not a results screen, and here rather than

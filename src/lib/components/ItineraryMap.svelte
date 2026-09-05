@@ -664,8 +664,18 @@
 		width: 100%;
 		/* Tall enough to read as a real map, short enough that it never dominates a
 		   320px-wide screen; clamp keeps both ends honest instead of a fixed height
-		   that would either crop the map or leave it comically short. */
-		height: clamp(240px, 60vw, 420px);
+		   that would either crop the map or leave it comically short.
+
+		   A token, not a literal, since issue #280: `RouteMapDialog` renders this map on a
+		   near-fullscreen surface where the card-shaped default is the wrong answer, and a
+		   custom property is how a parent sets a child's dimension without reaching through
+		   `:global` into styles it does not own. `flex: 0 1 auto` with `min-height: 0` is
+		   what lets it give way to the caption bar when the container's height is imposed
+		   from outside; with an auto-height container, which is every other caller, the
+		   canvas keeps the clamp exactly as before. */
+		height: var(--itinerary-map-canvas-height, clamp(240px, 60vw, 420px));
+		flex: 0 1 auto;
+		min-height: 0;
 		border-radius: var(--radius-lg);
 		border: 1px solid var(--color-border);
 		overflow: hidden;
@@ -709,6 +719,9 @@
 	   the longest string here is a full sentence explaining an absence. */
 	.itinerary-map-bar {
 		display: flex;
+		/* Never the row that shrinks when the container's height is imposed (issue #280's
+		   dialog): the canvas can lose pixels, a sentence cannot. */
+		flex: none;
 		flex-wrap: wrap;
 		align-items: baseline;
 		justify-content: space-between;

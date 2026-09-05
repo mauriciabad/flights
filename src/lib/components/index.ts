@@ -24,6 +24,13 @@ export type { ItineraryMetric, ItineraryMetricId, PriceBreakdown, PricePart } fr
 export { tripStrip } from './trip-strip';
 export type { TripStrip as TripStripModel, TripStripSegment } from './trip-strip';
 export { default as ItineraryMap } from './ItineraryMap.svelte';
+// Issue #280's frozen previews. `RoutePreview` draws one; the other two are the surfaces
+// that use it. `RouteMapDialog` is deliberately absent: it is `GroundLegPreviews`'s own
+// business, and a second caller mounting a second MapLibre instance is the thing the
+// measurement in `tools/probe-map-cost.mjs` exists to prevent.
+export { default as RoutePreview } from './RoutePreview.svelte';
+export { default as FlightDetour } from './FlightDetour.svelte';
+export { default as GroundLegPreviews } from './GroundLegPreviews.svelte';
 export { default as Skeleton } from './Skeleton.svelte';
 export { default as EmptyState } from './EmptyState.svelte';
 export { default as ErrorState, PROVIDER_ISSUE_COPY } from './ErrorState.svelte';
