@@ -123,13 +123,18 @@ describe('stopoverLadder', () => {
 		expect(ladder[1]?.description).toBe('2 nights in London, -€3.00');
 	});
 
-	it('keeps the flight-change wording on a rung with no night in it', () => {
+	it('counts the nightless rung rather than naming it, so the series holds', () => {
+		// Issue #318: six rungs reading "1 night" to "6 nights" and a seventh reading "Flight
+		// change" broke the series on the option that matters most, and collided with the
+		// booking sense of the phrase. What kind of nightless trip it is stays in the spoken
+		// description, after the visible words.
 		const sameDay = itineraryWith({ nights: 0, priceMinorUnits: 22_000 });
 		const overnight = itineraryWith({ nights: 1, priceMinorUnits: 28_000 });
 
 		const ladder = stopoverLadder(sameDay, [option(sameDay), option(overnight)], 'London');
 
-		expect(ladder[0]?.label).toBe('Flight change');
+		expect(ladder[0]?.label).toBe('0 nights');
+		expect(ladder[0]?.description).toBe('0 nights in London, flight change, the trip shown');
 		expect(ladder[1]?.description).toBe('1 night in London, +€60.00');
 	});
 });
@@ -251,9 +256,11 @@ describe('a stopover that crosses a midnight it cannot sleep through (issue #231
 		expect(overnightWaitNote(makeItinerary({ nightsInConnection: 1 }))).toBeUndefined();
 	});
 
-	it('names the rung a traveller would step up from', () => {
-		// The ladder's shortest rung is the wait itself. Labelling it "Flight change" would
-		// be the app describing a journey the traveller is not on.
+	it('says which kind of nightless trip the shortest rung is, in its spoken name', () => {
+		// The ladder's shortest rung is the wait itself, and calling it a flight change would
+		// be the app describing a journey the traveller is not on. Since issue #318 the
+		// visible label counts nights like every other rung, so the distinction moved into the
+		// description, which is the accessible name.
 		const twoNights = makeItinerary({
 			freeTimeStart: '2026-10-06T23:30:00',
 			freeTimeEnd: '2026-10-08T10:00:00',
@@ -265,8 +272,8 @@ describe('a stopover that crosses a midnight it cannot sleep through (issue #231
 			{ nights: 2, itinerary: twoNights }
 		], 'London');
 
-		expect(rungs[0].label).toBe('Overnight wait');
-		expect(rungs[0].description).toContain('Overnight wait in London');
+		expect(rungs[0].label).toBe('0 nights');
+		expect(rungs[0].description).toContain('0 nights in London, overnight wait');
 		expect(rungs[1].label).toBe('2 nights');
 	});
 });

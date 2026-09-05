@@ -90,6 +90,11 @@
 	--color-accent-text: #231703;
 	/* Tinted accent background, e.g. a selected chip or active nav item. */
 	--color-accent-muted: #3a2a0f;
+	/* Muted text sitting ON --color-accent-muted. Issue #318: the result card's header band
+	   is the one warm surface on a navy page, and the neutral --color-text-faint used on it
+	   measured 3.58:1 there against WCAG 1.4.3's 4.5:1. A surface with its own background
+	   needs its own on-surface text colours; this is the quiet one. */
+	--color-accent-muted-text: #cbb89a;
 	--color-link: var(--color-accent);
 
 	/* Reserved for the one thing this app is actually selling: the free
@@ -261,14 +266,19 @@
 		--color-accent-hover: #6b4004;
 		--color-accent-text: #ffffff;
 		--color-accent-muted: #fdf1dc;
+		--color-accent-muted-text: #6b5a3a;
 		--color-link: var(--color-accent);
 
 		--color-stopover: #0f766e;
 		--color-stopover-bg: #e3faf6;
 
-		--color-success: #15803d;
+		/* Issue #318: one shade darker than the greens and ambers that shipped, because the
+		   provider plates print them at 12px on --color-bg-inset and both measured 4.33:1
+		   against WCAG 1.4.3's 4.5:1. Both now clear it with room, and every other place
+		   they are used is a lighter ground than that one. */
+		--color-success: #166534;
 		--color-success-bg: #dcfce7;
-		--color-warning: #b45309;
+		--color-warning: #92400e;
 		--color-warning-bg: #fef3c7;
 		--color-danger: #b91c1c;
 		--color-danger-bg: #fee2e2;
