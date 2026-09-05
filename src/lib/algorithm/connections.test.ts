@@ -520,6 +520,46 @@ describe('findConnectionCandidates', () => {
 		expect(candidates.map((c) => c.airportCode)).not.toContain('LIN');
 	});
 
+	it('asks at most one route question about any one candidate (issue #378)', async () => {
+		// `route-graph-fanout.qa.ts` bounds a cold search at one route question per ranked
+		// position plus the origin's own lookup, and that arithmetic is exact only while a
+		// position cannot cost two. The probe loop has both a `C -> B` check and an
+		// `A -> C` check and they look like they could both fire on one candidate. They
+		// cannot: `candidateCodes` is built from airports the origin already has an outbound
+		// edge to, plus metro siblings, which are proposed only where a bundled source
+		// already says they fly to the destination. So each arrives with one leg proven.
+		//
+		// Issue #378 read the code as permitting two and called the ceiling an observation
+		// because of it. Both branches genuinely fire in this one search: Malpensa is an
+		// airport the origin flies to, so it pays a `C -> B` check, and London's airports
+		// arrive as metro siblings with no outbound edge, so they pay an `A -> C` one. The
+		// two assertions below check that before checking that neither doubles up.
+		const provider = createFakeFlightProvider('one-question-each', {
+			routes: { BVC: ['MXP'], MXP: [] },
+			pairs: { BVC: ['MXP', 'BGY'], BGY: ['PFO'] }
+		});
+
+		await findConnectionCandidates(
+			{ originAirport: 'BVC', destinationAirport: 'PFO', soonestDeparture: SOONEST_DEPARTURE },
+			{ flightProviders: [provider] }
+		);
+
+		const asked = vi.mocked(provider.hasDirectRoute!).mock.calls;
+		// Both branches genuinely ran, so a passing assertion below is not vacuous. The
+		// counts are left open because the candidate list here comes from the real bundled
+		// datasets and moves whenever they are refreshed; which candidate is asked what is
+		// not this test's business, and how often is.
+		expect(asked.filter(([from]) => from === 'BVC').length).toBeGreaterThan(0);
+		expect(asked.filter(([, to]) => to === 'PFO').length).toBeGreaterThan(0);
+
+		const questionsPer = new Map<string, string[]>();
+		for (const [from, to] of asked) {
+			const candidate = from === 'BVC' ? to : from;
+			questionsPer.set(candidate, [...(questionsPer.get(candidate) ?? []), `${from}->${to}`]);
+		}
+		expect([...questionsPer].filter(([, questions]) => questions.length > 1)).toEqual([]);
+	});
+
 	it('confirms an onward leg the destination list samples away (issue #340)', async () => {
 		// The same defect on the far side, and the one that cost four of the ten. Paphos is
 		// in none of Munich's, Orly's, Amsterdam's, Brussels' or Fiumicino's destination

@@ -26,16 +26,38 @@ import type { RecordedRequest } from './support/bench';
 import { KIWI_PUBLIC_HOST } from './support/catalog';
 import { ROUTE_QUESTIONS_ASKED, resultsUrl } from './support/scenario';
 import { resultCards, waitForSearchToSettle } from './support/page';
+import {
+	DEFAULT_MAX_CANDIDATES,
+	ROUTE_PROBES_PER_KEPT_CANDIDATE
+} from '../../src/lib/algorithm/connections';
 
 /**
- * `ROUTE_PROBES_PER_KEPT_CANDIDATE` (3) times `DEFAULT_MAX_CANDIDATES` (6), which is the
- * ceiling `connections.ts` sets, plus one for the origin's own lookup. A search that stays
- * under this is doing what it says; one that goes over has found a second fan-out somewhere.
+ * The most route questions one cold search can put to one source: a ranked position each,
+ * plus the origin's own outbound lookup.
  *
- * Deliberately the arithmetic rather than the 12 this scenario measures today. A number
- * copied from current behaviour can only ratify it, and the point is the shape.
+ * This used to be spelled `6 * 3 + 1`, two literals standing in for two exported constants,
+ * so raising either in `connections.ts` left this ceiling silently measuring the old one.
+ * Issue #378, and the reason it is imported now rather than typed out.
+ *
+ * The arithmetic is exact, and it rests on two facts rather than on a number anybody
+ * observed. `maxRouteProbes` bounds ranked POSITIONS — `connections.ts` compares it against
+ * the loop index — and one position asks one source at most one question, because every
+ * candidate arrives with one of its two legs already proven. `connections.test.ts` holds
+ * that second half directly ("asks at most one route question about any one candidate"),
+ * which is what keeps this line from being an observation in the shape of a proof.
+ *
+ * A ceiling is not a prediction. `ROUTE_QUESTIONS_ASKED` is what this scenario actually
+ * asks, and that is the number a regression moves first.
+ *
+ * What this still cannot see is the defect issue #255 was about. The scenario ranks twelve
+ * candidates against eighteen positions, so a ceiling that cuts live cities looks identical
+ * here to one that cuts nothing, and #248 could report "itineraries unchanged at 4" in good
+ * faith. The check that does see it is a unit test in `algorithm/connections.test.ts`,
+ * "still asks the bundled route graph about a candidate it has no request budget left for".
+ * That sentence was in this file before issue #379 and was false when it was written: the
+ * candidate set came from shipped data rather than from a fixture, and was 49 long.
  */
-const MAX_ROUTE_LOOKUPS = 6 * 3 + 1;
+const MAX_ROUTE_LOOKUPS = DEFAULT_MAX_CANDIDATES * ROUTE_PROBES_PER_KEPT_CANDIDATE + 1;
 
 /**
  * Kiwi's route knowledge comes from two queries down the same URL, and its fares from a
@@ -94,9 +116,10 @@ test.describe('route-graph fan-out', () => {
 			[
 				`One cold search made ${lookups.length} route-graph lookups; the ceiling is ${MAX_ROUTE_LOOKUPS}.`,
 				'',
-				'connections.ts ranks candidates on geography, which costs nothing, and asks only',
-				'the top ROUTE_PROBES_PER_KEPT_CANDIDATE * maxCandidates of them. Going over means',
-				'either that ranking is gone or something else is asking per candidate.',
+				'connections.ts ranks candidates on geography, which costs nothing, and walks only',
+				'the top ROUTE_PROBES_PER_KEPT_CANDIDATE * maxCandidates of them, asking each at',
+				'most one question. Going over means either that ranking is gone, or a candidate',
+				'is now reaching the loop with neither leg proven and paying for both.',
 				'',
 				'Everything this search touched:',
 				bench.describeTraffic()

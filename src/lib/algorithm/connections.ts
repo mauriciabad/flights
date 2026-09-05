@@ -230,11 +230,12 @@ export interface ConnectionGraphOptions {
 	 * or describe them; `SearchSnapshot` keeps only the codes, for the reason on that field.
 	 */
 	onCandidatesBeyondCap?: (beyondCap: readonly ConnectionCandidate[]) => void;
-	/** How many candidates this call may spend a request asking about. Default
+	/** How many ranked positions this call may spend a request on. Default
 	 * `maxCandidates * ROUTE_PROBES_PER_KEPT_CANDIDATE`. See that constant for why the
-	 * ceiling belongs here rather than inside each adapter. Candidates past it are still
-	 * asked about, but only of the sources that ship with the app and answer for free —
-	 * see the probe loop in `findConnectionCandidates`. */
+	 * ceiling belongs here rather than inside each adapter, and for what a position can
+	 * cost. Candidates past it are still asked about, but only of the sources that ship
+	 * with the app and answer for free — see the probe loop in
+	 * `findConnectionCandidates`. */
 	maxRouteProbes?: number;
 	/** Candidates whose detour ratio — `(dist(A,C) + dist(C,B)) / dist(A,B)` — exceeds
 	 * this are dropped outright rather than merely scored low. Default
@@ -261,9 +262,31 @@ export interface ConnectionGraphOptions {
 export const DEFAULT_MAX_CANDIDATES = 6;
 
 /**
- * How many candidates this module may spend a request asking about, per candidate it
- * intends to keep. Issue #187. It bounds requests, not candidates — see the probe loop,
- * which asks about every candidate and only varies which sources it asks.
+ * How many ranked positions this module may spend a request on, per candidate it intends
+ * to keep. Issue #187.
+ *
+ * It bounds POSITIONS, not requests. This sentence used to say the opposite — "it bounds
+ * requests, not candidates" — which is issue #378, and the difference is worth stating
+ * because it cuts the other way from how it reads. A candidate the bundled sources confirm
+ * for free still uses up a position without spending anything, so a search can stop asking
+ * with budget left over. Measured on `pnpm qa`'s own scenario: twelve candidates ranked,
+ * four confirmed for free, eight questions asked, out of eighteen positions.
+ *
+ * One position costs at most one route question per source, and never two of them, because
+ * every candidate reaches the loop with one leg already proven. `candidateCodes` is built
+ * from exactly two sets: airports the origin has a known outbound edge to, and metro
+ * siblings, which are proposed only when a bundled source already says they fly to the
+ * destination. So the `C -> B` check and the `A -> C` check below can never both fire for
+ * the same candidate. connections.test.ts holds that ("asks at most one route question
+ * about any one candidate"), because it is what makes the ceiling in
+ * `route-graph-fanout.qa.ts` arithmetic rather than an observation.
+ *
+ * Swapping the index for a spend counter is not the fix, and was measured during #361's
+ * design work: a bare counter walks until the budget is gone rather than stopping after
+ * eighteen candidates, and saturates on every route tried. It needs a stopping rule beside
+ * it, and the one sketched — stop once `maxCandidates` confirmed candidates all beat what
+ * the next unwalked candidate could score at best — is an exact upper bound and so cannot
+ * drop a candidate that would have been kept. Nobody has built it.
  *
  * This loop used to ask every airport the origin flies to for its route graph and then
  * keep six. For a hub that is hundreds of requests for six answers: BCN unions 79
@@ -966,9 +989,12 @@ export async function findConnectionCandidates(
 	// (issue #194): the first load caches exactly the set the second load asks for, so the
 	// second asks for nothing.
 	for (const [index, { code, geography }] of ranked.entries()) {
-		// `maxRouteProbes` bounds the requests, not the candidates. Past it every source
-		// that would cost something is dropped and the candidate is still asked of the
-		// ones that ship with the app, which answer out of memory.
+		// `maxRouteProbes` bounds RANKED POSITIONS, which is what `index` is, and not
+		// requests — issue #378, where the constant's own doc comment said requests for a
+		// long time. Past it every source that would cost something is dropped and the
+		// candidate is still asked of the ones that ship with the app, which answer out of
+		// memory. A candidate those confirm for free therefore uses up a position without
+		// spending anything.
 		//
 		// That distinction is issue #255. Geography decided which candidates were ever
 		// asked, and a city can rank mediocre on geography while being the one that
