@@ -96,7 +96,7 @@ export function createTransitousTransferProvider(
 				plannedFor,
 				greatCircleDistanceKm(query.from, query.to)
 			);
-			await writeCacheEntry(store, cacheKey, transfer ? [transfer] : []);
+			await writeCacheEntry(store, cacheKey, transfer ? [transfer] : [], Date.now());
 		} catch {
 			// A malformed or failed refresh leaves the held schedule exactly as it was. The
 			// next search tries again; overwriting it with nothing would turn a background
@@ -207,11 +207,15 @@ export function createTransitousTransferProvider(
 					greatCircleDistanceKm(query.from, query.to)
 				);
 				const data = transfer ? [transfer] : [];
-				await writeCacheEntry(store, cacheKey, data);
+				const fetchedAtMs = Date.now();
+				await writeCacheEntry(store, cacheKey, data, fetchedAtMs);
 				return {
 					ok: true,
 					data,
-					source: { providerId: TRANSITOUS_PROVIDER_ID, fetchedAt: new Date().toISOString() },
+					source: {
+						providerId: TRANSITOUS_PROVIDER_ID,
+						fetchedAt: new Date(fetchedAtMs).toISOString()
+					},
 					requestsUsed: 1
 				};
 			} catch (cause) {
@@ -225,8 +229,17 @@ export function createTransitousTransferProvider(
  * The factory stays exported for tests that need to inject `fetchImpl`/`resolveStore`. */
 export const transitousTransferProvider = createTransitousTransferProvider();
 
-async function writeCacheEntry(store: CacheStore, key: CacheKey, value: Transfer[]): Promise<void> {
-	const now = Date.now();
+/** `storedAt` is the caller's own fetch instant rather than a fresh `Date.now()`. The two
+ * used to differ by however long mapping took, so a fresh answer reported one millisecond
+ * and the entry it wrote reported another, and a later stale read of that entry disagreed
+ * with the response that created it. */
+async function writeCacheEntry(
+	store: CacheStore,
+	key: CacheKey,
+	value: Transfer[],
+	fetchedAtMs: number
+): Promise<void> {
+	const now = fetchedAtMs;
 	await store.set({
 		key: key.raw,
 		providerId: key.providerId,
