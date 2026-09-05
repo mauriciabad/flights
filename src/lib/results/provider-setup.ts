@@ -115,16 +115,25 @@ export function hasUsableStayProvider(keys: ProviderKeys): boolean {
 }
 
 /**
- * Whether a registered stay provider is still waiting on a key.
+ * The registry labels of every stay provider still waiting on a key.
  *
  * Issue #203: the stopover notice offers "add a key" only where doing so could change the
  * outcome. Since #202 registered a keyless baseline, `hasUsableStayProvider` is always true
  * and cannot answer that question any more — a visitor with an Agoda key and a visitor with
  * none both get `true`, and only one of them has anything left to add.
+ *
+ * Issue #374 made it a list rather than a yes/no, because every sentence built on it names
+ * the providers. "Agoda and Booking.com reach more of the market than hostels do" is a
+ * false sentence for someone who already saved an Agoda key, and a boolean cannot tell the
+ * two visitors apart any more than `hasUsableStayProvider` could.
  */
-export function hasUnconfiguredStayProvider(keys: ProviderKeys): boolean {
+export function unconfiguredStayProviders(keys: ProviderKeys): string[] {
 	const providers = getProviderRegistry();
-	return providers.usable('stay', keys).length < providers.ofKind('stay').length;
+	const usable = new Set(providers.usable('stay', keys).map((provider) => provider.id));
+	return providers
+		.ofKind('stay')
+		.filter((provider) => !usable.has(provider.id))
+		.map((provider) => provider.label);
 }
 
 /**
