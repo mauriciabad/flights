@@ -11,14 +11,14 @@
  * during the rebase that made the suite measure anything at all. That is how this file is
  * meant to shrink.
  *
- * The one entry below is a defect this suite found, which is the other half of what it is
- * for. It did not exist as an issue until a check failed on it. Neither did #188, which
- * was pinned here for about an hour before PR #195 closed it.
+ * It is empty again as of 2026-09-05. #194 was the last entry, and it was a defect this
+ * suite found rather than one anybody had filed, which is the other half of what this file
+ * is for. Neither did #188 exist as an issue until a check failed on it; it was pinned here
+ * for about an hour before PR #195 closed it.
  *
- * The mark is a promise that an issue exists and is open. The entry below was checked
- * against the tracker on 2026-09-04. An entry whose issue has closed is worse than no
- * entry, because it hides a check nobody is running any more — #165 was pinned here for
- * about four hours after PR #174 closed it.
+ * The mark is a promise that an issue exists and is open. An entry whose issue has closed is
+ * worse than no entry, because it hides a check nobody is running any more — #165 was pinned
+ * here for about four hours after PR #174 closed it.
  *
  * The mark is also a one-way ratchet. Playwright fails the run when an expected-to-fail
  * test PASSES, so the moment somebody fixes this the QA suite goes red until they come back
@@ -37,14 +37,7 @@ export interface PinnedDefect {
 	observed: string;
 }
 
-export const PINNED_DEFECTS: Readonly<Record<string, PinnedDefect>> = {
-	'reload-waits-for-kiwi': {
-		issue: 194,
-		summary: 'A reload inside the TTL paints nothing while it waits on three sequential Kiwi lookups',
-		observed:
-			'nothing has expired and everything the page needs is in IndexedDB, yet three OnePerCity queries go out one after another and no card appears until they have; before PR #174 the same reload painted in 2.0s'
-	}
-};
+export const PINNED_DEFECTS: Readonly<Record<string, PinnedDefect>> = {};
 
 /**
  * Marks the current test expected-to-fail and says why, loudly enough that a reader of the
