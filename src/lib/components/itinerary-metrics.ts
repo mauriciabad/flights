@@ -24,6 +24,7 @@ import { greatCircleDistanceKm, unpricedTransferLegs } from '$lib/domain';
 import { scaleFareForParty, sumMoney } from '$lib/algorithm/build';
 import { formatDuration, formatLongDuration, formatMoney } from '$lib/format';
 import { formatDistanceKm } from '$lib/stays/distance';
+import { freeTimeDays } from './free-time-days';
 
 export type ItineraryMetricId =
 	| 'in-flight'
@@ -57,20 +58,20 @@ export const ALL_METRIC_IDS: readonly ItineraryMetricId[] = [
 ];
 
 /**
- * The four figures a results card carries, and the argument for each one.
+ * The three figures a results card's rail carries, and the argument for each one.
  *
- * Free time is what the stopover is actually worth. In-flight and airport waiting are
- * the two halves of "how much of this trip is spent travelling", and they are the pair
- * the traveller trades against price. Door to door closes it.
+ * In-flight and airport waiting are the two halves of "how much of this trip is spent
+ * travelling", and they are the pair the traveller trades against price. Airport waiting
+ * in particular is the cost nobody quotes. Door to door closes it.
  *
- * Nights is deliberately absent: the trip strip above this rail already prints "2 nights
- * in Vienna" in bold teal, so a NIGHTS cell repeated the one figure the card shows as a
- * shape. Total price is absent for the same reason: it is the card's headline, printed
- * once at the top with its own breakdown. Four cells also fit a 375px card in two rows of
- * two, where five left a dangling cell and an empty slot.
+ * Three figures are absent, all for the same reason: something larger on the card already
+ * says them better. Nights and the shape of the trip belong to the strip, which prints "2
+ * nights in Vienna" in bold teal. Total price is the card's headline, printed once at the
+ * top with its own breakdown. Free time left this rail with issue #228: `FreeTimeBlock`
+ * above prints the day count with the two edge times around it, so a FREE TIME cell would
+ * repeat the count and drop everything that makes it worth reading.
  */
 export const CARD_METRIC_IDS: readonly ItineraryMetricId[] = [
-	'free-time',
 	'in-flight',
 	'airport-waiting',
 	'total-time'
@@ -98,7 +99,13 @@ function buildMetric(itinerary: Itinerary, id: ItineraryMetricId): ItineraryMetr
 			return {
 				id,
 				label: 'Free time',
-				value: formatLongDuration(itinerary.times.free),
+				// Issue #228. This cell used to be `formatLongDuration(times.free)`, and the
+				// owner's objection to that is the issue: "showing the duration as '2d 15h
+				// free' on the free days is misleading and wrong". A duration answers "how
+				// long"; what a person asks about a stopover is how many whole days they
+				// get. `FreeTimeBlock` prints the same count with its two edge times, which
+				// is why the results card drops this cell rather than showing both.
+				value: freeTimeDays(itinerary.freeTime.start, itinerary.freeTime.end)?.count ?? 'No full days',
 				tone: 'stopover'
 			};
 		case 'nights':

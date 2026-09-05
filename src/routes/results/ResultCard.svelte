@@ -16,7 +16,10 @@
 	 *   that matter most (nights, and how long the stopover runs) in the place where they
 	 *   mean something spatially. Nights ride here and nowhere else on the card: the
 	 *   strip's caption already prints "2 nights in Vienna" in bold teal.
-	 * - **Free time, in flight, airport wait, door to door** (`MetricRail`, the four in
+	 * - **The free time, in days** (`FreeTimeBlock`, issue #228). "2 full days: Sat, Sun"
+	 *   between the evening you arrive and the morning you leave for the airport. It sits
+	 *   under the strip because it is the strip's middle section written out.
+	 * - **In flight, airport wait, door to door** (`MetricRail`, the three in
 	 *   `CARD_METRIC_IDS`). The figures that decide whether a cheap itinerary is actually
 	 *   cheap. Airport waiting in particular is the cost nobody quotes.
 	 *
@@ -37,7 +40,16 @@
 	 * `view-model.ts`, all pure and tested. This file arranges markup and picks classes; it
 	 * never recomputes a duration or a price.
 	 */
-	import { AirlineLogo, Card, Flag, MetricRail, PriceLine, StopoverNights, TripStrip } from '$lib/components';
+	import {
+		AirlineLogo,
+		Card,
+		Flag,
+		FreeTimeBlock,
+		MetricRail,
+		PriceLine,
+		StopoverNights,
+		TripStrip
+	} from '$lib/components';
 	import { CARD_METRIC_IDS } from '$lib/components/itinerary-metrics';
 	import type { Airport } from '$lib/domain';
 	import { formatAge } from '$lib/format';
@@ -210,6 +222,11 @@
 		<PriceLine {itinerary} cityCentre={connectionAirport?.city.coordinates} />
 
 		<TripStrip {itinerary} {connectionCode} {connectionLabel} deprioritized={isDeprioritized} />
+
+		<!-- Issue #228. Directly under the strip, because it is that strip's middle section
+		     in words: which of those free days are whole, and the two clock readings that
+		     bound them. The rail below lost its FREE TIME cell to this block. -->
+		<FreeTimeBlock {itinerary} />
 
 		<MetricRail {itinerary} ids={CARD_METRIC_IDS} />
 
@@ -556,14 +573,6 @@
 
 		.card-controls {
 			padding-top: var(--space-2);
-		}
-
-		/* MetricRail's auto-fit grid seats three cells at this width, which leaves the
-		   fourth figure alone on a second row: two by two reads as two pairs, three plus
-		   one reads as a leftover. Scoped to this card because the timeline's totals
-		   rail has six cells and three-up is right for it. */
-		.result-card :global(.metric-rail-rail) {
-			grid-template-columns: repeat(2, 1fr);
 		}
 	}
 </style>

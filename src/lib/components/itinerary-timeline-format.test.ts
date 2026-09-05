@@ -22,17 +22,19 @@ function localDateTime(local: string, timeZone: string, utcOffsetMinutes: number
 }
 
 describe('formatClockTime, overnight correctness', () => {
-	it('reads a 00:30 arrival as 00:30, never shifted to the previous day by the machine timezone', () => {
+	it('reads a 00:30 arrival as half past midnight, never shifted by the machine timezone', () => {
 		// Regression guard for exactly the bug AGENTS.md calls out: a 00:30 local arrival
-		// must render as 00:30, not as whatever this instant happens to be in the machine
-		// running the test (which is why this asserts the string, not a Date comparison).
+		// must render as half past midnight, not as whatever this instant happens to be in
+		// the machine running the test (which is why this asserts the string, not a Date
+		// comparison). Issue #229 also makes it the hour a naive am/pm formatter writes as
+		// "0:30am": `hour % 12` is 0 at midnight and the clock face says 12.
 		const arrival = localDateTime('2026-09-05T00:30:00', 'Europe/Vienna', 120);
-		expect(formatClockTime(arrival)).toBe('00:30');
+		expect(formatClockTime(arrival)).toBe('12:30am');
 	});
 
 	it('is unaffected by utcOffsetMinutes, only the local digits are ever read', () => {
 		const sameWallClock = localDateTime('2026-09-05T00:30:00', 'Pacific/Auckland', 720);
-		expect(formatClockTime(sameWallClock)).toBe('00:30');
+		expect(formatClockTime(sameWallClock)).toBe('12:30am');
 	});
 });
 
