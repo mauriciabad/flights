@@ -107,6 +107,50 @@ export function transferDetailLine(transfer: Transfer): string {
 }
 
 /**
+ * Issue #290: the minutes between landing and starting to move, said out loud on any row
+ * whose duration no longer contains them.
+ *
+ * `transferRideDuration` takes the walk-out back off the ride, which fixes the label and
+ * loses a fact: the traveller still gets to the bed 1h 8m after the wheels touch, and the
+ * clock at the end of the row still says so. This is the sentence that reconciles the two,
+ * and it is why removing the buffer from the number is not the same as hiding it.
+ *
+ * "Your own" carries the weight. This is the one part of a ground leg the traveller set
+ * themselves (`SearchQuery.landingToTransportRules`), and the airport-wait stub already
+ * says the same thing about the other buffer in the same voice, "Your own buffer, not a
+ * measured queue". Two traveller-set paddings described two different ways would be the
+ * inconsistency this issue is about, arriving from the other side.
+ *
+ * `undefined` on a leg with no buffer, which includes a rule set to zero: there is nothing
+ * to disclose when the ride and the row's duration are the same number, and a sentence
+ * saying "plus your own 0m" is noise on every row that never starts at a runway.
+ */
+export function landingBufferNote(transfer: Transfer): string | undefined {
+	if (!transfer.landingBuffer) return undefined;
+	return (
+		`Plus your own ${formatDuration(transfer.landingBuffer)} to get out of the airport, ` +
+		`so you arrive ${formatDuration(transfer.duration)} after landing.`
+	);
+}
+
+/**
+ * The same fact where a panel has already spent its clocks on the ride: the segment stub,
+ * whose start reading is the moment the vehicle leaves rather than the moment the plane
+ * lands. The gap between those two is the whole of this sentence's job.
+ *
+ * Wording deliberately shared with the airport-wait stub's footnote, down to "not a
+ * measured queue" and the pointer to where it is changed. A traveller who has read one of
+ * them has read both.
+ */
+export function landingBufferFootnote(transfer: Transfer): string | undefined {
+	if (!transfer.landingBuffer) return undefined;
+	return (
+		`Your own buffer, not a measured queue. ${formatDuration(transfer.landingBuffer)} is the ` +
+		`landing-to-transport setting for this airport, and Show details is where you change it.`
+	);
+}
+
+/**
  * A distance, for the sentences that have to justify a refusal: `TransportPicker`'s
  * withheld-route notice (issue #220, a straight line) and its withheld-fare notice (issue
  * #246, a road distance). Whole kilometres above 1 km, one decimal below it, and a

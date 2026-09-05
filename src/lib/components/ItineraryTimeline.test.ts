@@ -721,3 +721,37 @@ describe('ItineraryTimeline, the transfer row reads as one line (issue #220)', (
 		).toContain('· Taxi');
 	});
 });
+
+describe('ItineraryTimeline, the row into town says what the ride costs (issue #290)', () => {
+	/** The fixture routes a 30-minute leg into the city. Add the traveller's own 15-minute
+	 * walk-out and the stored duration becomes 45, of which only 30 is the journey. */
+	function buffered(): Itinerary {
+		const base = makeItinerary();
+		return {
+			...base,
+			transferToHotel: { ...base.transferToHotel!, duration: 45 as Duration, landingBuffer: 15 as Duration }
+		};
+	}
+
+	function rowText(root: HTMLElement, segment: string): string {
+		return (root.querySelector(`[data-segment="${segment}"]`)?.textContent ?? '').replace(/\s+/g, ' ').trim();
+	}
+
+	it('puts the ride in the duration column', () => {
+		const row = rowText(renderTimeline(buffered()), 'transfer-to-hotel');
+		expect(row).toContain('30m');
+		expect(row).not.toContain('45m');
+	});
+
+	it('keeps the 45 minutes on the row, named as the buffer plus the ride', () => {
+		expect(rowText(renderTimeline(buffered()), 'transfer-to-hotel')).toContain(
+			'Plus your own 15m to get out of the airport, so you arrive 45m after landing.'
+		);
+	});
+
+	it('leaves the leg back to the airport alone: nothing pads a leg that ends at a gate', () => {
+		const row = rowText(renderTimeline(buffered()), 'transfer-to-connection-airport');
+		expect(row).toContain('30m');
+		expect(row).not.toContain('to get out of the airport');
+	});
+});
