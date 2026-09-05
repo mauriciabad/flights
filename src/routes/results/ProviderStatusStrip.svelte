@@ -49,12 +49,18 @@
 		'not-asked': 'not asked'
 	};
 
+	/** Most requests first, because the providers that did the work for this search are the
+	 * ones worth reading. `toSorted` is stable, so providers that spent the same number keep
+	 * their registration order and the strip does not reshuffle between renders. The ones
+	 * that spent nothing fall to the end on their own. */
 	const rows = $derived(
-		statuses.map((status) => ({
-			status,
-			answer: providerAnswer(status),
-			error: status.lastError ? describeProviderError(status.lastError) : undefined
-		}))
+		statuses
+			.map((status) => ({
+				status,
+				answer: providerAnswer(status),
+				error: status.lastError ? describeProviderError(status.lastError) : undefined
+			}))
+			.toSorted((a, b) => b.status.requestsUsed - a.status.requestsUsed)
 	);
 
 	const expanded = $derived(rows.find((row) => row.status.providerId === expandedId));
@@ -76,7 +82,10 @@
 				>
 					<span class="plate-name">{row.status.label}</span>
 					<span class="plate-flap">{FLAP_TEXT[row.answer]}</span>
-					<span class="plate-cost font-mono tabular-nums">
+					<span
+						class="plate-cost font-mono tabular-nums"
+						class:is-free={row.status.requestsUsed === 0}
+					>
 						{row.status.requestsUsed}<span class="plate-cost-unit"
 							>&nbsp;{row.status.requestsUsed === 1 ? 'req' : 'reqs'}</span
 						>
@@ -91,7 +100,10 @@
 				>
 					<span class="plate-name">{row.status.label}</span>
 					<span class="plate-flap">{FLAP_TEXT[row.answer]}</span>
-					<span class="plate-cost font-mono tabular-nums">
+					<span
+						class="plate-cost font-mono tabular-nums"
+						class:is-free={row.status.requestsUsed === 0}
+					>
 						{row.status.requestsUsed}<span class="plate-cost-unit"
 							>&nbsp;{row.status.requestsUsed === 1 ? 'req' : 'reqs'}</span
 						>
@@ -204,8 +216,11 @@
 		font-weight: var(--font-weight-medium);
 	}
 
-	/* The split-flap plate, seam and all — see NoResultsBoard.svelte, which uses the same
-	   treatment for the full-size version of this row. */
+	/* The split-flap plate. NoResultsBoard.svelte draws the seam too, and it works there
+	   because its characters are large enough for a fold to read as a fold. At this size the
+	   seam lands across a whole lowercase word, where a horizontal rule through the middle of
+	   text means cancelled or void in every interface a traveller has used. It was drawing a
+	   line through "answered" on exactly the providers that had worked. */
 	.plate-flap {
 		position: relative;
 		padding: 0.1rem var(--space-2);
@@ -218,14 +233,6 @@
 		letter-spacing: var(--tracking-wide);
 		white-space: nowrap;
 		color: var(--color-text-muted);
-	}
-
-	.plate-flap::after {
-		content: '';
-		position: absolute;
-		inset: 50% 0 auto 0;
-		height: 1px;
-		background: var(--color-border);
 	}
 
 	.provider-plate[data-answer='answered'] .plate-flap {
@@ -244,6 +251,13 @@
 		font-size: var(--font-size-xs);
 		color: var(--color-text-faint);
 		white-space: nowrap;
+	}
+
+	/* A provider that spent nothing is a different fact from one that spent a little, and
+	   worth seeing at a glance on a page whose whole cost model is "how many requests did
+	   this search just make". */
+	.plate-cost.is-free {
+		color: var(--color-text-deprioritized);
 	}
 
 	.plate-cost-unit {
