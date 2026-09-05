@@ -40,7 +40,7 @@
  */
 
 import { SvelteMap } from 'svelte/reactivity';
-import type { Itinerary, Stay, Transfer } from '$lib/domain';
+import type { Itinerary, Stay } from '$lib/domain';
 import type { RecomputedSelection } from '$lib/algorithm/recompute-selection';
 import type { PropertyRouting } from '$lib/search';
 import { propertyKey } from '$lib/stays';
@@ -89,14 +89,16 @@ export class ItineraryDraft {
 		return this.initial.transferAnchor === 'stay' ? this.initial.stay?.property : undefined;
 	}
 
-	/** The pipeline's own journey to and from its chosen bed, or nothing. Both legs or
-	 * neither: `transferAnchor === 'stay'` should mean it routed to that bed, but #211 is
-	 * the case where a bed is priced and a transfer provider was unreachable, and half a
-	 * pair would rebuild half the stopover. */
-	get routedJourney(): { transferToHotel: Transfer; transferToConnectionAirport: Transfer } | undefined {
+	/** The pipeline's own journey to and from its chosen bed. Both legs or neither:
+	 * `transferAnchor === 'stay'` should mean it routed to that bed, but #211 is the case
+	 * where a bed is priced and a transfer provider was unreachable, and half a pair would
+	 * rebuild half the stopover. Typed as a `PropertyRouteState` so a caller can hand it
+	 * and a freshly fetched answer to the same writer, which is what stops a routed bed and
+	 * an unrouted one rebuilding the trip two different ways. */
+	get routedJourney(): PropertyRouteState {
 		const { transferToHotel, transferToConnectionAirport } = this.initial;
-		if (!transferToHotel || !transferToConnectionAirport) return undefined;
-		return { transferToHotel, transferToConnectionAirport };
+		if (!transferToHotel || !transferToConnectionAirport) return { kind: 'unrouted' };
+		return { kind: 'routed', transferToHotel, transferToConnectionAirport };
 	}
 
 	/** What is known about reaching one property. Never `undefined`: a property nobody has
