@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Airport, City, Country, Duration, FlightFarePriceScope, FlightOffer, LocalDateTime, Stay, Transfer } from '../domain';
-import { buildItineraries, type BuildItinerariesInput } from './build';
+import { buildItineraries, recomputeItineraryWaitingTimes, type BuildItinerariesInput } from './build';
 import { diffFlightOffers, diffTransfers, recomputeItinerarySelection } from './recompute-selection';
 
 const country: Country = { isoCode: 'AT', name: 'Austria' };
@@ -507,5 +507,61 @@ describe('recomputeItinerarySelection: swapping the bed (issue #243)', () => {
 		expect(itinerary.stay).toBe(before.stay);
 		expect(itinerary.transferToConnectionAirport).toBe(before.transferToConnectionAirport);
 		expect(itinerary.transferAnchor).toBe('stay');
+	});
+});
+
+describe('one free-time window, whichever path derives it (issue #265)', () => {
+	/** A bedless stopover with a real ride into town, which is what a keyless first-run
+	 * search produces: both stay adapters that need a key are filtered out, and issue #161
+	 * routes the two in-city legs to the city centre anyway. 2h layover, 20m in and 25m out,
+	 * so a window that deducts the transfers and one that does not are 45 minutes apart. */
+	function bedlessCityCentreItinerary() {
+		const outboundArrival = localDateTime('2026-06-01T10:00:00');
+		const onwardDeparture = localDateTime('2026-06-01T12:00:00');
+		const outbound = makeFlight('LGW', 'VIE', outboundArrival, outboundArrival, 150);
+		const onward = makeFlight('VIE', 'IST', onwardDeparture, onwardDeparture, 90);
+		const [itinerary] = buildItineraries(
+			baseInput({
+				outboundOffers: [outbound],
+				onwardOffers: [onward],
+				connectionResources: {
+					VIE: {
+						transferToHotel: makeTransfer(20),
+						transferToConnectionAirport: makeTransfer(25),
+						transferAnchor: 'city-centre'
+					}
+				}
+			})
+		);
+		if (!itinerary) throw new Error('fixture itinerary failed to build');
+		return itinerary;
+	}
+
+	it('deducts the ride into town on a flight swap, the same way the builder did', () => {
+		const itinerary = bedlessCityCentreItinerary();
+		expect(itinerary.stay).toBeUndefined();
+		expect(itinerary.freeTime.start.local).toBe('2026-06-01T10:20:00');
+		expect(itinerary.freeTime.end.local).toBe('2026-06-01T11:35:00');
+
+		const swapped = recomputeItinerarySelection(itinerary, { outboundFlight: itinerary.outboundFlight });
+
+		expect(swapped.itinerary.freeTime).toEqual(itinerary.freeTime);
+		expect(swapped.itinerary.times).toEqual(itinerary.times);
+		expect(swapped.itinerary.nightsInConnection).toBe(itinerary.nightsInConnection);
+	});
+
+	it('gives the same window on a waiting-time edit and on a flight swap that changes nothing', () => {
+		const itinerary = bedlessCityCentreItinerary();
+
+		const waited = recomputeItineraryWaitingTimes(itinerary, { connectionWaitingTime: 15 as Duration });
+		const selected = recomputeItinerarySelection(
+			{ ...itinerary, connectionWaitingTime: 15 as Duration },
+			{ onwardFlight: itinerary.onwardFlight }
+		);
+
+		expect(selected.itinerary.freeTime).toEqual(waited.freeTime);
+		expect(selected.itinerary.nightsInConnection).toBe(waited.nightsInConnection);
+		expect(selected.itinerary.totalPrice).toEqual(waited.totalPrice);
+		expect(selected.itinerary.times).toEqual(waited.times);
 	});
 });

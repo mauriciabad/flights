@@ -14,6 +14,7 @@ import type {
 	Duration,
 	FlightLengthClass,
 	FlightOffer,
+	FreeTime,
 	IataAirportCode,
 	Itinerary,
 	ItineraryTimes,
@@ -178,6 +179,131 @@ export function sumMoney(first: Money, ...rest: (Money | undefined)[]): Money {
 }
 
 /**
+ * The parts of a trip somebody chooses. Everything else about an itinerary follows from
+ * these by arithmetic, and `deriveItinerary` below is the only place that arithmetic
+ * lives.
+ *
+ * `Pick<Itinerary, ...>` rather than a shape of its own, so a field can never be named one
+ * thing here and another on the itinerary it rebuilds.
+ */
+export type ItineraryParts = Pick<
+	Itinerary,
+	| 'outboundFlight'
+	| 'onwardFlight'
+	| 'originWaitingTime'
+	| 'connectionWaitingTime'
+	| 'travellers'
+	| 'stay'
+	| 'transferToOriginAirport'
+	| 'transferToHotel'
+	| 'transferToConnectionAirport'
+	| 'transferToDestinationLocation'
+>;
+
+/** What follows from `ItineraryParts`, and nothing an editor is allowed to set by hand. */
+export type DerivedItinerary = Pick<Itinerary, 'freeTime' | 'nightsInConnection' | 'totalPrice' | 'times'>;
+
+/**
+ * Free time is what is left of the layover after both connection-side transfers and the
+ * pre-boarding buffer, as the real check-in/check-out datetimes (brief line 59), not only
+ * their difference.
+ *
+ * Issue #161: the two transfers are read on their own, never gated on `stay`. With no bed
+ * priced they may still be a real route between the runway and the city centre, and the
+ * minutes it takes to get into town come off free time whether or not anyone priced a
+ * place to sleep at the other end.
+ *
+ * Separate from `deriveItinerary` for one caller: `buildItineraries` rejects a pairing
+ * whose window is negative before it totals anything, and totalling first would throw on a
+ * mixed-currency pairing it was about to discard anyway.
+ */
+export function deriveFreeTime(parts: ItineraryParts): FreeTime {
+	const { transferToHotel, transferToConnectionAirport, connectionWaitingTime } = parts;
+	const start = transferToHotel
+		? addLocalMinutes(parts.outboundFlight.arrival, transferToHotel.duration)
+		: parts.outboundFlight.arrival;
+	const end = transferToConnectionAirport
+		? addLocalMinutes(parts.onwardFlight.departure, -(transferToConnectionAirport.duration + connectionWaitingTime))
+		: addLocalMinutes(parts.onwardFlight.departure, -connectionWaitingTime);
+	return { start, end, duration: minutesBetween(start, end) };
+}
+
+/**
+ * Every number an itinerary carries but nobody picks. One implementation, called by all
+ * three paths that produce an itinerary: `buildItineraries` from a candidate pool,
+ * `recomputeItineraryWaitingTimes` from a hand-edited buffer, and
+ * `recomputeItinerarySelection` from a picker swap.
+ *
+ * Issue #265 is why it exists. `recomputeItinerarySelection` kept a `stay &&` on both
+ * edges of the free-time window that `buildItineraries` dropped in #161, so a flight swap
+ * on a bedless stopover with a routed ride into town handed back 45 more minutes of free
+ * time than the builder had given the identical trip. Copying the condition across would
+ * have fixed that instance and left the next divergence to be found by eye; there is now
+ * nothing to copy.
+ */
+export function deriveItinerary(parts: ItineraryParts): DerivedItinerary {
+	const { stay, transferToHotel, transferToConnectionAirport, connectionWaitingTime } = parts;
+	const freeTime = deriveFreeTime(parts);
+
+	// Issue #105: nights come from the free-time window alone, never gated on `stay`. A
+	// 12-night stopover is 12 nights whether or not a bed ever got priced for it; `stay`
+	// being absent only ever affects `totalPrice` below.
+	// Issue #231: nights the traveller would SLEEP, not midnights the clock passed. A gap
+	// from 11pm to 5am crosses a date boundary and buys nobody a bed.
+	// A negative window has no meaningful night count, so it reads zero rather than the
+	// backwards number `nightsBetween` would subtract its way to. The caller is told about
+	// that window by `freeTime.duration` itself.
+	const nightsInConnection = freeTime.duration < 0 ? 0 : nightsToPayFor(freeTime.start, freeTime.end);
+
+	// Issue #106/#109: each flight leg scales to the party by its OWN declared `priceScope`
+	// (`scaleFareForParty`), never a blanket multiply. The stay's per-night rate is never
+	// scaled either way — issue #80/#94's own deliberate flat-per-party choice.
+	//
+	// Issue #204: the four transfer prices are, today, always `undefined`, because no
+	// `TransferProvider` in this codebase quotes a fare. That does not make the legs free,
+	// and this total does not pretend it does: `unpricedTransferLegs` names every one of
+	// them, `score.ts` charges the ranking for them, and the card prints them as an
+	// omission. The number here stays exactly what was quoted, which is the whole reason it
+	// can be trusted.
+	const totalPrice = sumMoney(
+		scaleFareForParty(parts.outboundFlight, parts.travellers),
+		scaleFareForParty(parts.onwardFlight, parts.travellers),
+		stay && nightsInConnection > 0
+			? {
+					minorUnits: stay.pricePerNight.minorUnits * nightsInConnection,
+					currency: stay.pricePerNight.currency
+				}
+			: undefined,
+		transferToHotel?.price,
+		transferToConnectionAirport?.price,
+		parts.transferToOriginAirport?.price,
+		parts.transferToDestinationLocation?.price
+	);
+
+	const times: ItineraryTimes = {
+		inFlight: sumDurations(parts.outboundFlight.duration, parts.onwardFlight.duration),
+		// Origin + connection buffers only — deliberately not the layover. See
+		// `buildItineraries`'s hard filter and issue #13's "airport waiting time is not
+		// layover time".
+		airportWaiting: sumDurations(parts.originWaitingTime, connectionWaitingTime),
+		free: freeTime.duration,
+		total: sumDurations(
+			parts.transferToOriginAirport?.duration,
+			parts.originWaitingTime,
+			parts.outboundFlight.duration,
+			transferToHotel?.duration,
+			freeTime.duration,
+			transferToConnectionAirport?.duration,
+			connectionWaitingTime,
+			parts.onwardFlight.duration,
+			parts.transferToDestinationLocation?.duration
+		)
+	};
+
+	return { freeTime, nightsInConnection, totalPrice, times };
+}
+
+/**
  * The bed, if one was priced, and the two connection-side transfers already resolved for
  * one candidate connection airport. Fetching these for real is issues #7-#10's job.
  *
@@ -324,95 +450,30 @@ export function buildItineraries(input: BuildItinerariesInput): Itinerary[] {
 			// it describes.
 			const transferAnchor = keepConnectionTransfers ? resources.transferAnchor : undefined;
 
-			// Free time is what is left of the layover after both airport-side transfers
-			// and the pre-boarding buffer, expressed as the real hotel check-in/check-out
-			// datetimes (brief line 59), not only their difference.
-			const freeStart = transferToHotel
-				? addLocalMinutes(outbound.arrival, transferToHotel.duration)
-				: outbound.arrival;
-			const freeEnd = transferToConnectionAirport
-				? addLocalMinutes(onward.departure, -(transferToConnectionAirport.duration + connectionWaitingTime))
-				: addLocalMinutes(onward.departure, -connectionWaitingTime);
-			const freeDuration = minutesBetween(freeStart, freeEnd);
-			if (freeDuration < 0) continue; // not enough layover for the transfers plus the buffer
-
-			const freeTime = { start: freeStart, end: freeEnd, duration: freeDuration };
-			// Issue #105: nights come from the free-time window alone, which is already
-			// known from the two flights' own timestamps — never gated on `stay`. A
-			// 12-night stopover is 12 nights whether or not a bed ever got priced for it;
-			// `stay` being absent only ever affects `totalPrice` below, not this.
-			// Issue #231: nights the traveller would SLEEP, not midnights the clock passed.
-			// A gap from 11pm to 5am crosses a date boundary and buys nobody a bed, and
-			// `totalPrice` below charges a room for every night this number reports.
-			const nightsInConnection = nightsToPayFor(freeStart, freeEnd);
-
-			// Issue #106/#109: each flight leg scales to the party by its OWN declared
-			// `priceScope` (`scaleFareForParty`), never a blanket multiply — a per-adult
-			// Ryanair fare needs `travellers` applied, an already-party-total Skyscanner
-			// fare must not be multiplied again. The stay's per-night rate is never scaled
-			// either way — issue #80/#94's own deliberate flat-per-party choice.
-			//
-			// Issue #204: the four transfer prices below are, today, always `undefined`,
-			// because no `TransferProvider` in this codebase quotes a fare. That does not make the
-			// legs free, and this total does not pretend it does: `unpricedTransferLegs`
-			// names every one of them, `score.ts` charges the ranking for them, and the
-			// card prints them as an omission. The number here stays exactly what was
-			// quoted, which is the whole reason it can be trusted.
-			const totalPrice = sumMoney(
-				scaleFareForParty(outbound, travellers),
-				scaleFareForParty(onward, travellers),
-				stay && nightsInConnection > 0
-					? {
-							minorUnits: stay.pricePerNight.minorUnits * nightsInConnection,
-							currency: stay.pricePerNight.currency
-						}
-					: undefined,
-				transferToHotel?.price,
-				transferToConnectionAirport?.price,
-				input.transferToOriginAirport?.price,
-				input.transferToDestinationLocation?.price
-			);
-
-			const times: ItineraryTimes = {
-				inFlight: sumDurations(outbound.duration, onward.duration),
-				// Origin + connection buffers only — deliberately not `layover`. See the
-				// hard filter above and issue #13's "airport waiting time is not layover
-				// time".
-				airportWaiting: sumDurations(originWaitingTime, connectionWaitingTime),
-				free: freeDuration,
-				total: sumDurations(
-					input.transferToOriginAirport?.duration,
-					originWaitingTime,
-					outbound.duration,
-					transferToHotel?.duration,
-					freeDuration,
-					transferToConnectionAirport?.duration,
-					connectionWaitingTime,
-					onward.duration,
-					input.transferToDestinationLocation?.duration
-				)
+			const parts: ItineraryParts = {
+				outboundFlight: outbound,
+				onwardFlight: onward,
+				originWaitingTime,
+				connectionWaitingTime,
+				travellers,
+				stay,
+				transferToOriginAirport: input.transferToOriginAirport,
+				transferToHotel,
+				transferToConnectionAirport,
+				transferToDestinationLocation: input.transferToDestinationLocation
 			};
+			// Not enough layover for the transfers plus the buffer. Asked before
+			// `deriveItinerary` totals anything, so a discarded pairing is never summed.
+			if (deriveFreeTime(parts).duration < 0) continue;
 
 			itineraries.push({
-				originLocation: input.originLocation,
-				transferToOriginAirport: input.transferToOriginAirport,
+				...parts,
+				...deriveItinerary(parts),
 				originAirport: input.originAirport,
-				originWaitingTime,
-				outboundFlight: outbound,
-				transferToHotel,
-				stay,
-				freeTime,
-				nightsInConnection,
-				transferToConnectionAirport,
+				originLocation: input.originLocation,
 				transferAnchor,
-				connectionWaitingTime,
-				onwardFlight: onward,
 				destinationAirport: input.destinationAirport,
-				transferToDestinationLocation: input.transferToDestinationLocation,
-				destinationLocation: input.destinationLocation,
-				totalPrice,
-				times,
-				travellers
+				destinationLocation: input.destinationLocation
 			});
 		}
 	}
@@ -432,8 +493,7 @@ export interface WaitingTimeOverrides {
  * plus a hand-edited waiting time on either side and returns a new Itinerary with every
  * dependent field recomputed. It never leaves a partial patch that skips one total.
  *
- * Reuses this module's own arithmetic (`addLocalMinutes`, `minutesBetween`, `nightsToPayFor`,
- * `sumMoney`, `scaleFareForParty`) rather than a second implementation in the UI layer, so
+ * Goes through `deriveItinerary` rather than a second implementation in the UI layer, so
  * a hand edit can never disagree with how `buildItineraries` would have computed the same
  * itinerary from scratch. Every value this needs (both flights' price/duration/priceScope
  * and the party size they're scaled by, the stay's nightly rate, both connection-side
@@ -464,69 +524,8 @@ export function recomputeItineraryWaitingTimes(
 
 	// RULE: free time's start never moves on this edit. Only originWaitingTime or
 	// connectionWaitingTime changed, and neither touches the outbound arrival or the
-	// hotel-bound transfer that anchors freeStart.
-	//
-	// Issue #94: `itinerary.stay` may be `undefined` (no bed priced for this connection).
-	// Issue #161: the transfers are read on their own rather than gated on `stay`, because
-	// an itinerary with no bed can still carry a real route to the city centre, and the
-	// minutes it takes to get into town come off free time whether or not anyone priced a
-	// place to sleep at the other end. `buildItineraries` computes `freeTime` the same way,
-	// so an edit here can never disagree with the value it is recomputing.
-	const { stay, transferToHotel, transferToConnectionAirport } = itinerary;
-	const freeStart = transferToHotel
-		? addLocalMinutes(itinerary.outboundFlight.arrival, transferToHotel.duration)
-		: itinerary.outboundFlight.arrival;
-	const freeEnd = transferToConnectionAirport
-		? addLocalMinutes(itinerary.onwardFlight.departure, -(transferToConnectionAirport.duration + connectionWaitingTime))
-		: addLocalMinutes(itinerary.onwardFlight.departure, -connectionWaitingTime);
-	const freeDuration = minutesBetween(freeStart, freeEnd);
-	const freeTime = { start: freeStart, end: freeEnd, duration: freeDuration };
-	// Issue #105: not gated on `stay`, and issue #231: sleepable, not merely crossed —
-	// see `buildItineraries`'s own identical comment.
-	const nightsInConnection = nightsToPayFor(freeStart, freeEnd);
-
-	// Issue #106/#109: `itinerary.travellers` is the party size this itinerary was already
-	// priced for (set once by `buildItineraries`, carried over untouched by a waiting-time
-	// edit); each flight leg still scales by its own `priceScope`, same as `buildItineraries`.
-	const totalPrice = sumMoney(
-		scaleFareForParty(itinerary.outboundFlight, itinerary.travellers),
-		scaleFareForParty(itinerary.onwardFlight, itinerary.travellers),
-		stay && nightsInConnection > 0
-			? {
-					minorUnits: stay.pricePerNight.minorUnits * nightsInConnection,
-					currency: stay.pricePerNight.currency
-				}
-			: undefined,
-		transferToHotel?.price,
-		transferToConnectionAirport?.price,
-		itinerary.transferToOriginAirport?.price,
-		itinerary.transferToDestinationLocation?.price
-	);
-
-	const times: ItineraryTimes = {
-		inFlight: itinerary.times.inFlight,
-		airportWaiting: sumDurations(originWaitingTime, connectionWaitingTime),
-		free: freeDuration,
-		total: sumDurations(
-			itinerary.transferToOriginAirport?.duration,
-			originWaitingTime,
-			itinerary.outboundFlight.duration,
-			transferToHotel?.duration,
-			freeDuration,
-			transferToConnectionAirport?.duration,
-			connectionWaitingTime,
-			itinerary.onwardFlight.duration,
-			itinerary.transferToDestinationLocation?.duration
-		)
-	};
-
-	return {
-		...itinerary,
-		originWaitingTime,
-		connectionWaitingTime,
-		freeTime,
-		nightsInConnection,
-		totalPrice,
-		times
-	};
+	// hotel-bound transfer that anchors it. `deriveItinerary` is the same arithmetic
+	// `buildItineraries` ran, so an edit here cannot disagree with the value it recomputes.
+	const parts: ItineraryParts = { ...itinerary, originWaitingTime, connectionWaitingTime };
+	return { ...itinerary, ...parts, ...deriveItinerary(parts) };
 }

@@ -5,11 +5,13 @@
  * class and the origin/connection waiting-time tiers are all already baked into the
  * itinerary the traveller is looking at, and a picker only ever changes one flight, one
  * transfer leg, or (issue #243) the bed and the two legs that reach it.
- * Reusing `minutesBetween` / `addLocalMinutes` / `nightsToPayFor` / `sumMoney` /
- * `scaleFareForParty` / `sumDurations` from `build.ts` keeps this the same DST-correct,
- * priceScope-aware arithmetic that built the itinerary in the first place, rather than a
- * second implementation that could disagree with it on an overnight connection or on which
- * flight fares need multiplying by the party size (issue #109).
+ * What changes is which parts the trip is made of. Everything that follows from them —
+ * the free-time window, the nights, the total, the times breakdown — comes back from
+ * `build.ts`'s `deriveItinerary`, the one implementation the builder itself runs. This
+ * module used to hold a second copy of that arithmetic, and issue #265 is what a second
+ * copy costs: it kept a `stay &&` on both edges of the free-time window that
+ * `buildItineraries` dropped in #161, so a flight swap on a bedless stopover with a routed
+ * ride into town reported free time the builder had never given it.
  *
  * Waiting times (`originWaitingTime`, `connectionWaitingTime`) are deliberately carried
  * over unchanged from the itinerary being edited, never re-derived from the new flight's
@@ -20,8 +22,8 @@
  * used; it does not silently re-open how long the traveller waits at the gate.
  */
 
-import { addLocalMinutes, minutesBetween, nightsToPayFor, scaleFareForParty, sumDurations, sumMoney } from './build';
-import type { Duration, FlightOffer, Itinerary, ItineraryTimes, Money, Stay, Transfer, TransferAnchor } from '../domain';
+import { deriveItinerary, minutesBetween, type ItineraryParts } from './build';
+import type { Duration, FlightOffer, Itinerary, Stay, Transfer, TransferAnchor } from '../domain';
 import { DEFAULT_MIN_LAYOVER_TIME_MINUTES } from '../domain';
 
 /**
@@ -157,19 +159,26 @@ export function recomputeItinerarySelection(
 		});
 	}
 
-	const freeStart = stay && transferToHotel
-		? addLocalMinutes(outboundFlight.arrival, transferToHotel.duration)
-		: outboundFlight.arrival;
-	const freeEnd = stay && transferToConnectionAirport
-		? addLocalMinutes(onwardFlight.departure, -(transferToConnectionAirport.duration + connectionWaitingTime))
-		: addLocalMinutes(onwardFlight.departure, -connectionWaitingTime);
-	const freeDuration = minutesBetween(freeStart, freeEnd);
+	const parts: ItineraryParts = {
+		outboundFlight,
+		onwardFlight,
+		originWaitingTime,
+		connectionWaitingTime,
+		travellers: itinerary.travellers,
+		stay,
+		transferToOriginAirport,
+		transferToHotel,
+		transferToConnectionAirport,
+		transferToDestinationLocation
+	};
+	const derived = deriveItinerary(parts);
+
 	// Not reported alongside `flights-out-of-order`, because there it is the consequence
 	// rather than the cause and it names the wrong culprit. Two flights in the wrong order
 	// leave negative free time whatever the transfers and the buffer are, and production
 	// stacked both sentences on one row: the second blamed the transfers for a trip that
 	// had no connection in it at all.
-	if (freeDuration < 0 && !flightsOutOfOrder) {
+	if (derived.freeTime.duration < 0 && !flightsOutOfOrder) {
 		warnings.push({
 			code: 'insufficient-connection-time',
 			message:
@@ -178,67 +187,8 @@ export function recomputeItinerarySelection(
 		});
 	}
 
-	const freeTime = { start: freeStart, end: freeEnd, duration: freeDuration };
-	// A negative gap has no meaningful night count; clamped to 0 rather than handed to
-	// `nightsToPayFor` and left to produce a number nobody asked for, since the accompanying
-	// warning above is already what tells the caller this result is not a bookable trip.
-	// Issue #105: NOT gated on `stay` otherwise — a real stopover's night count comes from
-	// the free-time window alone, same as `build.ts`'s own `buildItineraries`. Issue #231:
-	// and from whether that window is long enough, and at the right hours, to sleep in.
-	const nightsInConnection = freeDuration < 0 ? 0 : nightsToPayFor(freeStart, freeEnd);
-
-	// Issue #106/#109: `itinerary.travellers` carries over from the itinerary being edited
-	// (a picker swap changes which flight is used, never the party size); each flight leg
-	// scales by its own `priceScope` (a swapped-in offer can come from a different provider
-	// than the one it replaced), exactly as `build.ts` itself does.
-	const totalPrice: Money = sumMoney(
-		scaleFareForParty(outboundFlight, itinerary.travellers),
-		scaleFareForParty(onwardFlight, itinerary.travellers),
-		stay && nightsInConnection > 0
-			? {
-					minorUnits: stay.pricePerNight.minorUnits * nightsInConnection,
-					currency: stay.pricePerNight.currency
-				}
-			: undefined,
-		transferToHotel?.price,
-		transferToConnectionAirport?.price,
-		transferToOriginAirport?.price,
-		transferToDestinationLocation?.price
-	);
-
-	const times: ItineraryTimes = {
-		inFlight: sumDurations(outboundFlight.duration, onwardFlight.duration),
-		airportWaiting: sumDurations(originWaitingTime, connectionWaitingTime),
-		free: freeDuration,
-		total: sumDurations(
-			transferToOriginAirport?.duration,
-			originWaitingTime,
-			outboundFlight.duration,
-			transferToHotel?.duration,
-			freeDuration,
-			transferToConnectionAirport?.duration,
-			connectionWaitingTime,
-			onwardFlight.duration,
-			transferToDestinationLocation?.duration
-		)
-	};
-
 	return {
-		itinerary: {
-			...itinerary,
-			outboundFlight,
-			onwardFlight,
-			transferToOriginAirport,
-			transferToHotel,
-			transferToConnectionAirport,
-			transferToDestinationLocation,
-			transferAnchor,
-			stay,
-			freeTime,
-			nightsInConnection,
-			totalPrice,
-			times
-		},
+		itinerary: { ...itinerary, ...parts, ...derived, transferAnchor },
 		warnings
 	};
 }
