@@ -281,10 +281,13 @@ async function main() {
 		kept.push({ ring: simplified, area, big, tolerance, sourceVertices: ring.length });
 	}
 	const outputVertices = kept.reduce((total, entry) => total + entry.ring.length, 0);
-	const bigOnes = kept.filter((e) => e.big);
-	console.log(`  ${bigOnes.length} kept for area (${bigOnes.reduce((t, e) => t + e.ring.length, 0)} vertices), ${kept.length - bigOnes.length} for an airport (${outputVertices - bigOnes.reduce((t, e) => t + e.ring.length, 0)} vertices)`);
+	const continents = kept.filter((entry) => entry.big);
+	const continentVertices = continents.reduce((total, entry) => total + entry.ring.length, 0);
 	console.log(
 		`${kept.length} rings kept, ${outputVertices} vertices (${((outputVertices / sourceVertices) * 100).toFixed(1)}% of the source)`
+	);
+	console.log(
+		`  ${continents.length} kept for their area (${continentVertices} vertices), ${kept.length - continents.length} because an airport stands on them (${outputVertices - continentVertices})`
 	);
 
 	const encoded = kept
@@ -355,6 +358,9 @@ async function main() {
 		displacements.push(Math.abs(outputDistance - sourceDistance));
 	}
 	displacements.sort((a, b) => a - b);
+	if (displacements.length === 0) {
+		throw new Error('no coastal airport to measure displacement against; the source is wrong');
+	}
 	const percentile = (fraction) => displacements[Math.floor(displacements.length * fraction)];
 	const displacementP75 = Math.round(percentile(0.75) * 10) / 10;
 	console.log(
