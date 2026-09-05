@@ -112,7 +112,12 @@
 		 * alone, which is what it did before this existed.
 		 */
 		oncheckTransit?: () => void;
-		/** A lookup started by `oncheckTransit` is in flight. */
+		/**
+		 * A lookup started by `oncheckTransit` is in flight. Issue #385: it keeps the button
+		 * on screen and busy rather than letting the offer unmount under the finger that
+		 * pressed it, and it is what stops the notice above claiming nobody asked while the
+		 * asking is going on.
+		 */
 		transitChecking?: boolean;
 		minLayoverTime?: Duration;
 		onselect: (result: RecomputedSelection) => void;
@@ -235,6 +240,12 @@
 	const transitNotice = $derived.by<string | undefined>(() => {
 		if (!transitAnswer) return undefined;
 		if (rows.some((row) => row.transfer.mode === 'transit')) return undefined;
+		// Issue #385. While the traveller's own lookup is in flight, every sentence below is
+		// about a question nobody asked, and the one directly under it ("Public transport was
+		// not looked up for this property") is the exact opposite of what is happening. The
+		// press has to be able to report itself somewhere, and this line is the only thing on
+		// the leg that describes the state of its timetable.
+		if (transitChecking) return 'Checking public transport for this property…';
 
 		const when = transitAnswer.plannedFor
 			? ` for ${formatCalendarDate(transitAnswer.plannedFor.time)} at ${formatClockTime(transitAnswer.plannedFor.time)}`
@@ -586,7 +597,17 @@
 	{/if}
 
 	{#if transitNotice}
-		<p class="transit-notice" data-testid="transit-notice" data-transit-answer={transitAnswer?.answer}>
+		<!-- A `status` region rather than a plain paragraph, because the sentence here changes
+		     under a press and a traveller who cannot see it would otherwise get no answer at
+		     all. `status` is implicitly polite, so it waits its turn instead of cutting in
+		     (MDN, ARIA status role), and the element is mounted before the press so the
+		     change has a region to land in. -->
+		<p
+			class="transit-notice"
+			data-testid="transit-notice"
+			role="status"
+			data-transit-answer={transitChecking ? 'checking' : transitAnswer?.answer}
+		>
 			{transitNotice}
 		</p>
 		<!-- Issue #267: the one case where the traveller can do something about the notice

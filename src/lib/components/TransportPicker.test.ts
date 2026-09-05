@@ -621,6 +621,56 @@ describe('TransportPicker: telling "no service" from "nobody asked" (issue #135)
 		expect(pressed).toBe(1);
 	});
 
+	it('keeps the button on screen and busy while the lookup runs (issue #385)', () => {
+		// The press used to unmount the control that received it. `canCheckTransit` went
+		// false the moment `checkTransitForPickedProperty` wrote `{ kind: 'checking' }`,
+		// which is synchronous, so the button was gone before the finger left it and the
+		// traveller's only reading was that the tap had missed.
+		const itinerary = baseItinerary({ mode: 'taxi', duration: 87 as Duration, legs: [] });
+
+		const root = mountPicker({
+			itinerary,
+			alternatives: roadOnly,
+			transitAnswer: { answer: 'not-asked', reason: 'other-property' },
+			oncheckTransit: () => {},
+			transitChecking: true
+		});
+
+		const button = [...root.querySelectorAll('button')].find((element) =>
+			element.textContent?.includes('Check public transport')
+		);
+		expect(button).toBeDefined();
+		expect(button?.disabled).toBe(true);
+
+		const notice = root.querySelector('[data-testid="transit-notice"]');
+		expect(notice?.getAttribute('data-transit-answer')).toBe('checking');
+		// Polite by implication, so a screen reader hears the change rather than being cut
+		// off mid-sentence by it.
+		expect(notice?.getAttribute('role')).toBe('status');
+		expect(normalizedText(root)).toContain('Checking public transport for this property');
+		// The sentence this replaces, which stayed on screen for both Transitous round trips
+		// while the app was in the middle of doing the thing it was denying.
+		expect(normalizedText(root)).not.toContain('Public transport was not looked up');
+	});
+
+	it('says nobody asked only while nobody is asking', () => {
+		const itinerary = baseItinerary({ mode: 'taxi', duration: 87 as Duration, legs: [] });
+
+		const root = mountPicker({
+			itinerary,
+			alternatives: roadOnly,
+			transitAnswer: { answer: 'not-asked', reason: 'other-property' },
+			oncheckTransit: () => {},
+			transitChecking: false
+		});
+
+		const button = [...root.querySelectorAll('button')].find((element) =>
+			element.textContent?.includes('Check public transport')
+		);
+		expect(button?.disabled).toBe(false);
+		expect(normalizedText(root)).toContain('Public transport was not looked up');
+	});
+
 	it('offers no lookup when the caller has none to run', () => {
 		// The notice stands alone, exactly as it did before the button existed: an
 		// affordance that cannot do anything is worse than no affordance.
