@@ -86,7 +86,7 @@ test.describe('the picked bed on the card (issue #279)', () => {
 
 		await openTheDetail(page);
 
-		const media = page.locator('.bed-media').first();
+		const media = page.locator('.photo-carousel').first();
 		await expect(media).toBeVisible();
 
 		// 1. The box holds its space before a byte of image has arrived. This is the
@@ -171,12 +171,12 @@ test.describe('the picked bed on the card (issue #279)', () => {
 
 		await openTheDetail(page);
 
-		const media = page.locator('.bed-media').first();
+		const media = page.locator('.photo-carousel').first();
 		await expect(media).toBeVisible();
-		await expect(media.locator('.bed-count')).toHaveText('1 / 2');
+		await expect(media.locator('.photo-count')).toHaveText('1 / 2');
 
 		await media.getByRole('button', { name: 'Next photo' }).click();
-		await expect(media.locator('.bed-count')).toHaveText('2 / 2');
+		await expect(media.locator('.photo-count')).toHaveText('2 / 2');
 		await expect
 			.poll(() => requested.length, { timeout: 10_000 })
 			.toBe(2);
@@ -187,7 +187,7 @@ test.describe('the picked bed on the card (issue #279)', () => {
 		// because the scroll is animated, and asserted on the offset between the second
 		// slide and the frame rather than on either position alone.
 		const frame = (await media.boundingBox())!;
-		const secondSlide = media.locator('.bed-slide').nth(1);
+		const secondSlide = media.locator('.photo-slide').nth(1);
 		await expect
 			.poll(async () => Math.abs((await secondSlide.boundingBox())!.x - frame.x), {
 				timeout: 5_000
@@ -198,7 +198,7 @@ test.describe('the picked bed on the card (issue #279)', () => {
 		const prevArrow = media.getByRole('button', { name: 'Previous photo' });
 		const nextArrow = media.getByRole('button', { name: 'Next photo' });
 		await prevArrow.click();
-		await expect(media.locator('.bed-count')).toHaveText('1 / 2');
+		await expect(media.locator('.photo-count')).toHaveText('1 / 2');
 
 		// Now the keyboard, which is the path the focus handling exists for. Paging to an
 		// end disables the arrow that got you there, and a browser blurs a button the moment
@@ -212,12 +212,12 @@ test.describe('the picked bed on the card (issue #279)', () => {
 		// exists to catch. A racing test that accuses the code is worse than no test.
 		await expect(nextArrow).toBeFocused();
 		await page.keyboard.press('Enter');
-		await expect(media.locator('.bed-count')).toHaveText('2 / 2');
+		await expect(media.locator('.photo-count')).toHaveText('2 / 2');
 		await expect(nextArrow).toBeDisabled();
 		await expect(prevArrow).toBeFocused();
 
 		await page.keyboard.press('ArrowLeft');
-		await expect(media.locator('.bed-count')).toHaveText('1 / 2');
+		await expect(media.locator('.photo-count')).toHaveText('1 / 2');
 		await expect(prevArrow).toBeDisabled();
 		await expect(nextArrow).toBeFocused();
 
@@ -225,7 +225,7 @@ test.describe('the picked bed on the card (issue #279)', () => {
 		// focusable, so Tab leaves the carousel rather than cycling inside it.
 		await page.keyboard.press('Tab');
 		const trapped = await page.evaluate(() =>
-			Boolean(document.activeElement?.closest('.bed-media'))
+			Boolean(document.activeElement?.closest('.photo-carousel'))
 		);
 		expect(trapped).toBe(false);
 	});

@@ -65,7 +65,7 @@ const SLIDE_WIDTH = 100;
 let stripScrollLeft = 0;
 
 function giveTheStripAWidth() {
-	const strip = target!.querySelector('.bed-strip');
+	const strip = target!.querySelector('.photo-strip');
 	if (!strip) return;
 	stripScrollLeft = 0;
 	Object.defineProperty(strip, 'clientWidth', { value: SLIDE_WIDTH, configurable: true });
@@ -81,14 +81,14 @@ function giveTheStripAWidth() {
 /** Moves the strip the way a reader's own swipe does, and tells the component about it. */
 function scrollTheStripTo(offset: number) {
 	stripScrollLeft = offset;
-	target!.querySelector('.bed-strip')!.dispatchEvent(new Event('scroll'));
+	target!.querySelector('.photo-strip')!.dispatchEvent(new Event('scroll'));
 	flushSync();
 }
 
 const sources = () => [...target!.querySelectorAll('img')].map((img) => img.getAttribute('src'));
-const counter = () => target!.querySelector('.bed-count')?.textContent?.trim();
-const next = () => target!.querySelector<HTMLButtonElement>('.bed-arrow-next')!;
-const prev = () => target!.querySelector<HTMLButtonElement>('.bed-arrow-prev')!;
+const counter = () => target!.querySelector('.photo-count')?.textContent?.trim();
+const next = () => target!.querySelector<HTMLButtonElement>('.photo-arrow-next')!;
+const prev = () => target!.querySelector<HTMLButtonElement>('.photo-arrow-prev')!;
 
 /**
  * jsdom implements no scrolling at all, so `Element.scrollTo` is simply absent and the
@@ -218,8 +218,8 @@ describe('the photographs, and what they cost to fetch', () => {
 		// A greyed arrow is a promise the data cannot keep: Booking returns exactly one
 		// image per property, so this is the common case, not the edge case.
 		const el = render({ property: property({ images: [PHOTO_A] }) });
-		expect(el.querySelector('.bed-arrow')).toBeNull();
-		expect(el.querySelector('.bed-count')).toBeNull();
+		expect(el.querySelector('.photo-arrow')).toBeNull();
+		expect(el.querySelector('.photo-count')).toBeNull();
 		expect(sources()).toEqual([PHOTO_A]);
 	});
 
@@ -227,7 +227,7 @@ describe('the photographs, and what they cost to fetch', () => {
 		// Honest rather than apologetic: a grey rectangle with a building glyph says a
 		// picture is missing, and nothing is missing.
 		const el = render({ property: property({ images: [] }) });
-		expect(el.querySelector('.bed-media')).toBeNull();
+		expect(el.querySelector('.photo-carousel')).toBeNull();
 		expect(el.querySelector('img')).toBeNull();
 		// The facts still stand on their own.
 		expect(el.textContent).toContain("Wombat's City Hostel");
@@ -248,13 +248,13 @@ describe('reaching the photographs from a keyboard', () => {
 	it('moves with the arrow keys while a control has focus', () => {
 		const el = render();
 		next().focus();
-		el.querySelector('.bed-media')!.dispatchEvent(
+		el.querySelector('.photo-carousel')!.dispatchEvent(
 			new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true })
 		);
 		flushSync();
 		expect(counter()).toBe('2 / 2');
 
-		el.querySelector('.bed-media')!.dispatchEvent(
+		el.querySelector('.photo-carousel')!.dispatchEvent(
 			new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true })
 		);
 		flushSync();
@@ -267,7 +267,7 @@ describe('reaching the photographs from a keyboard', () => {
 		// the focus trap this carousel does not have.
 		const el = render();
 		const event = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true });
-		el.querySelector('.bed-media')!.dispatchEvent(event);
+		el.querySelector('.photo-carousel')!.dispatchEvent(event);
 		expect(event.defaultPrevented).toBe(false);
 	});
 
@@ -276,11 +276,11 @@ describe('reaching the photographs from a keyboard', () => {
 		expect(target!.querySelector('img')!.getAttribute('alt')).toBe(
 			"Wombat's City Hostel, photo 1 of 2"
 		);
-		expect(target!.querySelector('.bed-media')!.getAttribute('aria-label')).toBe(
+		expect(target!.querySelector('.photo-carousel')!.getAttribute('aria-label')).toBe(
 			"Photos of Wombat's City Hostel"
 		);
 		// The count changes on a swipe, which fires no event a screen reader reports.
-		expect(target!.querySelector('.bed-count')!.getAttribute('aria-live')).toBe('polite');
+		expect(target!.querySelector('.photo-count')!.getAttribute('aria-live')).toBe('polite');
 	});
 
 	it('drops the position from the alt text when there is only one photograph', () => {
@@ -325,7 +325,7 @@ describe('a photograph that fails to load', () => {
 		flushSync();
 		expect(el.querySelector('img')).toBeNull();
 		// The box keeps its space, so nothing below it moves.
-		expect(el.querySelector('.bed-media')).not.toBeNull();
+		expect(el.querySelector('.photo-carousel')).not.toBeNull();
 	});
 
 	it('has nothing to retry for a photograph no rewrite touched', () => {
