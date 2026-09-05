@@ -11,6 +11,7 @@
  */
 
 import type {
+	Duration,
 	LocalDateTime,
 	Transfer,
 	TransferAnchor,
@@ -104,6 +105,77 @@ export function summariseTransferLegs(legs: readonly TransferLeg[]): string | un
  * whole answer. */
 export function transferDetailLine(transfer: Transfer): string {
 	return summariseTransferLegs(transfer.legs) ?? transferModeLabel(transfer.mode);
+}
+
+/**
+ * Issue #290: the minutes between landing and starting to move, said out loud on any row
+ * whose duration no longer contains them.
+ *
+ * `transferRideDuration` takes the walk-out back off the ride, which fixes the label and
+ * loses a fact: the traveller still gets to the bed 1h 8m after the wheels touch, and the
+ * clock at the end of the row still says so. This is the sentence that reconciles the two,
+ * and it is why removing the buffer from the number is not the same as hiding it.
+ *
+ * "Your own" carries the weight. This is the one part of a ground leg the traveller set
+ * themselves (`SearchQuery.landingToTransportRules`), and the airport-wait stub already
+ * says the same thing about the other buffer in the same voice, "Your own buffer, not a
+ * measured queue". Two traveller-set paddings described two different ways would be the
+ * inconsistency this issue is about, arriving from the other side.
+ *
+ * `undefined` on a leg with no buffer, which includes a rule set to zero: there is nothing
+ * to disclose when the ride and the row's duration are the same number, and a sentence
+ * saying "plus your own 0m" is noise on every row that never starts at a runway.
+ */
+export function landingBufferNote(transfer: Transfer): string | undefined {
+	if (!transfer.landingBuffer) return undefined;
+	return (
+		`Plus your own ${formatDuration(transfer.landingBuffer)} to get out of the airport, ` +
+		`so you arrive ${formatDuration(transfer.duration)} after landing.`
+	);
+}
+
+/**
+ * The same buffer where a whole list of options shares it, which is `TransportPicker`.
+ *
+ * Its own sentence rather than `landingBufferNote` repeated per row, because the two say
+ * different things. That one ends "so you arrive 1h 8m after landing", a total belonging to
+ * one journey; a picker is showing four, and printing one row's total over all of them is
+ * how this issue started. What every row here genuinely shares is the moment it starts.
+ *
+ * Worth saying at all because the buffer is the same on every candidate. Both pipelines
+ * that apply it map over the whole list rather than the pick alone, so it is exactly the
+ * part of these numbers that carries no information about which option to take.
+ *
+ * Takes the buffer rather than a transfer, so the caller has to reduce its own rows to one
+ * number first and this sentence cannot claim "every option" about a list it never saw. A
+ * list whose rows disagree passes `undefined` and the picker says nothing, which is the
+ * right answer: the sentence's whole content is that the padding is shared.
+ */
+export function landingBufferPickerNote(buffer: Duration | undefined): string | undefined {
+	if (!buffer) return undefined;
+	return (
+		`Every option here starts ${formatDuration(buffer)} after you land, which is ` +
+		`your own landing-to-transport setting. The times below are the journeys themselves.`
+	);
+}
+
+/**
+ * The same fact where a panel has already spent its clocks on the ride: the segment stub,
+ * whose start reading is the moment the vehicle leaves rather than the moment the plane
+ * lands. The gap between those two is the whole of this sentence's job.
+ *
+ * Wording deliberately shared with the airport-wait stub's footnote, down to "not a
+ * measured queue" and the pointer to where it is changed. A traveller who has read one of
+ * them has read both. The pointer differs because the controls do: a waiting time is edited
+ * on the row itself, and this one is a search field, so naming the row would send somebody
+ * looking for a control that is not there.
+ */
+export function landingBufferFootnote(transfer: Transfer): string | undefined {
+	if (!transfer.landingBuffer) return undefined;
+	return (
+		`Your own buffer, not a measured queue. ${formatDuration(transfer.landingBuffer)} is the ` +
+		`Landing to transport setting for an airport this size, and the search form is where you change it.`
+	);
 }
 
 /**

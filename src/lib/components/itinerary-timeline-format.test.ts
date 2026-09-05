@@ -11,6 +11,9 @@ import {
 	formatTimeDelta,
 	formatUtcOffset,
 	isDifferentCalendarDate,
+	landingBufferFootnote,
+	landingBufferNote,
+	landingBufferPickerNote,
 	staleScheduleFact,
 	staleScheduleNote,
 	summariseTransferLegs,
@@ -493,5 +496,49 @@ describe('staleScheduleNote and staleScheduleFact, issue #266', () => {
 		expect(
 			staleScheduleFact({ time: madrid('2026-10-06T13:20:00'), arriveBy: true }, madrid('2026-10-06T03:40:00'))
 		).toBe('Planned for 1:20pm, and you now need to be there by 3:40am');
+	});
+});
+
+describe('the landing buffer, said out loud (issue #290)', () => {
+	const taxi = (duration: number, landingBuffer?: number): Transfer => ({
+		mode: 'taxi',
+		duration: duration as Duration,
+		landingBuffer: landingBuffer as Duration | undefined,
+		legs: []
+	});
+
+	it('names the buffer, whose it is, and what the row still adds up to', () => {
+		expect(landingBufferNote(taxi(68, 30))).toBe(
+			'Plus your own 30m to get out of the airport, so you arrive 1h 8m after landing.'
+		);
+	});
+
+	it('says nothing about a leg with no buffer, including a rule the traveller set to zero', () => {
+		// Both are rows where the ride and the row duration are already the same number, so
+		// there is nothing for this sentence to reconcile. A "plus your own 0m" would appear
+		// on every leg that ends at a gate.
+		expect(landingBufferNote(taxi(38))).toBeUndefined();
+		expect(landingBufferNote(taxi(38, 0))).toBeUndefined();
+	});
+
+	it('borrows the airport wait stub own words, so two traveller-set buffers read alike', () => {
+		expect(landingBufferFootnote(taxi(68, 30))).toBe(
+			'Your own buffer, not a measured queue. 30m is the Landing to transport setting for an airport this size, and the search form is where you change it.'
+		);
+		expect(landingBufferFootnote(taxi(38, 0))).toBeUndefined();
+	});
+});
+
+describe('the buffer a whole picker shares (issue #290)', () => {
+	it('claims "every option" only about a list that agrees', () => {
+		expect(landingBufferPickerNote(30 as Duration)).toBe(
+			'Every option here starts 30m after you land, which is your own landing-to-transport setting. ' +
+				'The times below are the journeys themselves.'
+		);
+	});
+
+	it('says nothing when there is no shared padding to disclose', () => {
+		expect(landingBufferPickerNote(0 as Duration)).toBeUndefined();
+		expect(landingBufferPickerNote(undefined)).toBeUndefined();
 	});
 });

@@ -344,6 +344,30 @@ export function groundFare(transfer: Transfer): GroundFare {
 }
 
 /**
+ * How long the journey itself takes, with the airport walk-out taken back off. Issue #290.
+ *
+ * `duration` is landing to doorstep, which is the number every clock on the timeline is
+ * built from and must stay that. It is not how long the ride takes, and for a while every
+ * screen printed it as though it were: an 8.6 km taxi from Fiumicino measured at 38 minutes
+ * by OSRM was labelled `Taxi, 1h 8m`, and pushing the traveller's own landing-to-transport
+ * rule to four hours made the app claim a four-and-a-half-hour taxi across those 8.6 km.
+ * The same two points in the other direction read 38m on every one of those runs, because
+ * nothing pads a leg that ends at a gate.
+ *
+ * So the two numbers both exist and both matter, and this is the one that belongs next to
+ * the word "Taxi". Here rather than in each component for the reason `costIsUnknown` is
+ * here: `duration` means something a caller has to know to read it correctly, and one
+ * function knowing it beats six screens each subtracting a field they might forget.
+ *
+ * An absent `landingBuffer` gives the duration back unchanged, which is right for both
+ * things absence means (see the field): a leg that never starts at a runway has no walk-out
+ * folded in, and a leg nobody applied the rule to has none either.
+ */
+export function transferRideDuration(transfer: Transfer): Duration {
+	return (transfer.duration - (transfer.landingBuffer ?? 0)) as Duration;
+}
+
+/**
  * Whether this leg costs a number nobody has given us. Issue #204.
  *
  * An absent `Transfer.price` means two opposite things depending on the mode, and every

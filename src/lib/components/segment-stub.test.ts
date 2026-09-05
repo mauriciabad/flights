@@ -379,3 +379,34 @@ describe('the stopover stub', () => {
 		expect(stub.duration).toBe('2h 30m free');
 	});
 });
+
+describe('the transport stub and the landing buffer (issue #290)', () => {
+	/** The fixture's ride into town is 40 minutes and lands at 8:30pm. 15 of those minutes
+	 * are the walk-out once the rule applies, so the taxi itself is 25m and it leaves at
+	 * 8:45pm rather than the moment the wheels touch. */
+	const buffered = () => itineraryFor({ transferToHotel: walk(40, { landingBuffer: 15 as Duration }) });
+
+	it('prints the ride, not the ride plus the walk-out', () => {
+		expect(stubOf(buffered(), 'transport').duration).toBe('25m');
+		expect(stubOf(buffered(), 'transport').label).toBe('Transport, Walk to Gainsborough Lodge, 25m');
+	});
+
+	it('starts the clock when the vehicle leaves, so the two readings and the duration agree', () => {
+		const stub = stubOf(buffered(), 'transport');
+		expect(stub.start).toMatchObject({ time: '8:45pm', code: 'LGW' });
+		expect(stub.end).toMatchObject({ time: '9:10pm' });
+	});
+
+	it('explains the gap between landing and leaving, in the airport wait stub own words', () => {
+		expect(stubOf(buffered(), 'transport').footnote).toBe(
+			'Your own buffer, not a measured queue. 15m is the Landing to transport setting for an airport this size, and the search form is where you change it.'
+		);
+	});
+
+	it('leaves an unbuffered leg exactly as it was', () => {
+		const stub = stubOf(itineraryFor(), 'transport');
+		expect(stub.duration).toBe('40m');
+		expect(stub.start).toMatchObject({ time: '8:30pm' });
+		expect(stub.footnote).toBeUndefined();
+	});
+});

@@ -37,6 +37,7 @@
  */
 
 import { scaleFareForParty } from '$lib/algorithm/build';
+import { addLocalMinutes } from '$lib/algorithm/build';
 import { readMissedService, readStaleSchedule } from '$lib/algorithm/transit-schedule';
 import type {
 	Airport,
@@ -47,6 +48,7 @@ import type {
 	Transfer,
 	TransitLegField
 } from '$lib/domain';
+import { transferRideDuration } from '$lib/domain';
 import {
 	calendarDayOffset,
 	formatCalendarDate,
@@ -57,7 +59,12 @@ import {
 	formatUtcOffset
 } from '$lib/format';
 import { formatDistanceKm, haversineDistanceKm } from '$lib/stays/distance';
-import { staleScheduleFact, transferDetailLine, transferFareNote } from './itinerary-timeline-format';
+import {
+	landingBufferFootnote,
+	staleScheduleFact,
+	transferDetailLine,
+	transferFareNote
+} from './itinerary-timeline-format';
 import { technicalStopDetail } from './technical-stop-note';
 import { segmentIdOf, tripStrip } from './trip-strip';
 import type { TripStripSegment, TripStripTransferSegment } from './trip-strip';
@@ -445,22 +452,30 @@ function transportStub(segment: TripStripTransferSegment, context: StubContext):
 	const missed = missedFact(segment, context);
 	if (missed) facts.push(missed);
 
-	const start = clockAt(segment.start, stamped === 'start' ? code : undefined, stamped === 'start' ? place : undefined);
+	// Issue #290: the panel spends its two clocks and its duration on the ride, so the
+	// walk-out has to come off all three or they contradict each other. `segment.start` is
+	// the flight's arrival and `segment.minutes` is arrival to doorstep; the vehicle leaves
+	// once the traveller is out of the terminal, which is that arrival plus the buffer, and
+	// the footnote is what accounts for the minutes between. The strip's own bar still spans
+	// `segment.minutes`, because the bar is a picture of elapsed time and that time elapses.
+	const ride = transferRideDuration(transfer);
+	const departure = addLocalMinutes(segment.start, transfer.landingBuffer ?? 0);
+	const start = clockAt(departure, stamped === 'start' ? code : undefined, stamped === 'start' ? place : undefined);
 	const bareEnd = clockAt(segment.end, stamped === 'end' ? code : undefined, stamped === 'end' ? place : undefined);
 
 	return {
 		kind: 'transport',
 		eyebrow: EYEBROWS.transport,
-		day: formatCalendarDate(segment.start),
+		day: formatCalendarDate(departure),
 		title,
 		notes: [],
 		start,
-		end: endClock(segment.start, segment.end, bareEnd, true),
-		duration: formatDuration(segment.minutes),
-		footnote: undefined,
+		end: endClock(departure, segment.end, bareEnd, true),
+		duration: formatDuration(ride),
+		footnote: landingBufferFootnote(transfer),
 		facts,
 		rendersStopoverBlock: false,
-		label: `Transport, ${title}, ${formatDuration(segment.minutes)}`
+		label: `Transport, ${title}, ${formatDuration(ride)}`
 	};
 }
 

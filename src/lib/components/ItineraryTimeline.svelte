@@ -61,6 +61,7 @@
 	 */
 	import type { Snippet } from 'svelte';
 	import type { Airport, Duration, FlightOffer, Itinerary, LocalDateTime, Location, TransitLegField } from '../domain';
+	import { transferRideDuration } from '../domain';
 	import { recomputeItineraryWaitingTimes } from '../algorithm/build';
 	import type { WaitingTimeOverrides } from '../algorithm/build';
 	import { isOvernightWait } from '../algorithm/nights';
@@ -72,6 +73,7 @@
 		formatLongDuration,
 		formatMoney,
 		formatPropertyRating,
+		landingBufferNote,
 		staleScheduleNote,
 		transferDetailLine,
 		transferFareNote,
@@ -479,6 +481,14 @@
 						{/if}
 					{/if}
 				{/if}
+				<!-- Issue #290: the meta column now shows the ride, and this is where the rest
+				     of the row's duration goes. Last, so a stale-timetable warning stays next
+				     to the label it contradicts; this one is not a warning, it is the
+				     arithmetic behind the clock at the end of the row. -->
+				{@const walkOut = landingBufferNote(transfer)}
+				{#if walkOut}
+					<p class="tl-note">{walkOut}</p>
+				{/if}
 			{:else}
 				<!-- Issue #140: why this leg has no route, never "not available yet".
 				     See unroutedLegNote for what each case actually observed. -->
@@ -497,7 +507,7 @@
 		</div>
 		<div class="tl-meta">
 			{#if transfer}
-				<span class="tl-duration font-mono tabular-nums">{formatDuration(transfer.duration)}</span>
+				<span class="tl-duration font-mono tabular-nums">{formatDuration(transferRideDuration(transfer))}</span>
 				{@const fare = transferFareNote(transfer, true)}
 				<!-- Issue #119: "no fare" for a walk, "price n/a" for a mode that has one and
 				     nobody quoted it. Issue #249 adds the rate-card range and #246's refusal

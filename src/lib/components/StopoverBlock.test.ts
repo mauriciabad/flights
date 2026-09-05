@@ -280,3 +280,34 @@ describe('how far out the bed is (issue #219)', () => {
 		expect(block).not.toContain('From airport');
 	});
 });
+
+describe('StopoverBlock, the ride and the walk-out are two numbers (issue #290)', () => {
+	/** The issue's own reading: OSRM measures the taxi at 38 minutes, the traveller's rule
+	 * adds 30 for getting out of Fiumicino, and the block called the sum a taxi. */
+	const taxiFromTheRunway: Itinerary = {
+		...londonStopover(),
+		transferToHotel: {
+			mode: 'taxi',
+			duration: 68 as Itinerary['times']['free'],
+			landingBuffer: 30 as Itinerary['times']['free'],
+			legs: []
+		}
+	};
+
+	it('quotes the ride beside the word Taxi', () => {
+		const block = render(taxiFromTheRunway);
+		expect(block).toContain('Taxi, 38m from the airport, price not available');
+		expect(block).not.toContain('Taxi, 1h 8m');
+	});
+
+	it('keeps the hour and eight minutes, as the thing it actually is', () => {
+		expect(render(taxiFromTheRunway)).toContain(
+			'Plus your own 30m to get out of the airport, so you arrive 1h 8m after landing.'
+		);
+	});
+
+	it('adds no second line to a leg nothing padded', () => {
+		expect(render(londonStopover())).toContain('Walk, 15m from the airport, no fare');
+		expect(render(londonStopover())).not.toContain('to get out of the airport');
+	});
+});

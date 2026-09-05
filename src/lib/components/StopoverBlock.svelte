@@ -65,6 +65,7 @@
 	 * one; it takes an `Itinerary` and nothing else, so a popover can call it unchanged.
 	 */
 	import type { Coordinates, Itinerary } from '$lib/domain';
+	import { transferRideDuration } from '$lib/domain';
 	import { formatDuration, formatMoney } from '$lib/format';
 	import { overnightWaitNote } from '$lib/results/stopover-nights';
 	import {
@@ -76,7 +77,12 @@
 		ROOM_KIND_LABELS
 	} from '$lib/stays';
 	import { freeTimeDays } from './free-time-days';
-	import { transferFareNote, transferModeLabel, unroutedLegNote } from './itinerary-timeline-format';
+	import {
+		landingBufferNote,
+		transferFareNote,
+		transferModeLabel,
+		unroutedLegNote
+	} from './itinerary-timeline-format';
 
 	interface Props {
 		itinerary: Itinerary;
@@ -168,7 +174,14 @@
 		const fare = note.amount
 			? `${note.estimated ? 'about ' : ''}${note.text} each way`
 			: note.text.toLocaleLowerCase();
-		return `${transferModeLabel(toHotel.mode)}, ${formatDuration(toHotel.duration)} from the airport, ${fare}`;
+		// Issue #290: `duration` is landing to doorstep and this sentence puts a mode label in
+		// front of it, so it has to quote the ride. The walk-out follows as its own sentence
+		// rather than being dropped: the two time lines at the top of this same block are
+		// built off the full duration, and "from 12:48am" beside a bare 38m would look like an
+		// arithmetic mistake.
+		const ride = `${transferModeLabel(toHotel.mode)}, ${formatDuration(transferRideDuration(toHotel))} from the airport, ${fare}`;
+		const walkOut = landingBufferNote(toHotel);
+		return walkOut ? `${ride}. ${walkOut}` : ride;
 	});
 
 	/**

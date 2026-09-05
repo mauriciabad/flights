@@ -656,3 +656,36 @@ describe('TransportPicker: telling "no service" from "nobody asked" (issue #135)
 		expect(root.querySelector('[data-testid="transit-notice"]')).toBeNull();
 	});
 });
+
+describe('TransportPicker: comparing rides, not paddings (issue #290)', () => {
+	/** Every candidate on a leg that starts at a runway carries the same buffer, because both
+	 * pipelines that apply it map over the whole list rather than the pick alone. A picker
+	 * printing the padded totals therefore moves every row by the same 30 minutes and
+	 * squeezes the gaps a traveller is there to compare. */
+	const taxi: Transfer = { mode: 'taxi', duration: 68 as Duration, landingBuffer: 30 as Duration, legs: [] };
+	const bus: Transfer = { mode: 'transit', duration: 85 as Duration, landingBuffer: 30 as Duration, legs: [] };
+
+	it('prints each option as long as its own journey takes', () => {
+		const root = mountPicker({ itinerary: baseItinerary(taxi), alternatives: [taxi, bus] });
+		const durations = [...root.querySelectorAll('.row-duration')].map((row) => normalizedText(row as HTMLElement));
+		// Transit first, then the road modes, which is the picker's own ranking.
+		expect(durations).toEqual(['55m', '38m']);
+		// Padded, these read 1h 25m and 1h 8m: a 17-minute gap dressed up as the same gap
+		// between two much longer journeys.
+		expect(durations).not.toContain('1h 8m');
+		expect(durations).not.toContain('1h 25m');
+	});
+
+	it('states the buffer once for the whole list, since every row carries the same one', () => {
+		const root = mountPicker({ itinerary: baseItinerary(taxi), alternatives: [taxi, bus] });
+		const notices = normalizedText(root);
+		expect(notices).toContain('Every option here starts 30m after you land');
+		expect([...root.querySelectorAll('.picker-landing-buffer')]).toHaveLength(1);
+	});
+
+	it('says nothing on a leg that ends at a gate, which is never padded', () => {
+		const unbuffered: Transfer = { mode: 'taxi', duration: 38 as Duration, legs: [] };
+		const root = mountPicker({ itinerary: baseItinerary(unbuffered), alternatives: [unbuffered] });
+		expect(normalizedText(root)).not.toContain('after you land');
+	});
+});
