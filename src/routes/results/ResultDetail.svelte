@@ -310,8 +310,15 @@
 				<div class="stay-notice" data-testid="stay-notice">
 					<p>
 						<strong>{asSentence(noStaysNotice.title)}</strong>
-						{noStaysNotice.description}{#if noStaysNotice.action}
-							<a href="{base}{noStaysNotice.action.href}">{noStaysNotice.action.label}</a>{/if}
+						<!-- The line break belongs OUTSIDE the block. Svelte trims whitespace at the
+						     start of a block's content, so the newline this used to have after
+						     `{#if}` was not a space and the sentence ran on as "...than hostels
+						     do.Add an Agoda key". Between two siblings it collapses to one space,
+						     which is what a sentence followed by a link needs. -->
+						{noStaysNotice.description}
+						{#if noStaysNotice.action}<a href="{base}{noStaysNotice.action.href}"
+								>{noStaysNotice.action.label}</a
+							>{/if}
 					</p>
 					<!-- Issue #203: the provider's own sentence and status code, verbatim, in its
 					     own type rather than folded into ours. The reader can tell which words are
