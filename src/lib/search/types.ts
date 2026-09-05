@@ -406,16 +406,35 @@ export interface SearchSnapshot {
 	hasDirectRoute: boolean;
 }
 
+/** The dates one leg may depart on. Both ends inclusive, and for the confirm tier they are
+ * normally the same day. */
+export interface DepartureWindow {
+	earliest: IsoCalendarDate;
+	latest: IsoCalendarDate;
+}
+
 /** One connection candidate the caller wants confirmed with a metered provider, for a
  * specific (ideally narrow — PROVIDERS.md: "Skyscanner is spent, deliberately and visibly,
- * on that one route and date") departure window. Narrower than the original `SearchQuery`'s
- * whole range on purpose: `widenSearch` never re-derives a date range on its own, so a
- * caller cannot accidentally re-trigger the exact fan-out that burns the monthly quota in
- * one search (docs/PROVIDERS.md: "A ten-day window over two legs is 20 requests"). */
+ * on that one route and date") departure window on each of its two legs. Narrower than the
+ * original `SearchQuery`'s whole range on purpose: `widenSearch` never re-derives a date
+ * range on its own, so a caller cannot accidentally re-trigger the exact fan-out that burns
+ * the monthly quota in one search (docs/PROVIDERS.md: "A ten-day window over two legs is 20
+ * requests").
+ *
+ * Issue #244: this used to carry one window, for the outbound leg only, and `widenSearch`
+ * narrowed only the two departure fields of the query it ran. The onward leg kept the
+ * trip's whole arrival window, so a "confirm this one date" was eight requests on the
+ * acceptance search rather than two. Build one with `confirmTargetFor`
+ * (`confirm-target.ts`) rather than by hand: it is the same function the cost estimate
+ * reads, which is what keeps the quoted price and the spent price the same number. */
 export interface WidenTarget {
 	candidateAirportCode: IataAirportCode;
-	earliestDeparture: IsoCalendarDate;
-	latestDeparture: IsoCalendarDate;
+	/** When the leg out of the query's origin airport departs. */
+	outboundDeparture: DepartureWindow;
+	/** When the leg out of the stopover departs. Not derivable from the outbound window:
+	 * it depends on how many nights the traveller is staying, which only the itinerary in
+	 * front of them knows. */
+	onwardDeparture: DepartureWindow;
 }
 
 /**

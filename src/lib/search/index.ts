@@ -6,6 +6,7 @@
  */
 
 export { runSearch, widenSearch, widenWithPriceCalendar } from './pipeline';
+export { confirmTargetFor, narrowToConfirmTarget } from './confirm-target';
 export { estimatePriceCalendarWidenCost } from './price-calendar';
 export type { PriceCalendarDay, PriceCalendarOutcome, PriceCalendarQuery } from './price-calendar';
 export { groupItineraryResults } from './group';
@@ -16,6 +17,7 @@ export { DEFAULT_STAY_RADIUS_KM } from './resources';
 export type {
 	ConnectionCandidate,
 	ConnectionTransferOptions,
+	DepartureWindow,
 	ItineraryGroup,
 	ItineraryResult,
 	ItinerarySources,
