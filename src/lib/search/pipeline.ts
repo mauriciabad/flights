@@ -421,13 +421,32 @@ interface CandidateOutcome {
 
 /**
  * Everything issue #56's algorithm steps 2-5 do for one connection candidate: fetch both
- * legs' flights and the candidate's stay/transfer resources (concurrently — neither depends
- * on the other), assemble whatever itineraries that data supports, score them, and attach
- * provenance. Returns an empty list, never a throw, for every way a candidate can fail to
- * pan out (no airport record, no flights either direction, no stay reachable, or a
- * currency mismatch `buildItineraries` itself refuses to total) — "one provider failing
- * must never fail a search" applies at the granularity of one candidate here, not just one
- * provider.
+ * legs' flights, then the candidate's stay and transfer resources, assemble whatever
+ * itineraries that data supports, score them, and attach provenance. Returns an empty list,
+ * never a throw, for every way a candidate can fail to pan out (no airport record, no
+ * flights either direction, no stay reachable, or a currency mismatch `buildItineraries`
+ * itself refuses to total) — "one provider failing must never fail a search" applies at the
+ * granularity of one candidate here, not just one provider.
+ *
+ * ## Why the two fetches are sequential
+ *
+ * They used to run in one `Promise.all`, on the reasoning that neither depends on the other.
+ * They do not, but the *candidate* depends on the flights: two lines below, a candidate with
+ * no offers on either leg is dropped, and everything the resource fetch spent on it is
+ * spent on a stopover nobody will ever be shown.
+ *
+ * Measured on `/results/?dep=2026-10-01&arr=2026-10-20&from=BCN&to=TLL` with every keyless
+ * provider answering from a fixture, the search `provider-answered-nothing.spec.ts` uses
+ * precisely because it finds nothing: 28 OSRM route requests, all 28 distinct, eleven
+ * candidate cities routed in both directions, and not one itinerary at the end of it. The
+ * same fan-out spends Hostelworld lookups, and with a key configured it spends Booking and
+ * Agoda ones, which is the owner's own metered quota (AGENTS.md, "The owner's quota is real
+ * money he told us he would not spend").
+ *
+ * The cost of the swap is that a candidate which does have flights starts its resource
+ * lookups after them rather than alongside. That is the right way round: this app asks a
+ * volunteer-run router and a metered hotel API about a place only once it knows the
+ * traveller can get there.
  */
 async function processCandidate(input: ProcessCandidateInput): Promise<CandidateOutcome> {
 	const empty: CandidateOutcome = {
@@ -454,37 +473,40 @@ async function processCandidate(input: ProcessCandidateInput): Promise<Candidate
 		input.currency
 	);
 
-	const [{ outboundOffers, onwardOffers }, resources] = await Promise.all([
-		input.fetchLegs(outboundQuery, onwardQuery),
-		fetchConnectionResources({
-			connectionCoordinates: connectionAirport.coordinates,
-			connectionAirportSize: connectionAirport.sizeClass,
-			connectionCountryCode: connectionAirport.country.isoCode,
-			// Issue #161: `undefined` for every airport without a hand-checked city point
-			// (issue #162), which leaves the two in-city legs exactly as empty as before.
-			connectionCityCentre: connectionAirport.city.coordinates,
-			stayProviders: input.stayProviders,
-			transferProviders: input.transferProviders,
-			keys: input.keys,
-			signal: input.signal,
-			stayRadiusKm: input.stayRadiusKm,
-			checkIn: input.query.soonestDeparture,
-			checkOut: input.query.latestArrival,
-			landingToTransportRules: input.landingToTransportRules,
-			sources: input.sources,
-			record: input.record,
-			travellers: input.query.travellers,
-			females: input.query.females,
-			currency: input.currency,
-			stayLookupBudget: input.stayLookupBudget
-		})
-	]);
+	const { outboundOffers, onwardOffers } = await input.fetchLegs(outboundQuery, onwardQuery);
 
 	if (input.signal.aborted) return empty;
-	// Issue #94: `resources` itself is never `undefined` any more — a missing stay
-	// degrades `resources.stay` to `undefined` rather than dropping the candidate, so the
-	// only thing that still empties this candidate outright is having no flights at all.
+	// Nothing flies this way, so nothing below is worth asking about. See this function's
+	// own comment for what asking anyway cost.
 	if (outboundOffers.length === 0 || onwardOffers.length === 0) return empty;
+
+	// Issue #94: `resources` itself is never `undefined` — a missing stay degrades
+	// `resources.stay` to `undefined` rather than dropping the candidate, so having no
+	// flights, checked above, is the only thing that still empties one outright.
+	const resources = await fetchConnectionResources({
+		connectionCoordinates: connectionAirport.coordinates,
+		connectionAirportSize: connectionAirport.sizeClass,
+		connectionCountryCode: connectionAirport.country.isoCode,
+		// Issue #161: `undefined` for every airport without a hand-checked city point
+		// (issue #162), which leaves the two in-city legs exactly as empty as before.
+		connectionCityCentre: connectionAirport.city.coordinates,
+		stayProviders: input.stayProviders,
+		transferProviders: input.transferProviders,
+		keys: input.keys,
+		signal: input.signal,
+		stayRadiusKm: input.stayRadiusKm,
+		checkIn: input.query.soonestDeparture,
+		checkOut: input.query.latestArrival,
+		landingToTransportRules: input.landingToTransportRules,
+		sources: input.sources,
+		record: input.record,
+		travellers: input.query.travellers,
+		females: input.query.females,
+		currency: input.currency,
+		stayLookupBudget: input.stayLookupBudget
+	});
+
+	if (input.signal.aborted) return empty;
 
 	try {
 		const itineraries = buildItineraries({
