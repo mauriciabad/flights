@@ -1254,6 +1254,20 @@ foot and ~51 km/h for car. Also verified with CORS `*`. The transfers/osrm.ts ad
 uses `routing.openstreetmap.de` for this reason; re-verify before assuming
 `router.project-osrm.org` is safe to use for anything but driving.
 
+"Do not hammer it" is enforced in the adapter, and only started working in #213. The
+wiki asks for no more than a request a second, and the code kept a `lastRequestAt`
+timestamp to honour that — but a dozen concurrent lookups all read the same stale value,
+all slept the same 1100 ms and all fired together, so the gap fell between bursts rather
+than between requests. `waitForRateLimit` now chains, and a cold search on the acceptance
+trip sends its eight requests 1.1 s apart over 7.7 s instead of at once. Measured with
+`tools/probe-osrm-requests.mjs`, which prints the count, the repeats, the reversed pairs
+and the gaps between sends. Before the fix, five of twelve requests came back refused;
+after it, none did.
+
+Each stopover is still two requests, one per direction, and that is on purpose: a drive
+from the airport and the drive back are different journeys on a real road network, and
+printing one leg's duration for the other would be presenting an estimate as a fact.
+
 **OurAirports** publishes a 12 MB public-domain CSV of every airport. Filter it at build
 time. Never ship it to a phone.
 

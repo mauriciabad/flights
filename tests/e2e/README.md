@@ -49,6 +49,13 @@ mock function there, add a realistic fixture under `tests/e2e/fixtures/`, and ad
 to `tests/e2e/fixtures/README.md` saying what the fixture models. The network guard blocks
 by default, so a new provider is unreachable in tests until you do this — that's the point.
 
+**Then add it to `fixture-mappers.spec.ts`,** which runs every fixture in that directory
+through the code that reads its shape and fails when one has no entry. A fixture the app
+cannot read looks exactly like one that works: `transitous/plan.json` had no `duration` on
+its leg, the mapper was right to refuse it, and both suites measured the
+malformed-response branch for months without a single test disagreeing (issues #194,
+#242). Two more fixtures had the same defect and are fixed in that spec's PR.
+
 ## Fixture values are worthless on purpose
 
 Realistic **shape**, worthless **values**. Prices, flight numbers and place names come
