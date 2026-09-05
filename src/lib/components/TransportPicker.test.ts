@@ -689,3 +689,139 @@ describe('TransportPicker: comparing rides, not paddings (issue #290)', () => {
 		expect(normalizedText(root)).not.toContain('after you land');
 	});
 });
+
+describe('TransportPicker: a fare priced for the party (issue #344)', () => {
+	/** A ride rated for four, the way `taxi-rate-table.ts` rates one: the bounds are the
+	 * party's, and `party` carries the car it is and the share each. */
+	const forFour: FareEstimate = {
+		kind: 'estimate',
+		currency: 'EUR',
+		lowMinorUnits: 6000,
+		highMinorUnits: 8000,
+		countryCode: 'FR',
+		rateSource: 'country',
+		citation: 'French national per-km ceiling, service-public.gouv.fr',
+		party: {
+			basis: 'per-vehicle',
+			people: 4,
+			vehicles: 1,
+			perVehicleLowMinorUnits: 6000,
+			perVehicleHighMinorUnits: 8000,
+			perPersonLowMinorUnits: 1500,
+			perPersonHighMinorUnits: 2000
+		}
+	};
+
+	function nightBus(): Transfer {
+		return {
+			mode: 'transit',
+			duration: 25 as Duration,
+			legs: [],
+			transitSchedule: {
+				intended: localDateTime('2026-06-01T05:20:00'),
+				following: [],
+				plannedFor: departAfter('2026-06-01T01:00:00')
+			}
+		};
+	}
+
+	it('says what the car costs the party and what that is each', () => {
+		const itinerary = baseItinerary({ mode: 'walk', duration: 40 as Duration, legs: [] });
+		const root = mountPicker({
+			itinerary,
+			alternatives: [{ mode: 'taxi', duration: 18 as Duration, legs: [], fareEstimate: forFour }],
+			referenceMoment: localDateTime('2026-06-01T01:00:00')
+		});
+
+		const text = normalizedText(root);
+		expect(text).toContain('€60.00-€80.00');
+		expect(text).toContain('for 4');
+		// The number that compares with four bus tickets, which is the comparison the issue
+		// was opened about and the one the app could not previously make.
+		expect(text).toContain('€15.00-€20.00 each');
+	});
+
+	it('puts the party into the sentence that offers the taxi against a dead timetable', () => {
+		const itinerary = baseItinerary({ mode: 'walk', duration: 40 as Duration, legs: [] });
+		const root = mountPicker({
+			itinerary,
+			alternatives: [nightBus(), { mode: 'taxi', duration: 18 as Duration, legs: [], fareEstimate: forFour }],
+			referenceMoment: localDateTime('2026-06-01T01:00:00')
+		});
+
+		const text = normalizedText(root);
+		expect(text).toContain('costs roughly €60.00-€80.00 for 4, about €15.00-€20.00 each');
+		// The other half of comparing honestly: Transitous quotes no ticket price, so the
+		// taxi figure must not sit beside a blank looking like a saving.
+		expect(text).toContain('No ticket price came back for this public transport');
+	});
+
+	it('names the second car rather than dividing one four ways too many', () => {
+		const itinerary = baseItinerary({ mode: 'walk', duration: 40 as Duration, legs: [] });
+		const forFive: FareEstimate = {
+			...forFour,
+			lowMinorUnits: 12_000,
+			highMinorUnits: 16_000,
+			party: {
+				basis: 'per-vehicle',
+				people: 5,
+				vehicles: 2,
+				perVehicleLowMinorUnits: 6000,
+				perVehicleHighMinorUnits: 8000,
+				perPersonLowMinorUnits: 2400,
+				perPersonHighMinorUnits: 3200
+			}
+		};
+
+		const root = mountPicker({
+			itinerary,
+			alternatives: [{ mode: 'taxi', duration: 18 as Duration, legs: [], fareEstimate: forFive }],
+			referenceMoment: localDateTime('2026-06-01T01:00:00')
+		});
+
+		const text = normalizedText(root);
+		expect(text).toContain('for 5 in 2 taxis');
+		expect(text).toContain('€120.00-€160.00');
+		expect(text).toContain('2 cars for the 5 of you');
+	});
+
+	it('refuses to split a fare whose basis nobody checked, and says so', () => {
+		const itinerary = baseItinerary({ mode: 'walk', duration: 40 as Duration, legs: [] });
+		const unchecked: FareEstimate = {
+			kind: 'estimate',
+			currency: 'EUR',
+			lowMinorUnits: 4000,
+			highMinorUnits: 9000,
+			countryCode: 'ZZ',
+			rateSource: 'fallback',
+			citation: 'No rate card for this country.',
+			party: { basis: 'unknown', people: 4 }
+		};
+
+		const root = mountPicker({
+			itinerary,
+			alternatives: [{ mode: 'taxi', duration: 18 as Duration, legs: [], fareEstimate: unchecked }],
+			referenceMoment: localDateTime('2026-06-01T01:00:00')
+		});
+
+		const text = normalizedText(root);
+		expect(text).not.toContain('for 4');
+		expect(text).not.toContain('each');
+		expect(text).toContain('whether a taxi here charges by the car or by the seat is unchecked');
+	});
+
+	it('says nothing about a party of one, where the car and the head are one number', () => {
+		const itinerary = baseItinerary({ mode: 'walk', duration: 40 as Duration, legs: [] });
+		const alone: FareEstimate = { ...forFour, party: undefined };
+		const root = mountPicker({
+			itinerary,
+			alternatives: [{ mode: 'taxi', duration: 18 as Duration, legs: [], fareEstimate: alone }],
+			referenceMoment: localDateTime('2026-06-01T01:00:00')
+		});
+
+		const text = normalizedText(root);
+		expect(text).toContain('€60.00-€80.00');
+		expect(text).not.toContain('for 1');
+		expect(text).not.toContain('each');
+	});
+});

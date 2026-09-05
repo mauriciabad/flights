@@ -19,6 +19,7 @@ import {
 	summariseTransferLegs,
 	transferDetailLine,
 	transferFareNote,
+	transitDepartureWaitNote,
 	unroutedLegNote
 } from './itinerary-timeline-format';
 
@@ -378,6 +379,83 @@ describe('transferFareNote (issues #119, #249)', () => {
 		});
 	});
 
+	it('names the party and the share when the ride was rated for one (issue #344)', () => {
+		const forFour = ride('taxi', {
+			fareEstimate: {
+				kind: 'estimate',
+				currency: 'EUR',
+				lowMinorUnits: 6000,
+				highMinorUnits: 8000,
+				countryCode: 'FR',
+				rateSource: 'country',
+				citation: 'French national per-km ceiling',
+				party: {
+					basis: 'per-vehicle',
+					people: 4,
+					vehicles: 1,
+					perVehicleLowMinorUnits: 6000,
+					perVehicleHighMinorUnits: 8000,
+					perPersonLowMinorUnits: 1500,
+					perPersonHighMinorUnits: 2000
+				}
+			}
+		});
+		expect(transferFareNote(forFour)).toEqual({
+			text: '\u20ac60.00-\u20ac80.00',
+			amount: true,
+			estimated: true,
+			unknown: false,
+			audience: 'for 4',
+			each: '\u20ac15.00-\u20ac20.00 each'
+		});
+	});
+
+	it('counts the cars in the audience rather than hiding a second one (issue #344)', () => {
+		const forFive = ride('taxi', {
+			fareEstimate: {
+				kind: 'estimate',
+				currency: 'EUR',
+				lowMinorUnits: 12_000,
+				highMinorUnits: 16_000,
+				countryCode: 'FR',
+				rateSource: 'country',
+				citation: 'French national per-km ceiling',
+				party: {
+					basis: 'per-vehicle',
+					people: 5,
+					vehicles: 2,
+					perVehicleLowMinorUnits: 6000,
+					perVehicleHighMinorUnits: 8000,
+					perPersonLowMinorUnits: 2400,
+					perPersonHighMinorUnits: 3200
+				}
+			}
+		});
+		expect(transferFareNote(forFive).audience).toBe('for 5 in 2 taxis');
+		expect(transferFareNote(forFive).each).toBe('\u20ac24.00-\u20ac32.00 each');
+	});
+
+	it('refuses to word a split it is not licensed to make (issue #344)', () => {
+		// The fallback rate card. Whether a taxi in an unlisted country charges by the car or
+		// by the seat is exactly what having no card means, so the row says the figure and
+		// nothing about heads.
+		const unchecked = ride('taxi', {
+			fareEstimate: {
+				kind: 'estimate',
+				currency: 'EUR',
+				lowMinorUnits: 4000,
+				highMinorUnits: 9000,
+				countryCode: 'ZZ',
+				rateSource: 'fallback',
+				citation: 'No rate card for this country.',
+				party: { basis: 'unknown', people: 4 }
+			}
+		});
+		expect(transferFareNote(unchecked).audience).toBeUndefined();
+		expect(transferFareNote(unchecked).each).toBeUndefined();
+		expect(transferFareNote(unchecked).text).toBe('\u20ac40.00-\u20ac90.00');
+	});
+
 	it('never prints a bare zero for any mode, in either form', () => {
 		// The owner's complaint in full: "price of walk is 0\u20ac". A zero next to real
 		// fares invites a comparison the number cannot support, whatever the mode.
@@ -540,5 +618,28 @@ describe('the buffer a whole picker shares (issue #290)', () => {
 	it('says nothing when there is no shared padding to disclose', () => {
 		expect(landingBufferPickerNote(0 as Duration)).toBeUndefined();
 		expect(landingBufferPickerNote(undefined)).toBeUndefined();
+	});
+});
+
+describe('transitDepartureWaitNote (issue #344)', () => {
+	const intended = localDateTime('2026-10-07T05:49:00', 'Europe/London', 60);
+
+	it('names the hour and how long after landing it is', () => {
+		// #282's own example, which that PR flagged and left: a press replaced a 35-minute
+		// taxi with a bus at 5:49am, nine hours after the traveller lands.
+		expect(transitDepartureWaitNote(540 as Duration, intended)).toBe(
+			'First departure 5:49am, 9h after you land.'
+		);
+	});
+
+	it('stays quiet about a wait the traveller would have had anyway', () => {
+		// A headway, not a dead spot. Saying it on every transit row in the app would bury the
+		// one row where it matters.
+		expect(transitDepartureWaitNote(20 as Duration, intended)).toBeUndefined();
+		expect(transitDepartureWaitNote(0 as Duration, intended)).toBeUndefined();
+	});
+
+	it('says nothing when there is no wait to speak of', () => {
+		expect(transitDepartureWaitNote(undefined, intended)).toBeUndefined();
 	});
 });

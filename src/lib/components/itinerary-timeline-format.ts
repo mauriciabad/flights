@@ -12,6 +12,8 @@
 
 import type {
 	Duration,
+	FareParty,
+	FareRange,
 	LocalDateTime,
 	Transfer,
 	TransferAnchor,
@@ -20,6 +22,7 @@ import type {
 	TransitPlanMoment
 } from '../domain';
 import { groundFare } from '../domain';
+import { NORMAL_WAIT_THRESHOLD_MINUTES } from '../algorithm/transit-schedule';
 import type { WithheldRoutes } from '../search/types';
 import { formatClockTime, formatDuration, formatMoney, formatMoneyRange } from '$lib/format';
 
@@ -193,6 +196,57 @@ export function formatKilometres(km: number): string {
 }
 
 /**
+ * What a timeline row says about the hour its bus actually leaves at. Issue #344.
+ *
+ * The owner's case, in his words: land at 3am, the metro is closed, and the answer is a
+ * night bus or a taxi. The app already plans for the right moment (#135) and already picks
+ * transit whenever transit exists, so the row it produces is a real timetable for a real
+ * journey with a wait in front of it that nothing said out loud. `5:49am` in the row's
+ * clock column is true and quiet; nine hours after landing is the fact that changes a
+ * decision.
+ *
+ * Said only when the wait is longer than a headway. Under that it is not news, and
+ * `NORMAL_WAIT_THRESHOLD_MINUTES` carries the argument for where the line is. `undefined`
+ * otherwise, and the row says nothing, which is what it did before.
+ *
+ * This deliberately does not change which transfer is the pick. See
+ * `search/transit-schedule.ts`'s `fetchTransitSchedules` for why that rule stayed and what
+ * it would take to move it.
+ */
+export function transitDepartureWaitNote(wait: Duration | undefined, intended: LocalDateTime): string | undefined {
+	if (wait === undefined || wait <= NORMAL_WAIT_THRESHOLD_MINUTES) return undefined;
+	return `First departure ${formatClockTime(intended)}, ${formatDuration(wait)} after you land.`;
+}
+
+/**
+ * Who a fare range covers, in the words a row prints. Issue #344.
+ *
+ * Shared by the transport picker and the receipt so one trip cannot say "for 4" in one
+ * place and nothing in the other about the same ride. `undefined` for a party of one and
+ * for a rate card whose basis is unchecked, which are the two cases `FareParty` exists to
+ * keep apart from each other and from a party fare.
+ *
+ * The car count is in the sentence whenever there is more than one, because "for 5" over a
+ * figure that is really two taxis is the kind of quiet arithmetic this app keeps having to
+ * undo. See `TAXI_SEATS_PER_VEHICLE` for why five people are two cars.
+ */
+export function fareAudience(party: FareParty | undefined): string | undefined {
+	if (party === undefined || party.basis === 'unknown') return undefined;
+	return party.vehicles > 1
+		? `for ${party.people} in ${party.vehicles} taxis`
+		: `for ${party.people}`;
+}
+
+/** What one traveller pays of `estimate` if the party splits it, or nothing when nothing
+ * licenses the division. Issue #344, and absent in exactly the cases `fareAudience` is.
+ * Unexported because a caller wanting this wants the whole note. */
+function fareEachShare(estimate: FareRange): string | undefined {
+	const { party } = estimate;
+	if (party === undefined || party.basis === 'unknown') return undefined;
+	return `${formatMoneyRange(party.perPersonLowMinorUnits, party.perPersonHighMinorUnits, estimate.currency)} each`;
+}
+
+/**
  * What one transfer row prints where a price goes, and what kind of claim it is making.
  *
  * Three booleans over five states rather than the state itself, because they are the three
@@ -205,6 +259,16 @@ export interface TransferFareNote {
 	/** `text` is a figure, so a sentence can append "each way" to it and a column can set it
 	 * in tabular numerals. True for a quote and for a range. */
 	amount: boolean;
+	/** Who `text` covers, when that is worth saying: "for 4", or "for 5 in 2 taxis". Issue
+	 * #344, and `undefined` for a lone traveller, where the party's fare and the head's are
+	 * the same number, and for a rate card whose basis nobody has checked, where the
+	 * division is not licensed. Same rule and the same wording as `NightlyRate.audience`
+	 * next door in `stays/pricing.ts`. */
+	audience?: string;
+	/** What one of the party pays if they split `text`: "about €13-€20 each". Present with
+	 * `audience` and absent without it. This is the figure that compares with a bus ticket,
+	 * which is the comparison issue #344 was opened about. */
+	each?: string;
 	/** A rate-card range rather than a fare anybody quoted, so a caller can tag it the way
 	 * `TransportPicker` and `PriceLine` both do. Never true unless `amount` is. */
 	estimated: boolean;
@@ -255,7 +319,9 @@ export function transferFareNote(transfer: Transfer, compact = false): TransferF
 				),
 				amount: true,
 				estimated: true,
-				unknown: false
+				unknown: false,
+				audience: fareAudience(fare.estimate.party),
+				each: fareEachShare(fare.estimate)
 			};
 		case 'beyond-rate-card':
 			// Issue #246. The column is too narrow for the reason; `TransportPicker`'s own

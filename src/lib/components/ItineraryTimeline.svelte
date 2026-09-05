@@ -71,7 +71,7 @@
 	import type { Airport, Duration, FlightOffer, Itinerary, LocalDateTime, Location, TransitLegField } from '../domain';
 	import { transferRideDuration } from '../domain';
 	import { isOvernightWait } from '../algorithm/nights';
-	import { readMissedService, readStaleSchedule } from '../algorithm/transit-schedule';
+	import { readMissedService, readStaleSchedule, transitDepartureWait } from '../algorithm/transit-schedule';
 	import type { ItinerarySegmentId } from '../itinerary-map/segment-id';
 	import {
 		formatClockTime,
@@ -83,6 +83,7 @@
 		staleScheduleNote,
 		transferDetailLine,
 		transferFareNote,
+		transitDepartureWaitNote,
 		unroutedLegNote
 	} from './itinerary-timeline-format';
 	import type { UnroutedLeg } from './itinerary-timeline-format';
@@ -420,6 +421,14 @@
 						<p class="tl-note tl-note-warning">{staleScheduleNote(schedule.plannedFor, staleAt)}</p>
 					{:else}
 						{@const missed = readMissedService(schedule)}
+						<!-- Issue #344. The clock in the WHEN column says 5:49am; this says it is nine
+						     hours after the traveller lands, which is the half that changes a decision.
+						     Above the miss-it notes on purpose: what this bus costs you to catch comes
+						     before what it costs you to miss. -->
+						{@const waitNote = transitDepartureWaitNote(transitDepartureWait(itinerary, field), schedule.intended)}
+						{#if waitNote}
+							<p class="tl-note tl-note-warning">{waitNote}</p>
+						{/if}
 						{#if missed.outcome === 'last-in-time'}
 							<p class="tl-note tl-note-warning">
 								Last departure that still gets you there by {formatClockTime(schedule.plannedFor.time)}.

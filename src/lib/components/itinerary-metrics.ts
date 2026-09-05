@@ -24,6 +24,7 @@ import { groundFare, unpricedTransferLegs, walkedTransferLegs } from '$lib/domai
 import { scaleFareForParty, sumMoney } from '$lib/algorithm/build';
 import { formatDuration, formatLongDuration, formatMoney, formatMoneyRange } from '$lib/format';
 import { bedNightlyRate } from '$lib/stays/pricing';
+import { fareAudience } from './itinerary-timeline-format';
 import { freeTimeDays } from './free-time-days';
 
 export type ItineraryMetricId =
@@ -306,6 +307,11 @@ export type GroundRowCost =
 			 * because that is the one a traveller can hold against the total above it, and
 			 * names the original underneath, because that is the one the driver charges. */
 			converted?: FareConversion;
+			/** Who the range covers, when the ride was rated for a party. Issue #344, and see
+			 * `fareAudience`: absent for a lone traveller and for a rate card whose basis is
+			 * unchecked, which is why this is a string the picker also prints rather than a
+			 * count this row would have to word for itself. */
+			audience?: string;
 	  }
 	| { kind: 'unknown' };
 
@@ -469,7 +475,8 @@ function costOf(transfer: Transfer): GroundRowCost {
 				currency: fare.estimate.currency,
 				lowMinorUnits: fare.estimate.lowMinorUnits,
 				highMinorUnits: fare.estimate.highMinorUnits,
-				converted: fare.estimate.converted
+				converted: fare.estimate.converted,
+				audience: fareAudience(fare.estimate.party)
 			};
 		case 'beyond-rate-card':
 		case 'unquoted':
@@ -501,11 +508,16 @@ function mergeHotelCosts(a: GroundRowCost, b: GroundRowCost): GroundRowCost | un
 		// merged row that dropped the source would be the converted figure standing alone
 		// with nothing saying what it came from.
 		if (a.converted?.from !== b.converted?.from) return undefined;
+		// Issue #344, and the same rule one field along: two legs rated for different parties
+		// cannot share a row that names one of them. In practice they never are, since both
+		// hotel-side legs are rated from the same `SearchQuery.travellers`.
+		if (a.audience !== b.audience) return undefined;
 		return {
 			kind: 'estimated',
 			currency: a.currency,
 			lowMinorUnits: a.lowMinorUnits + b.lowMinorUnits,
 			highMinorUnits: a.highMinorUnits + b.highMinorUnits,
+			audience: a.audience,
 			converted:
 				a.converted && b.converted
 					? {

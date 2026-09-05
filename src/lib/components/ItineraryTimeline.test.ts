@@ -583,3 +583,50 @@ describe('ItineraryTimeline, the row into town says what the ride costs (issue #
 		expect(rowText(root, 'transfer-to-connection-airport')).not.toContain('to get out of the airport');
 	});
 });
+
+describe('ItineraryTimeline, the hour the bus actually leaves (issue #344)', () => {
+	/** The fixture lands at 10:00 in Vienna. Give its ride into town a timetable whose first
+	 * departure is `intended`, and the row has a real wait to describe. */
+	function withDeparture(intended: string): Itinerary {
+		const base = makeItinerary();
+		return {
+			...base,
+			transferToHotel: {
+				...base.transferToHotel!,
+				mode: 'transit',
+				landingBuffer: 15 as Duration,
+				transitSchedule: {
+					intended: localDateTime(intended, 'Europe/Vienna', 120),
+					following: [],
+					plannedFor: {
+						time: localDateTime('2026-06-01T10:15:00', 'Europe/Vienna', 120),
+						arriveBy: false
+					}
+				}
+			}
+		};
+	}
+
+	function rowText(itinerary: Itinerary): string {
+		const root = renderTimeline(itinerary);
+		return (root.querySelector('[data-segment="transfer-to-hotel"]')?.textContent ?? '')
+			.replace(/\s+/g, ' ')
+			.trim();
+	}
+
+	it('names the wait, not just the clock, when the timetable has stopped', () => {
+		// #282's own example in the fixture's shape: the row's clock says the departure and
+		// nothing said how far away it is. Land at 10:00, first bus at 19:00.
+		expect(rowText(withDeparture('2026-06-01T19:00:00'))).toContain(
+			'First departure 7pm, 9h after you land.'
+		);
+	});
+
+	it('stays quiet about a wait the traveller would have had anyway', () => {
+		expect(rowText(withDeparture('2026-06-01T10:12:00'))).not.toContain('First departure');
+	});
+
+	it('says nothing on a road leg, which has no timetable to wait for', () => {
+		expect(rowText(makeItinerary())).not.toContain('First departure');
+	});
+});

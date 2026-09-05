@@ -182,8 +182,19 @@
 					{#if row.cost.kind === 'quoted'}
 						<span class="price-part-amount font-mono tabular-nums">{formatMoney(row.cost.money)}</span>
 					{:else if row.cost.kind === 'estimated'}
+						<!-- Issue #344: the range is what the party pays, the same footing as the
+						     flights and the room above it, so the row says who that is, in the
+						     same span and the same words the hotel rate two rows up already uses
+						     ("EUR 30.00/night for 3"). The per-head share is deliberately not
+						     here: every other line of this receipt is a party total, and one line
+						     quietly switching to a per-person figure is the confusion this issue
+						     was opened about. The picker does the splitting, beside the bus it is
+						     being compared with. -->
 						<span class="price-part-amount font-mono tabular-nums"
-							>{formatMoneyRange(row.cost.lowMinorUnits, row.cost.highMinorUnits, row.cost.currency)}</span
+							>{formatMoneyRange(row.cost.lowMinorUnits, row.cost.highMinorUnits, row.cost.currency)}{row.cost
+								.audience
+								? ` ${row.cost.audience}`
+								: ''}</span
 						>
 					{:else if row.cost.kind === 'free'}
 						<span class="price-part-amount">free</span>
