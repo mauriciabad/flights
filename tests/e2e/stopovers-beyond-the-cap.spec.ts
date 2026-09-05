@@ -41,6 +41,25 @@ const EMPTY_MAP_STYLE = JSON.stringify({ version: 8, name: 'empty', sources: {},
  * rule) and the search built nothing for a reason the spec never mentioned. #354's guard
  * found that, which is exactly the class of thing it was built for.
  */
+/**
+ * The candidate universe each test needs, stated rather than inherited.
+ *
+ * This spec counts stopovers confirmed past the cap, so it needs a known number of them.
+ * It used to get one from whatever the bundled sources happened to confirm, which was ten
+ * for TLL and eight for HEL. Issue #361 vendored an all-carrier route graph and BCN to TLL
+ * now confirms 49, so the counts and the names moved and neither number was ever written
+ * down as a choice.
+ *
+ * `via` is `allowedConnectionAirports`, so these lists ARE the universe. Ten for TLL gives
+ * the cap of six something to drop, and eight for HEL is exactly what #115's fallback sweep
+ * re-runs at, which is why that test can assert nothing was withheld. Both are stable across
+ * a weekly regeneration of the graph in a way that "whatever ranks well today" is not.
+ */
+const VIA: Record<'TLL' | 'HEL', readonly string[]> = {
+	TLL: ['PRG', 'VIE', 'DUS', 'AMS', 'FRA', 'BUD', 'HAM', 'MUC', 'SZG', 'BER'],
+	HEL: ['PRG', 'VIE', 'DUS', 'AMS', 'FRA', 'BUD', 'HAM', 'BER']
+};
+
 async function search(page: Page, destination: 'TLL' | 'HEL', onward?: { arrival: string }) {
 	await mockAllKeylessProviders(page.context());
 	await routeRyanairFlights(page.context(), [
@@ -68,7 +87,9 @@ async function search(page: Page, destination: 'TLL' | 'HEL', onward?: { arrival
 	await page.context().route('https://basemaps.cartocdn.com/**', (route) =>
 		route.fulfill({ status: 200, contentType: 'application/json', body: EMPTY_MAP_STYLE })
 	);
-	await page.goto(`/results/?dep=2027-03-08&arr=2027-03-27&from=BCN&to=${destination}`);
+	await page.goto(
+		`/results/?dep=2027-03-08&arr=2027-03-27&from=BCN&to=${destination}&via=${VIA[destination].join(',')}`
+	);
 	await waitForSearchToSettle(page, { timeout: 20_000 });
 }
 
@@ -98,7 +119,7 @@ test.describe('stopovers confirmed past the candidate cap (issue #350)', () => {
 		// Named here, behind the tap. None of these four becomes a card, an arc or a point,
 		// so this sentence is the only place in the app they can appear at all.
 		await expect(lead).toContainText(
-			'4 more airports were confirmed on both flights and not priced: LTN, BGY, DUB and MXP.'
+			'4 more airports were confirmed on both flights and not priced: HAM, MUC, SZG and BER.'
 		);
 	});
 

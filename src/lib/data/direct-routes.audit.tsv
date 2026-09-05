@@ -1,0 +1,2427 @@
+iata	article	parsed_targets	shipped_degree	has_destination_table
+AAR	Aarhus Airport	27	17	yes
+ABJ	Félix-Houphouët-Boigny International Airport	67	13	yes
+ABZ	Aberdeen Airport	43	25	yes
+ACC	Accra International Airport	68	13	yes
+ACE	Lanzarote Airport	112	82	yes
+AER	Sochi International Airport	138	21	yes
+AGA	Agadir–Al Massira Airport	106	72	yes
+AGP	Málaga Airport	226	141	yes
+AHO	Alghero–Fertilia Airport	46	36	yes
+ALA	Almaty International Airport	140	30	yes
+ALC	Alicante–Elche Miguel Hernández Airport	170	131	yes
+ALG	Houari Boumediene Airport	100	42	yes
+AMM	Queen Alia International Airport	143	58	yes
+AMS	Amsterdam Airport Schiphol	378	164	yes
+AOI	Ancona Airport	19	13	yes
+ARN	Stockholm Arlanda Airport	227	132	yes
+ATH	Athens International Airport	264	121	yes
+AUS	Austin–Bergstrom International Airport	116	7	yes
+AYT	Antalya Airport	247	121	yes
+BBU	Bucharest Băneasa Aurel Vlaicu International Airport	22	21	yes
+BCN	Josep Tarradellas Barcelona–El Prat Airport	335	163	yes
+BDS	Brindisi Airport	72	47	yes
+BEG	Belgrade Nikola Tesla Airport	161	99	yes
+BEM	Beni Mellal Airport	4	3	yes
+BER	Berlin Brandenburg Airport	246	127	yes
+BFS	Belfast International Airport	71	61	yes
+BGO	Bergen Airport, Flesland	80	54	yes
+BGY	Milan Bergamo Airport	176	128	yes
+BHX	Birmingham Airport	168	113	yes
+BIO	Bilbao Airport	108	68	yes
+BIQ	Biarritz Pays Basque Airport	36	24	yes
+BJA	Abane Ramdane Airport	16	7	yes
+BJL	Banjul International Airport	36	17	yes
+BJV	Milas–Bodrum Airport	131	68	yes
+BKK	Suvarnabhumi Airport	268	32	yes
+BLQ	Bologna Guglielmo Marconi Airport	149	88	yes
+BNX	Banja Luka International Airport	21	12	yes
+BOD	Bordeaux–Mérignac Airport	133	85	yes
+BOH	Bournemouth Airport	42	39	yes
+BOJ	Burgas Airport	108	62	yes
+BOO	Bodø Airport	35	10	yes
+BRE	Bremen Airport	43	25	yes
+BRI	Bari Karol Wojtyła Airport	133	98	yes
+BRQ	Brno-Tuřany Airport	47	30	yes
+BRS	Bristol Airport	144	103	yes
+BRU	Brussels Airport	276	128	yes
+BSL	EuroAirport Basel–Mulhouse–Freiburg	150	99	yes
+BSZ	Manas International Airport	80	14	yes
+BTS	Bratislava Airport	90	68	yes
+BUD	Budapest Ferenc Liszt International Airport	214	139	yes
+BVA	Beauvais–Tillé Airport	89	77	yes
+BVC	Aristides Pereira International Airport	34	27	yes
+BVE	Brive–Souillac Airport	8	6	yes
+BZG	Bydgoszcz Airport	12	12	yes
+BZR	Béziers Cap d'Agde Airport	10	9	yes
+CAG	Cagliari Elmas Airport	97	67	yes
+CAI	Cairo International Airport	188	57	yes
+CCF	Carcassonne Airport	11	10	yes
+CDG	Charles de Gaulle Airport	406	143	yes
+CDT	Castellón–Costa Azahar Airport	23	18	yes
+CFU	Corfu International Airport	118	103	yes
+CGN	Cologne Bonn Airport	144	96	yes
+CHQ	Chania International Airport	98	73	yes
+CIA	Rome Ciampino Airport	28	28	yes
+CIT	Şymkent International Airport	45	15	yes
+CLJ	Cluj International Airport	74	54	yes
+CMN	Mohammed V International Airport	146	73	yes
+CPH	Copenhagen Airport	274	142	yes
+CPT	Cape Town International Airport	78	9	yes
+CRL	Brussels South Charleroi Airport	136	124	yes
+CRV	Crotone Airport	9	7	yes
+CTA	Catania–Fontanarossa Airport	146	92	yes
+CUF	Cuneo International Airport	7	4	yes
+CWL	Cardiff Airport	40	27	yes
+DBV	Dubrovnik Airport	116	74	yes
+DEN	Denver International Airport	269	10	yes
+DJE	Djerba–Zarzis International Airport	50	37	yes
+DLE	Dole–Jura Airport	7	3	yes
+DLM	Dalaman Airport	96	55	yes
+DPS	Ngurah Rai International Airport	127	10	yes
+DTM	Dortmund Airport	46	28	yes
+DUB	Dublin Airport	256	152	yes
+DUS	Düsseldorf Airport	259	122	yes
+DXB	Dubai International Airport	406	101	yes
+DYU	Dushanbe International Airport	70	18	yes
+EBL	Erbil International Airport	58	20	yes
+EDI	Edinburgh Airport	205	133	yes
+EFL	Kefalonia International Airport	65	36	yes
+EGC	Bergerac Dordogne Périgord Airport	15	10	yes
+EIN	Eindhoven Airport	66	70	yes
+EMA	East Midlands Airport	73	60	yes
+ERH	Moulay Ali Cherif Airport	7	4	yes
+ESU	Essaouira-Mogador Airport	19	13	yes
+EUN	Hassan I Airport	8	6	yes
+EVN	Zvartnots International Airport	147	60	yes
+EXT	Exeter Airport	32	20	yes
+FAE	Vágar Airport	26	10	yes
+FAO	Faro Airport	134	87	yes
+FCO	Rome Fiumicino Airport	338	163	yes
+FDH	Friedrichshafen Airport	32	13	yes
+FEZ	Fès–Saïss Airport	46	35	yes
+FKB	Karlsruhe/Baden-Baden Airport	53	42	yes
+FMM	Memmingen Airport	71	52	yes
+FMO	Münster Osnabrück Airport	29	16	yes
+FNC	Madeira Airport	67	67	yes
+FNI	Nîmes–Alès–Camargue–Cévennes Airport	6	6	yes
+FRA	Frankfurt Airport	394	160	yes
+FRL	Forlì Airport	4	4	yes
+FSC	Figari–Sud Corse Airport	33	23	yes
+FUE	Fuerteventura Airport	105	78	yes
+GDN	Gdańsk Lech Wałęsa Airport	115	89	yes
+GLA	Glasgow Airport	120	70	yes
+GNB	Alpes–Isère Airport	29	15	yes
+GOA	Genoa Cristoforo Colombo Airport	44	30	yes
+GOT	Göteborg Landvetter Airport	107	73	yes
+GRO	Girona–Costa Brava Airport	57	53	yes
+GVA	Geneva Airport	214	120	yes
+HAJ	Hannover Airport	95	51	yes
+HAM	Hamburg Airport	179	103	yes
+HEL	Helsinki Airport	165	93	yes
+HER	Heraklion International Airport "Nikos Kazantzakis"	186	110	yes
+HHN	Hahn Airport	48	40	yes
+IAS	Iași International Airport	42	33	yes
+IBZ	Ibiza Airport	131	82	yes
+INI	Niš Constantine the Great Airport	20	14	yes
+IST	Istanbul Airport	474	133	yes
+JED	King Abdulaziz International Airport	193	58	yes
+JMK	Mykonos Airport	82	39	yes
+JNX	Naxos Island National Airport	6	4	yes
+JSI	Skiathos International Airport	57	37	yes
+JTR	Santorini International Airport	99	57	yes
+KGS	Kos International Airport	117	72	yes
+KIR	Kerry Airport	13	8	yes
+KLU	Klagenfurt Airport	13	8	yes
+KLX	Kalamata International Airport	43	24	yes
+KRK	Kraków John Paul II International Airport	172	124	yes
+KRN	Kiruna Airport	8	4	yes
+KRR	Krasnodar International Airport	58	15	yes
+KSC	Košice International Airport	24	18	yes
+KTW	Katowice Airport	123	72	yes
+KUN	Kaunas Airport	35	30	yes
+KUT	Kutaisi International Airport	44	28	yes
+KZN	Kazan International Airport	125	21	yes
+LAD	Quatro de Fevereiro Airport	0	3	no
+LBA	Leeds Bradford Airport	89	71	yes
+LBC	Lübeck Airport	6	4	yes
+LCA	Larnaca International Airport	175	88	yes
+LCJ	Łódź Władysław Reymont Airport	15	12	yes
+LDE	Tarbes–Lourdes–Pyrénées Airport	15	13	yes
+LDY	City of Derry Airport	9	6	yes
+LED	Pulkovo Airport	182	26	yes
+LEI	Almería Airport	37	24	yes
+LGW	Gatwick Airport	294	138	yes
+LHR	Heathrow Airport	318	111	yes
+LIG	Limoges–Bellegarde Airport	18	14	yes
+LIL	Lille Airport	75	53	yes
+LIS	Lisbon Airport	239	112	yes
+LLA	Luleå Airport	11	6	yes
+LNZ	Linz Airport	13	9	yes
+LPA	Gran Canaria Airport	179	119	yes
+LPL	Liverpool John Lennon Airport	84	68	yes
+LRH	La Rochelle–Île de Ré Airport	16	14	yes
+LTN	Luton Airport	159	116	yes
+LUX	Luxembourg Airport	137	94	yes
+LUZ	Lublin Airport	14	11	yes
+LXS	Lemnos International Airport	15	7	yes
+LYS	Lyon–Saint-Exupéry Airport	207	114	yes
+MAD	Madrid–Barajas Airport	341	139	yes
+MAH	Menorca Airport	103	70	yes
+MAN	Manchester Airport	273	155	yes
+MCX	Uytash Airport	66	16	yes
+MEX	Mexico City International Airport	139	14	yes
+MLA	Malta International Airport	147	104	yes
+MME	Teesside International Airport	12	6	yes
+MMX	Malmö Airport	28	19	yes
+MNL	Ninoy Aquino International Airport	145	7	yes
+MRS	Marseille Provence Airport	166	105	yes
+MRV	Mineralnye Vody Airport	97	19	yes
+MUC	Munich Airport	324	152	yes
+MXP	Milan Malpensa Airport	317	141	yes
+NAP	Naples International Airport	193	120	yes
+NCE	Nice Côte d'Azur Airport	206	106	yes
+NCL	Newcastle International Airport	110	72	yes
+NDR	Nador International Airport	45	27	yes
+NKC	Nouakchott–Oumtounsy International Airport	23	8	yes
+NOC	Ireland West Airport	22	18	yes
+NQY	Newquay Airport	23	13	yes
+NQZ	Nursultan Nazarbayev International Airport	97	23	yes
+NRN	Weeze Airport	45	46	yes
+NTE	Nantes Atlantique Airport	125	86	yes
+NUE	Nuremberg Airport	87	53	yes
+NWI	Norwich Airport	20	14	yes
+OGZ	Beslan Airport	16	6	yes
+OLB	Olbia Costa Smeralda Airport	120	76	yes
+OPO	Porto Airport	191	124	yes
+ORK	Cork Airport	55	47	yes
+ORN	Ahmed Ben Bella Airport	45	17	yes
+ORY	Orly Airport	212	126	yes
+OSI	Osijek Airport	11	8	yes
+OSL	Oslo Airport, Gardermoen	205	115	yes
+OSR	Leoš Janáček Airport Ostrava	33	20	yes
+OSS	Osh Airport	50	10	yes
+OTP	Bucharest Henri Coandă International Airport	173	114	yes
+OUD	Oujda-Angad Airport	35	25	yes
+OVD	Asturias Airport	41	27	yes
+OXB	Osvaldo Vieira International Airport	14	4	yes
+OZZ	Ouarzazate Airport	8	4	yes
+PAD	Paderborn Lippstadt Airport	19	10	yes
+PDL	John Paul II Ponta Delgada Airport	42	17	yes
+PDV	Plovdiv Airport	14	9	yes
+PED	Pardubice Airport	20	13	yes
+PEG	Perugia San Francesco d'Assisi – Umbria International Airport	23	15	yes
+PEI	Matecaña International Airport	12	0	yes
+PFO	Paphos International Airport	82	60	yes
+PGF	Perpignan–Rivesaltes Airport	17	11	yes
+PIK	Glasgow Prestwick Airport	12	11	yes
+PIS	Poitiers–Biard Airport	7	3	yes
+PLQ	Palanga International Airport	15	7	yes
+PMF	Parma Airport	10	7	yes
+PMI	Palma de Mallorca Airport	276	151	yes
+PMO	Palermo Airport	150	97	yes
+POZ	Poznań–Ławica Airport	84	61	yes
+PRG	Václav Havel Airport Prague	273	149	yes
+PRN	Pristina International Airport	62	43	yes
+PSA	Pisa International Airport	103	80	yes
+PSR	Abruzzo Airport	25	22	yes
+PUY	Pula Airport	55	36	yes
+PVK	Aktion National Airport	78	45	yes
+PXO	Porto Santo Airport	13	6	yes
+QSR	Salerno Costa d'Amalfi Airport	22	19	yes
+RAI	Nelson Mandela International Airport	28	15	yes
+RAK	Marrakesh Menara Airport	165	112	yes
+RBA	Rabat–Salé Airport	54	43	yes
+RDZ	Rodez–Aveyron Airport	12	8	yes
+REC	Recife/Guararapes International Airport	55	5	yes
+REG	Reggio Calabria Airport	17	14	yes
+REU	Reus Airport	35	26	yes
+RHO	Rhodes International Airport	208	115	yes
+RIX	Riga International Airport	124	90	yes
+RJK	Rijeka Airport	28	20	yes
+RMI	Rimini Fellini Airport	31	23	yes
+RMO	Chișinău International Airport	108	72	yes
+RMU	Región de Murcia International Airport	29	23	yes
+RTM	Rotterdam The Hague Airport	63	45	yes
+RVN	Rovaniemi Airport	68	41	yes
+RZE	Rzeszów–Jasionka Airport	20	22	yes
+SCN	Saarbrücken Airport	15	9	yes
+SCQ	Santiago–Rosalía de Castro Airport	50	34	yes
+SDR	Santander Airport	37	27	yes
+SFT	Skellefteå Airport	5	2	yes
+SID	Amílcar Cabral International Airport	83	55	yes
+SJJ	Sarajevo International Airport	67	35	yes
+SKD	Samarkand International Airport	53	14	yes
+SKG	Thessaloniki Airport	141	88	yes
+SNN	Shannon Airport	46	37	yes
+SOF	Sofia Airport	136	98	yes
+SPU	Split Airport	106	66	yes
+STN	London Stansted Airport	228	184	yes
+STR	Stuttgart Airport	161	95	yes
+SUF	Lamezia Terme International Airport	74	58	yes
+SVQ	Seville Airport	130	93	yes
+SVX	Koltsovo International Airport	133	21	yes
+SXB	Strasbourg Airport	65	46	yes
+SZG	Salzburg Airport	91	59	yes
+SZY	Olsztyn-Mazury Airport	12	6	yes
+SZZ	Solidarity Szczecin–Goleniów Airport	10	8	yes
+TAS	Tashkent International Airport	164	38	yes
+TBS	Tbilisi International Airport	116	45	yes
+TFS	Tenerife South Airport	152	103	yes
+TGD	Podgorica Airport	63	44	yes
+TIA	Tirana International Airport Nënë Tereza	191	118	yes
+TIV	Tivat Airport	73	41	yes
+TLL	Tallinn Airport	88	58	yes
+TLS	Toulouse–Blagnac Airport	122	76	yes
+TMS	São Tomé International Airport	12	2	yes
+TNG	Tangier Ibn Battouta Airport	71	44	yes
+TPS	Trapani–Birgi Airport	30	24	yes
+TRF	Sandefjord Airport, Torp	35	28	yes
+TRN	Turin Airport	103	73	yes
+TRS	Trieste Airport	43	32	yes
+TSF	Treviso Airport	49	47	yes
+TTU	Sania Ramel Airport	22	13	yes
+TUF	Tours Val de Loire Airport	7	5	yes
+TUN	Tunis–Carthage International Airport	85	46	yes
+UGC	Urgench International Airport	33	12	yes
+UME	Umeå Airport	9	5	yes
+VAR	Varna Airport	79	52	yes
+VBY	Visby Airport	10	5	yes
+VCE	Venice Marco Polo Airport	163	88	yes
+VGO	Vigo–Peinador Airport	10	7	yes
+VIE	Vienna International Airport	288	148	yes
+VIL	Dakhla Airport	12	10	yes
+VIT	Vitoria Airport	13	11	yes
+VLC	Valencia Airport	154	106	yes
+VNO	Vilnius Airport	110	74	yes
+VOL	Nea Anchialos National Airport	8	6	yes
+VRN	Verona Villafranca Airport	116	73	yes
+VST	Stockholm Västerås Airport	4	3	yes
+VXE	Cesária Évora Airport	17	11	yes
+VXO	Växjö-Kronoberg Airport	16	9	yes
+WAW	Warsaw Chopin Airport	216	130	yes
+WMI	Warsaw Modlin Airport	56	54	yes
+WRO	Wrocław Airport	103	85	yes
+XCR	Châlons Vatry Airport	3	2	yes
+YYC	Calgary International Airport	130	13	yes
+ZAD	Zadar Airport	85	69	yes
+ZAG	Zagreb Airport	88	57	yes
+ZAZ	Zaragoza Airport	18	12	yes
+ZRH	Zurich Airport	298	136	yes
+ZTH	Zakynthos International Airport	91	67	yes
+
+# Wikilink targets that resolved to no seed IATA code, most mentioned first.
+# Two populations, and the counts disagree about which dominates. Most of the
+# distinct targets are airports outside the seed, and most of the mentions are
+# airlines, because the airline shares column one of every row in the table.
+# Neither is a parse failure. Measured 2026-09-05: 2,108 distinct targets over
+# 13,662 mentions, of which 1,511 distinct (6,453 mentions) are airport-shaped.
+target	mentions
+Ryanair	224
+Wizz Air	146
+Eurowings	130
+British Airways	118
+Lufthansa	118
+easyJet	115
+Turkish Airlines	113
+Scandinavian Airlines	112
+Aegean Airlines	107
+Norwegian Air Shuttle	107
+Transavia	104
+Austrian Airlines	98
+Air France	97
+LOT Polish Airlines	93
+Vueling	90
+Pegasus Airlines	89
+KLM	88
+Hurghada International Airport	86
+Jet2.com	86
+Volotea	86
+Swiss International Air Lines	85
+Air Serbia	81
+Sharm El Sheikh International Airport	80
+Luxair	79
+Ben Gurion Airport	76
+Smartwings	75
+Iberia (airline)	72
+Aer Lingus	71
+Finnair	70
+TUI Airways	70
+SunExpress	69
+Brussels Airlines	67
+airBaltic	64
+Edelweiss Air	62
+Royal Air Maroc	62
+Hamad International Airport	61
+TAP Air Portugal	59
+Keflavík International Airport	57
+TUI fly Belgium	57
+Qatar Airways	56
+Emirates (airline)	54
+İzmir Adnan Menderes Airport	53
+Newark Liberty International Airport	53
+FlyOne	52
+Air Arabia	51
+ITA Airways	51
+United Airlines	51
+Air Cairo	50
+Condor (airline)	50
+AJet	49
+Sky Express (Greece)	49
+Air Canada	47
+Neos (airline)	46
+Corendon Airlines	45
+Billund Airport	44
+Etihad Airways	44
+Florence Airport	43
+Zayed International Airport	43
+John F. Kennedy International Airport	42
+Sabiha Gökçen International Airport	42
+Ankara Esenboğa Airport	39
+Discover Airlines	39
+Heydar Aliyev International Airport	39
+King Khalid International Airport	39
+Kuwait International Airport	39
+Skopje International Airport	39
+Icelandair	38
+Nouvelair	38
+Shanghai Pudong International Airport	38
+Toronto Pearson International Airport	36
+Delta Air Lines	35
+Air Algérie	34
+Blaise Diagne International Airport	34
+Croatia Airlines	34
+Royal Jordanian	34
+Incheon International Airport	33
+Israir	33
+Istanbul Sabiha Gökçen International Airport	33
+Marsa Alam International Airport	33
+Saudia	33
+Air Transat	32
+Beirut–Rafic Hariri International Airport	32
+Enfidha–Hammamet International Airport	32
+Innsbruck Airport	32
+Phuket International Airport	32
+TUI fly Netherlands	32
+Air Europa	31
+Egyptair	31
+Monastir Habib Bourguiba International Airport	31
+Montpellier–Méditerranée Airport	31
+Tunisair	31
+Air China	30
+Animawings	30
+Bahrain International Airport	30
+Beijing Capital International Airport	30
+Enter Air	30
+Ethiopian Airlines	30
+Flynas	30
+Addis Ababa Bole International Airport	29
+Jersey Airport	29
+Tromsø Airport	29
+Air Dolomiti	28
+Binter Canarias	28
+Dulles International Airport	28
+Freebird Airlines	28
+Indira Gandhi International Airport	28
+Montréal–Trudeau International Airport	28
+Azerbaijan Airlines	27
+China Eastern Airlines	27
+El Al	27
+Gulf Air	27
+Kittilä Airport	27
+Los Angeles International Airport	27
+Sharjah International Airport	27
+Uzbekistan Airways	27
+American Airlines	26
+Brest Bretagne Airport	26
+Kuwait Airways	26
+Lufthansa City Airlines	26
+Sheremetyevo International Airport	26
+Sundor	26
+TUI fly Deutschland	26
+Cancún International Airport	25
+Flydubai	25
+Hartsfield–Jackson Atlanta International Airport	25
+Timișoara Traian Vuia International Airport	25
+Aeroflot	24
+Bulgaria Air	24
+China Southern Airlines	24
+Linate Airport	24
+O'Hare International Airport	24
+SkyUp Airlines	24
+Arkia	23
+flydubai	23
+Jerez Airport	23
+Middle East Airlines	23
+Philadelphia International Airport	23
+Vnukovo International Airport	23
+David Ben Gurion Airport	22
+David Ben Gurion International Airport	22
+Logan International Airport	22
+London City Airport	22
+Miami International Airport	22
+Muscat International Airport	22
+S7 Airlines	22
+Transavia France	22
+Aeroitalia	21
+Centrum Air	21
+Changi Airport	21
+Jazeera Airways	21
+Stavanger Airport, Sola	21
+Velana International Airport	21
+Guangzhou Baiyun International Airport	20
+HiSky	20
+KM Malta Airlines	20
+London Southend Airport	20
+Luxor International Airport	20
+Punta Cana International Airport	20
+Red Wings Airlines	20
+San Francisco International Airport	20
+Singapore Airlines	20
+Sunclass Airlines	20
+TAROM	20
+Air Astana	19
+Air Montenegro	19
+Al Maktoum International Airport	19
+Bolzano Airport	19
+Chhatrapati Shivaji Maharaj International Airport	19
+Dallas Fort Worth International Airport	19
+Hainan Airlines	19
+Hong Kong International Airport	19
+Korean Air	19
+Ljubljana Airport	19
+Milan Linate Airport	19
+Minsk National Airport	19
+Moscow Domodedovo Airport	19
+São Paulo/Guarulhos International Airport	19
+SCAT Airlines	19
+Sir Seewoosagur Ramgoolam International Airport	19
+Tenerife North–Ciudad de La Laguna Airport	19
+Tolmachevo Airport	19
+Bastia – Poretta Airport	18
+Çukurova International Airport	18
+La Palma Airport	18
+Loganair	18
+Marabu (airline)	18
+Sky Alps	18
+Stavanger Airport	18
+WestJet	18
+Belavia	17
+Brașov-Ghimbav International Airport	17
+Cathay Pacific	17
+Graz Airport	17
+Guernsey Airport	17
+Oman Air	17
+Orlando International Airport	17
+Samos International Airport	17
+Ural Airlines	17
+Aalborg Airport	16
+Ajaccio Napoleon Bonaparte Airport	16
+Beijing Daxing International Airport	16
+Dan Air (Romania)	16
+Erkilet International Airport	16
+Karpathos Island National Airport	16
+Mytilene International Airport	16
+Air India	15
+Azimuth (airline)	15
+Bluebird Airways	15
+EasyJet	15
+Istanbul–Sabiha Gökçen	15
+Kavala International Airport	15
+Krasnoyarsk International Airport	15
+Seattle–Tacoma International Airport	15
+Sibiu International Airport	15
+Thai Airways International	15
+Xi'an Xianyang International Airport	15
+Abeid Amani Karume International Airport	14
+Batumi International Airport	14
+Belfast City Airport	14
+Chengdu Tianfu International Airport	14
+Halifax Stanfield International Airport	14
+Jomo Kenyatta International Airport	14
+Noi Bai International Airport	14
+Prince Mohammad bin Abdulaziz International Airport	14
+Rossiya Airlines	14
+Shenzhen Bao'an International Airport	14
+Sphinx International Airport	14
+Utair	14
+Vancouver International Airport	14
+Widerøe	14
+Abu Dhabi International Airport	13
+Air Corsica	13
+Asiana Airlines	13
+ASL Airlines France	13
+Baghdad International Airport	13
+Charlotte Douglas International Airport	13
+Cyprus Airways	13
+George Enescu International Airport	13
+Hurghada Airport	13
+Iberia Express	13
+Isle of Man Airport	13
+Leipzig/Halle Airport	13
+Narita International Airport	13
+Nordwind Airlines	13
+Somon Air	13
+Southampton Airport	13
+Toronto–Pearson	13
+Trondheim Airport, Værnes	13
+Air Nostrum	12
+All Nippon Airways	12
+arkia	12
+Bandaranaike International Airport	12
+Chair Airlines	12
+Corendon Dutch Airlines	12
+Craiova International Airport	12
+Damascus International Airport	12
+DAT (airline)	12
+Georgian Airways	12
+Haneda Airport	12
+Harstad/Narvik Airport, Evenes	12
+Ljubljana Jože Pučnik Airport	12
+Mohamed Boudiaf International Airport	12
+Nesma Airlines	12
+Qanot Sharq	12
+Suceava Ștefan cel Mare International Airport	12
+Târgu Mureș International Airport	12
+Tuzla International Airport	12
+Air Arabia Maroc	11
+Aurigny	11
+Bastia–Poretta Airport	11
+Calvi – Sainte-Catherine Airport	11
+El Dorado International Airport	11
+FlyArystan	11
+Harry Reid International Airport	11
+IndiGo	11
+JetBlue	11
+Kurumoch Airport	11
+Kuusamo Airport	11
+LATAM Brasil	11
+Minneapolis–Saint Paul International Airport	11
+Montréal–Trudeau	11
+Murtala Muhammed International Airport	11
+Namangan Airport	11
+New York–JFK	11
+O. R. Tambo International Airport	11
+Ohrid St. Paul the Apostle Airport	11
+Oradea International Airport	11
+Pobeda (airline)	11
+Rennes–Saint-Jacques Airport	11
+Sangster International Airport	11
+Southwind Airlines	11
+Sundair	11
+Tromsø Airport, Langnes	11
+Trondheim Airport	11
+TUS Airways	11
+Ufa International Airport	11
+Zhukovsky International Airport	11
+Adnan Menderes Airport	10
+Air Anka	10
+Atlantic Airways	10
+Azores Airlines	10
+Beijing–Capital	10
+Chambéry Airport	10
+Chongqing Jiangbei International Airport	10
+Comiso Airport	10
+Dresden Airport	10
+El Alamein International Airport	10
+Electra Airways	10
+FlyErbil	10
+GP Aviation	10
+Grantley Adams International Airport	10
+Groningen Airport Eelde	10
+Inverness Airport	10
+Ivalo Airport	10
+Kempegowda International Airport	10
+Kuala Lumpur International Airport	10
+LEAV Aviation	10
+Mavi Gök Airlines	10
+Mitiga International Airport	10
+Nile Air	10
+Nnamdi Azikiwe International Airport	10
+SkyAlps	10
+Tan Son Nhat International Airport	10
+Trabzon Airport	10
+TUI fly Nordic	10
+Twin Jet	10
+Vietnam Airlines	10
+Aeroméxico	9
+Aleppo International Airport	9
+Ålesund Airport, Vigra	9
+Antwerp International Airport	9
+Atyrau Airport	9
+Benina International Airport	9
+Cabo Verde Airlines	9
+China Airlines	9
+Diyarbakır Airport	9
+EVA Air	9
+Fly Lili	9
+Flyadeal	9
+George Bush Intercontinental Airport	9
+International Airport Irkutsk	9
+Iraqi Airways	9
+Islamabad International Airport	9
+Kenya Airways	9
+Kilimanjaro International Airport	9
+King Fahd International Airport	9
+Kurumoch International Airport	9
+Lampedusa Airport	9
+Melilla Airport	9
+Moi International Airport	9
+Norse Atlantic Airways	9
+Riyadh Air	9
+Samsun-Çarşamba Airport	9
+San Sebastián Airport	9
+Sichuan Airlines	9
+SkyUp	9
+Tampa International Airport	9
+Tocumen International Airport	9
+Trade Air	9
+Air Senegal	8
+Araxos Airport	8
+Arturo Merino Benítez International Airport	8
+Bolshoye Savino Airport	8
+Cam Ranh International Airport	8
+Chalair Aviation	8
+Conakry International Airport	8
+Debrecen International Airport	8
+Detroit Metropolitan Airport	8
+Federico García Lorca Granada Airport	8
+Hazrat Shahjalal International Airport	8
+Imam Khomeini International Airport	8
+Juan Santamaría International Airport	8
+Juneyao Air	8
+Kigali International Airport	8
+La Romana International Airport	8
+Maastricht Aachen Airport	8
+Ministro Pistarini International Airport	8
+Patras Araxos Airport	8
+Phu Quoc International Airport	8
+Rio de Janeiro/Galeão International Airport	8
+Royal Air Maroc Express	8
+Salalah International Airport	8
+SalamAir	8
+Sanya Phoenix International Airport	8
+Soekarno–Hatta International Airport	8
+Surgut International Airport	8
+Sydney Airport	8
+T'way Air	8
+Tailwind Airlines	8
+Ürümqi Diwopu International Airport	8
+Alaska Airlines	7
+Avanti Air	7
+Azur Air	7
+Bukhara International Airport	7
+Corsair International	7
+Douala International Airport	7
+Entebbe International Airport	7
+GetJet Airlines	7
+Hangzhou Xiaoshan International Airport	7
+Helvetic Airways	7
+Julius Nyerere International Airport	7
+Khujand Airport	7
+Marsa Matruh International Airport	7
+Mattala Rajapaksa International Airport	7
+Melbourne Airport	7
+Milan–Linate	7
+Montréal–Pierre Elliott Trudeau International Airport	7
+Mostar International Airport	7
+Mustai Karim Ufa International Airport	7
+Nizhnevartovsk Airport	7
+Olympic Air	7
+Pantelleria Airport	7
+Perth Airport	7
+Raleigh–Durham International Airport	7
+Roshchino Airport	7
+Salt Lake City International Airport	7
+Saratov Gagarin Airport	7
+Smartavia	7
+Smartwings Poland	7
+Strigino Airport	7
+Sylt Airport	7
+Taoyuan International Airport	7
+Toulon–Hyères Airport	7
+Turkmenistan Airlines	7
+VietJet Air	7
+Air Baltic	6
+AirBaltic	6
+airHaifa	6
+AlbaStar	6
+AlMasria Universal Airlines	6
+ASKY Airlines	6
+Avianca	6
+Avion Express	6
+Balandino Airport	6
+Begishevo Airport	6
+Ben Gurion International Airport	6
+Bern Airport	6
+BlueBird Airways	6
+Boston Logan International Airport	6
+Buzz (Polish airline)	6
+Cadjehoun Airport	6
+Calvi–Sainte-Catherine Airport	6
+České Budějovice Airport	6
+Cherepovets Airport	6
+Cherif Al Idrissi Airport	6
+Chicago–O'Hare	6
+Chinggis Khaan International Airport	6
+Da Nang International Airport	6
+Detroit Metropolitan Wayne County Airport	6
+Dr. António Agostinho Neto International Airport	6
+Gazipaşa Airport	6
+Grozny Airport	6
+Gumrak Airport	6
+Iberojet (airline)	6
+Ikar (airline)	6
+IrAero	6
+Japan Airlines	6
+José Martí International Airport	6
+Kansai International Airport	6
+Khrabrovo Airport	6
+Krabi International Airport	6
+Lajes Airport	6
+León Airport	6
+Loong Air	6
+Malaysia Airlines	6
+Martinique Aimé Césaire International Airport	6
+Narimanovo Airport	6
+Novy Urengoy Airport	6
+Phoenix Sky Harbor International Airport	6
+Portland International Airport	6
+Qantas	6
+Rafael Núñez International Airport	6
+Rajiv Gandhi International Airport	6
+Red Sea Airlines (charter airline)	6
+Roland Garros Airport	6
+Roshchino International Airport	6
+Sälen/Scandinavian Mountains Airport	6
+San Diego International Airport	6
+Saransk Airport	6
+Scoot	6
+Stockholm Skavsta Airport	6
+Surgut Airport	6
+Syktyvkar Airport	6
+TAAG Angola Airlines	6
+Turku Airport	6
+Uri Michaeli Haifa International Airport	6
+Ürümqi Tianshan International Airport	6
+UVT Aero	6
+Washington–Dulles	6
+World2Fly	6
+Xiamen Gaoqi International Airport	6
+XiamenAir	6
+A Coruña Airport	5
+Air Peace	5
+Al Najaf International Airport	5
+Allama Iqbal International Airport	5
+Aqtau Airport	5
+Ashgabat International Airport	5
+Avia Traffic Company	5
+Beijing Capital Airlines	5
+BH Air	5
+Biman Bangladesh Airlines	5
+Borg El Arab Airport	5
+Chengdu–Tianfu	5
+Chennai International Airport	5
+Diori Hamani International Airport	5
+Dr. Antonio Agostinho Neto International Airport	5
+EgyptAir	5
+Elazığ Airport	5
+Erfurt-Weimar Airport	5
+Ezeiza International Airport	5
+Federico García Lorca Airport	5
+George Best Belfast City Airport	5
+Gregorio Luperón International Airport	5
+Heston Airlines	5
+Izmir Adnan Menderes Airport	5
+Izmir Airport	5
+Jettime	5
+Jordan Aviation	5
+Jorge Chávez International Airport	5
+Khanty-Mansiysk Airport	5
+Kirkwall Airport	5
+Konya Airport	5
+Kristiansand Airport, Kjevik	5
+Libreville International Airport	5
+Los Cabos International Airport	5
+Lungi International Airport	5
+Manohar International Airport	5
+Mauritania Airlines	5
+MedSky Airways	5
+Melbourne Orlando International Airport	5
+Monterrey International Airport	5
+Montpellier – Méditerranée Airport	5
+N'Djamena International Airport	5
+N'djili Airport	5
+Nalchik Airport	5
+Nashville International Airport	5
+NordStar	5
+NyxAir	5
+Omsk Central Airport	5
+Omsk Tsentralny Airport	5
+Orenburg Tsentralny Airport	5
+Ostend-Bruges International Airport	5
+Ouagadougou Airport	5
+Pobedilovo Airport	5
+Pointe-à-Pitre International Airport	5
+Rabah Bitat Airport	5
+Ras Al Khaimah International Airport	5
+Red Sea International Airport	5
+Roberts International Airport	5
+RwandAir	5
+Salekhard Airport	5
+Seychelles International Airport	5
+Skopje Airport	5
+Skyline Express	5
+Southend Airport	5
+SriLankan Airlines	5
+Sumburgh Airport	5
+Syrian Air	5
+Taba International Airport	5
+Tokyo–Narita	5
+Traian Vuia International Airport	5
+Ulyanovsk Baratayevka Airport	5
+Yamal Airlines	5
+Yaoundé Nsimalen International Airport	5
+Zanzibar International Airport	5
+Zenata – Messali El Hadj Airport	5
+Ahmed Sékou Touré International Airport	4
+Air Algerie	4
+Air Côte d'Ivoire	4
+Air Horizont	4
+Air Mauritius	4
+Air Mediterranean	4
+Air Samarkand	4
+Air Tanzania	4
+Ajaccio – Napoléon Bonaparte Airport	4
+Ajaccio Airport	4
+Alexander Kartveli Batumi International Airport	4
+Alexandria Airlines	4
+Åre Östersund Airport	4
+Arvidsjaur Airport	4
+Asman Airlines	4
+Asmara International Airport	4
+Azul Brazilian Airlines	4
+Badajoz Airport	4
+Baikal International Airport	4
+Balıkesir Koca Seyit Airport	4
+Bamako-Sénou International Airport	4
+Barnaul Airport	4
+BeOnd	4
+Besovets Airport	4
+Brisbane Airport	4
+Brunei International Airport	4
+Caen – Carpiquet Airport	4
+Calvi Airport	4
+Cebu Pacific	4
+Chelyabinsk Airport	4
+Chios Island National Airport	4
+Cincinnati/Northern Kentucky International Airport	4
+Copa Airlines	4
+Craiova Airport	4
+Djibouti–Ambouli International Airport	4
+Don Mueang International Airport	4
+Esenboğa International Airport	4
+Farman Salmanov Surgut Airport	4
+Fly Baghdad	4
+FLYYO	4
+Freebird Airlines Europe	4
+Garuda Indonesia	4
+Gaziantep Oğuzeli Airport	4
+Gazipaşa–Alanya Airport	4
+Gibraltar International Airport	4
+Gimhae International Airport	4
+Guadalajara International Airport	4
+Haugesund Airport	4
+Heringsdorf Airport	4
+Israir Airlines	4
+Ivato International Airport	4
+Izhevsk Airport	4
+Jinnah International Airport	4
+Kabul International Airport	4
+Kadyrov Grozny International Airport	4
+Kam Air	4
+Karlstad Airport	4
+Khabarovsk Novy Airport	4
+Licenciado Gustavo Díaz Ordaz International Airport	4
+Mahan Air	4
+Malabo International Airport	4
+Misrata Airport	4
+Modibo Keita International Airport	4
+Murmansk Airport	4
+Naryan-Mar Airport	4
+New Paros Airport	4
+Noyabrsk Airport	4
+Oğuzeli Airport	4
+Oral Ak Zhol Airport	4
+Orenburg Airport	4
+Ostend–Bruges International Airport	4
+Ottawa Macdonald–Cartier International Airport	4
+Pakistan International Airlines	4
+Pamplona Airport	4
+Pau Pyrénées Airport	4
+Perm International Airport	4
+Philippine Airlines	4
+Pittsburgh International Airport	4
+Qingdao Jiaodong International Airport	4
+Québec City Jean Lesage International Airport	4
+Rossiya (airline)	4
+Royal Brunei Airlines	4
+Severstal Avia	4
+Shanghai Airlines	4
+Shenzhen Airlines	4
+Shirak Avia	4
+Singapore Changi Airport	4
+Skopje "Alexander the Great" Airport	4
+Skyros Island National Airport	4
+Spichenkovo Airport	4
+Sri Guru Ram Das Ji International Airport	4
+St. John's International Airport	4
+St. Louis Lambert International Airport	4
+Starlux Airlines	4
+Stavropol Shpakovskoye Airport	4
+Strigino International Airport	4
+Taiwan Taoyuan International Airport	4
+Talagi Airport	4
+Timișoara Airport	4
+Tunisair Express	4
+Tunoshna Airport	4
+V. C. Bird International Airport	4
+Vietjet Qazaqstan	4
+Viracopos International Airport	4
+Virgin Atlantic	4
+Vladivostok International Airport	4
+Warsaw Radom Airport	4
+Yakutia Airlines	4
+Zonguldak Airport	4
+Abakan Airport	3
+Abha Regional Airport	3
+Aden Adde International Airport	3
+Aero Nomad Airlines	3
+Afriqiyah Airways	3
+Air India Express	3
+Akureyri Airport	3
+Aliya Moldagulova International Airport	3
+Alta Airport	3
+Alykel Airport	3
+Amelia International	3
+Amman Civil Airport	3
+Andizhan Airport	3
+Ankara Airport	3
+Aqtau International Airport	3
+Ariana Afghan Airlines	3
+Aşgabat International Airport	3
+Baltimore/Washington International Airport	3
+Basra International Airport	3
+Batik Air Malaysia	3
+Beirut Airport	3
+Beirut Rafic Hariri International Airport	3
+Berniq Airways	3
+Biskra Airport	3
+Bole International Airport	3
+Brač Airport	3
+Bukhara Airport	3
+Charlie Airlines	3
+Chicago O'Hare International Airport	3
+Chubu Centrair International Airport	3
+Cozumel International Airport	3
+Dabolim Airport	3
+Daniel K. Inouye International Airport	3
+Debrecen Airport	3
+Delta Connection	3
+Domodedovo International Airport	3
+Dzaoudzi–Pamandzi International Airport	3
+Edmonton International Airport	3
+El Salvador International Airport	3
+Elista Airport	3
+Enfidha Airport	3
+Ercan International Airport	3
+Erzurum Airport	3
+Fascene Airport	3
+Fergana Airport	3
+Fergana International Airport	3
+Fly Cham	3
+FlyOne Armenia	3
+Fuzhou Changle International Airport	3
+Gazipaşa-Alanya Airport	3
+Gelendzhik Airport	3
+Grabtsevo Airport	3
+Guanacaste Airport	3
+GullivAir	3
+Ha'il Regional Airport	3
+Haikou Meilan International Airport	3
+Haugesund Airport, Karmøy	3
+Houston–Intercontinental	3
+Ikaria Island National Airport	3
+Indianapolis International Airport	3
+Ioannina National Airport	3
+Iran Airtour	3
+Issyk-Kul International Airport	3
+Ivanovo Yuzhny Airport	3
+Jeju Air	3
+Jetstar	3
+Jonair	3
+José María Córdova International Airport	3
+Juba International Airport	3
+Kajaani Airport	3
+Kalmar Airport	3
+Kaluga (Grabtsevo) Airport	3
+Kalymnos Island National Airport	3
+Karlovy Vary Airport	3
+Keflavik International Airport	3
+Kemerovo Airport	3
+King Shaka International Airport	3
+Kristiansand Airport	3
+Kuala Lumpur–International	3
+La Compagnie	3
+Langkawi International Airport	3
+Las Américas International Airport	3
+Libyan Airlines	3
+Libyan Wings	3
+Logroño–Agoncillo Airport	3
+Lomé-Tokoin Airport	3
+Lomé–Tokoin International Airport	3
+Louis Armstrong New Orleans International Airport	3
+Luis Muñoz Marín International Airport	3
+Lynden Pindling International Airport	3
+Maputo International Airport	3
+Marathon Airlines	3
+Mariscal Sucre International Airport	3
+Maurice Bishop International Airport	3
+Maya-Maya Airport	3
+MIAT Mongolian Airlines	3
+Mihail Kogălniceanu International Airport	3
+Milos Island National Airport	3
+Morava Airport	3
+Mostar Airport	3
+Nadym Airport	3
+Nanjing Lukou International Airport	3
+Nordstar Airlines	3
+Ohrid Airport	3
+OR Tambo International Airport	3
+Örebro Airport	3
+Osmani International Airport	3
+Oulu Airport	3
+Owen Roberts International Airport	3
+Palm Springs International Airport	3
+Penang International Airport	3
+Petropavl Airport (Kazakhstan)	3
+Poprad–Tatry Airport	3
+Port Sudan New International Airport	3
+Princess Juliana International Airport	3
+Qarshi Airport	3
+Qeshm Air	3
+Querétaro Intercontinental Airport	3
+Rhode Island T. F. Green International Airport	3
+Robert Gabriel Mugabe International Airport	3
+RusLine	3
+Sacramento International Airport	3
+Salvador Bahia Airport	3
+Sary-Arka Airport	3
+Silk Avia	3
+Simón Bolívar International Airport (Venezuela)	3
+Sitia Public Airport	3
+South African Airways	3
+Southwest Florida International Airport	3
+SpiceJet	3
+Stockholm Bromma Airport	3
+Suceava International Airport	3
+Sulaimaniyah International Airport	3
+Syros Island National Airport	3
+Taipei–Taoyuan	3
+Ted Stevens Anchorage International Airport	3
+Tehran Imam Khomeini International Airport	3
+Tomsk Kamov Airport	3
+Tribhuvan International Airport	3
+Tus Airways	3
+U-Tapao International Airport	3
+Ufa Airport	3
+Vaasa Airport	3
+Valladolid Airport	3
+Varesh Airlines	3
+Viva (airline)	3
+Wuhan Tianhe International Airport	3
+Yakutsk Airport	3
+Yemenia	3
+Yenişehir Airport	3
+Zhengzhou Xinzheng International Airport	3
+:es:Fly2Galicia	2
+A.N.R. Robinson International Airport	2
+Abha International Airport	2
+Abu Dhabi Airport	2
+Adelaide Airport	2
+Aerolíneas Argentinas	2
+Aeroméxico Connect	2
+Afonso Pena International Airport	2
+Ahmedabad Airport	2
+Ain Arnat Airport	2
+Air 001	2
+Air Austral	2
+Air Burkina	2
+Air Busan	2
+Air Canada Express	2
+Air Canada Rouge	2
+Air Charter Scotland	2
+Air Congo	2
+Air Haifa	2
+Air Mountain	2
+Air Seychelles	2
+Air Sierra Leone	2
+AirAsia	2
+AirAsia X	2
+Aircalin	2
+Airidea	2
+Aktau Airport	2
+Aktau International Airport	2
+Al Ain International Airport	2
+Al Qaisumah/Hafr Al Batin Airport	2
+Al-Ahsa International Airport	2
+Al-Maktoum International Airport	2
+Albuquerque International Sunport	2
+Alexandroupoli Airport	2
+Alexei Leonov Kemerovo International Airport	2
+Alfonso Bonilla Aragón International Airport	2
+Allegiant Air	2
+American Eagle (airline brand)	2
+Andorra–La Seu d'Urgell Airport	2
+Aosta Valley Airport	2
+Arar Domestic Airport	2
+Asheville Regional Airport	2
+Aspen/Pitkin County Airport	2
+Assiut Airport	2
+Astypalaia Island National Airport	2
+Aswan International Airport	2
+Auckland Airport	2
+Avianca El Salvador	2
+Äziret Sūltan International Airport	2
+Bahías de Huatulco International Airport	2
+Bastia Airport	2
+Batna Airport	2
+Beirut-Rafic Hariri International Airport	2
+Belo Horizonte International Airport	2
+Biju Patnaik Airport	2
+Bogashevo Airport	2
+Borg El Arab International Airport	2
+Bornholm Airport	2
+Bozeman Yellowstone International Airport	2
+Bradley International Airport	2
+Brasília International Airport	2
+Brest Airport	2
+Calicut International Airport	2
+CanaryFly	2
+Cancun Airport	2
+Capital International Airport (Egypt)	2
+Carrasco International Airport	2
+Caspian Airlines	2
+Cayenne – Félix Eboué Airport	2
+Cayman Airways	2
+Changsha Huanghua International Airport	2
+Charles M. Schulz–Sonoma County Airport	2
+Charleston International Airport	2
+Chaudhary Charan Singh International Airport	2
+Cheboksary Airport	2
+Cheboksary International Airport	2
+Cheddi Jagan International Airport	2
+Chengdu Airlines	2
+Chihuahua International Airport	2
+Chlef International Airport	2
+Citilink	2
+Clark International Airport	2
+Clermont-Ferrand Auvergne Airport	2
+Cleveland Hopkins International Airport	2
+Cochin International Airport	2
+Comayagua International Airport	2
+Copenhagen AirTaxi	2
+Córdoba Airport	2
+Curaçao International Airport	2
+Dala Airport	2
+Dallas Love Field	2
+Deputado Luís Eduardo Magalhães International Airport	2
+Des Moines International Airport	2
+Doha Airport	2
+Domestic Airlines	2
+Donegal Airport	2
+Drukair	2
+Eastar Jet	2
+Eduardo Gomes International Airport	2
+El Bayadh Airport	2
+El Paso International Airport	2
+Eppley Airfield	2
+Erfurt–Weimar Airport	2
+euroAtlantic Airways	2
+European Air Charter	2
+Faa'a International Airport	2
+Flair Airlines	2
+Florø Airport	2
+Fly Khiva	2
+Fly Oya	2
+Flykhiva	2
+Flyyo	2
+Foggia Gino Lisa Airport	2
+Fort Lauderdale-Hollywood International Airport	2
+Fort Lauderdale–Hollywood International Airport	2
+Fortaleza Airport	2
+Frank País Airport	2
+Freetown International Airport	2
+Frontier Airlines	2
+Fukuoka Airport	2
+Ganja International Airport	2
+Gerald R. Ford International Airport	2
+Ghadames Air Transport	2
+Glacier Park International Airport	2
+Gorno-Altaysk Airport	2
+Greater Bay Airlines	2
+Greater Natal International Airport	2
+Guelmim Airport	2
+Guiyang Longdongbao International Airport	2
+Gyumri Shirak International Airport	2
+Haifa Airport	2
+Haneda International Airport	2
+Hartsfield-Jackson Atlanta International Airport	2
+Hatay Airport	2
+Hazret Sultan International Airport	2
+HelloJets	2
+Hercílio Luz International Airport	2
+HK Express	2
+Hollywood Burbank Airport	2
+Hong Kong Airlines	2
+Horta Airport	2
+Hosea Kutako International Airport	2
+Humberside Airport	2
+Hunnu Air	2
+Ili Yining International Airport	2
+Ingeniero Aeronáutico Ambrosio L.V. Taravella International Airport	2
+Iran Aseman Airlines	2
+Isles of Scilly Skybus	2
+Ixtapa-Zihuatanejo International Airport	2
+Jacksonville International Airport	2
+Jet Time	2
+Jizan Regional Airport	2
+John Glenn Columbus International Airport	2
+John Wayne Airport	2
+José Joaquín de Olmedo International Airport	2
+Kahului Airport	2
+Kangerlussuaq Airport	2
+Kannur International Airport	2
+Kansas City International Airport	2
+Kaohsiung International Airport	2
+Karakol International Airport	2
+Karup Midtjylland Airport	2
+Kavala Airport	2
+Kayseri Airport	2
+Khost International Airport	2
+King Hussein International Airport	2
+Kirkenes Airport, Høybuktmoen	2
+Kish International Airport	2
+Kona International Airport	2
+Kostanay Airport	2
+Kristiansund Airport, Kvernberget	2
+Kulob Airport	2
+Kunming Changshui International Airport	2
+Kurchatov Chelyabinsk International Airport	2
+Kuressaare Airport	2
+Kurgan Airport	2
+Kyzylorda Airport	2
+La Aurora International Airport	2
+La Tontouta International Airport	2
+LaGuardia Airport	2
+Lahore International Airport	2
+LATAM Airlines Brasil	2
+LATAM Chile	2
+LATAM Perú	2
+Leknes Airport	2
+Léon-Mba International Airport	2
+Leros Island National Airport	2
+Lion Air	2
+Lleida–Alguaire Airport	2
+Long Beach Airport	2
+Lubbock Preston Smith International Airport	2
+Lusaka International Airport	2
+Luxwing	2
+Mactan–Cebu International Airport	2
+Magnitogorsk Airport	2
+Magnitogorsk International Airport	2
+Malatya Erhaç Airport	2
+Mangalore International Airport	2
+Marechal Cunha Machado International Airport	2
+Mariehamn Airport	2
+Marsa Matrouh Airport	2
+Mashhad Shahid Hasheminejad International Airport	2
+Mawlana Jalaluddin Mohammad Balkhi International Airport	2
+Mazatlán International Airport	2
+McGhee Tyson Airport	2
+Mécheria Airport	2
+Memphis International Airport	2
+Meraj Airlines	2
+Mérida International Airport	2
+Metz–Nancy–Lorraine Airport	2
+Midland International Air and Space Port	2
+Milwaukee Mitchell International Airport	2
+Molde Airport, Årø	2
+Montpellier Airport	2
+Montréal-Pierre Elliott Trudeau International Airport	2
+Montréal-Trudeau International Airport	2
+Montrose Regional Airport	2
+Moscow–Domodedovo	2
+Moscow–Sheremetyevo	2
+Moscow–Vnukovo	2
+Multan International Airport	2
+Myanmar Airways International	2
+Najran Domestic Airport	2
+Neom Airport	2
+Nepal Airlines	2
+Netaji Subhas Chandra Bose International Airport	2
+New Chitose Airport	2
+Ningbo Lishe International Airport	2
+Norilsk Alykel Airport	2
+Norrköping Airport	2
+Northwest Florida Beaches International Airport	2
+Nosy Be Airport	2
+Nouadhibou International Airport	2
+Nukus Airport	2
+Oakland San Francisco Bay Airport	2
+OKC Will Rogers International Airport	2
+Ordu–Giresun Airport	2
+Orsk Airport	2
+Ørsta–Volda Airport, Hovden	2
+Osaka–Kansai	2
+Oskemen Airport	2
+Ostend Airport	2
+Paro International Airport	2
+Pavlodar Airport	2
+Pensacola International Airport	2
+Philip S. W. Goldson International Airport	2
+Piarco International Airport	2
+Pico Airport	2
+Piešťany Airport	2
+Playa de Oro International Airport	2
+Plus Ultra Líneas Aéreas	2
+Pointe Noire Airport	2
+Porter Airlines	2
+Prince Abdul Majeed bin Abdulaziz International Airport	2
+Prince Mohammad Bin Abdulaziz Airport	2
+Prince Mohammad Bin Abdulaziz International Airport	2
+Prince Naif bin Abdulaziz International Airport	2
+Prince Nayef bin Abdulaziz Regional Airport	2
+Prince Sultan bin Abdulaziz Airport	2
+Privilege Style	2
+Providenciales International Airport	2
+Pskov Airport	2
+Puerto Escondido International Airport	2
+Pune Airport	2
+Punta Cana Airport	2
+Ramón Villeda Morales International Airport	2
+Red Sea Airlines	2
+Regina International Airport	2
+Rennes Airport	2
+Reno–Tahoe International Airport	2
+Rick Husband Amarillo International Airport	2
+Rio de Janeiro–Galeão	2
+Roschino Airport	2
+Rostock–Laage Airport	2
+Salgado Filho International Airport	2
+San Antonio International Airport	2
+San Jose International Airport	2
+Sandnessjøen Airport	2
+Şanlıurfa GAP Airport	2
+Santa Maria Airport (Azores)	2
+Santiago Mariño Caribbean International Airport	2
+Sarasota–Bradenton International Airport	2
+Sardar Vallabhbhai Patel International Airport	2
+Scandinavian Mountains Airport	2
+Seattle/Tacoma	2
+Semey Airport	2
+Severstal Air Company	2
+Shenyang Taoxian International Airport	2
+Siem Reap–Angkor International Airport	2
+Silvio Pettirossi International Airport	2
+Sion Airport	2
+Sivas Airport	2
+Sky FRU	2
+Sky Vision Airlines	2
+Sogndal Airport, Haukåsen	2
+Sohag International Airport	2
+Sohar Airport	2
+Southwest Airlines	2
+Sovetsky Airport	2
+St Mary's Airport, Isles of Scilly	2
+St. Gallen–Altenrhein Airport	2
+Stornoway Airport	2
+STP Airways	2
+Sudan Airways	2
+Sulaymaniyah International Airport	2
+Sultan Hasanuddin International Airport	2
+Sun Country Airlines	2
+Sun Express	2
+Sunday Airlines	2
+Sundsvall–Timrå Airport	2
+Surat Airport	2
+Svolvær Airport	2
+Ta'if Regional Airport	2
+Tabriz Shahid Madani International Airport	2
+Tabuk Regional Airport	2
+Tampere–Pirkkala Airport	2
+Taraz Airport	2
+Techo International Airport	2
+Techo International Airport (Cambodia)	2
+Tenerife North Airport	2
+Tepic International Airport	2
+Termez Airport	2
+Thai AirAsia	2
+Thomas Sankara International Airport Ouagadougou	2
+Tindouf Airport	2
+Tiruchirappalli International Airport	2
+Tobolsk Remezov Airport	2
+Tokyo–Haneda	2
+Tozeur–Nefta International Airport	2
+Transair (Senegal)	2
+TransNusa	2
+Travelcoup	2
+Tulsa International Airport	2
+Tulum International Airport	2
+Uganda Airlines	2
+United Express	2
+Ur Airlines	2
+US-Bangla Airlines	2
+Valley International Airport	2
+Victoria Falls International Airport	2
+Viru Viru International Airport	2
+Vnukovo Airport	2
+Volaris	2
+Wenzhou Longwan International Airport	2
+Wick Airport	2
+Windhoek Airport	2
+Winnipeg James Armstrong Richardson International Airport	2
+Yampa Valley Airport	2
+Yanbu Airport	2
+Yangon International Airport	2
+Yemelyanovo Airport	2
+Yogyakarta International Airport	2
+Zafer Airport	2
+Zagora Airport	2
+Zhezkazgan Airport	2
+Zielona Góra Airport	2
+Zumbi dos Palmares International Airport	2
+9 Air	1
+Abbotsford International Airport	1
+Abdelhafid Boussouf Bou Chekif Airport	1
+Abilene Regional Airport	1
+Abu Simbel Airport	1
+Acapulco International Airport	1
+Aden Abdulle International Airport	1
+Aden International Airport	1
+Adisoemarmo International Airport	1
+Adıyaman Airport	1
+Adrar Airport	1
+Aero Dili	1
+AeroItalia	1
+Aerolíneas Estelar	1
+Aeromexico	1
+Aeroparque Jorge Newbery	1
+Africa World Airlines	1
+Afrijet Business Service	1
+Agostinho-Neto International Airport	1
+Ağrı Airport	1
+Aguascalientes International Airport	1
+Ain el Beida Airport	1
+Air Botswana	1
+Air Cambodia	1
+Air Caraïbes	1
+Air Force Base Hoedspruit	1
+Air Greenland	1
+Air Macau	1
+Air New Zealand	1
+Air Niugini	1
+Air North	1
+Air Premia	1
+Air Saint-Pierre	1
+Air Tahiti Nui	1
+Air Uniqon	1
+Air Zimbabwe	1
+Airblue	1
+Airfast Indonesia	1
+Airlink	1
+AirSial	1
+Akasa Air	1
+Aktobe Airport	1
+Aktobe International Airport	1
+Al Jouf Airport	1
+Al-Baha Domestic Airport	1
+Al-Jawf Domestic Airport	1
+Albany International Airport	1
+Albert Picardie Airport	1
+Alliance Municipal Airport	1
+Alrosa (airline)	1
+ALROSA (airline)	1
+Alsie Express	1
+Amasya Merzifon Airport	1
+American Eagle (airline)	1
+Aminu Kano International Airport	1
+Anadolu Airport	1
+Andenes Airport	1
+Andøya Airport, Andenes	1
+Ängelholm–Helsingborg Airport	1
+AnimaWings	1
+Annaba Airport	1
+Antonio B. Won Pat International Airport	1
+Appleton International Airport	1
+Aqtobe International Airport	1
+Aracaju Airport	1
+Araripina Airport	1
+Arcata–Eureka Airport	1
+Argyle International Airport	1
+Armenia Airways	1
+ASKY	1
+ATA Airlines (Iran)	1
+Augusto C. Sandino International Airport	1
+Aurillac–Tronquières Airport	1
+Avalon Airport	1
+Avianca Costa Rica	1
+Ayatollah Hashemi Rafsanjani Airport	1
+Azal	1
+Azul Conecta	1
+Bacha Khan International Airport	1
+Bacolod–Silay Airport	1
+Bacolod–Silay International Airport	1
+Badr Airlines	1
+Bagdogra Airport	1
+Baia Mare Airport	1
+Bajío International Airport	1
+Baku Airport	1
+Baku International Airport	1
+Balkhash Airport	1
+Bamboo Airways	1
+Bancasi Airport	1
+Bandar Abbas International Airport	1
+Bangkok Airways	1
+Bangor International Airport	1
+Bangui M'Poko International Airport	1
+Bardufoss Airport	1
+Barra Airport	1
+Basra Airlines	1
+Basrah International Airport	1
+Batik Air	1
+Batken Airport	1
+Batman Airport	1
+Bauru-Arealva Airport	1
+Béchar Ouakda Airport	1
+Belém/Val-de-Cans International Airport	1
+Beloyarsk Airport	1
+Benbecula Airport	1
+Bert Mooney Airport	1
+Bhutan Airlines	1
+Bicol International Airport	1
+Billings Logan International Airport	1
+Bingöl Airport	1
+Birmingham–Shuttlesworth International Airport	1
+Bisha Domestic Airport	1
+Bismarck Municipal Airport	1
+Blue Grass Airport	1
+Bobo Dioulasso Airport	1
+Bohol–Panglao International Airport	1
+Boise Airport	1
+Bokhtar International Airport	1
+Boliviana de Aviación	1
+Bosaso Airport	1
+Bouaké Airport	1
+Bram Fischer International Airport	1
+Brandon Municipal Airport	1
+Breeze Airways	1
+Brønnøysund Airport	1
+Brønnøysund Airport, Brønnøy	1
+Budapest Aircraft Service	1
+Buffalo Niagara International Airport	1
+Bujumbura International Airport	1
+Buraq Air	1
+Buriram Airport	1
+Burlington International Airport	1
+Bushehr Airport	1
+Buzz (Ryanair)	1
+Caen–Carpiquet Airport	1
+Cairns Airport	1
+Cajazeiras Airport	1
+Cambodia Airways	1
+Campbell River Airport	1
+Campbeltown Airport	1
+Campeche International Airport	1
+Campina Grande Airport	1
+Çanakkale Airport	1
+Canaryfly	1
+Canberra Airport	1
+Canyonlands Regional Airport	1
+Carsamba Airport	1
+Caruaru Airport	1
+Casper–Natrona County International Airport	1
+Castres–Mazamet Airport	1
+Cauayan Airport	1
+Cavern City Air Terminal	1
+CemAir	1
+Central Mountain Air	1
+Central Wyoming Regional Airport	1
+CFB Comox	1
+Chadron Municipal Airport	1
+Chandigarh Airport	1
+Changchun Longjia International Airport	1
+Charlotte Airport	1
+Charlottetown Airport	1
+Chattanooga Metropolitan Airport	1
+Chaudhary Charan Singh Airport	1
+Chelyabinsk Balandino Airport	1
+Cheongju International Airport	1
+Cherbourg–Maupertus Airport	1
+Cherry Capital Airport	1
+Chetumal International Airport	1
+Cheyenne Regional Airport	1
+Chiang Mai International Airport	1
+Chiang Rai International Airport	1
+Chicago O'Hare	1
+Chicago–Midway	1
+Chongqing Airlines	1
+Christchurch Airport	1
+Cibao International Airport	1
+Ciudad del Carmen International Airport	1
+Ciudad Juárez International Airport	1
+Ciudad Obregón International Airport	1
+Clic Air	1
+Clinton National Airport	1
+Clovis Municipal Airport	1
+Colima Airport	1
+Colorado Springs Airport	1
+Columbia Regional Airport	1
+Condor	1
+Contour Airlines	1
+Copenhagen Air Taxi	1
+Corendon Airlines Europe	1
+Cortez Municipal Airport	1
+Cotabato Airport	1
+Cotonou Airport	1
+Cranbrook/Canadian Rockies International Airport	1
+Crown Airlines	1
+Cubana de Aviación	1
+Culiacán International Airport	1
+Daallo Airlines	1
+Daegu International Airport	1
+Dane County Regional Airport	1
+Daniel Z. Romualdez Airport	1
+Darwin International Airport	1
+Dawadmi Domestic Airport	1
+Dayton International Airport	1
+Deauville – Normandie Airport	1
+Deauville Airport	1
+Deauville-Normandie Airport	1
+Deauville–Normandie Airport	1
+Deer Lake Regional Airport	1
+Deir ez-Zor Airport	1
+Delhi Airport	1
+Denizli Çardak Airport	1
+Denver Air Connection	1
+Derry	1
+Destin–Fort Walton Beach Airport	1
+Devils Lake Regional Airport	1
+Dhoho Airport	1
+Dickinson Theodore Roosevelt Regional Airport	1
+Dímun	1
+Dipolog Airport	1
+Djibouti International Airport	1
+Dodge City Regional Airport	1
+Domine Eduard Osok Airport	1
+Dundee Airport	1
+Durango International Airport	1
+Durango–La Plata County Airport	1
+Eagle County Regional Airport	1
+East London Airport	1
+Eastern Iowa Airport	1
+Eastern Sierra Regional Airport	1
+easyJet Switzerland	1
+El Hierro Airport	1
+El Kharga Airport	1
+El Tari Airport	1
+Elba Airport	1
+Emerald Airlines	1
+Enfidha – Hammamet International Airport	1
+Enrique Olaya Herrera International Airport	1
+Erik Nielsen Whitehorse International Airport	1
+Erkilet Airport	1
+Ernest A. Love Field	1
+Ernesto Cortissoz International Airport	1
+Erzincan Airport	1
+Esbjerg Airport	1
+Esenboğa Airport	1
+Eswatini Air	1
+Eugene Airport	1
+Eurico de Aguiar Salles Airport	1
+European Air Charter (Bulgarian airline)	1
+Fa'a'ā International Airport	1
+Fairbanks International Airport	1
+Faisalabad International Airport	1
+Fernando de Noronha Airport	1
+FitsAir	1
+Flamingo International Airport	1
+Florence Airport, Peretola	1
+Flores Airport	1
+Fly Jinnah	1
+Fly Kish	1
+Fly Kıbrıs Airlines	1
+flyadeal	1
+FlyAden	1
+FlyJordan	1
+FlyKhiva	1
+flynas	1
+FlySafair	1
+Førde Airport, Bringeland	1
+Fort McMurray International Airport	1
+Fort St. John Airport	1
+Fortaleza International Airport	1
+Four Corners Regional Airport	1
+Foz do Iguaçu International Airport	1
+Francisco Bangoy International Airport	1
+Fredericton International Airport	1
+Freedoms of the air	1
+French Bee	1
+Fresno Yosemite International Airport	1
+Friedman Memorial Airport	1
+Froðba	1
+Frost Air	1
+Gällivare Lapland Airport	1
+Garanhuns Airport	1
+Garowe Airport	1
+Gautam Buddha Airport	1
+Gaya Airport	1
+Gazipasa–Alanya Airport	1
+General Francisco Mujica International Airport	1
+General Lucio Blanco International Airport	1
+General Santos International Airport	1
+General Wayne A. Downing Peoria International Airport	1
+George Airport	1
+Gharm Airport	1
+Ghriss Airport	1
+Gianair	1
+Gibraltar Airport	1
+Gillette–Campbell County Airport	1
+Giza Airport	1
+Godofredo P. Ramos Airport	1
+Gol Linhas Aéreas	1
+Gol Linhas Aéreas Inteligentes	1
+Gold Coast Airport	1
+Gomel Airport	1
+Grand Junction Regional Airport	1
+Grande Prairie Airport	1
+Great Falls International Airport	1
+Greater Moncton Roméo LeBlanc International Airport	1
+Greenville–Spartanburg International Airport	1
+Grenoble	1
+Grozny International Airport	1
+Gunnison–Crested Butte Regional Airport	1
+Gurayat Domestic Airport	1
+Guwahati Airport	1
+GX Airlines	1
+Habib Bourguiba Airport	1
+Hagfors Airport	1
+Haikou Airport	1
+Hakkari–Yüksekova Airport	1
+Halim Perdanakusuma International Airport	1
+Halmstad Airport	1
+Hans Christian Andersen Airport	1
+Harbin Taiping International Airport	1
+Hargeisa Airport	1
+Hargeisa Egal International Airport	1
+Hargeisa International Airport	1
+Harry Mwanga Nkumbula International Airport	1
+Harstad/Narvik Airport	1
+Hasan Polatkan Airport	1
+Hassi Messaoud Airport	1
+Hat Yai International Airport	1
+Hattarvík	1
+Hays Regional Airport	1
+Hector International Airport	1
+Helena Regional Airport	1
+HelloFly	1
+Hemavan Airport	1
+Hermosillo International Airport	1
+Hewanorra International Airport	1
+Hi Fly (airline)	1
+Höga Kusten Airport	1
+Homiel Airport	1
+Houston–Hobby	1
+Huntsville International Airport	1
+Husein Sastranegara Airport	1
+I-Fly	1
+Iberia	1
+Ibom Air	1
+Idaho Falls Regional Airport	1
+Iğdır Airport	1
+Ignatyevo Airport	1
+Iloilo International Airport	1
+Ilulissat Airport	1
+Imam Khomeini Airport	1
+In Aménas Airport	1
+Indonesia AirAsia	1
+Iran Air	1
+Isfahan International Airport	1
+Isfahan Shahid Beheshti International Airport	1
+Islas Malvinas International Airport	1
+Islay Airport	1
+Isparta Süleyman Demirel Airport	1
+Issyk-Kul International	1
+Istanbul-Sabiha Gökçen	1
+JA Douglas McCurdy Sydney Airport	1
+Jackson Hole Airport	1
+Jaipur International Airport	1
+Jalal Talabani International Airport	1
+Jalal-Abad Airport	1
+Jamestown Regional Airport	1
+Jenderal Ahmad Yani International Airport	1
+Jerez de la Frontera Airport	1
+Jet2	1
+JetSmart	1
+JetSmart Argentina	1
+Jetstar Japan	1
+Jezqazğan Airport	1
+Jiangbei Airport	1
+Jieyang Chaoshan International Airport	1
+Jijel Airport	1
+Jin Air	1
+Jinan Yaoqiang International Airport	1
+Joensuu Airport	1
+Johan Adolf Pengel International Airport	1
+Johannesburg–O.R. Tambo	1
+John C. Munro Hamilton International Airport	1
+Jönköping Airport	1
+Joplin Regional Airport	1
+Juan Gualberto Gómez Airport	1
+Juan Manuel Gálvez International Airport	1
+Juanda International Airport	1
+Juazeiro do Norte Airport	1
+Jubba Airways	1
+Jyväskylä Airport	1
+Kadala Airport	1
+Kahramanmaraş Airport	1
+Kalibo International Airport	1
+Kaliningrad Airport	1
+Kamloops Airport	1
+Kärdla Airport	1
+Kars Harakani Airport	1
+Karun Airlines	1
+Kasane Airport	1
+Kashgar Laining International Airport	1
+Kasos Island Public Airport	1
+Kassel Airport	1
+Kastamonu Airport	1
+Kastellorizo Airport	1
+Kastoria Airport	1
+Kazan	1
+Kazarman Airport	1
+Kearney Regional Airport	1
+Keflavik Airport	1
+Kelowna International Airport	1
+Kemerovo International Airport	1
+Kemi-Tornio Airport	1
+Kenneth Kaunda International Airport	1
+Kerben Airport	1
+Khon Kaen Airport	1
+Khorog Airport	1
+Khwaja Abdullah Ansari International Airport	1
+Kimberley Airport	1
+King Abdullah bin Abdulaziz Airport	1
+King Mswati III International Airport	1
+Kirkja	1
+Kirkuk Airport	1
+Kirov Airport	1
+Kirovsk-Apatity Airport	1
+Kish Airlines	1
+Kithira Island National Airport	1
+Klaksvík	1
+Kokkola-Pietarsaari Airport	1
+Kökşetau Airport	1
+Kokshetau Airport	1
+Koltur	1
+Komodo International Airport	1
+Korhogo Airport	1
+Kostroma Air Enterprise	1
+Kostroma Airport	1
+Kota Kinabalu International Airport	1
+Kozani National Airport	1
+Krabi Airport	1
+Krasnoyarsk Yemelyanovo Airport	1
+Kruger Mpumalanga International Airport	1
+Kualanamu International Airport	1
+Kumasi Airport	1
+Kuopio Airport	1
+Kuwait Airport	1
+L.F. Wade International Airport	1
+La Gomera Airport	1
+La Môle – Saint-Tropez Airport	1
+La Môle–Saint-Tropez Airport	1
+La Paz International Airport	1
+La Romana Airport	1
+Lagos Airport	1
+Laguindingan Airport	1
+Lahore Airport	1
+Lakselv Airport, Banak	1
+Lal Bahadur Shastri Airport	1
+LAM Mozambique Airlines	1
+Lanseria International Airport	1
+Lanzhou Zhongchuan International Airport	1
+Lao Airlines	1
+Laoag International Airport	1
+Laramie Regional Airport	1
+Larestan Ayatollah Ayatollahi International Airport	1
+Las Americas Airport	1
+LASER Airlines	1
+Latakia International Airport	1
+LATAM Colombia	1
+Le Havre-Octeville Airport	1
+Le Havre–Octeville Airport	1
+Le Puy – Loudes Airport	1
+Lea County Regional Airport	1
+Lede Kalumbang Airport	1
+Lehigh Valley International Airport	1
+Leite Lopes Airport	1
+Leros Municipal Airport	1
+Level (airline)	1
+Liberal Mid-America Regional Airport	1
+LIFT (airline)	1
+Lihue Airport	1
+Lijiang Sanyi International Airport	1
+Lincoln Airport (Nebraska)	1
+Linköping City Airport	1
+Linköping/Saab Airport	1
+Lombok International Airport	1
+Lomé-Tokoin International Airport	1
+Lomé–Tokoin Airport	1
+London International Airport	1
+Loreto International Airport	1
+Lorient South Brittany Airport	1
+Los Mochis International Airport	1
+Louisville Muhammad Ali International Airport	1
+Luang Prabang International Airport	1
+Lufttransport	1
+Luoyang Beijiao Airport	1
+Luxor Airport	1
+Lycksele Airport	1
+Maastricht-Aachen Airport	1
+Macau International Airport	1
+Madurai Airport	1
+Mahilyow Airport	1
+Malatya Airport	1
+Maldivian (airline)	1
+Malé International Airport	1
+Mallam Aminu Kano International Airport	1
+Man Airport	1
+Mandalay International Airport	1
+Maramureș Airport	1
+Mardin Airport	1
+Marina di Campo Airport	1
+Marsa Alam Airport	1
+Mashhad International Airport	1
+Matahora Airport	1
+Matamoros International Airport	1
+Maun Airport	1
+Mazar-i-Sharif International Airport	1
+McAllen Miller International Airport	1
+McClellan–Palomar Airport	1
+McCook Ben Nelson Regional Airport	1
+McGhee-Tyson Airport	1
+Meadows Field Airport	1
+Medavia	1
+Medina Airport	1
+Mediterranée Airport	1
+Metz-Nancy-Lorraine Airport	1
+Mexicali International Airport	1
+MHS Aviation (Germany)	1
+Midway International Airport	1
+Milan-Linate Airport	1
+Minatitlán International Airport	1
+Minneapolis-Saint Paul International Airport	1
+Minot International Airport	1
+Misrata International Airport	1
+Missoula International Airport	1
+Mo i Rana Airport, Røssvoll	1
+Monacair	1
+Monaco Heliport	1
+Monastir – Habib Bourguiba International Airport	1
+Monastir Airport	1
+Monterey Regional Airport	1
+Montpellier Méditerranée Airport	1
+Montreal Airport	1
+Montreal Metropolitan Airport	1
+Montreal-Trudeau Airport	1
+Montreal–Pierre Elliott Trudeau International Airport	1
+Montreal–Trudeau	1
+Mora–Siljan Airport	1
+Moscow Vnukovo Airport	1
+Mosjøen Airport	1
+Mossoró Airport	1
+Mostépha Ben Boulaid Airport	1
+Mozes Kilangin Airport	1
+Murtala Mohammed International Airport	1
+Muş Airport	1
+Muscat Airport	1
+Myanmar National Airlines	1
+Mykines, Mykines	1
+Myrtle Beach International Airport	1
+N'Djili Airport	1
+Najran Regional Airport	1
+Nakhchivan International Airport	1
+Nakhon Si Thammarat Airport	1
+NAM Air	1
+Namsos Airport	1
+Nanaimo Airport	1
+Nanning Wuxu International Airport	1
+Narathiwat Airport	1
+Naryn Airport	1
+Navoi International Airport	1
+ndjili International Airport	1
+Néma Airport	1
+Neom Bay Airport	1
+Netaji Subhash Chandra Bose International Airport	1
+Nevşehir Kapadokya Airport	1
+New York JFK Airport	1
+Newark Airport	1
+Newark International Airport	1
+Newark Liberty	1
+Newcastle Airport, New South Wales	1
+Nizhny Novgorod Airport	1
+Norfolk International Airport	1
+Norman Manley International Airport	1
+North Bay/Jack Garland Airport	1
+North Platte Regional Airport	1
+Northwest Arkansas National Airport	1
+Northwest Regional Airport Terrace-Kitimat	1
+Noumérat – Moufdi Zakaria Airport	1
+Novair (Armenia)	1
+Novosibirsk Tolmachevo Airport	1
+Nuevo Laredo International Airport	1
+Nuuk Airport	1
+Nyagan Airport	1
+Nyxair	1
+Oakland International Airport	1
+Oaxaca International Airport	1
+Obuasi Airport	1
+Odienné Airport	1
+Oguzeli Airport	1
+Ontario Airport	1
+Ontario International Airport	1
+Ordu-Giresun Airport	1
+Ørland Airport	1
+Orlando Sanford International Airport	1
+Orlando-Sanford	1
+Örnsköldsvik Airport	1
+Oued Irara–Krim Belkacem Airport	1
+Ozamiz Airport	1
+Pagadian Airport	1
+Page Municipal Airport	1
+Pajala Airport	1
+PAL Express	1
+Palm Beach International Airport	1
+Palmerola International Airport	1
+Panglao International Airport	1
+Panjakent Airport	1
+Passion Air	1
+Patos Airport	1
+Peach Aviation	1
+Pegas Fly	1
+Pelita Air	1
+Penticton Regional Airport	1
+Penza Airport	1
+Penza Vissarion Belinsky Airport	1
+People's	1
+People's Viennaline	1
+Peoria International Airport	1
+Petrolina Airport	1
+Petrozavodsk Airport	1
+Philadelphia Airport	1
+Philippines AirAsia	1
+Pierre Regional Airport	1
+Pinto Martins International Airport	1
+Plettenberg Bay Aerodrome	1
+Pokhara International Airport	1
+Poprad-Tatry Airport	1
+PopulAir	1
+Pori Airport	1
+Port Elizabeth Airport	1
+Port Harcourt International Airport	1
+Port Moresby International Airport	1
+Portland International Jetport	1
+Preguiça Airport	1
+Presidente Castro Pinto International Airport	1
+Presidente Nicolau Lobato International Airport	1
+Prince Abdul Majeed bin Abdulaziz Domestic Airport	1
+Prince Abdul Mohsin Bin Abdulaziz International Airport	1
+Prince George Airport	1
+Prince Nayef Bin Abdulaziz Regional Airport	1
+Prince Said Ibrahim International Airport	1
+Príncipe Airport	1
+Proflight Zambia	1
+Provo Municipal Airport	1
+Pudong International Airport	1
+Pueblo Memorial Airport	1
+Puerto Princesa International Airport	1
+Pyramids Airlines	1
+Qasem Soleimani International Airport	1
+Qassim Regional Airport	1
+Qeshm Airport	1
+Qingdao Airlines	1
+Qostanai Airport	1
+Quad Cities International Airport	1
+Quanzhou Jinjiang International Airport	1
+Queen Beatrix International Airport	1
+Queen Tamar Airport	1
+Quetta International Airport	1
+Qyzylorda Airport	1
+Rafha Domestic Airport	1
+Rafik Hariri International Airport	1
+Raimon Airways	1
+Rapid City Regional Airport	1
+Razzakov Airport	1
+Redding Regional Airport	1
+Region of Waterloo International Airport	1
+Rennes – Saint-Jacques Airport	1
+Richmond International Airport	1
+Riyadh Airport	1
+Riyadh International Airport	1
+Riyan International Airport	1
+Rize-Artvin Airport	1
+Rize–Artvin Airport	1
+Robert L. Bradshaw International Airport	1
+Roberts Field	1
+Rogue Valley International–Medford Airport	1
+Roman Tmetuchl International Airport	1
+Ronald Reagan Washington National Airport	1
+Ronaldsway Airport	1
+Ronneby Airport	1
+Røros Airport	1
+Rørvik Airport	1
+Roschino International Airport	1
+Røst Airport	1
+Roswell International Air Center	1
+Roxas Airport	1
+Royal Jordanian Airlines	1
+Ruili Airlines	1
+Sabiha Gökçen Airport	1
+Sabiha Gokcen International Airport	1
+Saint Helena Airport	1
+Saint-Étienne–Bouthéon Airport	1
+Saint-Pierre Airport	1
+Saipan International Airport	1
+Salamanca Airport	1
+Salina Regional Airport	1
+Sam Ratulangi International Airport	1
+Samaná El Catey International Airport	1
+Samos Airport	1
+Samsun Airport	1
+Samui Airport	1
+San Francisco Airport	1
+San Francisco International	1
+San Luis Obispo County Regional Airport	1
+San Luis Potosí International Airport	1
+San Luis Valley Regional Airport	1
+San Pédro Airport	1
+San Salvador Airport	1
+Sanaa International Airport	1
+Sandane Airport, Anda	1
+Sangster Airport	1
+Santa Barbara Municipal Airport	1
+Santa Fe Regional Airport	1
+Santa Genoveva Airport	1
+Santo Domingo–Las Américas	1
+São Jorge Airport	1
+São José do Rio Preto Airport	1
+São Paulo-Guarulhos	1
+São Paulo–Congonhas Airport	1
+Saskatoon John G. Diefenbaker International Airport	1
+SATA Air Açores	1
+Satu Mare International Airport	1
+Sault Ste. Marie Airport	1
+Savannah/Hilton Head International Airport	1
+Savonlinna Airport	1
+Seattle Tacoma Airport	1
+Sepehran Airlines	1
+SereneAir	1
+Setif Airport	1
+Sfax–Thyna International Airport	1
+Shah Amanat International Airport	1
+Shandong Airlines	1
+Shanghai Pudong Airport	1
+Sharm El Sheikh Airport	1
+Sharurah Domestic Airport	1
+Sheridan County Airport	1
+Shirak Airport	1
+Shiraz International Airport	1
+Shiraz Shahid Dastgheib International Airport	1
+Shreveport Regional Airport	1
+Sialkot International Airport	1
+Sibiu Airport	1
+Sibulan Airport	1
+Sierra Blanca Regional Airport	1
+Sihanouk International Airport	1
+Simón Bolívar International Airport (Colombia)	1
+Singapore Airport	1
+Sinop Airport	1
+Sioux Falls Regional Airport	1
+Sioux Gateway Airport	1
+Sir Seretse Khama International Airport	1
+Şırnak Airport	1
+Skardu International Airport	1
+Skukuza Airport	1
+Skúvoy	1
+Sky Angkor Airlines	1
+Sky Express	1
+Sky Mali	1
+Small Fly Airlines	1
+Smartwings Hungary	1
+Smartwings Slovakia	1
+Socotra Airport	1
+Sønderborg Airport	1
+Soroush Air	1
+Southwest Oregon Regional Airport	1
+Southwest Wyoming Regional Airport	1
+Spokane International Airport	1
+Spring Airlines	1
+Springfield–Branson National Airport	1
+Sri Guru Ram Dass Jee International Airport	1
+Sriwijaya Air	1
+St. George Regional Airport	1
+Stockholm–Skavsta	1
+Stokmarknes Airport	1
+Stord Airport	1
+Sudbury Airport	1
+Sukhothai Airport	1
+Sulaymaniyah Airport	1
+Sultan Abdul Aziz Shah Airport	1
+Sultan Aji Muhammad Sulaiman Sepinggan Airport	1
+Sultan Iskandar Muda International Airport	1
+Sultan Muhammad Kaharuddin III Airport	1
+Sultan Muhammad Salahudin Airport	1
+Sunshine Coast Airport	1
+Sunyani Airport	1
+Supadio International Airport	1
+Super Air Jet	1
+Surat International Airport	1
+Surat Thani International Airport	1
+Surinam Airways	1
+Svalbard Airport	1
+Sveg Airport	1
+Svínoy	1
+Syamsudin Noor International Airport	1
+Syracuse Hancock International Airport	1
+Syunik Airport	1
+Ta’if Regional Airport	1
+Taif International Airport	1
+Taiyuan Wusu International Airport	1
+Tajik Air	1
+Takoradi Airport	1
+Talas Airport	1
+Taldykorgan Airport	1
+Tamale Airport	1
+Tambov Donskoye Airport	1
+Tampere-Pirkkala Airport	1
+Tampico International Airport	1
+Tan Tan Airport	1
+Taos Regional Airport	1
+TAP Portugal	1
+Tapachula International Airport	1
+Tartu Airport	1
+Tassili Airlines	1
+Tehran–Imam Khomeini	1
+Tel Aviv Airport	1
+Telluride Regional Airport	1
+Teresina Airport	1
+Termez	1
+Thai AirAsia X	1
+Thai Lion Air	1
+Thai VietJet Air	1
+The Eastern Iowa Airport	1
+Thiruvananthapuram International Airport	1
+Thomas Sankara International Airport	1
+Thunder Bay International Airport	1
+Tianjin Airlines	1
+Tianjin Binhai International Airport	1
+Tijuana International Airport	1
+Timimoun Airport	1
+Timişoara Airport	1
+Tiree Airport	1
+Tokat Airport	1
+Tokoin Airport	1
+Toronto Pearson Airport	1
+Torreón International Airport	1
+Torsby Airport	1
+Tórshavn	1
+Touat-Cheikh Sidi Mohamed Belkebir Airport	1
+Toulon Airport	1
+Toussaint Louverture International Airport	1
+Trat Airport	1
+Tri-Cities Airport (Washington)	1
+Trollhättan–Vänersborg Airport	1
+Trondheim Airport, Vaernes	1
+Tucson International Airport	1
+Tuguegarao Airport	1
+TUI	1
+TUI Group	1
+Turkistan Airport	1
+Tuxtla Gutiérrez International Airport	1
+Tyumen Airport	1
+Ubon Ratchathani Airport	1
+Udon Thani International Airport	1
+Uep Fly	1
+Ukhta Airport	1
+Umbu Mehang Kunda Airport	1
+United Nigeria Airlines	1
+Upington Airport	1
+UR Airlines	1
+Uray Airport	1
+Urmia Shahid Bakeri International Airport	1
+Urumqi Air	1
+Usharal Airport	1
+Usinsk Airport	1
+UTAir	1
+Værøy Heliport	1
+Val de Cans International Airport	1
+ValueJet (Nigeria)	1
+Van Airport	1
+Van Ferit Melen Airport	1
+Vancouver Airport	1
+Vanilla Sky Airlines	1
+Veracruz International Airport	1
+Vernal Regional Airport	1
+Victor Attah International Airport	1
+Victoria Falls Airport	1
+Victoria International Airport	1
+Vietravel Airlines	1
+Vilhelmina Airport	1
+Villahermosa International Airport	1
+Virac Airport	1
+Virgin Australia	1
+Vitebsk Vostochny Airport	1
+Volaris Costa Rica	1
+Volaris El Salvador	1
+Volgograd International Airport	1
+Vologda Airport	1
+Vologda Aviation Enterprise	1
+Wa Airport	1
+Wadi al-Dawasir Domestic Airport	1
+Walvis Bay Airport	1
+Washington Dulles Airport	1
+Washington Dulles International Airport	1
+Washington–National	1
+Watertown Regional Airport	1
+Wattay International Airport	1
+Westair Aviation (Namibia)	1
+Western Nebraska Regional Airport	1
+WestJet Encore	1
+Wichita Dwight D. Eisenhower National Airport	1
+William P. Hobby Airport	1
+Williston Basin International Airport	1
+Wilmington International Airport	1
+Windsor International Airport	1
+Wings Air	1
+Yangzhou Taizhou International Airport	1
+Yellowknife Airport	1
+Yellowstone Airport	1
+Yellowstone Regional Airport	1
+Yoshkar-Ola Airport	1
+Yuncheng Yanhu International Airport	1
+Zacatecas International Airport	1
+Zamboanga International Airport	1
+Zanzibar Airport	1
+Zipair Tokyo	1
+Zomin Airport	1

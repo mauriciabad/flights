@@ -36,27 +36,29 @@
  * next (ultimately the bundled table for the free path). Same contract every other caller
  * of a `ProviderResult` in this codebase follows.
  *
- * ## What this module cannot propose, and why that is not a bug to fix here
+ * ## Where a candidate comes from, and what this module still cannot propose
  *
- * Every candidate starts life in the origin's own direct-destination list. Issue #349 added
- * `METRO_CODE_MEMBERS` so an airport hidden by a one-row-per-city collapse is recovered,
- * which is what makes Bergamo reachable from a list that only names Milan. That lever
- * reaches siblings and nothing else.
+ * Candidates come from two places. The origin's own direct-destination list, which is what
+ * a provider answers, and a vendored all-carrier route graph that ships with the app
+ * (`../data/direct-routes`, issue #361). Issue #349's `METRO_CODE_MEMBERS` recovers an
+ * airport hidden by a one-row-per-city collapse on top of both, which is what makes Bergamo
+ * reachable from a list that only names Milan.
  *
- * Issue #350 measured where it stops. `EMA` (Nottingham / East Midlands) is one of
- * flightconnections.com's ten stopovers for `BVC -> PFO`, and Kiwi sells both of its legs,
- * yet no search here can ever propose it: Boa Vista's `onewayOnePerCityItineraries` answer
- * does not name East Midlands, and East Midlands is nobody's metro sibling. The list is
- * price-sorted and capped by the aggregator, so it is a sample of a route graph rather than
- * the graph itself, and no amount of post-processing recovers a row that is not there.
+ * The graph exists because the provider's list is a sample. Issue #350 measured the gap:
+ * `EMA` (Nottingham / East Midlands) is one of flightconnections.com's ten stopovers for
+ * `BVC -> PFO` and Kiwi sells both of its legs, yet Boa Vista's
+ * `onewayOnePerCityItineraries` answer is 20 price-sorted rows that do not name it, and it
+ * is nobody's metro sibling. No post-processing recovers a row that is not there, so the
+ * row now comes from somewhere else.
  *
- * Closing that gap means candidates coming from somewhere other than the origin's list — a
- * route graph vendored at build time the way `prepare-icons.mjs` and `prepare-flags.mjs`
- * vendor their data, or proposing plausible airports and letting `hasDirectRoute` settle
- * them. The second is cheap per candidate and unbounded in how many there could be, so
- * "which ones" is the whole question and it is not answered by anything in this file today.
- * Written down here rather than left implicit, because the next reader's question is why
- * a route they can see on a third-party map never appears in this app's results.
+ * The graph's node set is bounded by the codes the other bundled sources already name, so
+ * it adds EDGES and never AIRPORTS, and that bound is the remaining limit: an airport no
+ * bundled source has ever named still cannot be a stopover. It is also hand-edited text,
+ * which makes it a floor and never a ceiling. `confirmsRoute` returning `false` there means
+ * "this table does not say so", never "no such route".
+ *
+ * Written down here rather than left implicit, because the next reader's question is why a
+ * route they can see on a third-party map does or does not appear in this app's results.
  */
 
 import type {
@@ -67,6 +69,7 @@ import type {
 	SearchQuery
 } from '../domain';
 import { getAirport } from '../data/airports';
+import { hasDirectRoute, loadBundledDirectRoutes, neighboursOf } from '../data/direct-routes';
 import { loadBundledRyanairNetwork } from '../data/ryanair-network';
 import type { AvailableKeys, FlightProvider, FlightSearchQuery, ProviderResult } from '../providers/types';
 import { contextFor } from '../providers/registry';
@@ -688,6 +691,40 @@ function bundledRyanairSource(): DirectDestinationSource {
 }
 
 /**
+ * The vendored all-carrier route graph as a `DirectDestinationSource`. Issue #361.
+ *
+ * This is the source that proposes a candidate no provider's list names. Boa Vista's own
+ * sampled list has 20 rows and East Midlands is in none of them; this graph gives Boa Vista
+ * 27 neighbours and East Midlands is one, so `EMA` arrives in `outboundEdges` like any other
+ * candidate and the search can finally think of the route it was already able to confirm.
+ *
+ * It answers both questions out of memory, so it costs no request either way, which is why
+ * it goes first in `bundledSources` and why answering here removes a request `kiwi-public`
+ * would otherwise spend.
+ *
+ * `confirmsRoute` returning `false` means "this table does not say so", never "no such
+ * route", and `confirmDirectRoute` falls through to the next source on a `false` for exactly
+ * that reason. The graph is hand-edited encyclopedia text: it names 98.6% of the edges in
+ * Ryanair's own bundled snapshot rather than all of them, so it is a floor and never a
+ * ceiling, and it must never silence a source that knows better.
+ *
+ * Deliberately absent from `hasKnownDirectRoute` below. That function answers "is there a
+ * direct flight" to a traveller, and an encyclopedia asserting one there would be the
+ * invention AGENTS.md forbids. This graph proposes; it does not announce.
+ */
+function bundledDirectRoutesSource(): DirectDestinationSource {
+	return {
+		id: 'bundled-direct-routes',
+		async getDirectDestinations(iataCode) {
+			return neighboursOf(await loadBundledDirectRoutes(), iataCode);
+		},
+		async confirmsRoute(origin, destination) {
+			return hasDirectRoute(await loadBundledDirectRoutes(), origin, destination);
+		}
+	};
+}
+
+/**
  * Adds the one component only a provider can supply — how many airports the candidate
  * flies on to — to the geography score, and weights the three into the final number.
  *
@@ -771,14 +808,24 @@ export async function findConnectionCandidates(
 	// The fallback table is always unioned in last so it never shadows a better source's
 	// answer, but it always contributes something — this is what "first paint and
 	// offline both work" (issue #12) actually means in code.
+	// The vendored route graph sits after the live providers and before the hand table. A
+	// live provider still wins attribution in `unionDirectDestinations`, which keeps the
+	// first source to report each destination, and the hand table stays last as it always
+	// has: it never shadows a better answer and it always contributes something.
 	const freeSources: DirectDestinationSource[] = [
 		...freeProviders.map((p) => sourceFromProvider(p, providerKeys, effectiveSignal, onProviderResult)),
+		bundledDirectRoutesSource(),
 		fallbackRouteSource()
 	];
 	// The subset of the above that answers out of data shipped with the app. Asking these
 	// costs no request, so the probe loop can ask them about candidates the ceiling has
-	// already spent its request budget on. Issue #255.
-	const bundledSources: DirectDestinationSource[] = [bundledRyanairSource(), fallbackRouteSource()];
+	// already spent its request budget on. Issue #255. The route graph goes first because it
+	// is the broadest of the three, so a hit there is a request nothing else has to spend.
+	const bundledSources: DirectDestinationSource[] = [
+		bundledDirectRoutesSource(),
+		bundledRyanairSource(),
+		fallbackRouteSource()
+	];
 
 	const forbiddenAirports = new Set(query.forbiddenConnectionAirports ?? []);
 	const forbiddenCountries = new Set(query.forbiddenConnectionCountries ?? []);

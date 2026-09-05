@@ -1,0 +1,54 @@
+name: Direct routes
+
+# Issue #361: keeps the shipped all-carrier route graph from going stale. Unlike the
+# Ryanair job next to it, this source is not an API an airline maintains, it is a
+# hand-edited encyclopedia, so it lags a schedule change by days and there is nothing
+# to be gained by asking more often.
+#
+# Weekly, and no runtime refresh behind it: nothing in the app re-fetches this graph
+# from the browser, because there is no single response that carries it. The committed
+# file is the only copy.
+on:
+  schedule:
+    # 05:47 UTC on Mondays. An hour after the Ryanair job and off the hour, so the two
+    # never race for the same push and neither lands on a busy Wikimedia slot.
+    - cron: '47 5 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: direct-routes
+  cancel-in-progress: false
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # No pnpm/install step: this script needs nothing beyond Node's own fetch and
+      # fs/promises. Keyless, so no secret either. It does send a descriptive
+      # User-Agent, which Wikimedia requires and answers 403 without.
+      - name: Fetch the direct-route graph
+        run: node scripts/fetch-direct-routes.mjs
+
+      # The script refuses to write a graph under 250 airports or 5,000 undirected
+      # pairs, so a truncated fetch fails the job here rather than committing a
+      # snapshot that reads on screen as "this app cannot find any connections".
+      - name: Commit the graph
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          if git diff --quiet -- src/lib/data/direct-routes.generated.json src/lib/data/direct-routes.audit.tsv; then
+            echo "Route graph unchanged, nothing to commit."
+            exit 0
+          fi
+          git add src/lib/data/direct-routes.generated.json src/lib/data/direct-routes.audit.tsv
+          git commit -m "Update the direct-route graph"
+          git push

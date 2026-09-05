@@ -19,6 +19,7 @@
 		"data:coastline": "node scripts/prepare-coastline.mjs",
 		"data:cheap-routes": "node scripts/fetch-cheap-routes.mjs",
 		"data:ryanair-network": "node scripts/fetch-ryanair-network.mjs",
+		"data:direct-routes": "node scripts/fetch-direct-routes.mjs",
 		"test:e2e": "playwright test --grep-invert \"@live|@screenshot\"",
 		"test:e2e:live": "ALLOW_LIVE_TESTS=1 playwright test --grep @live",
 		"test:e2e:report": "playwright show-report",

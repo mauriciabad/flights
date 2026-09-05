@@ -1333,6 +1333,80 @@ that could have water between it needs that check, or it is quoting a rowing boa
 **OurAirports** publishes a 12 MB public-domain CSV of every airport. Filter it at build
 time. Never ship it to a phone.
 
+## Wikipedia's airport tables, vendored as a route graph (issue #361)
+
+Every English Wikipedia airport article carries an `{{Airport-dest-list}}` table: one row
+per airline, naming as wikilinks the airports it flies to from here. Read across the whole
+seed set and symmetrised, that is an all-carrier route graph, and it is the only source in
+this file that is a graph rather than a sample of one.
+
+`scripts/fetch-direct-routes.mjs` builds it weekly and commits
+`src/lib/data/direct-routes.generated.json`. Keyless, no signup, no quota. Two hosts:
+Wikidata's SPARQL endpoint for the IATA-code-to-article mapping (property P238, one query,
+8,347 rows) and the MediaWiki API for the wikitext, 50 articles per request. Wikimedia
+requires a descriptive `User-Agent` and answers `403` without one, which reads as an
+outage rather than as a policy refusal, so that is worth knowing before you debug it.
+
+**The gap it exists to close.** Candidates used to start life in the origin's own
+direct-destination list. For Boa Vista that is Kiwi's `onewayOnePerCityItineraries`
+answer, a price-sorted, aggregator-capped sample of 20 rows. East Midlands is in none of
+them and East Midlands is nobody's metro sibling, so no search could propose it, while
+Kiwi sells BVC to EMA (TUI BY 725, EUR 257) and EMA to PFO (TUI BY 7666/7784, from EUR 77),
+both measured live on 2026-09-05. The app could confirm that route and could not think of
+it. Boa Vista's article names East Midlands under TUI Airways, East Midlands' article names
+Paphos, and symmetrising the two closes it.
+
+**What it covers**, measured 2026-09-05: **309 airports, 8,111 undirected pairs**, 16,222
+directed edges, 97.5 KB on disk and 15.2 KB gzipped. Boa Vista has a degree of 27, Paphos
+60.
+
+### Limits, stated plainly
+
+- **It adds edges, never airports.** The seed is every code the other bundled sources
+  already name (Ryanair's snapshot, the Travelpayouts cheap-routes dataset, the hand
+  fallback table), dropped to the ones `airports.generated.json` can place: 330 named, 310
+  placeable, 20 dropped as IATA metropolitan codes. An airport no bundled source has ever
+  named still cannot be a stopover, and that is the remaining limit.
+- **It is hand-edited text and it lags.** A route added to a schedule appears here when
+  somebody edits an article, which is days rather than minutes, and a route withdrawn can
+  sit in the table for longer than that.
+- **It is a floor, never a ceiling.** It reproduces **98.6%** of the edges in Ryanair's own
+  bundled snapshot: 5,278 directed edges, 76 missing, 38 distinct pairs. Spot-checked and
+  they are genuine gaps in the encyclopedia rather than parse failures. Weeze's article
+  does not mention Palermo anywhere, Perpignan's does not mention Cork, and Kraków's names
+  Bucharest Băneasa where Ryanair flies to Otopeni. So `hasDirectRoute` returning `false`
+  means "this table does not say so", never "no such route", and this source must never
+  silence another.
+- **It proposes, it does not announce.** It is deliberately absent from
+  `hasKnownDirectRoute`'s source list. That function answers "is there a direct flight" to
+  a traveller, and a hand-edited encyclopedia asserting one there would be the invention
+  AGENTS.md forbids. Everything it proposes is verified downstream by a real provider.
+- **One article in the seed has no parseable table at all**, Luanda's, which uses prose
+  instead. Every seed airport's parsed degree and its article are in
+  `src/lib/data/direct-routes.audit.tsv`, along with every wikilink target that resolved
+  to no IATA code, so the miss rate stays a number rather than an adjective.
+
+### The parse, and the one thing that will break it
+
+The rule lives in `scripts/direct-routes-parser.mjs`, separately tested, the same split
+`terminal-match.mjs` makes from its runner.
+
+Two things in it are load-bearing. **Cargo tables are excluded by the heading above them.**
+88 of the 397 templates in the corpus sit under one, and East Midlands' cargo table alone
+names Frankfurt, Oslo, Edinburgh, Cologne, Belfast and Abu Dhabi, every one a passenger
+route that does not exist. The only headings that ever appear above one of these templates
+are `Airlines and destinations`, `Passenger`, `Cargo`, `Passenger destinations` and
+`Cargo destinations`, so a `Cargo` prefix test is exact rather than a guess.
+
+**And `<ref>` blocks are stripped before the braces are matched, not after.** Wikipedia's
+own source contains malformed citations: Milan Bergamo's article has a
+`{{cite web | url=... | </ref>` that opens a template and never closes it. Match braces
+first and that unclosed template swallows every remaining `}}` on the page, so the
+destination table has no end and the airport contributes nothing. Bergamo, Oslo and Shannon
+all parsed to zero until the two steps were reordered, and Bergamo is the exact airport
+issue #340 exists about. This is the failure that ships green: the file parses, the size
+guard passes on 300-odd healthy airports, and three of them are quietly empty.
+
 ## Travelpayouts, and why it cannot be called from the browser
 
 **Verified 2026-09-04: Travelpayouts sends no CORS headers, so the browser cannot call it.**
