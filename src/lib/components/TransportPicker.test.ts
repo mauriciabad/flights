@@ -229,8 +229,17 @@ describe('TransportPicker: no-service transit', () => {
 		expect(text).toContain('1h 16m');
 		expect(text).toContain('No fare estimate');
 		expect(text).toContain('95 km');
-		expect(text).not.toMatch(/[£€$]\d/);
-		expect(text).not.toContain('ESTIMATE');
+
+		// Scoped to the price cell rather than the whole row: the citation quotes its own
+		// source, "roughly $23 for 5 km in London", and that figure is evidence about the
+		// card, not a fare this app is putting on this ride.
+		const taxiRow = [...root.querySelectorAll('.picker-row')].find((row) =>
+			row.querySelector('.row-mode-label')?.textContent?.includes('Taxi')
+		);
+		const priceCell = taxiRow?.querySelector('.row-price')?.textContent ?? '';
+		expect(priceCell).toContain('No fare estimate');
+		expect(priceCell).not.toMatch(/[£€$]/);
+		expect(priceCell).not.toMatch(/\d/);
 	});
 
 	it('does not use the dramatic gap framing for a normal, imminent departure', () => {

@@ -6,10 +6,10 @@ import type { IsoCountryCode, IsoCurrencyCode } from '../../domain';
  * `Money` is a single number a UI can print as if it were confirmed, so this is
  * deliberately a different shape: a range, plus enough provenance to judge how much to
  * trust it. `kind: 'estimate'` exists so a discriminated union of "things that hold a
- * price" can never collapse a `TaxiFareEstimate` into whatever expects a real `Money`
+ * price" can never collapse a `TaxiFareRange` into whatever expects a real `Money`
  * without a caller noticing and handling the range on purpose.
  */
-export interface TaxiFareEstimate {
+export interface TaxiFareRange {
 	kind: 'estimate';
 	currency: IsoCurrencyCode;
 	/** Low and high bounds, in the currency's minor units, from applying the matched rate
@@ -28,6 +28,27 @@ export interface TaxiFareEstimate {
 	 * rather than take them on faith. */
 	citation: string;
 }
+
+/**
+ * The ride is longer than any card in this table describes, so there is no fare here at
+ * all. Issue #246, and see `MAX_RATED_TAXI_DISTANCE_KM` for what settled the boundary.
+ *
+ * A separate member of the union rather than an absent estimate, because "we did not ask"
+ * and "we asked and will not guess" are different answers and the traveller is owed the
+ * second one in words. It carries the distance and the ceiling so a screen can say which
+ * ride it is refusing to price, and the citation so it can still say which card it would
+ * have reached for.
+ */
+export interface TaxiFareOutOfRange {
+	kind: 'out-of-range';
+	distanceKm: number;
+	ratedUpToKm: number;
+	countryCode: IsoCountryCode;
+	citation: string;
+}
+
+/** Everything this table can say about one ride: a range, or a refusal. */
+export type TaxiFareEstimate = TaxiFareRange | TaxiFareOutOfRange;
 
 interface TaxiRateCard {
 	currency: IsoCurrencyCode;
@@ -174,13 +195,62 @@ const FALLBACK_TAXI_RATE_CARD: TaxiRateCard = {
 };
 
 /**
- * Turns a route distance into a taxi fare range for the country it falls in. Pure and
- * synchronous on purpose — it is arithmetic over a static table, not a lookup that needs
- * caching or network access the way the OSRM route it is normally fed by does.
+ * The longest ride this table is willing to put a number on, and the number is arguable,
+ * so here is the argument. Issue #246.
+ *
+ * **What went wrong.** Production quoted a Gatwick-to-London-Backpackers transfer at
+ * £268.75-£430.90, against the €173.00 flight that ride connects to. Nothing in the
+ * arithmetic misfired: `300 + 280 × 94.9` is £268.72 and the GB card really does say
+ * £2.80-£4.50 per kilometre. The fault is that the card was never measured on a ride like
+ * that one, and applying it linearly assumed it had been.
+ *
+ * **What the cards actually describe.** Every entry above is either a municipal tariff
+ * (Barcelona, Madrid, Roma Capitale, Comune di Milano, London black-cab Tariff 1) or a
+ * back-calculation from a single blended "5 km ride" comparison. Not one of them describes
+ * an intercity or motorway run. The GB citation says so outright: "London cabs meter a
+ * mixed time/distance formula, not a flat per-km rate, so this is an average over a typical
+ * ride rather than the meter itself."
+ *
+ * **Why that does not extrapolate.** Measured on the router this app itself calls,
+ * `routing.openstreetmap.de/routed-car`, 2026-09-05:
+ *
+ *   Kings Cross to Waterloo     5.1 km   13 min   23 km/h
+ *   LGW to London Backpackers  94.9 km   76 min   75 km/h
+ *
+ * The first is the ride the GB card was calibrated on, and the card reproduces it
+ * (£17.28-£26.75 against the cited "roughly $23"). Most of a per-km figure blended at
+ * 23 km/h is the meter's time half, and a kilometre of motorway takes 0.8 minutes where a
+ * kilometre of central London takes 2.6. So the estimate overstates a fast ride by roughly
+ * the ratio of the two speeds, and airport transfers are exactly the trips this app quotes
+ * most.
+ *
+ * **30 km, and why not some other number.** 5 km is where the evidence is and 95 km is
+ * where it demonstrably breaks; nothing in this repo measures the middle, so any boundary
+ * here is a judgment and it is placed on the conservative side. 30 km is past every ride a
+ * municipal tariff describes for the cities actually cited, and it is where the widest card
+ * in the table, GB, still produces a range its flag-down and per-km figures can account for
+ * rather than one dominated by the extrapolation. One number for every country, because
+ * every card in the table has the same shape and the same problem.
+ *
+ * **What was rejected.** Splitting each card into a time rate and a distance rate is what a
+ * meter really does, and OSRM already returns both halves, but it needs twelve per-minute
+ * figures no source in this table provides. Tapering the per-km rate past some distance
+ * invents a second number with no source, which is worse than declining to answer. Both
+ * would replace a wrong number with a differently wrong one; refusing states what is
+ * actually true, which is that nothing here knows.
+ */
+export const MAX_RATED_TAXI_DISTANCE_KM = 30;
+
+/**
+ * Turns a route distance into a taxi fare range for the country it falls in, or into a
+ * refusal when the ride is longer than the cards describe. Pure and synchronous on purpose
+ * — it is arithmetic over a static table, not a lookup that needs caching or network access
+ * the way the OSRM route it is normally fed by does.
  *
  * Brief line 77 / issue #9: "aprox prices" for the transport floor when transit is dead;
- * AGENTS.md "never present an estimate as a fact" is why the result is a range with its
- * `rateSource` and `citation` attached rather than a single `Money`.
+ * AGENTS.md "never present an estimate as a fact" is why the priced result is a range with
+ * its `rateSource` and `citation` attached rather than a single `Money`, and why the
+ * over-distance result is nothing at all rather than a wider range.
  */
 export function estimateTaxiFare(distanceMeters: number, countryCode: IsoCountryCode): TaxiFareEstimate {
 	if (!(distanceMeters >= 0)) {
@@ -188,9 +258,19 @@ export function estimateTaxiFare(distanceMeters: number, countryCode: IsoCountry
 	}
 
 	const card = TAXI_RATE_TABLE[countryCode];
-	const rateSource: TaxiFareEstimate['rateSource'] = card ? 'country' : 'fallback';
+	const rateSource: TaxiFareRange['rateSource'] = card ? 'country' : 'fallback';
 	const { currency, flagDownMinorUnits, perKmMinorUnits, citation } = card ?? FALLBACK_TAXI_RATE_CARD;
 	const distanceKm = distanceMeters / 1000;
+
+	if (distanceKm > MAX_RATED_TAXI_DISTANCE_KM) {
+		return {
+			kind: 'out-of-range',
+			distanceKm,
+			ratedUpToKm: MAX_RATED_TAXI_DISTANCE_KM,
+			countryCode,
+			citation
+		};
+	}
 
 	return {
 		kind: 'estimate',

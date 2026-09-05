@@ -97,11 +97,14 @@ export function transferDetailLine(transfer: Transfer): string {
 }
 
 /**
- * A straight-line distance, for the one sentence that has to justify a refusal
- * (`TransportPicker`'s withheld-route notice, issue #220). Whole kilometres above 1 km,
- * one decimal below it, and a non-breaking space so "9 km" cannot wrap in half.
+ * A distance, for the sentences that have to justify a refusal: `TransportPicker`'s
+ * withheld-route notice (issue #220, a straight line) and its withheld-fare notice (issue
+ * #246, a road distance). Whole kilometres above 1 km, one decimal below it, and a
+ * non-breaking space so "9 km" cannot wrap in half. It was `formatStraightLineKm` until the
+ * second caller arrived with a road distance and made that name a lie; which kind of
+ * distance it is belongs in the sentence, not in the formatter.
  */
-export function formatStraightLineKm(km: number): string {
+export function formatKilometres(km: number): string {
 	const rounded = km < 1 ? Math.round(km * 10) / 10 : Math.round(km);
 	return `${rounded}\u00a0km`;
 }
