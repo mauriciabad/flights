@@ -399,7 +399,7 @@ describe('the transport stub and the landing buffer (issue #290)', () => {
 
 	it('explains the gap between landing and leaving, in the airport wait stub own words', () => {
 		expect(stubOf(buffered(), 'transport').footnote).toBe(
-			'Your own buffer, not a measured queue. 15m is the landing-to-transport setting for this airport, and Show details is where you change it.'
+			'Your own buffer, not a measured queue. 15m is the Landing to transport setting for an airport this size, and the search form is where you change it.'
 		);
 	});
 

@@ -160,13 +160,15 @@ export function landingBufferPickerNote(transfer: Transfer | undefined): string 
  *
  * Wording deliberately shared with the airport-wait stub's footnote, down to "not a
  * measured queue" and the pointer to where it is changed. A traveller who has read one of
- * them has read both.
+ * them has read both. The pointer differs because the controls do: a waiting time is edited
+ * on the row itself, and this one is a search field, so naming the row would send somebody
+ * looking for a control that is not there.
  */
 export function landingBufferFootnote(transfer: Transfer): string | undefined {
 	if (!transfer.landingBuffer) return undefined;
 	return (
 		`Your own buffer, not a measured queue. ${formatDuration(transfer.landingBuffer)} is the ` +
-		`landing-to-transport setting for this airport, and Show details is where you change it.`
+		`Landing to transport setting for an airport this size, and the search form is where you change it.`
 	);
 }
 

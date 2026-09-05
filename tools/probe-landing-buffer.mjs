@@ -80,7 +80,9 @@ async function reading(label, target) {
 		await page.waitForTimeout(400);
 	}
 
-	await page.getByRole('button', { name: 'Show details' }).first().click();
+	// Issue #278 removed the "Show details" button. The strip's own caption is what unfolds
+	// the timeline now, the same handle `tests/e2e/support/results-ui.ts` reaches for.
+	await page.locator('.result-card').first().locator('.trip-strip-unfold').click();
 	const detail = page.locator('.result-detail').first();
 	await detail.waitFor({ timeout: 30_000 });
 
@@ -97,9 +99,12 @@ async function reading(label, target) {
 	if ((await bed.count()) > 0) {
 		await bed.click();
 		await page.waitForTimeout(300);
-		const note = bed.locator('.picker-landing-buffer');
+		// Issue #278 moved the pickers out of the row and into a panel of their own.
+		const panel = page.getByTestId('segment-customiser');
+		await panel.waitFor({ timeout: 15_000 });
+		const note = panel.locator('.picker-landing-buffer');
 		console.log('PICKER NOTE    :', (await note.count()) > 0 ? flat(await note.innerText()) : '(none)');
-		const rows = bed.locator('.picker-row');
+		const rows = panel.locator('.picker-row');
 		for (let i = 0; i < (await rows.count()); i += 1) {
 			console.log(`PICKER ROW ${i}   :`, flat(await rows.nth(i).innerText()));
 		}

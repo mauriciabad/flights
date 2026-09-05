@@ -522,7 +522,7 @@ describe('the landing buffer, said out loud (issue #290)', () => {
 
 	it('borrows the airport wait stub own words, so two traveller-set buffers read alike', () => {
 		expect(landingBufferFootnote(taxi(68, 30))).toBe(
-			'Your own buffer, not a measured queue. 30m is the landing-to-transport setting for this airport, and Show details is where you change it.'
+			'Your own buffer, not a measured queue. 30m is the Landing to transport setting for an airport this size, and the search form is where you change it.'
 		);
 		expect(landingBufferFootnote(taxi(38, 0))).toBeUndefined();
 	});
