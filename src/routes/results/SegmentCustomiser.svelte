@@ -73,6 +73,7 @@
 	} from '$lib/search';
 	import { keyStore } from '$lib/keys';
 	import { getProviderRegistry, hasUnconfiguredStayProvider, hasUsableStayProvider } from '$lib/results/provider-setup';
+	import { createSearchDependencies } from '$lib/results/search-dependencies';
 	import type { ItineraryDraft, PropertyRouteState } from '$lib/results/itinerary-draft.svelte';
 	import type { StopoverLengthOption } from '$lib/results/types';
 	import { StayPicker, describeNoStays, groupByProperty, isSameProperty, propertyKey } from '$lib/stays';
@@ -430,6 +431,24 @@
 				signal: controller.signal,
 				landingToTransportRules: DEFAULT_LANDING_TO_TRANSPORT_RULES,
 				connectionAirportSize: airport.sizeClass,
+				// Issue #356: the two arguments that decide whether this ride carries a fare
+				// at all. Without the country `osrm.ts` hands back a taxi with no estimate,
+				// so a swapped bed was being compared against the search's own bed with a
+				// price on one side and nothing on the other, and the unpriced one looked
+				// cheaper than it is.
+				connectionCountryCode: airport.country.isoCode,
+				// Through `createSearchDependencies` rather than a second
+				// `keyStore.currency ?? DEFAULT_SEARCH_CURRENCY` written here. That function
+				// IS the app's answer to "what currency is this search in", and issue #158
+				// moved it out of a component closure precisely because a copy living in one
+				// could not be tested and was wrong. Read live, the way the keys two lines up
+				// are, so a currency picked in settings in another tab reaches this tap.
+				displayCurrency: createSearchDependencies(keyStore.availableKeys, keyStore.currency)
+					.currency,
+				// The trip's own party rather than the `travellers` prop, which is the search
+				// query's and can be absent. Every other figure on this panel is already the
+				// one `itinerary.travellers` describes.
+				travellers: itinerary.travellers,
 				// Deliberately dropped rather than folded into `SearchSnapshot.providers`:
 				// this call happens after the search is over, and counting it there would
 				// change a provider row the traveller reads as "what this search did".

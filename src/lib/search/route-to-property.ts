@@ -36,6 +36,7 @@ import type {
   AirportSizeClass,
   Coordinates,
   IsoCountryCode,
+  IsoCurrencyCode,
   LandingToTransportRule,
   Transfer,
 } from "../domain";
@@ -69,10 +70,39 @@ export interface RouteToPropertyInput {
    * would disagree with itself depending on which code path produced it. */
   landingToTransportRules: readonly LandingToTransportRule[];
   connectionAirportSize: AirportSizeClass;
-  /** The connection airport's own country, so a taxi routed here is rated against the same
-   * card `fetchConnectionResources` would have used (issue #249). Absent means no estimate
-   * for this bed, never one borrowed from a neighbouring country. */
-  connectionCountryCode?: IsoCountryCode;
+  /**
+   * The connection airport's own country, so a taxi routed here is rated against the same
+   * card `fetchConnectionResources` would have used (issue #249).
+   *
+   * Required, not optional, and issue #356 is why. It was optional and the one caller
+   * never passed it, so a taxi to a swapped bed came back with no fare estimate at all
+   * while the identical taxi to the search's own bed carried one. Nothing failed: the
+   * argument is easy to forget and `undefined` is a legal value for it one layer down, so
+   * the omission read as a deliberate "no country here". `Airport.country.isoCode` is
+   * never absent, so no caller has to invent one, and a caller that forgets now fails
+   * `pnpm check` instead of a traveller's comparison.
+   */
+  connectionCountryCode: IsoCountryCode;
+  /**
+   * The currency the traveller picked, which the rate-card estimate is converted into
+   * before it reaches the panel (issue #339).
+   *
+   * Required for the same reason as the country above, and forgotten in the same place at
+   * the same time. The two answer the halves of one question. The country picks which
+   * tariff describes this ride, this picks which currency the traveller reads it in, and a
+   * call site that has to name one of them has to name both.
+   */
+  displayCurrency: IsoCurrencyCode;
+  /**
+   * How many people are making this journey, so the estimate is the one this trip's own
+   * totals are computed for (issue #344).
+   *
+   * The third of the same trio, required for the same reason as the other two.
+   * `Itinerary.travellers` is never absent and is the party every other figure on the
+   * panel already describes, so a ride quoted for a different number here would be the
+   * one line on the screen answering a question nobody asked.
+   */
+  travellers: number;
   /** Where a provider call gets reported. The panel does not feed the search-wide status
    * map (this call happens after the search is over and would make "Ryanair answered
    * twice" wrong), so this exists so a failure has somewhere to go rather than being
@@ -110,6 +140,8 @@ export async function routeToProperty(
     landingToTransportRules,
     connectionAirportSize,
     connectionCountryCode,
+    displayCurrency,
+    travellers,
     record,
   } = input;
 
@@ -128,6 +160,8 @@ export async function routeToProperty(
         to: propertyCoordinates,
         modes: [...ROAD_TRANSFER_MODES],
         countryCode: connectionCountryCode,
+        displayCurrency,
+        travellers,
       },
       transferProviders,
       keys,
@@ -141,6 +175,8 @@ export async function routeToProperty(
         to: connectionCoordinates,
         modes: [...ROAD_TRANSFER_MODES],
         countryCode: connectionCountryCode,
+        displayCurrency,
+        travellers,
       },
       transferProviders,
       keys,
