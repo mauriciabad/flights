@@ -24,6 +24,7 @@
 	 * and a bordered card inside a bordered row was the box-in-a-box look this replaces.
 	 */
 	import type { Duration, Itinerary, LocalDateTime, Transfer, TransferMode } from '../domain';
+	import { transferRideDuration } from '../domain';
 	import {
 		diffTransfers,
 		recomputeItinerarySelection,
@@ -46,6 +47,7 @@
 		formatMoneyRange,
 		formatTimeDelta,
 		isDifferentCalendarDate,
+		landingBufferPickerNote,
 		summariseTransferLegs,
 		transferModeLabel,
 		transferFareNote
@@ -191,6 +193,10 @@
 
 	const currentWarnings = $derived(rows.find((row) => row.isSelected)?.result.warnings ?? []);
 
+	/** Issue #290. Read off the leg's own transfer rather than off a row: the buffer belongs
+	 * to the leg, and every candidate on it carries the same one. */
+	const landingBuffer = $derived(landingBufferPickerNote(selected));
+
 	function handleSelect(row: TransferRow) {
 		onselect(row.result);
 	}
@@ -264,6 +270,13 @@
 </script>
 
 <section class="transport-picker">
+	<!-- Issue #290: the walk-out is identical on every candidate here, so it is the one part
+	     of these durations that says nothing about which option to take. Stated once above the
+	     list rather than per row: repeated four times it would be the padding shouting louder
+	     than the differences the traveller opened this to compare. -->
+	{#if landingBuffer}
+		<p class="picker-landing-buffer">{landingBuffer}</p>
+	{/if}
 	<div role="radiogroup" aria-label={legLabel} class="picker-list">
 		{#each rows as row (transferKey(row.transfer))}
 			<!-- Issue #249: the rate-card range rides on the transfer that was routed, so a
@@ -301,7 +314,7 @@
 						{transferModeLabel(row.transfer.mode)}
 					</span>
 					<span class="row-duration">
-						<span class="font-mono tabular-nums">{formatDuration(row.transfer.duration)}</span>
+						<span class="font-mono tabular-nums">{formatDuration(transferRideDuration(row.transfer))}</span>
 						{#if summary}<span class="row-summary">&middot; {summary}</span>{/if}
 					</span>
 				</span>
@@ -506,6 +519,12 @@
 		display: flex;
 		flex-direction: column;
 		gap: 0;
+	}
+
+	.picker-landing-buffer {
+		margin: 0;
+		font-size: var(--font-size-sm);
+		color: var(--color-text-muted);
 	}
 
 	/* Hairlines between rows, not a border around each: inside a timeline step this list

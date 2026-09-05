@@ -73,6 +73,7 @@
 	 * under a dashed rule.
 	 */
 	import type { Airport, Itinerary } from '$lib/domain';
+	import { transferRideDuration } from '$lib/domain';
 	import { formatClockTime, formatDuration, formatLongDuration, formatWeekday, formatWeekdayLong } from '$lib/format';
 	import type { ItinerarySegmentId } from '$lib/itinerary-map/segment-id';
 	import { segmentStub, stripTargets } from './segment-stub';
@@ -189,7 +190,17 @@
 			flushFree();
 			if (segment.kind === 'wait') clauses.push(`${formatDuration(segment.minutes)} waiting at ${segment.airport}`);
 			else if (segment.kind === 'flight') clauses.push(`${segment.from} to ${segment.to}, ${formatDuration(segment.minutes)} in the air`);
-			else clauses.push(`${formatDuration(segment.minutes)} ${TRANSFER_MODE_PHRASES[segment.mode]} ${transferWhere(segment)}`);
+			else {
+				// Issue #290: a leg that starts at a runway spends its first minutes getting out
+				// of the terminal, and folding those into "by taxi" is what this sentence used to
+				// do. Two clauses, so the ride is the ride and the spoken journey still covers
+				// every minute the bar beside it covers.
+				const walkOut = segment.transfer.landingBuffer;
+				if (walkOut) clauses.push(`${formatDuration(walkOut)} getting out of the airport`);
+				clauses.push(
+					`${formatDuration(transferRideDuration(segment.transfer))} ${TRANSFER_MODE_PHRASES[segment.mode]} ${transferWhere(segment)}`
+				);
+			}
 		}
 		flushFree();
 		return `${clauses.join(', then ')}. Drawn on a square-root time scale.`;

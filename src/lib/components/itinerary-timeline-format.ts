@@ -134,6 +134,26 @@ export function landingBufferNote(transfer: Transfer): string | undefined {
 }
 
 /**
+ * The same buffer where a whole list of options shares it, which is `TransportPicker`.
+ *
+ * Its own sentence rather than `landingBufferNote` repeated per row, because the two say
+ * different things. That one ends "so you arrive 1h 8m after landing", a total belonging to
+ * one journey; a picker is showing four, and printing one row's total over all of them is
+ * how this issue started. What every row here genuinely shares is the moment it starts.
+ *
+ * Worth saying at all because the buffer is the same on every candidate. Both pipelines
+ * that apply it map over the whole list rather than the pick alone, so it is exactly the
+ * part of these numbers that carries no information about which option to take.
+ */
+export function landingBufferPickerNote(transfer: Transfer | undefined): string | undefined {
+	if (!transfer?.landingBuffer) return undefined;
+	return (
+		`Every option here starts ${formatDuration(transfer.landingBuffer)} after you land, which is ` +
+		`your own landing-to-transport setting. The times below are the journeys themselves.`
+	);
+}
+
+/**
  * The same fact where a panel has already spent its clocks on the ride: the segment stub,
  * whose start reading is the moment the vehicle leaves rather than the moment the plane
  * lands. The gap between those two is the whole of this sentence's job.

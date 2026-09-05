@@ -737,10 +737,12 @@ describe('ItineraryTimeline, the row into town says what the ride costs (issue #
 		return (root.querySelector(`[data-segment="${segment}"]`)?.textContent ?? '').replace(/\s+/g, ' ').trim();
 	}
 
+	function durationCell(root: HTMLElement, segment: string): string {
+		return root.querySelector(`[data-segment="${segment}"] .tl-duration`)?.textContent?.trim() ?? '';
+	}
+
 	it('puts the ride in the duration column', () => {
-		const row = rowText(renderTimeline(buffered()), 'transfer-to-hotel');
-		expect(row).toContain('30m');
-		expect(row).not.toContain('45m');
+		expect(durationCell(renderTimeline(buffered()), 'transfer-to-hotel')).toBe('30m');
 	});
 
 	it('keeps the 45 minutes on the row, named as the buffer plus the ride', () => {
@@ -750,8 +752,8 @@ describe('ItineraryTimeline, the row into town says what the ride costs (issue #
 	});
 
 	it('leaves the leg back to the airport alone: nothing pads a leg that ends at a gate', () => {
-		const row = rowText(renderTimeline(buffered()), 'transfer-to-connection-airport');
-		expect(row).toContain('30m');
-		expect(row).not.toContain('to get out of the airport');
+		const root = renderTimeline(buffered());
+		expect(durationCell(root, 'transfer-to-connection-airport')).toBe('30m');
+		expect(rowText(root, 'transfer-to-connection-airport')).not.toContain('to get out of the airport');
 	});
 });

@@ -658,18 +658,22 @@ describe('TransportPicker: telling "no service" from "nobody asked" (issue #135)
 });
 
 describe('TransportPicker: comparing rides, not paddings (issue #290)', () => {
-	/** Every candidate on a leg that starts at a runway carries the same buffer — the two
-	 * pipelines that apply it map over the whole list, not just the pick — so a picker that
-	 * prints the padded totals moves every row by the same 30 minutes and squeezes the gaps
-	 * a traveller is there to compare. */
+	/** Every candidate on a leg that starts at a runway carries the same buffer, because both
+	 * pipelines that apply it map over the whole list rather than the pick alone. A picker
+	 * printing the padded totals therefore moves every row by the same 30 minutes and
+	 * squeezes the gaps a traveller is there to compare. */
 	const taxi: Transfer = { mode: 'taxi', duration: 68 as Duration, landingBuffer: 30 as Duration, legs: [] };
 	const bus: Transfer = { mode: 'transit', duration: 85 as Duration, landingBuffer: 30 as Duration, legs: [] };
 
 	it('prints each option as long as its own journey takes', () => {
 		const root = mountPicker({ itinerary: baseItinerary(taxi), alternatives: [taxi, bus] });
 		const durations = [...root.querySelectorAll('.row-duration')].map((row) => normalizedText(row as HTMLElement));
-		expect(durations).toEqual(['38m', '55m']);
+		// Transit first, then the road modes, which is the picker's own ranking.
+		expect(durations).toEqual(['55m', '38m']);
+		// Padded, these read 1h 25m and 1h 8m: a 17-minute gap dressed up as the same gap
+		// between two much longer journeys.
 		expect(durations).not.toContain('1h 8m');
+		expect(durations).not.toContain('1h 25m');
 	});
 
 	it('states the buffer once for the whole list, since every row carries the same one', () => {
