@@ -6,11 +6,12 @@
 	 * > Fri 9 from 9:10pm
 	 * > 2 full days: Sat, Sun
 	 * > Mon 12 until 9:05am
-	 * >
-	 * > Wombat's City Hostel
-	 * > 6-bed mixed dorm
-	 * > 2 nights, 52.82 EUR/night
-	 * > [transport icon] 30 min from airport, 10 EUR/way
+	 *
+	 * The stay half is no longer written here. Issue #279: the owner called four more lines
+	 * under those three "a blob of text" and asked for the bed to be a thing with pictures,
+	 * so `PickedBed` renders it and this file's job shrank to gathering the facts and
+	 * handing them over. The three time lines above are untouched, and so is every rule
+	 * about when a bed is named at all.
 	 *
 	 * ## Not one number here is computed here
 	 *
@@ -66,7 +67,14 @@
 	import type { Coordinates, Itinerary } from '$lib/domain';
 	import { formatDuration, formatMoney } from '$lib/format';
 	import { overnightWaitNote } from '$lib/results/stopover-nights';
-	import { bedNightlyRate, formatDistanceKm, haversineDistanceKm, ROOM_KIND_LABELS } from '$lib/stays';
+	import {
+		bedNightlyRate,
+		formatDistanceKm,
+		haversineDistanceKm,
+		PickedBed,
+		propertyKey,
+		ROOM_KIND_LABELS
+	} from '$lib/stays';
 	import { freeTimeDays } from './free-time-days';
 	import { transferModeLabel, unpricedTransferNote, unroutedLegNote } from './itinerary-timeline-format';
 
@@ -97,33 +105,38 @@
 	const waitNote = $derived(overnightWaitNote(itinerary));
 
 	/**
-	 * "Dorm bed - 48.3 km from the airport". Issue #219: the app picked a bed that far out
-	 * and the card said nothing about it, so the one number that made the pick look absurd
-	 * was the one number missing from the screen.
+	 * How far out the bed is. Issue #219: the app picked a bed 48.3 km from the airport and
+	 * the card said nothing about it, so the one number that made the pick look absurd was
+	 * the one number missing from the screen.
 	 *
 	 * Straight-line, the same figure and the same formatter the stay picker's rows use
 	 * (`stays/distance.ts`), never a second measurement that could disagree with the list
 	 * a tap away. The transfer line below is the other half of the answer: how long the
 	 * journey actually takes, which is a route rather than a line.
+	 *
+	 * `undefined` when no airport position was resolved. The itinerary carries only an IATA
+	 * code (domain/itinerary.ts), and a block that invented a point would print a distance
+	 * to nowhere; the figure is simply absent instead.
 	 */
-	const roomLine = $derived.by(() => {
-		if (!stay) return undefined;
-		const kind = ROOM_KIND_LABELS[stay.roomKind];
-		if (!connectionCoordinates) return kind;
+	const distanceFromAirport = $derived.by(() => {
+		if (!stay || !connectionCoordinates) return undefined;
 		const km = haversineDistanceKm(stay.property.coordinates, connectionCoordinates);
-		return `${kind} · ${formatDistanceKm(km)} from the airport`;
+		return formatDistanceKm(km);
 	});
 
 	// Issue #206: the rate, and who it covers. `bedNightlyRate` owns that decision so this
-	// line and the card's own "Bed, 2 nights × €13.00 each" can never quote two different
-	// figures for one bed. A dorm bed for three reads "2 nights, €13.00/night each"; a
-	// private room reads "2 nights, €44.00/night for 3", because a room is one unit
-	// whatever the party size and splitting it would be a number nobody quoted.
-	const nightsAndRate = $derived.by(() => {
-		if (!stay || nights === 0) return undefined;
+	// figure and the card's own "Bed, 2 nights × €13.00 each" can never quote two different
+	// numbers for one bed. A dorm bed for three carries "each"; a private room carries "for
+	// 3", because a room is one unit whatever the party size and splitting it between heads
+	// would be a number nobody quoted.
+	//
+	// Handed on as the number and its audience rather than as one sentence: since issue
+	// #279 the block prints them on two lines, and re-splitting a string it had just joined
+	// would be the second derivation this file exists to avoid.
+	const bedRate = $derived.by(() => {
+		if (!stay) return undefined;
 		const rate = bedNightlyRate(stay, itinerary.travellers);
-		const perNight = `${formatMoney(rate.money)}/night${rate.audience ? ` ${rate.audience}` : ''}`;
-		return `${nights} ${nights === 1 ? 'night' : 'nights'}, ${perNight}`;
+		return { amount: formatMoney(rate.money), audience: rate.audience };
 	});
 
 	/**
@@ -186,16 +199,25 @@
 		     bed it does not need. Naming the property under a trip that books nothing would
 		     put a hostel and no rate on the card and leave the reader to work out which of
 		     the two they are being told. -->
-		{#if stay && nights > 0}
-			<p class="stopover-property">{stay.property.name}</p>
-			<p class="stopover-room">{roomLine}</p>
-			{#if nightsAndRate}
-				<p class="stopover-rate font-mono tabular-nums">{nightsAndRate}</p>
-			{/if}
+		{#if stay && bedRate && nights > 0}
+			<!-- Keyed on the property so a swap rebuilds the block rather than reusing it.
+			     `PickedBed` counts which photograph the reader has reached, and carrying
+			     that count over to a different hostel would open the new one on its second
+			     picture and fetch it unasked. -->
+			{#key propertyKey(stay.property)}
+				<PickedBed
+					property={stay.property}
+					roomKindLabel={ROOM_KIND_LABELS[stay.roomKind]}
+					{nights}
+					rate={bedRate}
+					{distanceFromAirport}
+					transfer={{ note: transferLine, mode: toHotel?.mode }}
+				/>
+			{/key}
 		{:else}
 			<p class="stopover-room">{noBedLine}</p>
+			<p class="stopover-transfer">{transferLine}</p>
 		{/if}
-		<p class="stopover-transfer">{transferLine}</p>
 	</div>
 </section>
 
@@ -247,14 +269,10 @@
 		margin-top: var(--space-3);
 	}
 
-	.stopover-property {
-		font-size: var(--font-size-sm);
-		font-weight: var(--font-weight-semibold);
-		color: var(--color-text);
-	}
-
+	/* The two sentences left in this file, for the stopover that books no bed at all.
+	   Everything the bed case prints moved into `PickedBed` with issue #279, and its
+	   deprioritised treatment moved with it. */
 	.stopover-room,
-	.stopover-rate,
 	.stopover-transfer {
 		font-size: var(--font-size-xs);
 		line-height: var(--line-height-xs);
@@ -264,8 +282,7 @@
 	/* Colour swap rather than opacity, the treatment AGENTS.md names for an avoided
 	   airline: every line here still has to be readable. */
 	:global(.is-deprioritized) .stopover-days,
-	:global(.is-deprioritized) .stopover-edge,
-	:global(.is-deprioritized) .stopover-property {
+	:global(.is-deprioritized) .stopover-edge {
 		color: var(--color-text-deprioritized);
 	}
 </style>

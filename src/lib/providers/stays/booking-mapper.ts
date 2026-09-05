@@ -12,6 +12,7 @@ import type {
   BookingRoomListResponse,
   BookingSearchResult,
 } from "./booking-types";
+import { upgradeBookingPhoto } from "./booking-photo";
 import { isWomenOnlyPropertyName } from "./women-only-name";
 
 /** Reads only `value`/`currency` — never `amount_rounded`/`amount_unrounded`, which are
@@ -113,9 +114,12 @@ export function mapSearchResultToCandidate(
     property: {
       name,
       coordinates: { latitude, longitude },
+      // `main_photo_url` arrives at 60x60 and is upgraded to a card-sized address here.
+      // `booking-photo.ts` carries the measurement and the fallback that makes the swap
+      // safe.
       images:
         typeof result.main_photo_url === "string" && result.main_photo_url
-          ? [result.main_photo_url]
+          ? [upgradeBookingPhoto(result.main_photo_url)]
           : [],
       // Issue #245: out of 10 (see `booking-types.ts`), and the scale rides along so no
       // screen has to guess which one this is.
