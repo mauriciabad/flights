@@ -123,7 +123,14 @@ const NO_TRANSFER_LEG_OPTIONS: TransferLegOptions = { candidates: [] };
  * for "travel to the airport" or "travel to the destination" needs real alternatives
  * exactly the same way the connection-side pickers do. Since issue #249 each taxi in that
  * list carries its own rate-card estimate, which is why `countryCode` rides on the query
- * below. */
+ * below.
+ *
+ * `currency` and `query.travellers` ride with it for the same reason, and their absence
+ * here was a real hole. `resources.ts` has passed the currency since #339 and these two
+ * legs never did, so the ride to the airport quoted the rate card's own currency under a
+ * total in the traveller's, on the one leg of a trip the traveller definitely takes. #344
+ * needs the party size on the same query, and a per-head share of the wrong currency would
+ * have been worse than either half alone. */
 async function fetchOuterTransfers(
 	query: SearchQuery,
 	originAirport: Airport,
@@ -133,7 +140,8 @@ async function fetchOuterTransfers(
 	signal: AbortSignal,
 	landingToTransportRules: readonly LandingToTransportRule[],
 	sources: SourceTracker,
-	record: RecordProviderCall
+	record: RecordProviderCall,
+	currency: SearchDependencies['currency']
 ): Promise<{
 	transferToOriginAirport?: Transfer;
 	transferToDestinationLocation?: Transfer;
@@ -153,7 +161,9 @@ async function fetchOuterTransfers(
 						// between them.
 						to: groundTransferPoint(originAirport),
 						modes: [...ROAD_TRANSFER_MODES],
-						countryCode: originAirport.country.isoCode
+						countryCode: originAirport.country.isoCode,
+						displayCurrency: currency,
+						travellers: query.travellers
 					},
 					transferProviders,
 					keys,
@@ -168,7 +178,9 @@ async function fetchOuterTransfers(
 						from: groundTransferPoint(destinationAirport),
 						to: query.destinationLocation.coordinates,
 						modes: [...ROAD_TRANSFER_MODES],
-						countryCode: destinationAirport.country.isoCode
+						countryCode: destinationAirport.country.isoCode,
+						displayCurrency: currency,
+						travellers: query.travellers
 					},
 					transferProviders,
 					keys,
@@ -965,7 +977,8 @@ export async function* runSearch(
 		signal,
 		landingToTransportRules,
 		sources,
-		record
+		record,
+		currency
 	);
 	outerTransferOptionsRef.current = {
 		transferToOriginAirport: transferToOriginAirportOptions,
@@ -1239,7 +1252,8 @@ export async function* widenSearch(
 		signal,
 		landingToTransportRules,
 		sources,
-		record
+		record,
+		currency
 	);
 	outerTransferOptionsRef.current = {
 		transferToOriginAirport: transferToOriginAirportOptions,

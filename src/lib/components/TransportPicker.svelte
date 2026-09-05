@@ -31,7 +31,9 @@
 		type RecomputedSelection
 	} from '../algorithm/recompute-selection';
 	import { minutesBetween } from '../algorithm/build';
-	import { readMissedService } from '../algorithm/transit-schedule';
+	// The wait threshold moved next to `readMissedService`'s own in issue #344, so this
+	// picker and the timeline row cannot disagree about what a dead spot is.
+	import { NORMAL_WAIT_THRESHOLD_MINUTES, readMissedService } from '../algorithm/transit-schedule';
 	import type { MissedService } from '../algorithm/transit-schedule';
 	import type { TransitLegAnswer } from '../search/types';
 	import { MAX_TRANSIT_LOOKUPS_PER_SEARCH } from '../search/transit-schedule';
@@ -120,12 +122,6 @@
 
 	const uid = $props.id();
 	const groupName = `transport-picker-${uid}`;
-
-	// A gap under this is "you'd have waited for it regardless of the flight" rather than a
-	// real dead spot in the schedule. The dramatic "no service" framing is reserved for a
-	// gap bigger than this, or for a departure the planner found nothing at all after
-	// (`readMissedService`'s `last-known`).
-	const NORMAL_WAIT_THRESHOLD_MINUTES = 20;
 
 	function getSelectedTransfer(current: Itinerary, field: TransferLegField): Transfer | undefined {
 		switch (field) {
@@ -331,7 +327,13 @@
 					{#if fare.unknown}
 						<span class="price-unknown">{fare.text}</span>
 					{:else}
-						{fare.text}{#if fare.estimated}<span class="estimate-tag">estimate</span>{/if}
+						<!-- Issue #344: the figure is what the whole party pays, so the party is
+						     named under it, and the per-head share is on its own line because that
+						     is the number that compares with a bus ticket. Both are absent for a
+						     lone traveller and for a card whose basis nobody checked. -->
+						{fare.text}{#if fare.audience}<span class="price-audience">{fare.audience}</span>{/if}{#if fare.each}<span
+								class="price-each">{fare.each}</span
+							>{/if}{#if fare.estimated}<span class="estimate-tag">estimate</span>{/if}
 					{/if}
 				</span>
 				<span class="row-delta">
@@ -392,16 +394,29 @@
 							</p>
 							{#if taxiRow?.fareEstimate?.kind === 'estimate'}
 								{@const taxiFareEstimate = taxiRow.fareEstimate}
+								{@const taxiFareNote = transferFareNote(taxiRow)}
+								<!-- Issue #344. This sentence is the comparison the whole issue is about, so
+								     it says what the party pays and what that is each. The second half is the
+								     other half of being honest about it: this row's own fare is unknown
+								     whenever `fare.unknown` is set (Transitous returns a timetable, not a
+								     ticket price), and a taxi figure sitting beside a blank reads as a
+								     saving nobody measured. -->
 								<p class="schedule-gap-alternative">
-									A taxi now takes about {formatDuration(taxiRow.duration)} and costs roughly
-									{formatMoneyRange(taxiFareEstimate.lowMinorUnits, taxiFareEstimate.highMinorUnits, taxiFareEstimate.currency)}.
+									A taxi now takes about {formatDuration(transferRideDuration(taxiRow))} and costs roughly
+									{formatMoneyRange(taxiFareEstimate.lowMinorUnits, taxiFareEstimate.highMinorUnits, taxiFareEstimate.currency)}{taxiFareNote.audience
+										? ` ${taxiFareNote.audience}`
+										: ''}{taxiFareNote.each ? `, about ${taxiFareNote.each}` : ''}.
+									{#if fare.unknown}
+										No ticket price came back for this {transferModeLabel(row.transfer.mode).toLowerCase()}, so
+										there is nothing to set that against.
+									{/if}
 								</p>
 							{:else if taxiRow?.fareEstimate?.kind === 'out-of-range'}
 								{@const taxiFareEstimate = taxiRow.fareEstimate}
 								<!-- Issue #246: the duration is measured and stays. The fare is the half
 								     nothing here knows, and "roughly £268-£431" was the app inventing it. -->
 								<p class="schedule-gap-alternative">
-									A taxi now takes about {formatDuration(taxiRow.duration)} over
+									A taxi now takes about {formatDuration(transferRideDuration(taxiRow))} over
 									{formatKilometres(taxiFareEstimate.distanceKm)}. No rate card here reaches that far, so
 									the fare is unknown.
 								</p>
@@ -473,6 +488,31 @@
 								this transfer above the price of the flight it connects to, so it is not stretched.
 							</p>
 						{/if}
+						{#if taxiFare.kind === 'estimate' && taxiFare.party}
+							{@const party = taxiFare.party}
+							<!-- Issue #344. The row above prints a party figure and a share; this is where
+							     the reason each of them is allowed to exist is written down, because the
+							     column has no room for it. The `unknown` branch is the one that matters
+							     most: it is the app declining to divide, and saying so is the difference
+							     between a cautious answer and a missing one. -->
+							{#if party.basis === 'per-vehicle'}
+								<p>
+									A taxi meters the car, not the seat, so the figure above is
+									{party.vehicles === 1 ? 'one car' : `${party.vehicles} cars`} for the
+									{party.people} of you, and the share beside it is that divided by {party.people}.
+									{#if party.vehicles > 1}
+										{party.people} passengers do not fit in the saloon this tariff describes, so it is priced
+										as {party.vehicles} of them; a rank with a larger vehicle may charge less than that.
+									{/if}
+								</p>
+							{:else}
+								<p>
+									There is no rate card for this country, so whether a taxi here charges by the car or by
+									the seat is unchecked. The figure above is one car's fare and it is deliberately not
+									split between the {party.people} of you.
+								</p>
+							{/if}
+						{/if}
 						{#if taxiFare.kind === 'estimate' && taxiFare.converted}
 							{@const source = taxiFare.converted}
 							<!-- Issue #339. The row above shows the traveller's currency so the figure can
@@ -483,7 +523,9 @@
 							<p>
 								The rate card is written in {source.from} and quotes
 								{formatMoneyRange(source.fromLowMinorUnits, source.fromHighMinorUnits, source.from)} for this
-								ride, which is what a driver would charge. The figure above is that range at the European
+								ride, which is what {taxiFare.party?.basis === 'per-vehicle' && taxiFare.party.vehicles > 1
+									? 'the drivers would charge between them'
+									: 'a driver would charge'}. The figure above is that range at the European
 								Central Bank's reference rate for {source.rateDate}, so it moves with the rate and is not a
 								price anyone has quoted.
 							</p>
@@ -647,6 +689,20 @@
 		color: var(--color-text-faint);
 		text-transform: uppercase;
 		letter-spacing: var(--tracking-wide);
+	}
+
+	/* Issue #344. Under the party figure, not beside it: this column is right-aligned and
+	   already carries the "estimate" tag, and "€52.30-€78.60 for 4" on one line pushes the
+	   row wider than a 375px screen has. Muted rather than faint, because the share is the
+	   number a traveller reads to decide, and --color-text-faint is under AA at this size
+	   (the same reason .row-summary refuses it). */
+	.price-audience,
+	.price-each {
+		display: block;
+		font-family: var(--font-sans);
+		font-size: var(--font-size-xs);
+		font-weight: var(--font-weight-regular);
+		color: var(--color-text-muted);
 	}
 
 	.price-unknown {

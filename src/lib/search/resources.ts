@@ -739,6 +739,9 @@ export async function fetchConnectionResources(
           // traveller picked instead of the one the ride's country happens to use. It is
           // not sent to OSRM; no transfer provider quotes a fare.
           displayCurrency: input.currency,
+          // Issue #344: the same party the stay fetch above is given, so a taxi here is
+          // priced for the people taking it rather than for one car. Never sent to OSRM.
+          travellers: input.travellers,
         },
         input.transferProviders,
         input.keys,
@@ -757,6 +760,9 @@ export async function fetchConnectionResources(
           // traveller picked instead of the one the ride's country happens to use. It is
           // not sent to OSRM; no transfer provider quotes a fare.
           displayCurrency: input.currency,
+          // Issue #344: the same party the stay fetch above is given, so a taxi here is
+          // priced for the people taking it rather than for one car. Never sent to OSRM.
+          travellers: input.travellers,
         },
         input.transferProviders,
         input.keys,

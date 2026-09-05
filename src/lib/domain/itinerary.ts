@@ -120,7 +120,14 @@ export interface Itinerary {
 	 * the whole party (a dorm bed is arguably per-person and a private room is not — an
 	 * unresolved nuance that choice already accepts). No `TransferProvider` in this
 	 * codebase populates `Transfer.price` today (domain/transfer.ts), so there is
-	 * nothing yet to scale there either way. */
+	 * nothing yet to scale there either way.
+	 *
+	 * Issue #344 does scale the one ground figure that exists, and deliberately not into
+	 * the total: `Transfer.fareEstimate` is now rated for this many people, because a
+	 * meter charges the car and a bus ticket charges the seat and the two were printed
+	 * side by side as though they answered the same question. It stays a `FareEstimate`
+	 * rather than a `Money`, `costIsUnknown` still returns true for the leg carrying it,
+	 * and `totalPrice` above is still only what providers quoted. */
 	travellers: number;
 	/** Line 50. Present only alongside `stay` — see that field's own doc comment. */
 	transferToConnectionAirport?: Transfer;
