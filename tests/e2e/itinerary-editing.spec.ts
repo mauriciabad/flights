@@ -1,18 +1,106 @@
-import { test } from './support/fixtures';
+import { test, expect } from './support/fixtures';
+import { FIXTURE_FLIGHT_NUMBERS, FIXTURE_PRICES } from './support/fixture-markers';
+import { mockAllKeylessProviders, mockHostelworld, routeRyanairFlights } from './support/providers';
 
 /**
- * Editing a built itinerary (issue #18's fourth scenario): swap a flight, a transfer or
- * a stay for an alternative, and the totals and timeline update to match. Depends on
- * the itinerary timeline (#24), the transport/flight pickers (#28) and the stay picker
- * (#27), none of which exist yet.
+ * Editing a built itinerary (issue #18's fourth scenario): change the waiting time or the
+ * bed, and confirm the whole panel follows rather than part of it.
+ *
+ * Issues #243 and #250 are one defect seen twice, and both are here. Every reading below is
+ * one a person sees at the same moment on the same screen: the stopover block `ResultDetail`
+ * puts above the timeline, the two in-city transfer rows inside it, and the totals rail
+ * under it. What went wrong both times was those three disagreeing, so the checks are
+ * written as agreements between them rather than as one value read in isolation.
+ *
+ * Two Hostelworld properties, one on the airport and one 32 km north. The search routes to
+ * the property it picks and to no other, so picking the second one is the moment the app
+ * either says it has no journey or quietly reprints the first one's.
+ *
+ * Values come from `support/fixture-markers.ts` — €9,222.22 a night, `ZZ00xx` flights,
+ * FIXTURE place names — so nothing here could be read as a trip somebody could book.
  */
-test.describe('itinerary editing', () => {
-	test.skip('changing a flight updates the totals and the timeline', async () => {
-		// Intent (issue #18): "Change a flight and confirm the totals and timeline
-		// update." Once a built itinerary can be opened and a flight swapped for an
-		// alternative (#28), assert the total price, total time and the timeline rows
-		// all reflect the new flight, not the old one.
-		// Blocked on: #13 (itinerary builder), #24 (itinerary timeline), #28
-		// (transport/flight pickers).
+
+const EMPTY_MAP_STYLE = JSON.stringify({ version: 8, name: 'empty', sources: {}, layers: [] });
+
+test.describe('editing a stopover keeps one trip on the screen', () => {
+	test('a waiting-time edit and a bed swap each move every reading (issues #250, #243)', async ({
+		page
+	}) => {
+		await mockAllKeylessProviders(page.context());
+		await mockHostelworld(
+			page.context(),
+			'hostelworld/continents-vienna.json',
+			'hostelworld/properties-vienna-two.json'
+		);
+		await routeRyanairFlights(page.context(), [
+			{
+				dep: 'BCN',
+				arr: 'VIE',
+				depDate: '2027-03-08T08:00:00',
+				arrDate: '2027-03-08T10:15:00',
+				price: FIXTURE_PRICES.first,
+				flightNumber: FIXTURE_FLIGHT_NUMBERS[2]
+			},
+			{
+				dep: 'VIE',
+				arr: 'TLL',
+				depDate: '2027-03-10T11:00:00',
+				arrDate: '2027-03-10T13:20:00',
+				price: FIXTURE_PRICES.third,
+				flightNumber: FIXTURE_FLIGHT_NUMBERS[4]
+			}
+		]);
+		await page.context().route('https://basemaps.cartocdn.com/**', (route) =>
+			route.fulfill({ status: 200, contentType: 'application/json', body: EMPTY_MAP_STYLE })
+		);
+
+		await page.goto('/results/?dep=2027-03-08&arr=2027-03-27&from=BCN&to=TLL');
+		await expect(page.getByText('still searching')).toHaveCount(0, { timeout: 20_000 });
+
+		await page.getByRole('button', { name: 'Show details' }).first().click();
+		const detail = page.locator('.result-detail');
+		await expect(detail).toBeVisible();
+
+		const block = detail.locator('.stopover');
+		const toBed = detail.locator('[data-segment="transfer-to-hotel"]');
+		const fromBed = detail.locator('[data-segment="transfer-to-connection-airport"]');
+		const nights = detail.locator('.itinerary-timeline-totals .metric', { hasText: 'Nights' });
+
+		// The property the search routed to, with a journey somebody actually measured: the
+		// row and the block quote the same 55 minutes, which is the agreement under test.
+		await expect(block).toContainText('FIXTURE Far Lodge');
+		await expect(block).toContainText('55m from the airport');
+		await expect(toBed).toContainText('55m');
+		await expect(nights).toContainText('2');
+		await expect(block).toContainText('2 nights');
+
+		// Issue #250. 1530 minutes at the connection eats a night off the far end of the
+		// stopover. The block used to keep printing the saved trip's window, bed and rate
+		// while the rail below it charged for one night fewer.
+		const connectionWait = detail.locator('[data-segment="connection-waiting"] input');
+		await connectionWait.fill('1530');
+		await connectionWait.dispatchEvent('input');
+
+		await expect(nights).toContainText('1');
+		await expect(block).toContainText('1 night');
+
+		// Issue #243. Reaching the stay list is the two taps a traveller makes: open the
+		// stopover row, then pick the other property.
+		await detail.locator('[data-segment="free-time"]').click();
+		const nearProperty = detail.locator('.alt-card', { hasText: 'FIXTURE Lodge' });
+		await expect(nearProperty).toBeVisible();
+		await nearProperty.click();
+
+		// The name moved and so did everything that was ever about the other address. The
+		// wording matters as much as the absence: no transport provider was ever asked about
+		// this property, so nothing on the panel may claim one refused.
+		await expect(block).toContainText('FIXTURE Lodge');
+		await expect(block).toContainText('Nothing routed to this property');
+		await expect(toBed).toContainText('Nothing routed to this property');
+		await expect(fromBed).toContainText('Nothing routed back from this property');
+		await expect(detail).not.toContainText('no transport provider could route');
+		// The other bed's 55 minutes are gone from both surfaces, not merely relabelled.
+		await expect(toBed).not.toContainText('55m');
+		await expect(block).not.toContainText('55m from the airport');
 	});
 });
