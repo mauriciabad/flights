@@ -1,0 +1,64 @@
+name: Exchange rates
+
+# Issue #339: the ground fare estimate is a rate card denominated in the ride's country's
+# currency, and the traveller reads the one they picked. Converting needs a rate, this app
+# has no backend, and a runtime provider would put the receipt at the mercy of a third
+# party that can be down. So the rates are vendored, the same build-time pattern the
+# cheap-routes job next door uses for the same no-backend reason.
+on:
+  schedule:
+    # 16:41 UTC on weekdays. The ECB publishes its daily reference rates at about 16:00
+    # CET, so a run before that would fetch yesterday's; this lands after, on an
+    # off-the-hour minute so it does not queue behind every other repo's cron. Weekdays
+    # only, because the ECB does not publish at the weekend and a Sunday run would commit
+    # Friday's numbers under a fresh `fetchedAt`.
+    - cron: '41 16 * * 1-5'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: exchange-rates
+  cancel-in-progress: false
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # No pnpm/install step: the script uses Node's own fetch and fs/promises and nothing
+      # else, so it runs standalone. It also needs no secret, because the ECB reference
+      # rates are public and Frankfurter takes no key.
+      - name: Fetch exchange rates
+        run: node scripts/fetch-exchange-rates.mjs
+
+      # Unlike the cheap-routes job, this one skips the commit when only the stamp moved.
+      # The two datasets report their age for opposite purposes. A cheap fare shown without
+      # a current `fetchedAt` claims to be fresher than it is, so that job commits nightly
+      # on purpose. Here the stamp's only job is to let the app STOP converting once the
+      # rates are too old to stand behind (`RATES_STALE_AFTER_DAYS` in
+      # src/lib/data/exchange-rates.ts), and advancing it on a day the ECB published
+      # nothing would reset that clock without a single new number behind it. A weekend or
+      # a bank holiday should age these rates, because it does.
+      - name: Commit the dataset
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          if git diff --quiet -- src/lib/data/exchange-rates.generated.ts; then
+            echo "Exchange rates unchanged, nothing to commit."
+            exit 0
+          fi
+          if [ -z "$(git diff -- src/lib/data/exchange-rates.generated.ts | grep -E '^[+-]\s+(referenceDate|[A-Z]{3}):')" ]; then
+            echo "Only fetchedAt moved: the ECB published no new rates today. Leaving the dataset to age."
+            git checkout -- src/lib/data/exchange-rates.generated.ts
+            exit 0
+          fi
+          git add src/lib/data/exchange-rates.generated.ts
+          git commit -m "Update exchange rates"
+          git push
