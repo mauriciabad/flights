@@ -110,6 +110,7 @@ room will need to select and pay for 4 persons".
 So both prior readings were half right. Dorm rates are quoted per person; private rooms are
 priced per room. `Stay.pricePerPersonPerNight` is populated only where a provider actually
 quoted per person, and nothing is ever divided by heads.
+<<<<<<< HEAD
 
 ### Iterations 6 to 9, 04:00 to 04:40. Four PRs merged, tracker halved.
 
@@ -193,3 +194,49 @@ failing to establish the state.
 deep: expand the card, then open the free-time row. The strip shows FAILED at the top level so
 nothing is concealed, but someone wondering "why is there no bed?" has to go looking. #191's
 rule is satisfied either way; whether that is the right depth is his call.
+=======
+>>>>>>> aa09e1d (Verify #235 on production, and record that the probe was wrong first)
+
+### 05:50. A regression I merged, and how it was found
+
+**Read #255 first in the morning.** The acceptance route returns 2 itineraries instead of 4.
+Manchester and Birmingham are gone; Rome and London remain. It is live.
+
+It came from #248, which I reviewed and merged. The change is good in principle: stop asking
+every outbound airport for its route graph and instead rank candidates first, probing only the
+top slice. BCN went from 79 questions to 18. The defect is that the ranking uses
+`scoreGeography`, bundled data only, so **geography alone decides which candidates ever get
+asked** — and a city can look mediocre geographically while being the one that actually flies
+onward. That is the question the probe exists to answer, so ranking it out beforehand is
+circular.
+
+`connections.ts` also justified the ceiling with a false claim: "18 is also above the 19 route
+lookups issue #187 measured for the whole BVC to PFO search". 18 is not above 19. I read that
+PR carefully and did not catch it.
+
+**How it was actually found, because the route matters more than the bug.** It was not a test
+and not a review. It was a one-line oddity in an unrelated verification: a probe printed
+`2 of 2 itineraries` where earlier runs said 4. I nearly wrote it off as live fare
+availability, which is a completely plausible explanation for a thin route searched forty times
+in one night.
+
+What stopped that was refusing to explain it away without a second reading. Three measurements
+settled it:
+
+1. The facet rail lists `Rome FCO (1)` and `London LGW (1)` only. Facets are derived from
+   results, so the absent cities were never produced rather than produced and filtered.
+2. Two unrelated date windows return the **identical** pair of cities. A market does not do
+   that; a cap does.
+3. Every provider answered `200` on both runs. Nothing failed.
+
+**And the reason the PR's own testing missed it is the third instance of one pattern tonight.**
+#248 measured "itineraries unchanged at 4" against the qa bench, honestly. The bench serves
+providers from fixtures with a fixed candidate set, so it structurally cannot show a live
+ranking dropping cities. #240 and #242 are the same shape: a suite measuring a path the real
+world does not take. That is the finding worth carrying into next week, not the ceiling.
+
+### Standing instruction I gave the fix
+
+Do not raise the ceiling until the acceptance route passes. That trades one arbitrary number
+for another and the next thin route breaks silently. Confirm by bisect first, and measure the
+fix against live production on two date windows reporting cities, not counts.
