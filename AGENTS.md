@@ -463,3 +463,26 @@ holds. If you want a single tidy commit, prefer `git add` on the paths you actua
 whichever way you get there, read `git diff --stat origin/main...HEAD` before pushing and look for
 a file where you delete far more than you add. That agent verified its feature exhaustively in a
 browser and never looked at what its own commit contained.
+
+## Kiwi blocks the headless user agent, and it looks like everything else
+
+`api.skypicker.com` rejects a request from a browser whose User-Agent says headless. Playwright's
+default does. The failure is `net::ERR_FAILED` / "Failed to fetch" with **no status code**, which
+reads exactly like CORS, a rate limit, or a provider outage.
+
+Pass a real Chrome User-Agent to `newPage` when driving anything that reaches Kiwi:
+
+```js
+const page = await browser.newPage({
+	userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 ' +
+		'(KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36'
+});
+```
+
+On 5 September 2026 this cost about an hour and produced two confident wrong diagnoses: that Kiwi
+blocks localhost origins, and that a nineteen-request burst was hitting a rate limit. Neither was
+true. The tell that broke it was the **first** request of the run failing at 132ms — a burst limit
+cannot kill request number one — and that Node and `curl` from the same machine both got HTTP 200
+at the same moment.
+
+So when a provider looks down from a browser, try it from Node before believing the browser.
