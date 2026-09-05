@@ -251,14 +251,22 @@ describe('a stopover that crosses a midnight it cannot sleep through (issue #231
 		expect(overnightWaitNote(makeItinerary({ nightsInConnection: 1 }))).toBeUndefined();
 	});
 
-	it('is what a longer stay is priced against, rather than "the same-day flights"', () => {
+	it('names the rung a traveller would step up from', () => {
+		// The ladder's shortest rung is the wait itself. Labelling it "Flight change" would
+		// be the app describing a journey the traveller is not on.
 		const twoNights = makeItinerary({
 			freeTimeStart: '2026-10-06T23:30:00',
 			freeTimeEnd: '2026-10-08T10:00:00',
 			nightsInConnection: 2,
 			priceMinorUnits: 15000
 		});
-		const change = describeStopoverChange(twoNights, overnightWait);
-		expect(change.note).toContain('vs the overnight wait');
+		const rungs = stopoverLadder(twoNights, [
+			{ nights: 0, itinerary: overnightWait },
+			{ nights: 2, itinerary: twoNights }
+		], 'London');
+
+		expect(rungs[0].label).toBe('Overnight wait');
+		expect(rungs[0].description).toContain('Overnight wait in London');
+		expect(rungs[1].label).toBe('2 nights');
 	});
 });
