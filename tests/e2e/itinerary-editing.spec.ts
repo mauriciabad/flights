@@ -68,10 +68,14 @@ test.describe('editing a stopover keeps one trip on the screen', () => {
 		const nights = detail.locator('.itinerary-timeline-totals .metric', { hasText: 'Nights' });
 
 		// The property the search routed to, with a journey somebody actually measured: the
-		// row and the block quote the same 55 minutes, which is the agreement under test.
+		// row and the block quote the same 25 minutes, which is the agreement under test.
+		// Both said 55m until issue #290, which is the 25-minute bus with the traveller's own
+		// 30-minute walk-out folded in and the sum labelled as the bus. The 55 is still on
+		// screen, as the moment of arrival rather than as the length of the ride.
 		await expect(block).toContainText('FIXTURE Far Lodge');
-		await expect(block).toContainText('55m from the airport');
-		await expect(toBed).toContainText('55m');
+		await expect(block).toContainText('25m from the airport');
+		await expect(block).toContainText('you arrive 55m after landing');
+		await expect(toBed.locator('.tl-duration')).toHaveText('25m');
 		await expect(nights).toContainText('2');
 		// "Nights 2" since issue #279, where the block's night count became a labelled figure
 		// instead of part of a sentence. The agreement under test is unchanged: the rail's
@@ -103,8 +107,11 @@ test.describe('editing a stopover keeps one trip on the screen', () => {
 		await expect(toBed).toContainText('Nothing routed to this property');
 		await expect(fromBed).toContainText('Nothing routed back from this property');
 		await expect(detail).not.toContainText('no transport provider could route');
-		// The other bed's 55 minutes are gone from both surfaces, not merely relabelled.
+		// The other bed's journey is gone from both surfaces, not merely relabelled: neither
+		// the 25-minute ride nor the 55 minutes it took to arrive.
+		await expect(toBed).not.toContainText('25m');
 		await expect(toBed).not.toContainText('55m');
-		await expect(block).not.toContainText('55m from the airport');
+		await expect(block).not.toContainText('25m from the airport');
+		await expect(block).not.toContainText('after landing');
 	});
 });
