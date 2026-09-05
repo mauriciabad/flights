@@ -115,6 +115,17 @@ export interface TransitLegPlan {
 	from: Coordinates;
 	to: Coordinates;
 	moment: TransitPlanMoment;
+	/**
+	 * The walk-out time this leg's `moment` was built from, for a leg that starts at a
+	 * runway, so whatever answers the plan can pad the journey by the same number the
+	 * question was asked with. Absent on a leg that ends at a departure gate, which is
+	 * already covered by the pre-boarding buffer and must never be padded again.
+	 *
+	 * Carried on the plan rather than looked up again from the input, so "this leg needs
+	 * padding" and "here is the padding" are one fact. They used to be two, and the second
+	 * one could be missing while the first said yes.
+	 */
+	landingBuffer?: Duration;
 }
 
 export interface PlanTransitLegsInput {
@@ -185,7 +196,8 @@ export function planTransitLegs(input: PlanTransitLegsInput): TransitLegPlan[] {
 				field: 'transferToHotel',
 				from: input.connectionCoordinates,
 				to: itinerary.stay.property.coordinates,
-				moment: { time: addLocalMinutes(itinerary.outboundFlight.arrival, input.connectionLandingBuffer), arriveBy: false }
+				moment: { time: addLocalMinutes(itinerary.outboundFlight.arrival, input.connectionLandingBuffer), arriveBy: false },
+				landingBuffer: input.connectionLandingBuffer
 			});
 		}
 		const connectionMoment = transitLegMoment(itinerary, 'transferToConnectionAirport');
@@ -204,7 +216,8 @@ export function planTransitLegs(input: PlanTransitLegsInput): TransitLegPlan[] {
 			field: 'transferToDestinationLocation',
 			from: itinerary.destinationAirport.coordinates,
 			to: itinerary.destinationLocation.coordinates,
-			moment: { time: addLocalMinutes(itinerary.onwardFlight.arrival, input.destinationLandingBuffer), arriveBy: false }
+			moment: { time: addLocalMinutes(itinerary.onwardFlight.arrival, input.destinationLandingBuffer), arriveBy: false },
+			landingBuffer: input.destinationLandingBuffer
 		});
 	}
 
@@ -280,9 +293,13 @@ export async function fetchTransitSchedules(input: FetchTransitSchedulesInput): 
 		// Only a leg that starts at a runway gets the landing buffer, the same rule
 		// `resources.ts` follows and for the same reason: a leg ending at a departure gate
 		// is already covered by the pre-boarding waiting time and would double-count it.
-		const buffered = startsAtARunway(plan.field)
-			? found.map((transfer) => applyLandingBuffer(transfer, bufferFor(plan.field, input), input.sources))
-			: found;
+		// The plan carries the number it was asked with, so the answer is padded by exactly
+		// the minutes the question assumed and there is nothing to look up a second time.
+		const landingBuffer = plan.landingBuffer;
+		const buffered =
+			landingBuffer === undefined
+				? found
+				: found.map((transfer) => applyLandingBuffer(transfer, landingBuffer, input.sources));
 		overrides[plan.field] = pickShortest(buffered);
 	}
 
@@ -371,17 +388,6 @@ function readWithheld(refused: {
 	straightLineKm: number;
 }): WithheldRoutes | undefined {
 	return summariseWithheldRoutes(refused.rejected, refused.straightLineKm, ['transit']);
-}
-
-function startsAtARunway(field: TransitLegField): boolean {
-	return field === 'transferToHotel' || field === 'transferToDestinationLocation';
-}
-
-/** Zero is unreachable for a leg that was planned at all: `planTransitLegs` only plans a
- * runway leg once its buffer is known, and only a planned leg reaches this. */
-function bufferFor(field: TransitLegField, input: PlanTransitLegsInput): Duration {
-	const buffer = field === 'transferToHotel' ? input.connectionLandingBuffer : input.destinationLandingBuffer;
-	return buffer ?? (0 as Duration);
 }
 
 /** Among transit options for one leg, the quickest — the same tie-break `pickBestTransfer`
