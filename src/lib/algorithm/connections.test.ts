@@ -5,6 +5,8 @@ import {
 	findConnectionCandidates,
 	hasKnownDirectRoute,
 	type ConnectionAirportInfo,
+	type ConnectionCandidate,
+	type ConnectionGraphOptions,
 	type ConnectionQuery
 } from './connections';
 import { MAX_ROUTE_LOOKUPS_PER_SESSION } from '../providers/flights/kiwi-public';
@@ -163,6 +165,28 @@ const QUERY: ConnectionQuery = {
 	destinationAirport: ZSF,
 	soonestDeparture: SOONEST_DEPARTURE
 };
+
+/**
+ * Every candidate the search confirmed, the ones the cap kept and the ones it dropped.
+ *
+ * Issue #361 widened candidate discovery from the origin's sampled destination list to a
+ * vendored route graph, and the numbers moved by an order of magnitude: BCN to SOF confirms
+ * 73 airports where it confirmed 8, and Vienna went from third to twenty-first. Reading only
+ * the six that `maxCandidates` kept therefore turns a test about which sources answered into
+ * a test about the ranking, which is not what any of the callers below set out to assert.
+ * Tests that ARE about the ranking or the cap still call `findConnectionCandidates` directly.
+ */
+async function confirmedCandidates(
+	query: ConnectionQuery,
+	options: ConnectionGraphOptions = {}
+): Promise<ConnectionCandidate[]> {
+	const beyondCap: ConnectionCandidate[] = [];
+	const kept = await findConnectionCandidates(query, {
+		...options,
+		onCandidatesBeyondCap: (dropped) => beyondCap.push(...dropped)
+	});
+	return [...kept, ...beyondCap];
+}
 
 describe('the route-probe ceiling', () => {
 	it('leaves the free sources a lookup for the origin', () => {
@@ -359,15 +383,22 @@ describe('findConnectionCandidates', () => {
 
 	it('falls through to the bundled fallback table when a free provider returns {ok: false}, rather than failing the search', async () => {
 		const flaky = createFakeFlightProvider('flaky', { fail: true }); // free (cost 0), always errors
-		// Real BCN -> SOF: no direct route, but the bundled table connects both through
+		// Real BCN -> SOF: no direct route, but the bundled sources connect both through
 		// Vienna — this must still work even though the only configured provider always
 		// fails.
-		const candidates = await findConnectionCandidates(
+		//
+		// Reads the whole confirmed set rather than the six the cap keeps: since issue #361
+		// this search confirms 73 airports and Vienna ranks twenty-first, so the six would
+		// answer a ranking question instead of this test's question, which is whether a
+		// failing provider ends the search.
+		const candidates = await confirmedCandidates(
 			{ originAirport: 'BCN', destinationAirport: 'SOF', soonestDeparture: SOONEST_DEPARTURE },
 			{ flightProviders: [flaky] }
 		);
 		expect(candidates.some((c) => c.airportCode === 'VIE')).toBe(true);
 		expect(flaky.listDirectDestinations).toHaveBeenCalled();
+		// Nothing may be attributed to a source that only ever returned `{ ok: false }`.
+		expect(candidates.some((c) => Object.values(c.confirmedBy).includes('flaky'))).toBe(false);
 	});
 
 	it('never spends a metered request when every provider is free, even with an unconfirmable candidate', async () => {
@@ -495,17 +526,30 @@ describe('findConnectionCandidates', () => {
 		// lists, because those are price-sorted samples of a hub's network rather than the
 		// network — and Kiwi sells every one of those pairs. Membership in a sample was
 		// standing in for "does this airport fly there".
+		//
+		// Charles de Gaulle rather than Munich since issue #361. The vendored route graph
+		// now records Munich to Paphos, and Orly's, Amsterdam's, Brussels' and Fiumicino's
+		// too, so all five of the airports this defect was reported against are settled
+		// before a pair query is ever built for them. Asserting on one of those would have
+		// left a test that passes without exercising `confirmsRoute` at all. De Gaulle is
+		// the Paris hub the graph does NOT connect to Paphos, so the provider is still the
+		// only thing that can answer, which is what this test is for. Both halves of that
+		// are facts about a generated dataset now, not about the code.
 		const provider = createFakeFlightProvider('sampled-hub', {
-			routes: { BVC: ['MUC'], MUC: ['LIS', 'OPO'] },
-			pairs: { BVC: ['MUC'], MUC: ['PFO'] }
+			routes: { BVC: ['CDG'], CDG: ['LIS', 'OPO'] },
+			pairs: { BVC: ['CDG'], CDG: ['PFO'] }
 		});
 
-		const candidates = await findConnectionCandidates(
+		const candidates = await confirmedCandidates(
 			{ originAirport: 'BVC', destinationAirport: 'PFO', soonestDeparture: SOONEST_DEPARTURE },
-			{ flightProviders: [provider] }
+			{ flightProviders: [provider], maxRouteProbes: 100 }
 		);
 
-		expect(candidates.map((c) => c.airportCode)).toEqual(['MUC']);
+		const cdg = candidates.find((c) => c.airportCode === 'CDG');
+		expect(cdg).toBeDefined();
+		// The point of the test, and what `toEqual(['MUC'])` used to say by implication: the
+		// pair query is what confirmed the onward leg. No bundled source could have.
+		expect(cdg?.confirmedBy.inbound).toBe('sampled-hub');
 	});
 
 	it('lets one source answering exactly stand in for none of the others (issue #340)', async () => {
@@ -514,17 +558,49 @@ describe('findConnectionCandidates', () => {
 		// wiring the build-time cheap-routes wrapper up first took 21 pipeline tests down
 		// with it, because it answered "not me" for fixtures it has never heard of and the
 		// providers holding the data were then never asked at all.
+		//
+		// On the fixture network rather than on BCN -> VIE -> SOF since issue #361. With real
+		// codes the vendored route graph proposes and confirms Vienna on its own, so the
+		// listing provider is never what carries the candidate and the test passes whether or
+		// not the exact provider silences it. The Z-prefixed codes exist for exactly this,
+		// per the fixture's own comment above: real codes silently pick up edges from data
+		// this file does not own.
 		const exact = createFakeFlightProvider('answers-pairs', { routes: {}, pairs: { XXX: [] } });
-		const listOnly = createFakeFlightProvider('answers-lists', {
-			routes: { BCN: ['VIE'], VIE: ['SOF'] }
+		const listOnly = createFakeFlightProvider('answers-lists', { routes: ROUTES });
+
+		const candidates = await confirmedCandidates(QUERY, {
+			flightProviders: [exact, listOnly],
+			airportLookup: fixtureLookup
 		});
 
-		const candidates = await findConnectionCandidates(
-			{ originAirport: 'BCN', destinationAirport: 'SOF', soonestDeparture: SOONEST_DEPARTURE },
-			{ flightProviders: [exact, listOnly] }
-		);
+		const vienna = candidates.find((c) => c.airportCode === ZVI);
+		expect(vienna).toBeDefined();
+		expect(vienna?.confirmedBy).toEqual({ outbound: 'answers-lists', inbound: 'answers-lists' });
+	});
 
-		expect(candidates.map((c) => c.airportCode)).toContain('VIE');
+	it('proposes East Midlands for Boa Vista to Pafos with no providers at all (issue #361)', async () => {
+		// The route docs/ACCEPTANCE.md is about, and the gap issue #350 wrote down and could
+		// not close. Kiwi sells BVC to EMA (TUI BY 725) and EMA to PFO (TUI BY 7666/7784),
+		// both measured live on 2026-09-05, and the app could confirm that pair all along
+		// while being unable to think of it: East Midlands is in none of Boa Vista's twenty
+		// sampled destination rows and it is nobody's metro sibling.
+		//
+		// No `flightProviders` at all, which is the whole assertion. There is no adapter to
+		// call, so no request can be involved and nothing but data shipped with the app can
+		// have produced this. Before the vendored route graph this same call returned an
+		// empty list, because the hand fallback table has no entry for Boa Vista.
+		const candidates = await findConnectionCandidates({
+			originAirport: 'BVC',
+			destinationAirport: 'PFO',
+			soonestDeparture: SOONEST_DEPARTURE
+		});
+
+		const ema = candidates.find((c) => c.airportCode === 'EMA');
+		expect(ema).toBeDefined();
+		expect(ema?.confirmedBy).toEqual({
+			outbound: 'bundled-direct-routes',
+			inbound: 'bundled-direct-routes'
+		});
 	});
 
 	it('still asks the bundled route graph about a candidate it has no request budget left for (issue #255)', async () => {
@@ -539,53 +615,85 @@ describe('findConnectionCandidates', () => {
 		// that generous. What has to hold at every ceiling is that running out of request
 		// budget stops the search spending, not the search looking.
 		//
-		// The provider is the only thing that can answer for Amsterdam. Birmingham and
-		// Manchester are in the bundled Ryanair snapshot as flying to Pafos, so they are
-		// answerable without it, and that is the whole difference between them.
+		// The provider is the only thing that can answer for Charles de Gaulle. Birmingham
+		// and Manchester are in the bundled data as flying to Pafos, so they are answerable
+		// without it, and that is the whole difference between them.
+		//
+		// De Gaulle rather than Amsterdam since issue #361. The vendored route graph records
+		// Amsterdam to Paphos, so Amsterdam is now confirmed for free and this test's
+		// `not.toContain` would have gone on passing for the wrong reason: Amsterdam ranks
+		// ninth of thirteen, so the cap would have hidden it whether the budget worked or
+		// not. De Gaulle is a pair the shipped graph genuinely does not connect, and Boa
+		// Vista does not reach it there either, so the provider's list is the only way in and
+		// the provider's answer is the only way to confirm it. Both of those are now facts
+		// about a generated dataset (src/lib/data/direct-routes.generated.json) rather than
+		// about this file, and src/lib/data/direct-routes.test.ts is where the dataset's own
+		// invariants are pinned.
 		const provider = createFakeFlightProvider('beyond-budget', {
-			routes: { BVC: ['FCO', 'AMS', 'BHX', 'MAN'], FCO: ['PFO'], AMS: ['PFO'] }
+			routes: { BVC: ['FCO', 'CDG', 'BHX', 'MAN'], FCO: ['PFO'], CDG: ['PFO'] }
 		});
 
+		// `maxCandidates` well past what this route confirms, so the cap cannot be what
+		// removes De Gaulle. The budget has to be.
 		const candidates = await findConnectionCandidates(
 			{ originAirport: 'BVC', destinationAirport: 'PFO', soonestDeparture: SOONEST_DEPARTURE },
-			{ flightProviders: [provider], maxRouteProbes: 1 }
+			{ flightProviders: [provider], maxRouteProbes: 1, maxCandidates: 100 }
 		);
 		const found = candidates.map((c) => c.airportCode);
 
 		expect(found).toContain('BHX');
 		expect(found).toContain('MAN');
-		expect(found).not.toContain('AMS');
-		// Once, for the origin, and for no candidate at all. Was twice until issue #340:
-		// the one candidate inside the request budget is Rome, and Rome is in the bundled
-		// snapshot as flying to Pafos, so the question is settled before a request is built
-		// for it. Past the ceiling nothing is spent, which is what #255 is about, and inside
-		// it nothing is spent either when the answer already ships with the app.
-		expect(provider.listDirectDestinations).toHaveBeenCalledTimes(1);
+		expect(found).not.toContain('CDG');
+		// Twice: once for the origin, and once for the single candidate the budget allows a
+		// request for. Which candidate that is comes from the ranking and does not matter;
+		// what matters is that it is one, and that the twenty-six candidates past the ceiling
+		// were all still asked about, of the sources that ship with the app. Past the ceiling
+		// nothing is spent, which is what #255 is about, and the search still looks.
+		expect(provider.listDirectDestinations).toHaveBeenCalledTimes(2);
 	});
 
-	it('falls back to the bundled route table when no flightProviders are supplied at all', async () => {
-		// Real BCN -> SOF: no direct route in the bundled fallback table either, but VIE
-		// connects to both, exercising "offline and first paint both work" with zero
-		// configuration.
-		const candidates = await findConnectionCandidates({
+	it('falls back to the bundled sources when no flightProviders are supplied at all', async () => {
+		// Real BCN -> SOF: no direct route in any bundled source either, but VIE connects to
+		// both, exercising "offline and first paint both work" with zero configuration.
+		//
+		// Every outbound was `fallback-table` until issue #361, because the hand table was
+		// the only bundled source that answered for an origin. The vendored route graph now
+		// answers for BCN too and runs ahead of it, so most of these read
+		// `bundled-direct-routes` and Ciampino still reads `fallback-table`. That is the
+		// correct new answer rather than a regression: the assertion below is that nothing
+		// was confirmed by a provider, since there were none.
+		const candidates = await confirmedCandidates({
 			originAirport: 'BCN',
 			destinationAirport: 'SOF',
 			soonestDeparture: SOONEST_DEPARTURE
 		});
+		const bundledSourceIds = ['bundled-direct-routes', 'bundled-ryanair-network', 'fallback-table'];
 		expect(candidates.some((c) => c.airportCode === 'VIE')).toBe(true);
-		expect(candidates.every((c) => c.confirmedBy.outbound === 'fallback-table')).toBe(true);
+		expect(
+			candidates.every(
+				(c) =>
+					bundledSourceIds.includes(c.confirmedBy.outbound) &&
+					bundledSourceIds.includes(c.confirmedBy.inbound)
+			)
+		).toBe(true);
 	});
 
 	it('uses real-world geography from the airport dataset (issue #11) when no airportLookup override is given', async () => {
-		// Real BCN -> SOF via the bundled route table, but with no fixture geography at
-		// all: ranking must still work off the real airport dataset's coordinates and
-		// size class rather than silently degrading.
-		const candidates = await findConnectionCandidates({
+		// Real BCN -> SOF via the bundled sources, but with no fixture geography at all:
+		// ranking must still work off the real airport dataset's coordinates and size class
+		// rather than silently degrading.
+		//
+		// `expect(vie?.breakdown.detour).not.toBeNull()` alone passed vacuously once issue
+		// #361 pushed Vienna to twenty-first: optional chaining on a candidate that is not
+		// there yields `undefined`, and `undefined` is not `null`. The `toBeDefined` is what
+		// makes the assertion mean anything.
+		const candidates = await confirmedCandidates({
 			originAirport: 'BCN',
 			destinationAirport: 'SOF',
 			soonestDeparture: SOONEST_DEPARTURE
 		});
 		const vie = candidates.find((c) => c.airportCode === 'VIE');
+		expect(vie).toBeDefined();
 		expect(vie?.breakdown.detour).not.toBeNull();
 	});
 
@@ -618,9 +726,17 @@ describe('findConnectionCandidates', () => {
 		// No meteredRequestBudget at all (defaults to 0). If Ryanair's cost-0
 		// `estimateSearchOffersCost` were somehow not enough to classify it as free, it
 		// would never be queried under a zero budget and this would return nothing.
-		const candidates = await findConnectionCandidates(
+		//
+		// `maxRouteProbes` raised well past the default since issue #361. Alghero is the
+		// only candidate this adapter can carry, and the vendored route graph now proposes
+		// two dozen Spanish and Moroccan airports for BCN to AGP that all outrank it, so at
+		// the default ceiling of eighteen the adapter is never asked about Alghero at all
+		// and nothing is attributed to it. That ceiling is issue #255's subject and has its
+		// own test; here it only gets in the way of asking whether a free provider is
+		// classified and queried.
+		const candidates = await confirmedCandidates(
 			{ originAirport: 'BCN', destinationAirport: 'AGP', soonestDeparture: SOONEST_DEPARTURE },
-			{ flightProviders: [ryanair] }
+			{ flightProviders: [ryanair], maxRouteProbes: 200 }
 		);
 
 		expect(
