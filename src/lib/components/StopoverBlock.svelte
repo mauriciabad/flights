@@ -52,7 +52,7 @@
 	 */
 	import type { Itinerary } from '$lib/domain';
 	import { formatDuration, formatMoney } from '$lib/format';
-	import { ROOM_KIND_LABELS } from '$lib/stays';
+	import { bedNightlyRate, ROOM_KIND_LABELS } from '$lib/stays';
 	import { freeTimeDays } from './free-time-days';
 	import { transferModeLabel, unpricedTransferNote, unroutedLegNote } from './itinerary-timeline-format';
 
@@ -73,9 +73,16 @@
 	const stay = $derived(itinerary.stay);
 	const toHotel = $derived(itinerary.transferToHotel);
 
+	// Issue #206: the rate, and who it covers. `bedNightlyRate` owns that decision so this
+	// line and the card's own "Bed, 2 nights × €13.00 each" can never quote two different
+	// figures for one bed. A dorm bed for three reads "2 nights, €13.00/night each"; a
+	// private room reads "2 nights, €44.00/night for 3", because a room is one unit
+	// whatever the party size and splitting it would be a number nobody quoted.
 	const nightsAndRate = $derived.by(() => {
 		if (!stay || nights === 0) return undefined;
-		return `${nights} ${nights === 1 ? 'night' : 'nights'}, ${formatMoney(stay.pricePerNight)}/night`;
+		const rate = bedNightlyRate(stay, itinerary.travellers);
+		const perNight = `${formatMoney(rate.money)}/night${rate.audience ? ` ${rate.audience}` : ''}`;
+		return `${nights} ${nights === 1 ? 'night' : 'nights'}, ${perNight}`;
 	});
 
 	/**

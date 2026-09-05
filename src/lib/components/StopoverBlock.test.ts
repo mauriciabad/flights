@@ -67,6 +67,32 @@ describe('the block the owner settled on', () => {
 		expect(lines).toContain('2 nights, €20.00/night');
 	});
 
+	// Issue #206. Both surfaces that print this rate go through `bedNightlyRate`, so a card
+	// reading "Bed, 2 nights × €13.00 each" and a panel reading €39.00 for the same bed is
+	// not a state this app can reach.
+	it('says who a room rate covers rather than splitting it between them', () => {
+		// A private room is one unit of inventory whatever the party size, measured, not
+		// assumed: Hostelworld says in its own words that three people booking a four-bed
+		// private pay for four.
+		const lines = render(londonStopover({ travellers: 3 }));
+		expect(lines).toContain('2 nights, €20.00/night for 3');
+	});
+
+	it('prints the per-person rate a provider quoted, marked as each', () => {
+		const base = londonStopover({ travellers: 3 });
+		const inADorm: Itinerary = {
+			...base,
+			stay: {
+				...base.stay!,
+				roomKind: 'dorm',
+				pricePerNight: { minorUnits: 3900, currency: 'EUR' },
+				pricePerPersonPerNight: { minorUnits: 1300, currency: 'EUR' }
+			}
+		};
+
+		expect(render(inADorm)).toContain('2 nights, €13.00/night each');
+	});
+
 	// AGENTS.md: currency symbol first, English convention, and "each way" rather than
 	// "/way" for a fare paid in both directions. That ruling (commit 0199dee) is later than
 	// the "10 EUR/way" in his #228 comment, and he flagged the symbol side there himself as

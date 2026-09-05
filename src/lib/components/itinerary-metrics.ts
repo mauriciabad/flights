@@ -24,6 +24,7 @@ import { greatCircleDistanceKm, unpricedTransferLegs } from '$lib/domain';
 import { scaleFareForParty, sumMoney } from '$lib/algorithm/build';
 import { formatDuration, formatLongDuration, formatMoney } from '$lib/format';
 import { formatDistanceKm } from '$lib/stays/distance';
+import { bedNightlyRate } from '$lib/stays/pricing';
 import { freeTimeDays } from './free-time-days';
 
 export type ItineraryMetricId =
@@ -253,27 +254,12 @@ function distanceFromCentre(itinerary: Itinerary, cityCentre: Coordinates | unde
 	return `${formatDistanceKm(greatCircleDistanceKm(itinerary.stay.property.coordinates, cityCentre))} from centre`;
 }
 
-/**
- * The bed's nightly rate, and who that rate covers, which is issue #206.
- *
- * Three shapes, and which one you get is decided by what the provider actually quoted
- * rather than by arithmetic here:
- *
- * - One traveller: `€13.00`. Per person and per party are the same number, and "each"
- *   beside a party of one is noise.
- * - A party, and the provider quoted per person: `€13.00 each`. That is a Hostelworld dorm
- *   bed, where `Stay.pricePerPersonPerNight` holds the rate the response carried and
- *   `pricePerNight` is that rate multiplied up (`hostelworld-mapper.ts`).
- * - A party, and nobody quoted per person: `€44.00 for 2`. A private room and every Agoda
- *   or Booking quote are one room for the whole party. Dividing by heads would print a
- *   figure no provider gave, and issue #206 was opened partly because a research claim
- *   about exactly this had never been checked. So the line says what the room costs and
- *   how many people it is for, and leaves the division to the reader.
- */
+/** "€13.00", "€13.00 each", "€44.00 for 3": issue #206's nightly rate with the audience
+ * `bedNightlyRate` decided. `StopoverBlock` composes the same two pieces into its own
+ * "€13.00/night each", so the card and the panel can never disagree about the figure. */
 function bedRate(stay: Stay, travellers: number): string {
-	if (travellers <= 1) return formatMoney(stay.pricePerNight);
-	if (stay.pricePerPersonPerNight) return `${formatMoney(stay.pricePerPersonPerNight)} each`;
-	return `${formatMoney(stay.pricePerNight)} for ${travellers}`;
+	const rate = bedNightlyRate(stay, travellers);
+	return rate.audience ? `${formatMoney(rate.money)} ${rate.audience}` : formatMoney(rate.money);
 }
 
 /** "3 rides" rather than a bare 3, because a number beside the word "Ground" reads as an
