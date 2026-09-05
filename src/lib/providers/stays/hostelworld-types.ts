@@ -106,16 +106,11 @@ export interface HostelworldPropertiesResponse {
 	properties?: HostelworldProperty[];
 }
 
-/**
- * The body Hostelworld sends with a 4xx, e.g. `{"description":[{"code":"90593","message":
- * "please pass valid currency three letter code"}]}` for `currency=CVE` (HTTP 400,
- * observed 2026-09-04). Modelled so hostelworld-client.ts can put Hostelworld's own
- * sentence in front of the user instead of "HTTP 400" — AGENTS.md, "show the error you
- * got, never the one you assumed".
- */
-export interface HostelworldErrorResponse {
-	description?: { code?: string; message?: string }[];
-}
+/* The body Hostelworld sends with a 4xx — `{"description":[{"code":"90593","message":
+ * "please pass valid currency three letter code"}]}` for `currency=CVE`, observed
+ * 2026-09-04 — is no longer modelled here. `../response-evidence.ts` reads it, along with
+ * every other error shape this repo has measured, so one module knows all of them instead
+ * of each adapter re-deriving its own. */
 
 /** Failure modes of one HTTP call to Hostelworld. Narrower than `ProviderError`
  * (../types.ts) — the same split ryanair-types.ts and booking-types.ts make, mapped up to

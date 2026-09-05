@@ -178,13 +178,19 @@ export function unroutedLegNote(
 			return 'Same-day connection, so there is no hotel leg here.';
 		}
 		if (!context.hasStay) {
-			// States what this itinerary has, not why. Both halves are readable straight off
-			// it — no bed, and no city-centre route either — and neither claims a cause the
-			// row cannot see. A stopover whose airport does have a checked city point gets a
-			// routed leg instead of this sentence.
+			// Issue #185: the row's own fact and nothing else. It used to open with "No bed
+			// priced for this stopover", which was true but was also the third and sixth of
+			// seven places on one screen saying it — and the reason now lives once, in the
+			// stopover row's own fold (`stays/no-stays-reason.ts`).
+			//
+			// #185 asked for this wording to be left alone, on the grounds that #161 would
+			// stop these rows appearing at all by routing to the city centre instead. #161
+			// landed, and they still appear: the centre point comes from #162's hand-checked
+			// dataset, which does not cover LGW, so the acceptance trip's own stopover still
+			// prints this. Measured 2026-09-05 against a production build.
 			return leg === 'to-hotel'
-				? 'No bed priced for this stopover, and nothing routed into the city either.'
-				: 'No bed priced for this stopover, and nothing routed back from the city either.';
+				? 'Nothing routed into the city for this stopover.'
+				: 'Nothing routed back from the city for this stopover.';
 		}
 		// Issue #211: a bed WAS priced and no transfer provider could route to it. Until
 		// that issue this state could not occur, because `search/resources.ts` deleted the

@@ -53,8 +53,9 @@
 	} from '$lib/components';
 	import { distinctFlightCount, hasSwappableAlternatives } from '$lib/components/picker-alternatives';
 	import { keyStore } from '$lib/keys';
-	import { hasUsableStayProvider } from '$lib/results/provider-setup';
+	import { hasUnconfiguredStayProvider, hasUsableStayProvider } from '$lib/results/provider-setup';
 	import { StayPicker, describeNoStays, groupByProperty } from '$lib/stays';
+	import type { StayProviderOutcome } from '$lib/stays';
 
 	interface Props {
 		itinerary: Itinerary;
@@ -88,6 +89,12 @@
 		 * frozen at expand time: a card left open while the search completes must stop
 		 * saying it is still looking. */
 		searchDone?: boolean;
+		/** Issue #203: what each stay provider did in this search
+		 * (`stayProviderOutcomes(SearchSnapshot.providers)`). Without it the stopover note
+		 * cannot tell "asked and answered with nothing" from "asked and got a 503", and it
+		 * used to claim the first for both. Not frozen at expand time, for the same reason
+		 * `searchDone` is not. */
+		stayProviders?: readonly StayProviderOutcome[];
 	}
 
 	/** Issue #114: no alternatives yet — the default for `transferOptions`/
@@ -107,7 +114,8 @@
 		travellers,
 		females,
 		minLayoverTime,
-		searchDone = false
+		searchDone = false,
+		stayProviders = []
 	}: Props = $props();
 
 	// Deliberately a one-time read, not a reactive derivation — see this file's header
@@ -175,6 +183,26 @@
 	// The same expression the banner above the results list uses (`StayKeyNotice`), so the
 	// two cannot say different things about whether a bed was ever searched for.
 	const stayProviderConfigured = $derived(hasUsableStayProvider(keyStore.availableKeys));
+	// Issue #203: whether "add a key" is still a thing this traveller could do. Since #202
+	// made a keyless provider always usable, `stayProviderConfigured` above is always true
+	// and stopped being able to answer that.
+	const hasWiderProviderToAdd = $derived(hasUnconfiguredStayProvider(keyStore.availableKeys));
+
+	/**
+	 * Issue #185/#203: the one place on this screen that says WHY there is no bed and what
+	 * could change it. Everything else about the missing bed — the price line's chip, the
+	 * rail's caveat, the two unrouted connection legs — states its own fact about its own
+	 * number or row and leaves the cause to this.
+	 */
+	const noStaysNotice = $derived(
+		describeNoStays({
+			stayProviderConfigured,
+			searchDone,
+			cityName: connectionAirport?.city.name,
+			stayProviders,
+			hasUnconfiguredStayProvider: hasWiderProviderToAdd
+		})
+	);
 
 	// A stopover that ends the same day has no night to book. Showing a stay picker there
 	// invites a purchase the trip cannot use, and every empty-state sentence it could
@@ -279,12 +307,27 @@
 				<!-- StayPicker's own empty state is a 250px hero. Inside a timeline row the
 				     reason a bed is missing is a note, not a scene, so the same wording
 				     (`describeNoStays`, issue #140) goes on one line. -->
-				{@const notice = describeNoStays({ stayProviderConfigured, searchDone, cityName: connectionAirport.city.name })}
-				<p class="stay-notice">
-					<strong>{asSentence(notice.title)}</strong>
-					{notice.description}{#if notice.action}
-						<a href="{base}{notice.action.href}">{notice.action.label}</a>{/if}
-				</p>
+				<div class="stay-notice" data-testid="stay-notice">
+					<p>
+						<strong>{asSentence(noStaysNotice.title)}</strong>
+						<!-- The line break belongs OUTSIDE the block. Svelte trims whitespace at the
+						     start of a block's content, so the newline this used to have after
+						     `{#if}` was not a space and the sentence ran on as "...than hostels
+						     do.Add an Agoda key". Between two siblings it collapses to one space,
+						     which is what a sentence followed by a link needs. -->
+						{noStaysNotice.description}
+						{#if noStaysNotice.action}<a href="{base}{noStaysNotice.action.href}"
+								>{noStaysNotice.action.label}</a
+							>{/if}
+					</p>
+					<!-- Issue #203: the provider's own sentence and status code, verbatim, in its
+					     own type rather than folded into ours. The reader can tell which words are
+					     the provider's and which are the app's, which is the whole point of
+					     AGENTS.md's "show the error you got, never the one you assumed". -->
+					{#each noStaysNotice.providerFailures as failure (failure)}
+						<p class="stay-notice-evidence font-mono" data-testid="stay-provider-failure">{failure}</p>
+					{/each}
+				</div>
 			{:else}
 				<StayPicker
 					properties={stayProperties}
@@ -296,6 +339,8 @@
 					onchange={applyStaySelection}
 					{stayProviderConfigured}
 					{searchDone}
+					{stayProviders}
+					hasUnconfiguredStayProvider={hasWiderProviderToAdd}
 				/>
 			{/if}
 		{/if}
@@ -388,9 +433,12 @@
 	}
 
 	.stay-notice {
-		margin: 0;
 		font-size: var(--font-size-sm);
 		color: var(--color-text-muted);
+	}
+
+	.stay-notice p {
+		margin: 0;
 	}
 
 	.stay-notice strong {
@@ -399,5 +447,23 @@
 
 	.stay-notice a {
 		color: var(--color-accent);
+	}
+
+	/* Set apart from our own sentence above it, the same separation `ErrorState` puts
+	   between a headline and its evidence: monospaced, quieter, and its own line, so a
+	   provider's words are never mistaken for the app's. */
+	/* `--color-text-muted`, not `--color-text-faint`, which `ErrorState` uses for the same
+	   job on a plain surface. This note sits inside the stopover row's own tint
+	   (`--color-stopover-bg`), where faint measures 3.55:1 and fails AA. Muted measures
+	   6.49:1 dark and 6.93:1 light against that tint. It is quieter than the sentence above
+	   it by size and by family, which is the separation this needs; a quote the reader
+	   cannot read is not evidence of anything. */
+	.stay-notice-evidence {
+		margin-top: var(--space-2);
+		padding-top: var(--space-2);
+		border-top: 1px dashed var(--color-border);
+		font-size: var(--font-size-xs);
+		color: var(--color-text-muted);
+		overflow-wrap: anywhere;
 	}
 </style>

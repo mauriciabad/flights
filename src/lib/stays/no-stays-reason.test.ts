@@ -1,5 +1,23 @@
 import { describe, expect, it } from 'vitest';
-import { describeNoStays } from './no-stays-reason';
+import { describeNoStays, type StayProviderOutcome } from './no-stays-reason';
+
+/** The keyless baseline every visitor gets since #202, answering normally. */
+const hostelworldAnswered: StayProviderOutcome = {
+	label: 'Hostelworld (no key required)',
+	answer: 'nothing-found'
+};
+
+/**
+ * The failure this suite exists for. The message is `ProviderError.message` exactly as
+ * `providers/response-evidence.ts` builds it, so it already carries the provider's name, its
+ * status code and its own sentence.
+ */
+const hostelworldFailed: StayProviderOutcome = {
+	label: 'Hostelworld (no key required)',
+	answer: 'failed',
+	errorMessage:
+		'Hostelworld returned HTTP 400: please pass valid currency three letter code'
+};
 
 describe('describeNoStays', () => {
 	it('says nothing was searched, and offers the key, when no stay provider is configured', () => {
@@ -34,10 +52,10 @@ describe('describeNoStays', () => {
 		const finished = describeNoStays({
 			stayProviderConfigured: true,
 			searchDone: true,
-			cityName: 'Bergamo'
+			cityName: 'Bergamo',
+			stayProviders: [hostelworldAnswered]
 		});
 		expect(finished.title).toBe('No stays came back for Bergamo');
-		expect(finished.description).toMatch(/finished/i);
 		expect(finished.description).not.toMatch(/try again/i);
 		expect(finished.description).not.toMatch(/\byet\b/i);
 	});
@@ -50,5 +68,142 @@ describe('describeNoStays', () => {
 	it('falls back to a neutral phrase before the airport dataset resolves a city name', () => {
 		const notice = describeNoStays({ stayProviderConfigured: true, searchDone: true });
 		expect(notice.title).toBe('No stays came back for this stopover');
+	});
+
+	/**
+	 * Issue #203, case 1: asked, answered, nothing here. Final and honest, and the one state
+	 * where a broader provider is worth suggesting, since Hostelworld sells hostels and
+	 * budget hotels rather than the whole market.
+	 */
+	describe('when the providers answered and had nothing', () => {
+		it('names who answered and does not dress it up as a failure', () => {
+			const notice = describeNoStays({
+				stayProviderConfigured: true,
+				searchDone: true,
+				cityName: 'London',
+				stayProviders: [hostelworldAnswered]
+			});
+			expect(notice.description).toBe(
+				'Hostelworld (no key required) answered with nothing near London for these dates.'
+			);
+			expect(notice.providerFailures).toEqual([]);
+		});
+
+		it('offers a broader provider only while one is still unconfigured', () => {
+			const context = {
+				stayProviderConfigured: true,
+				searchDone: true,
+				cityName: 'London',
+				stayProviders: [hostelworldAnswered]
+			};
+			expect(describeNoStays({ ...context, hasUnconfiguredStayProvider: true }).action).toEqual({
+				label: 'Add an Agoda key',
+				href: '/settings/#agoda'
+			});
+			// Everything is already configured, so "add a key" is advice already taken.
+			expect(describeNoStays({ ...context, hasUnconfiguredStayProvider: false }).action).toBeUndefined();
+		});
+	});
+
+	/**
+	 * Issue #203, case 2, and the reason this function was rewritten. Measured 2026-09-05
+	 * against a production build with Hostelworld forced to `503`: the strip correctly read
+	 * FAILED and this notice still said "The stay providers had nothing near London for
+	 * these dates." Nobody ever learned that.
+	 */
+	describe('when every stay provider failed', () => {
+		const failing = {
+			stayProviderConfigured: true,
+			searchDone: true,
+			cityName: 'London',
+			stayProviders: [hostelworldFailed]
+		};
+
+		it('never claims there is nothing near the city, because nobody found out', () => {
+			const notice = describeNoStays(failing);
+			expect(notice.description).not.toMatch(/nothing near/i);
+			expect(notice.description).not.toMatch(/had nothing/i);
+			expect(notice.description).toContain('Nothing is known about beds in London');
+		});
+
+		it("carries the provider's own sentence and status code, unedited", () => {
+			const notice = describeNoStays(failing);
+			expect(notice.providerFailures).toEqual([
+				'Hostelworld returned HTTP 400: please pass valid currency three letter code'
+			]);
+		});
+
+		it('names the one provider that failed in the title', () => {
+			expect(describeNoStays(failing).title).toBe('Hostelworld (no key required) could not answer');
+			expect(
+				describeNoStays({
+					...failing,
+					stayProviders: [hostelworldFailed, { label: 'Agoda (RapidAPI)', answer: 'failed', errorMessage: 'x' }]
+				}).title
+			).toBe('No stay provider could answer');
+		});
+
+		// The orchestrator's ruling for this PR, recorded so a future reader knows it was a
+		// decision and not an omission: an outage is not evidence that a different provider
+		// has a bed here, and a button beside a 503 reads as "press this and it will work".
+		it('offers no action, even when a broader provider is unconfigured', () => {
+			expect(describeNoStays({ ...failing, hasUnconfiguredStayProvider: true }).action).toBeUndefined();
+		});
+
+		// The browser's own words for a blocked request, which is what a `network-error`
+		// carries. Two words are honest and unattributable, so the provider's name goes in
+		// front of them — attribution, not editing.
+		it('attributes a message that does not already name the provider', () => {
+			const notice = describeNoStays({
+				...failing,
+				stayProviders: [
+					{ label: 'Hostelworld (no key required)', answer: 'failed', errorMessage: 'Failed to fetch' }
+				]
+			});
+			expect(notice.providerFailures).toEqual(['Hostelworld (no key required): Failed to fetch']);
+		});
+
+		// The client labels its own messages with the host it called ("Hostelworld"); the
+		// registry label adds how that host is reached. Prefixing on a plain string match
+		// would print the name twice.
+		it('does not name the provider twice when its own message already does', () => {
+			expect(describeNoStays(failing).providerFailures).toEqual([
+				'Hostelworld returned HTTP 400: please pass valid currency three letter code'
+			]);
+		});
+
+		it('says so plainly when a failure carried no message at all', () => {
+			const notice = describeNoStays({
+				...failing,
+				stayProviders: [{ label: 'Agoda (RapidAPI)', answer: 'failed' }]
+			});
+			expect(notice.providerFailures).toEqual(['Agoda (RapidAPI) failed without saying why.']);
+		});
+	});
+
+	it('says both halves when one provider answered and another failed', () => {
+		const notice = describeNoStays({
+			stayProviderConfigured: true,
+			searchDone: true,
+			cityName: 'London',
+			stayProviders: [hostelworldAnswered, { label: 'Agoda (RapidAPI)', answer: 'failed', errorMessage: 'boom' }]
+		});
+		// "Nothing near London" is only true of the one that replied; the one that failed
+		// might have had a bed, and the sentence must not quietly speak for it.
+		expect(notice.description).toBe(
+			'Hostelworld (no key required) had nothing near London for these dates, and the rest could not answer.'
+		);
+		expect(notice.providerFailures).toEqual(['Agoda (RapidAPI): boom']);
+	});
+
+	it('does not claim an answer nobody gave when no stay call was recorded', () => {
+		const notice = describeNoStays({
+			stayProviderConfigured: true,
+			searchDone: true,
+			cityName: 'London',
+			stayProviders: []
+		});
+		expect(notice.description).toBe('The search finished without a stay provider answering for London.');
+		expect(notice.description).not.toMatch(/nothing near/i);
 	});
 });

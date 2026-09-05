@@ -47,7 +47,7 @@
 	import { applyFilters, deriveFilterOptions, emptyFilters } from '$lib/results/filters';
 	import type { ResultFilters } from '$lib/results/filters';
 	import { explainNoResults } from '$lib/results/no-results';
-	import { getProviderRegistry } from '$lib/results/provider-setup';
+	import { getProviderRegistry, stayProviderOutcomes } from '$lib/results/provider-setup';
 	import { createSearchDependencies } from '$lib/results/search-dependencies';
 	import { compareResults, sortResults } from '$lib/results/sort';
 	import type { SortMode } from '$lib/results/sort';
@@ -261,6 +261,10 @@
 	const filterOptions = $derived(deriveFilterOptions(results));
 	const filteredResults = $derived(applyFilters(results, filters));
 	const providerStatusList = $derived(Object.values(providerStatuses));
+	// Issue #203: what the stay providers did in this search, for the one place per stopover
+	// that says why a bed is missing. Derived from the same `providerStatuses` the strip
+	// below the list renders, so the two cannot disagree about whether Hostelworld failed.
+	const stayProviders = $derived(stayProviderOutcomes(providerStatusList));
 	const stillSearching = $derived(searchesInFlight > 0);
 
 	/**
@@ -756,6 +760,7 @@
 										females={query.females}
 										minLayoverTime={query.minLayoverTime}
 										searchDone={primarySearchDone && !stillSearching}
+										{stayProviders}
 									/>
 									{/key}
 								{/if}

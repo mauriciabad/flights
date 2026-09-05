@@ -6,6 +6,7 @@
  * around a fetch call.
  */
 
+import { describeProviderResponse, readProviderResponse, readRetryAfterSeconds } from '../response-evidence';
 import type {
 	RyanairActiveAirportsResponse,
 	RyanairCheapestPerDayResponse,
@@ -16,6 +17,10 @@ import type {
 const FARE_FINDER_URL_PREFIX = 'https://services-api.ryanair.com/farfnd/v4/oneWayFares';
 const SCHEDULES_URL_PREFIX = 'https://services-api.ryanair.com/timtbl/3/schedules';
 const ACTIVE_AIRPORTS_URL = 'https://www.ryanair.com/api/views/locate/3/airports/en/active';
+
+/** How every message out of this file names the host, so an error badge and a console line
+ * agree about who was asked. */
+const LABEL = 'Ryanair';
 
 export interface RyanairHttpDeps {
 	signal: AbortSignal;
@@ -40,36 +45,38 @@ async function getJson<T>(
 		// apart from "the network genuinely failed," which need different UI treatment
 		// (ProviderError's `cancelled` vs `network-error`).
 		if (deps.signal.aborted) {
-			return { ok: false, error: { code: 'cancelled', message: 'Ryanair request was aborted' } };
+			return { ok: false, error: { code: 'cancelled', message: `${LABEL} request was aborted` } };
 		}
 		return {
 			ok: false,
 			error: {
 				code: 'network-error',
-				message: cause instanceof Error ? cause.message : 'Ryanair request failed',
+				message: cause instanceof Error ? cause.message : `${LABEL} request failed`,
 				cause
 			}
 		};
 	}
 
+	// Issue #191: the body is read before anything is decided, so the message carries
+	// Ryanair's own sentence with its status code rather than our paraphrase of the status
+	// alone. `Ryanair returned HTTP 429` and `Ryanair rate-limited this request (HTTP 429)`
+	// were both our words standing where the host's belong.
 	if (!response.ok) {
+		const evidence = await readProviderResponse(response);
+		const message = describeProviderResponse(LABEL, evidence);
+
 		if (response.status === 429) {
-			const retryAfterHeader = response.headers.get('retry-after');
-			const retryAfterSeconds = retryAfterHeader ? Number(retryAfterHeader) : undefined;
 			return {
 				ok: false,
 				error: {
 					code: 'rate-limited',
-					message: 'Ryanair rate-limited this request (HTTP 429)',
+					message,
 					status: 429,
-					retryAfterSeconds: Number.isFinite(retryAfterSeconds) ? retryAfterSeconds : undefined
+					retryAfterSeconds: readRetryAfterSeconds(response.headers)
 				}
 			};
 		}
-		return {
-			ok: false,
-			error: { code: 'http-error', message: `Ryanair returned HTTP ${response.status}`, status: response.status }
-		};
+		return { ok: false, error: { code: 'http-error', message, status: response.status } };
 	}
 
 	let body: unknown;
@@ -78,7 +85,7 @@ async function getJson<T>(
 	} catch (cause) {
 		return {
 			ok: false,
-			error: { code: 'malformed-response', message: 'Ryanair response was not valid JSON', cause }
+			error: { code: 'malformed-response', message: `${LABEL} response was not valid JSON`, cause }
 		};
 	}
 
@@ -87,7 +94,7 @@ async function getJson<T>(
 			ok: false,
 			error: {
 				code: 'malformed-response',
-				message: `Ryanair response for ${url} did not match the shape this adapter expects`
+				message: `${LABEL} response for ${url} did not match the shape this adapter expects`
 			}
 		};
 	}

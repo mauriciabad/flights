@@ -148,18 +148,26 @@ describe('formatTimeDelta', () => {
 });
 
 describe('unroutedLegNote', () => {
-	it('names both missing halves, in the direction the row is describing', () => {
+	it('states the row\'s own fact, in the direction the row is describing', () => {
 		// Issue #161 gave these legs a second destination — the city centre — so "no bed,
-		// therefore nowhere to go" stopped being the whole story. An empty row now means
-		// neither a bed nor a city route, and the sentence states both rather than pinning
-		// it on the bed alone.
+		// therefore nowhere to go" stopped being the whole story. Issue #185 then took the
+		// bed clause back out: it was true, and it was also the third and sixth of seven
+		// places on one screen saying the same thing. The reason a bed is missing now lives
+		// once, in the stopover row's own fold.
 		const overnight = { hasStay: false, nightsInConnection: 6 };
-		expect(unroutedLegNote('to-hotel', overnight)).toBe(
-			'No bed priced for this stopover, and nothing routed into the city either.'
-		);
+		expect(unroutedLegNote('to-hotel', overnight)).toBe('Nothing routed into the city for this stopover.');
 		expect(unroutedLegNote('from-hotel', overnight)).toBe(
-			'No bed priced for this stopover, and nothing routed back from the city either.'
+			'Nothing routed back from the city for this stopover.'
 		);
+	});
+
+	// Anchored on the fact rather than the prose: a check that greps for one sentence passes
+	// vacuously the day somebody rewords it. Whatever these rows say, they must not be the
+	// place that explains the bed — that is the stopover fold's one job now (#185).
+	it('never repeats the missing bed, whatever the wording becomes', () => {
+		for (const leg of ['to-hotel', 'from-hotel'] as const) {
+			expect(unroutedLegNote(leg, { hasStay: false, nightsInConnection: 6 })).not.toMatch(/bed/i);
+		}
 	});
 
 	it('says a same-day connection has no hotel leg at all, rather than one that has not arrived', () => {

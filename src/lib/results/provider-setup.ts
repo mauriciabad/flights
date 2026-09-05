@@ -58,6 +58,9 @@ import { hostelworldStayProvider } from '$lib/providers/stays/hostelworld';
 import { osrmTransferProvider } from '$lib/providers/transfers/osrm';
 import { transitousTransferProvider } from '$lib/providers/transfers/transitous';
 import { ProviderRegistry } from '$lib/providers/registry';
+import { providerAnswer } from '$lib/search';
+import type { ProviderStatus } from '$lib/search';
+import type { StayProviderOutcome } from '$lib/stays';
 import type { ProviderKeys } from '$lib/keys';
 
 let registry: ProviderRegistry | undefined;
@@ -109,4 +112,39 @@ export function getProviderRegistry(): ProviderRegistry {
  */
 export function hasUsableStayProvider(keys: ProviderKeys): boolean {
 	return getProviderRegistry().usable('stay', keys).length > 0;
+}
+
+/**
+ * Whether a registered stay provider is still waiting on a key.
+ *
+ * Issue #203: the stopover notice offers "add a key" only where doing so could change the
+ * outcome. Since #202 registered a keyless baseline, `hasUsableStayProvider` is always true
+ * and cannot answer that question any more — a visitor with an Agoda key and a visitor with
+ * none both get `true`, and only one of them has anything left to add.
+ */
+export function hasUnconfiguredStayProvider(keys: ProviderKeys): boolean {
+	const providers = getProviderRegistry();
+	return providers.usable('stay', keys).length < providers.ofKind('stay').length;
+}
+
+/**
+ * What each stay provider did in this search, in the shape `stays/no-stays-reason.ts`
+ * describes to a traveller.
+ *
+ * Reading `SearchSnapshot.providers` rather than threading a per-stopover outcome through
+ * `search/resources.ts` and `algorithm/build.ts` is a deliberate limit, and the notice is
+ * honest about it. A provider's failure is a fact about the whole search, so "Hostelworld
+ * returned HTTP 503" is equally true of every stopover on the page; "nothing near this
+ * city" is a fact about one city, and is only claimed when nothing failed. The reading this
+ * cannot give is "Hostelworld answered for Rome and failed for London", and nothing built
+ * on it ever claims that.
+ */
+export function stayProviderOutcomes(statuses: readonly ProviderStatus[]): StayProviderOutcome[] {
+	return statuses
+		.filter((status) => status.kind === 'stay')
+		.map((status) => ({
+			label: status.label,
+			answer: providerAnswer(status),
+			errorMessage: status.lastError?.message
+		}));
 }

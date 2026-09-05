@@ -35,6 +35,42 @@ describe('readProviderResponse', () => {
 		expect(evidence.message).toBe('{"departDate":"The departDate field is required."}');
 	});
 
+	// Issue #203. Measured against `api.m.hostelworld.com` on 2026-09-05 from a real page
+	// origin: `currency=CVE` answers with exactly this body and this status.
+	it("reads the `description` list Hostelworld sends with a 4xx", async () => {
+		const evidence = await readProviderResponse(
+			new Response(
+				JSON.stringify({
+					description: [{ code: '90593', message: 'please pass valid currency three letter code' }]
+				}),
+				{ status: 400 }
+			)
+		);
+
+		expect(evidence.status).toBe(400);
+		expect(evidence.message).toBe('please pass valid currency three letter code');
+	});
+
+	// Same measurement, `currency=CVE&show-rooms=0`: one request wrong in two ways gets two
+	// entries back. Taking the first would report half of what the provider said.
+	it('joins every complaint in that list rather than taking the first', async () => {
+		const evidence = await readProviderResponse(
+			new Response(
+				JSON.stringify({
+					description: [
+						{ code: '90597', message: 'show-rooms should be positive integer' },
+						{ code: '90593', message: 'please pass valid currency three letter code' }
+					]
+				}),
+				{ status: 400 }
+			)
+		);
+
+		expect(evidence.message).toBe(
+			'show-rooms should be positive integer; please pass valid currency three letter code'
+		);
+	});
+
 	it('collects the `*-error` headers that name a cause our own message never could', async () => {
 		const evidence = await readProviderResponse(
 			new Response('{}', { status: 402, headers: { 'X-Vercel-Error': 'DEPLOYMENT_DISABLED' } })

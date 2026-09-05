@@ -7,10 +7,15 @@
 		icon?: Snippet;
 		/** Usually a Button — "broaden your dates", "add an airport". */
 		action?: Snippet;
+		/** Issue #203: what a provider actually said, verbatim, below our own sentence and
+		 * the fix for it rather than instead of them. `ErrorState` keeps the same order and
+		 * the same dashed rule for the same reason: our classification is an addition on top
+		 * of the evidence, never a replacement for it (AGENTS.md). */
+		evidence?: Snippet;
 		class?: string;
 	}
 
-	let { title, description, icon, action, class: className }: Props = $props();
+	let { title, description, icon, action, evidence, class: className }: Props = $props();
 </script>
 
 <!-- role="status": announces once when a filtered list becomes empty,
@@ -43,6 +48,9 @@
 	{/if}
 	{#if action}
 		<div class="empty-state-action">{@render action()}</div>
+	{/if}
+	{#if evidence}
+		<div class="empty-state-evidence">{@render evidence()}</div>
 	{/if}
 </div>
 
@@ -82,5 +90,15 @@
 
 	.empty-state-action {
 		margin-top: var(--space-3);
+	}
+
+	.empty-state-evidence {
+		max-width: 32rem;
+		margin-top: var(--space-3);
+		padding-top: var(--space-3);
+		border-top: 1px dashed var(--color-border);
+		font-size: var(--font-size-xs);
+		color: var(--color-text-muted);
+		overflow-wrap: anywhere;
 	}
 </style>

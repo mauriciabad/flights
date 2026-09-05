@@ -11,10 +11,15 @@
  */
 
 import { recordRateLimitHeaders } from '../budget';
+import { describeProviderResponse, readProviderResponse, readRetryAfterSeconds } from '../response-evidence';
 import type { ProviderId } from '../types';
 import type { BookingFetchError, BookingFetchResult, BookingRoomListResponse, BookingSearchResponse } from './booking-types';
 
 const PROVIDER_ID: ProviderId = 'booking';
+/** How every message out of this file names the provider. The request URL used to stand
+ * here instead, which tells the reader of an error badge nothing they could act on and
+ * pushes the host's own sentence off the end of the line. */
+const LABEL = 'Booking.com';
 const BOOKING_HOST = 'booking-com15.p.rapidapi.com';
 const SEARCH_BY_COORDINATES_URL = `https://${BOOKING_HOST}/api/v1/hotels/searchHotelsByCoordinates`;
 const GET_ROOM_LIST_URL = `https://${BOOKING_HOST}/api/v1/hotels/getRoomList`;
@@ -52,13 +57,13 @@ async function getJson<T>(
 		});
 	} catch (cause) {
 		if (deps.signal.aborted) {
-			return { ok: false, error: { code: 'cancelled', message: 'Booking request was aborted' } };
+			return { ok: false, error: { code: 'cancelled', message: `${LABEL} request was aborted` } };
 		}
 		return {
 			ok: false,
 			error: {
 				code: 'network-error',
-				message: cause instanceof Error ? cause.message : 'Booking request failed',
+				message: cause instanceof Error ? cause.message : `${LABEL} request failed`,
 				cause
 			}
 		};
@@ -68,37 +73,45 @@ async function getJson<T>(
 	// and those are exactly the responses where the real remaining count matters (#146).
 	recordRateLimitHeaders(PROVIDER_ID, response.headers);
 
-	if (response.status === 403) {
-		return {
-			ok: false,
-			error: { code: 'not-subscribed', message: 'Not subscribed to this API on RapidAPI', status: 403 }
-		};
-	}
-	if (response.status === 429) {
-		const retryAfterHeader = response.headers.get('retry-after');
-		const retryAfterSeconds = retryAfterHeader ? Number(retryAfterHeader) : undefined;
-		return {
-			ok: false,
-			error: {
-				code: 'rate-limited',
-				message: 'Rate-limited (HTTP 429)',
-				status: 429,
-				retryAfterSeconds: Number.isFinite(retryAfterSeconds) ? retryAfterSeconds : undefined
-			}
-		};
-	}
+	// Issue #191: one read of the body, before any branch, so every failure below carries
+	// the provider's own sentence and its status code.
+	//
+	// The 403 branch is the one that mattered. It used to answer EVERY 403 with our own
+	// "Not subscribed to this API on RapidAPI" without ever reading the body, and
+	// `not-subscribed` is permanent for the session (budget/permanent-failures.ts). So a
+	// 403 that meant something else killed the provider for the session AND told the owner
+	// his account was unsubscribed, which is the exact misdiagnosis AGENTS.md records from
+	// issue #122. Only RapidAPI's own literal wording earns that code now, the same gate
+	// skyscanner-client.ts and kiwi-client.ts already apply.
 	if (!response.ok) {
-		return {
-			ok: false,
-			error: { code: 'http-error', message: `Request to ${url} returned HTTP ${response.status}`, status: response.status }
-		};
+		const evidence = await readProviderResponse(response);
+		const message = describeProviderResponse(LABEL, evidence);
+
+		if (response.status === 403) {
+			if (/not subscribed/i.test(evidence.message ?? '')) {
+				return { ok: false, error: { code: 'not-subscribed', message, status: 403 } };
+			}
+			return { ok: false, error: { code: 'http-error', message, status: 403 } };
+		}
+		if (response.status === 429) {
+			return {
+				ok: false,
+				error: {
+					code: 'rate-limited',
+					message,
+					status: 429,
+					retryAfterSeconds: readRetryAfterSeconds(response.headers)
+				}
+			};
+		}
+		return { ok: false, error: { code: 'http-error', message, status: response.status } };
 	}
 
 	let body: unknown;
 	try {
 		body = await response.json();
 	} catch (cause) {
-		return { ok: false, error: { code: 'malformed-response', message: 'Response was not valid JSON', cause } };
+		return { ok: false, error: { code: 'malformed-response', message: `${LABEL} response was not valid JSON`, cause } };
 	}
 
 	// Booking's own wrapper answers a bad *parameter* with HTTP 200 and
@@ -107,11 +120,14 @@ async function getJson<T>(
 	// own `status` field, not just the HTTP status code, same as agoda-client.ts.
 	if (typeof body === 'object' && body !== null && (body as { status?: unknown }).status === false) {
 		const message = (body as { message?: unknown }).message;
+		// The status code is part of the evidence here too, and this is the branch where it
+		// carries the most: `200` with an error body is the reading that went missing in
+		// issue #122, and a message that omits it looks identical to a 4xx.
 		return {
 			ok: false,
 			error: {
 				code: 'malformed-response',
-				message: `Booking rejected the request: ${typeof message === 'string' ? message : JSON.stringify(message)}`
+				message: `${LABEL} returned HTTP ${response.status} rejecting the request: ${typeof message === 'string' ? message : JSON.stringify(message)}`
 			}
 		};
 	}
@@ -119,7 +135,7 @@ async function getJson<T>(
 	if (!isShapeValid(body)) {
 		return {
 			ok: false,
-			error: { code: 'malformed-response', message: `Response from ${url} did not match the shape this adapter expects` }
+			error: { code: 'malformed-response', message: `${LABEL} response from ${url} did not match the shape this adapter expects` }
 		};
 	}
 	return { ok: true, data: body };

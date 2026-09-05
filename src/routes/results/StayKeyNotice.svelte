@@ -30,6 +30,13 @@
 	 *
 	 * Renders nothing once a stay key already exists: this is about the gap, not a permanent
 	 * banner competing with the results for attention once the fix is already in place.
+	 *
+	 * Issue #185: `severity="info"`, not `"warning"`. This is a first-run setup hint, and
+	 * drawn in warning yellow with a warning triangle it outranked the itineraries it sits
+	 * under — the loudest thing on a page whose whole job is the list above it. Nothing has
+	 * gone wrong when a keyless visitor has no key; something is simply not set up yet.
+	 * `ErrorState`'s info treatment keeps the same layout, link and screen-reader politeness
+	 * and stops the colour making a claim the words do not.
 	 */
 	import { ErrorState } from '$lib/components';
 	import { keyStore } from '$lib/keys';
@@ -42,7 +49,7 @@
 
 {#if !hasStayProvider}
 	<ErrorState
-		severity="warning"
+		severity="info"
 		provider="Agoda"
 		title="No stay provider configured"
 		message="Stopovers below don't have a bed priced in. Agoda's free tier covers 500 requests a month, plenty for a search like this. Booking.com works too."

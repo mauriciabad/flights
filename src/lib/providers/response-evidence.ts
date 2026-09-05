@@ -71,6 +71,20 @@ function stringField(record: Record<string, unknown>, field: string): string | u
 	return typeof value === 'string' && value.trim().length > 0 ? value : undefined;
 }
 
+/** Hostelworld reports one failed request as a LIST of complaints, so all of them are
+ * joined rather than the first one taken. Measured 2026-09-05 from a real page origin: one
+ * request wrong in two ways answers `400 {"description":[{"code":"90597","message":
+ * "show-rooms should be positive integer"},{"code":"90593","message":"please pass valid
+ * currency three letter code"}]}`. Taking the first would be us editing the provider's
+ * answer down to the half we happened to read. */
+function describedMessages(description: unknown): string | undefined {
+	if (!Array.isArray(description)) return undefined;
+	const messages = description
+		.map((entry) => (entry as { message?: unknown } | null)?.message)
+		.filter((text): text is string => typeof text === 'string' && text.trim().length > 0);
+	return messages.length > 0 ? messages.join('; ') : undefined;
+}
+
 /**
  * Pulls the provider's own sentence out of a parsed body, trying every error shape this
  * repo has actually measured, in the order it measured them:
@@ -83,6 +97,12 @@ function stringField(record: Record<string, unknown>, field: string): string | u
  * - `{"error":"..."}`, the flatter variant of the same.
  * - `{"errors":...}`, Flights Sky's `price-calendar` validation failures, as a string or
  *   an object keyed by field name (flights-sky-client.ts found both).
+ * - `{"description":[{"code":"90593","message":"..."}]}`, Hostelworld's own 4xx shape,
+ *   re-measured against `api.m.hostelworld.com` on 2026-09-05 by asking for `currency=CVE`:
+ *   `400 {"description":[{"code":"90593","message":"please pass valid currency three letter
+ *   code"}]}`. It used to be read by a private helper in hostelworld-client.ts that parsed
+ *   the body with `response.json()`, so an HTML error page from anything between us and
+ *   that host left nothing to quote at all.
  *
  * Anything else returns `undefined`, and the caller quotes `bodyText` instead. Guessing at
  * an unmeasured field would be inventing a message again, one layer down.
@@ -93,6 +113,9 @@ function messageFrom(body: unknown): string | undefined {
 
 	const message = stringField(record, 'message');
 	if (message !== undefined) return message;
+
+	const described = describedMessages(record.description);
+	if (described !== undefined) return described;
 
 	const { error } = record;
 	if (typeof error === 'string' && error.trim().length > 0) return error;

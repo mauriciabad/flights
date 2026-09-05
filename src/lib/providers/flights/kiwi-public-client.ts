@@ -16,6 +16,7 @@
  * instead of the API. tools/probe-cors.mjs does this by default and says why.
  */
 
+import { describeProviderResponse, readProviderResponse, readRetryAfterSeconds } from '../response-evidence';
 import { ONE_PER_CITY_FEATURE_NAME, ONE_WAY_FEATURE_NAME } from './kiwi-public-queries';
 import type {
 	KiwiPublicFetchResult,
@@ -25,6 +26,12 @@ import type {
 } from './kiwi-public-types';
 
 const ENDPOINT = 'https://api.skypicker.com/umbrella/v2/graphql';
+
+/** This adapter's own registry label, spelled out rather than just "Kiwi" for the reason
+ * kiwi-client.ts spells out its own: two different backends with different failure modes
+ * both answer to that name, and a badge naming both of them the same sends the next reader
+ * to the wrong file. */
+const LABEL = 'Kiwi.com (no key required)';
 
 export interface KiwiPublicHttpDeps {
 	signal: AbortSignal;
@@ -55,39 +62,39 @@ async function postGraphQl<T>(
 		// fact is what separates "the user navigated away" from "the network is down" —
 		// two failures that need completely different UI treatment.
 		if (deps.signal.aborted) {
-			return { ok: false, error: { code: 'cancelled', message: 'Kiwi request was aborted' } };
+			return { ok: false, error: { code: 'cancelled', message: `${LABEL} request was aborted` } };
 		}
 		return {
 			ok: false,
 			error: {
 				code: 'network-error',
-				message: cause instanceof Error ? cause.message : 'Kiwi request failed',
+				message: cause instanceof Error ? cause.message : `${LABEL} request failed`,
 				cause
 			}
 		};
 	}
 
+	// Issue #191, and this is the branch that costs something today: this adapter is the
+	// keyless default, so it runs for every visitor with no keys configured. `Kiwi returned
+	// HTTP 403` was our sentence over a response we never read, which left the bot-wall 403
+	// described in this file's header looking identical to every other 403 this host can
+	// send. Reading the body first does not diagnose it, and is not meant to; it just stops
+	// us throwing away the only thing that could.
 	if (!response.ok) {
+		const evidence = await readProviderResponse(response);
+		const message = describeProviderResponse(LABEL, evidence);
+
 		if (response.status === 429) {
-			const header = response.headers.get('retry-after');
-			const seconds = header ? Number(header) : undefined;
 			return {
 				ok: false,
 				error: {
 					code: 'rate-limited',
-					message: 'Kiwi rate-limited this request (HTTP 429)',
-					retryAfterSeconds: Number.isFinite(seconds) ? seconds : undefined
+					message,
+					retryAfterSeconds: readRetryAfterSeconds(response.headers)
 				}
 			};
 		}
-		return {
-			ok: false,
-			error: {
-				code: 'http-error',
-				message: `Kiwi returned HTTP ${response.status}`,
-				status: response.status
-			}
-		};
+		return { ok: false, error: { code: 'http-error', message, status: response.status } };
 	}
 
 	let body: KiwiPublicGraphQlResponse<T>;
@@ -96,7 +103,7 @@ async function postGraphQl<T>(
 	} catch (cause) {
 		return {
 			ok: false,
-			error: { code: 'malformed-response', message: 'Kiwi response was not valid JSON', cause }
+			error: { code: 'malformed-response', message: `${LABEL} response was not valid JSON`, cause }
 		};
 	}
 
@@ -112,7 +119,10 @@ async function postGraphQl<T>(
 			ok: false,
 			error: {
 				code: 'malformed-response',
-				message: message.length > 0 ? `Kiwi GraphQL error: ${message}` : 'Kiwi returned a GraphQL error with no message'
+				message:
+					message.length > 0
+						? `${LABEL} returned HTTP ${response.status} with a GraphQL error: ${message}`
+						: `${LABEL} returned HTTP ${response.status} with a GraphQL error carrying no message`
 			}
 		};
 	}
@@ -120,7 +130,7 @@ async function postGraphQl<T>(
 	if (body.data === undefined || body.data === null) {
 		return {
 			ok: false,
-			error: { code: 'malformed-response', message: 'Kiwi returned a response with no data' }
+			error: { code: 'malformed-response', message: `${LABEL} returned a response with no data` }
 		};
 	}
 

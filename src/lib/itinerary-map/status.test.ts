@@ -44,7 +44,7 @@ function model(overrides: Partial<ItineraryMapModel> = {}): ItineraryMapModel {
 		],
 		extraWaypoints: [],
 		absentSegmentNotes: {
-			'transfer-to-hotel': 'Nothing to draw. No bed priced for this stopover, and nothing routed into the city either.'
+			'transfer-to-hotel': 'Nothing to draw. Nothing routed into the city for this stopover.'
 		},
 		...overrides
 	};
@@ -80,7 +80,7 @@ describe('itineraryMapStatus', () => {
 
 	it('reads back the model own explanation for a step with no geometry', () => {
 		expect(itineraryMapStatus(model(), 'transfer-to-hotel')).toEqual({
-			text: 'Nothing to draw. No bed priced for this stopover, and nothing routed into the city either.',
+			text: 'Nothing to draw. Nothing routed into the city for this stopover.',
 			tone: 'none',
 			isAbsence: true
 		});

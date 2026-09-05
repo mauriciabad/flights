@@ -679,19 +679,20 @@
 				{/if}
 				{@render optionMark('free-time')}
 			</p>
-			<p class="tl-stopover-stay">
-				{#if shown.stay}
+			<!-- Issue #185: the row names the bed when there is one and says nothing when
+			     there is not. It used to print "No bed priced yet." here, which was the fourth
+			     of seven places on one screen saying so, and this row is the one that adds
+			     least: the line above it already says how many nights, the price line on the
+			     card carries the chip that qualifies the number, and the fold this row opens
+			     is where the reason and the fix live (`stays/no-stays-reason.ts`). The
+			     zero-night line went with it, because "Day stopover in London" one line up
+			     already says no night is spent here. -->
+			{#if shown.stay}
+				<p class="tl-stopover-stay">
 					{shown.stay.property.name} &middot; {shown.stay.roomKind}{#if shown.stay.property.rating}
 						&middot; rated {shown.stay.property.rating}/5{/if}
-				{:else if shown.nightsInConnection > 0}
-					<!-- Just the fact. The fold under this row, and the notice above the results
-					     list, carry the reason and the link; three lines of it here on a phone
-					     repeated both. -->
-					No bed priced yet.
-				{:else}
-					No night spent here, so there is no bed to price.
-				{/if}
-			</p>
+				</p>
+			{/if}
 		</div>
 		<div class="tl-meta">
 			<!-- Issue #228: this cell read "2d 15h free", the owner's own example of the
