@@ -177,3 +177,22 @@ test.describe('the segment stub on a phone', () => {
 		expect(box.x + box.width).toBeLessThanOrEqual(375);
 	});
 });
+
+test('every strip cell has real width, not just the right colour', async ({ page }) => {
+	// The cells and the hit buttons share grid row 2. The buttons are explicitly placed, and
+	// CSS grid positions definite items before auto-placed ones, so cells without an explicit
+	// column spilled into implicit zero-width tracks. They kept their colour, their opacity and
+	// `visibility: visible` and rendered at 0-2px, which reads as an invisible strip. Every
+	// existing check passed because the elements were still there.
+	await openResults(page);
+	const widths = await page.evaluate(() =>
+		[...document.querySelectorAll('.trip-strip-track')]
+			.slice(0, 1)
+			.flatMap((track) =>
+				[...track.querySelectorAll('.trip-strip-cell')].map((c) => c.getBoundingClientRect().width)
+			)
+	);
+	expect(widths.length).toBeGreaterThan(0);
+	for (const width of widths) expect(width).toBeGreaterThanOrEqual(3);
+	expect(widths.reduce((a, b) => a + b, 0)).toBeGreaterThan(200);
+});

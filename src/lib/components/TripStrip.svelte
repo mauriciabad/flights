@@ -328,7 +328,16 @@
 		>
 
 		{#each strip.segments as segment, index (index)}
-			<div class={['trip-strip-cell', `trip-strip-cell-${segment.kind}`]} aria-hidden="true">
+			<!-- The column is explicit because the hit buttons below are explicitly placed on this
+			     same row. CSS grid positions definite items first, so auto-placed cells found row 2
+			     already full and spilled into implicit zero-width columns: every segment rendered at
+			     0-2px with its colour intact, which reads as an invisible strip rather than a
+			     misplaced one. -->
+			<div
+				class={['trip-strip-cell', `trip-strip-cell-${segment.kind}`]}
+				style:grid-column={index + 1}
+				aria-hidden="true"
+			>
 				{#if segment.kind === 'flight'}
 					<span class="trip-strip-stamp trip-strip-stamp-logo">
 						<AirlineLogo iataCode={segment.carrier.iataCode} name={segment.carrier.name} {deprioritized} />
