@@ -340,6 +340,7 @@
 				signal: controller.signal,
 				landingToTransportRules: DEFAULT_LANDING_TO_TRANSPORT_RULES,
 				connectionAirportSize: airport.sizeClass,
+				connectionCountryCode: airport.country.isoCode,
 				// Deliberately dropped rather than folded into `SearchSnapshot.providers`:
 				// this call happens after the search is over, and counting it there would
 				// change a provider row the traveller reads as "what this search did".
@@ -635,7 +636,6 @@
 				legField="transferToOriginAirport"
 				{itinerary}
 				alternatives={originAirportTransferOptions.candidates}
-				taxiFareEstimate={originAirportTransferOptions.taxiFareEstimate}
 				transitAnswer={transitAnswers?.transferToOriginAirport}
 				{minLayoverTime}
 				onselect={applySelection}
@@ -657,7 +657,6 @@
 				legField="transferToHotel"
 				{itinerary}
 				alternatives={hotelTransferOptions.candidates}
-				taxiFareEstimate={hotelTransferOptions.taxiFareEstimate}
 				transitAnswer={connectionTransitAnswers?.transferToHotel}
 				oncheckTransit={canCheckTransit ? checkTransitForPickedProperty : undefined}
 				transitChecking={transitCheckState?.kind === 'checking'}
@@ -719,7 +718,6 @@
 				legField="transferToConnectionAirport"
 				{itinerary}
 				alternatives={connectionAirportTransferOptions.candidates}
-				taxiFareEstimate={connectionAirportTransferOptions.taxiFareEstimate}
 				transitAnswer={connectionTransitAnswers?.transferToConnectionAirport}
 				oncheckTransit={canCheckTransit ? checkTransitForPickedProperty : undefined}
 				transitChecking={transitCheckState?.kind === 'checking'}
@@ -743,7 +741,6 @@
 				legField="transferToDestinationLocation"
 				{itinerary}
 				alternatives={destinationLocationTransferOptions.candidates}
-				taxiFareEstimate={destinationLocationTransferOptions.taxiFareEstimate}
 				transitAnswer={transitAnswers?.transferToDestinationLocation}
 				referenceMoment={itinerary.onwardFlight.arrival}
 				referenceLabel="you land"

@@ -123,7 +123,6 @@ afterEach(() => {
 function mountPicker(props: {
 	itinerary: Itinerary;
 	alternatives: Transfer[];
-	taxiFareEstimate?: FareEstimate;
 	referenceMoment?: LocalDateTime;
 	transitAnswer?: TransitLegAnswer;
 	oncheckTransit?: () => void;
@@ -139,7 +138,6 @@ function mountPicker(props: {
 			itinerary: props.itinerary,
 			legField: 'transferToHotel',
 			alternatives: props.alternatives,
-			taxiFareEstimate: props.taxiFareEstimate,
 			referenceMoment: props.referenceMoment,
 			referenceLabel: 'you land',
 			transitAnswer: props.transitAnswer,
@@ -201,8 +199,7 @@ describe('TransportPicker: no-service transit', () => {
 
 		const root = mountPicker({
 			itinerary,
-			alternatives: [transit, taxi],
-			taxiFareEstimate,
+			alternatives: [transit, { ...taxi, fareEstimate: taxiFareEstimate }],
 			referenceMoment: localDateTime('2026-06-01T01:00:00')
 		});
 
@@ -227,7 +224,7 @@ describe('TransportPicker: no-service transit', () => {
 			citation: 'Back-calculated from a London 5km fare comparison of roughly $23.'
 		};
 
-		const root = mountPicker({ itinerary, alternatives: [taxi], taxiFareEstimate });
+		const root = mountPicker({ itinerary, alternatives: [{ ...taxi, fareEstimate: taxiFareEstimate }] });
 
 		const text = normalizedText(root);
 		expect(text).toContain('1h 16m');
@@ -273,8 +270,7 @@ describe('TransportPicker: no-service transit', () => {
 
 		const root = mountPicker({
 			itinerary,
-			alternatives: [transit, taxi],
-			taxiFareEstimate,
+			alternatives: [transit, { ...taxi, fareEstimate: taxiFareEstimate }],
 			referenceMoment: localDateTime('2026-06-01T01:00:00')
 		});
 
@@ -405,8 +401,7 @@ describe('TransportPicker: selection', () => {
 		let selectCount = 0;
 		const root = mountPicker({
 			itinerary,
-			alternatives: [taxi],
-			taxiFareEstimate,
+			alternatives: [{ ...taxi, fareEstimate: taxiFareEstimate }],
 			onselect: () => {
 				selectCount += 1;
 			}

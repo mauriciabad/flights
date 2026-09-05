@@ -23,14 +23,7 @@
 	 * carries no heading and no card chrome of its own: the step already names the leg,
 	 * and a bordered card inside a bordered row was the box-in-a-box look this replaces.
 	 */
-	import type {
-		Duration,
-		FareEstimate,
-		Itinerary,
-		LocalDateTime,
-		Transfer,
-		TransferMode
-	} from '../domain';
+	import type { Duration, Itinerary, LocalDateTime, Transfer, TransferMode } from '../domain';
 	import {
 		diffTransfers,
 		recomputeItinerarySelection,
@@ -72,9 +65,6 @@
 		/** Every mode fetched for this leg. The itinerary's own current transfer is always
 		 * shown too, whether or not it appears in this list. */
 		alternatives: Transfer[];
-		/** OSRM's taxi-rate-table.ts estimate for this leg's `taxi` alternative, kept as its
-		 * own type so it can never be mistaken for a confirmed `Transfer.price`. */
-		taxiFareEstimate?: FareEstimate;
 		/** The instant the traveller becomes free to start this leg, e.g. the outbound
 		 * flight's arrival for a connection-airport-to-hotel leg. Omit for a leg with no such
 		 * anchor (an origin-location transfer ahead of any flight event): the schedule still
@@ -110,7 +100,6 @@
 		itinerary,
 		legField,
 		alternatives,
-		taxiFareEstimate,
 		referenceMoment,
 		referenceLabel = 'the reference time',
 		transitAnswer,
@@ -277,7 +266,10 @@
 <section class="transport-picker">
 	<div role="radiogroup" aria-label={legLabel} class="picker-list">
 		{#each rows as row (transferKey(row.transfer))}
-			{@const taxiFare = row.transfer.mode === 'taxi' ? taxiFareEstimate : undefined}
+			<!-- Issue #249: the rate-card range rides on the transfer that was routed, so a
+			     taxi swapped in from this very list carries its own estimate rather than
+			     depending on a prop about the leg. -->
+			{@const taxiFare = row.transfer.fareEstimate}
 			{@const summary = summariseTransferLegs(row.transfer.legs)}
 			<label
 				class={[
@@ -379,12 +371,14 @@
 							<p class="schedule-gap-headline">
 								No {transferModeLabel(row.transfer.mode).toLowerCase()} until {formatClockTime(schedule.intended)}{#if row.gapMinutes !== undefined && row.gapMinutes > 0}, that is {formatDuration(row.gapMinutes)} after {referenceLabel}{/if}.
 							</p>
-							{#if taxiRow && taxiFareEstimate?.kind === 'estimate'}
+							{#if taxiRow?.fareEstimate?.kind === 'estimate'}
+								{@const taxiFareEstimate = taxiRow.fareEstimate}
 								<p class="schedule-gap-alternative">
 									A taxi now takes about {formatDuration(taxiRow.duration)} and costs roughly
 									{formatMoneyRange(taxiFareEstimate.lowMinorUnits, taxiFareEstimate.highMinorUnits, taxiFareEstimate.currency)}.
 								</p>
-							{:else if taxiRow && taxiFareEstimate?.kind === 'out-of-range'}
+							{:else if taxiRow?.fareEstimate?.kind === 'out-of-range'}
+								{@const taxiFareEstimate = taxiRow.fareEstimate}
 								<!-- Issue #246: the duration is measured and stays. The fare is the half
 								     nothing here knows, and "roughly £268-£431" was the app inventing it. -->
 								<p class="schedule-gap-alternative">

@@ -5,10 +5,10 @@ import type { ProviderContext } from '../types';
 import {
 	createOsrmTransferProvider,
 	findTransfersToMany,
-	getTaxiFareEstimate,
 	OSRM_PROVIDER_ID,
 	osrmTransferProvider
 } from './osrm';
+import type { Transfer } from '../../domain';
 
 // Barcelona airport (T1) and a point in El Prat about 2.1 km north of it: an ordinary
 // airport-hotel hop, and the shape of leg this adapter exists to answer.
@@ -537,65 +537,119 @@ describe('findTransfersToMany', () => {
 	});
 });
 
-describe('getTaxiFareEstimate', () => {
-	it('returns a real duration plus a labelled, ranged fare estimate', async () => {
+/**
+ * Issue #249. The rate-card range used to be a separate export a caller reached past the
+ * `TransferProvider` interface for; it is now a field on the taxi `Transfer` this adapter
+ * already builds from the same driving route. The assertions are the same measurements,
+ * asked of the answer callers actually receive.
+ */
+describe('a taxi carries the rate card\'s estimate for its own ride', () => {
+	/** Narrows to the taxi among a mode-mixed answer, so a test about the fare fails loudly
+	 * rather than silently reading `undefined` off a walk. */
+	function taxiIn(transfers: readonly Transfer[]): Transfer {
+		const taxi = transfers.find((transfer) => transfer.mode === 'taxi');
+		if (!taxi) throw new Error('expected a taxi among the transfers');
+		return taxi;
+	}
+
+	it('attaches a labelled, ranged estimate when the caller names a country', async () => {
 		const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(routeBody(600, 5000))); // 5km, 10 min
-		const result = await getTaxiFareEstimate(AIRPORT, HOTEL, 'ES', ctxFor(), {
-			store: new MemoryCacheStore(),
-			fetchImpl
-		});
+		const provider = createOsrmTransferProvider({ store: new MemoryCacheStore(), fetchImpl });
+		const result = await provider.searchTransfers(
+			{ from: AIRPORT, to: HOTEL, modes: ['taxi'], countryCode: 'ES' },
+			ctxFor()
+		);
 
 		expect(result.ok).toBe(true);
 		if (!result.ok) return;
-		expect(result.data.duration).toBe(10);
-		expect(result.data.distanceMeters).toBe(5000);
-		expect(result.data.fareEstimate.countryCode).toBe('ES');
-		if (result.data.fareEstimate.kind !== 'estimate') throw new Error('expected a priced range');
-		expect(result.data.fareEstimate.lowMinorUnits).toBeLessThan(result.data.fareEstimate.highMinorUnits);
+		const taxi = taxiIn(result.data);
+		expect(taxi.duration).toBe(10);
+		// Never a quote. The whole point of the separate field.
+		expect(taxi.price).toBeUndefined();
+		expect(taxi.fareEstimate?.countryCode).toBe('ES');
+		if (taxi.fareEstimate?.kind !== 'estimate') throw new Error('expected a priced range');
+		expect(taxi.fareEstimate.lowMinorUnits).toBeLessThan(taxi.fareEstimate.highMinorUnits);
 	});
 
-	it('carries the rate table\'s refusal through for a ride longer than the cards cover', async () => {
-		// Issue #246: the duration and distance are real measurements and still come back;
-		// only the fare is withheld. 95 km is the Gatwick-to-London-Backpackers run the issue
-		// reported priced at £268.75-£430.90.
-		const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(routeBody(4560, 94_900)));
-		const result = await getTaxiFareEstimate(AIRPORT, HOTEL, 'GB', ctxFor(), {
-			store: new MemoryCacheStore(),
-			fetchImpl
-		});
-
-		expect(result.ok).toBe(true);
-		if (!result.ok) return;
-		expect(result.data.duration).toBe(76);
-		expect(result.data.distanceMeters).toBe(94_900);
-		expect(result.data.fareEstimate.kind).toBe('out-of-range');
-	});
-
-	it('reuses a driving route already cached by searchTransfers instead of fetching again', async () => {
-		const store = new MemoryCacheStore();
+	it('leaves the estimate off entirely when no country was given to rate it against', async () => {
+		// A Barcelona flag-down against a Zurich one is a factor of three, so the wrong card
+		// is worse than no card. The ride itself still comes back.
 		const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(routeBody(600, 5000)));
-		const provider = createOsrmTransferProvider({ store, fetchImpl });
+		const provider = createOsrmTransferProvider({ store: new MemoryCacheStore(), fetchImpl });
+		const result = await provider.searchTransfers({ from: AIRPORT, to: HOTEL, modes: ['taxi'] }, ctxFor());
 
-		await provider.searchTransfers({ from: AIRPORT, to: HOTEL, modes: ['drive'] }, ctxFor());
-		const result = await getTaxiFareEstimate(AIRPORT, HOTEL, 'ES', ctxFor(), { store, fetchImpl });
-
-		expect(fetchImpl).toHaveBeenCalledTimes(1);
-		expect(result.ok && result.requestsUsed).toBe(0);
+		expect(result.ok).toBe(true);
+		if (!result.ok) return;
+		expect(taxiIn(result.data).fareEstimate).toBeUndefined();
 	});
 
-	it('re-fetches with distance when the only cached entry for this pair came from a duration-only batch lookup', async () => {
+	it("carries the rate table's refusal through for a ride longer than the cards cover", async () => {
+		// Issue #246: the duration is a real measurement and still comes back; only the fare
+		// is withheld. 95 km is the Gatwick-to-London-Backpackers run the issue reported
+		// priced at £268.75-£430.90.
+		const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(routeBody(4560, 94_900)));
+		const provider = createOsrmTransferProvider({ store: new MemoryCacheStore(), fetchImpl });
+		const result = await provider.searchTransfers(
+			{ from: AIRPORT, to: HOTEL, modes: ['taxi'], countryCode: 'GB' },
+			ctxFor()
+		);
+
+		expect(result.ok).toBe(true);
+		if (!result.ok) return;
+		const taxi = taxiIn(result.data);
+		expect(taxi.duration).toBe(76);
+		expect(taxi.fareEstimate?.kind).toBe('out-of-range');
+		if (taxi.fareEstimate?.kind !== 'out-of-range') return;
+		expect(Math.round(taxi.fareEstimate.distanceKm)).toBe(95);
+	});
+
+	it('never estimates a drive, which is fuel and parking rather than a meter', async () => {
+		const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(routeBody(600, 5000)));
+		const provider = createOsrmTransferProvider({ store: new MemoryCacheStore(), fetchImpl });
+		const result = await provider.searchTransfers(
+			{ from: AIRPORT, to: HOTEL, modes: ['drive', 'taxi'], countryCode: 'ES' },
+			ctxFor()
+		);
+
+		expect(result.ok).toBe(true);
+		if (!result.ok) return;
+		const drive = result.data.find((transfer) => transfer.mode === 'drive');
+		expect(drive?.fareEstimate).toBeUndefined();
+		expect(taxiIn(result.data).fareEstimate?.kind).toBe('estimate');
+	});
+
+	it('re-fetches with a distance when the cached entry for this pair came from a duration-only batch lookup', async () => {
 		const store = new MemoryCacheStore();
 		const fetchImpl = vi
 			.fn()
 			.mockResolvedValueOnce(jsonResponse(tableBody([600]))) // batch: duration only
 			.mockResolvedValueOnce(jsonResponse(routeBody(600, 5000))); // full route: has distance
+		const provider = createOsrmTransferProvider({ store, fetchImpl });
 
 		await findTransfersToMany('drive', AIRPORT, [HOTEL], ctxFor(), { store, fetchImpl });
-		const result = await getTaxiFareEstimate(AIRPORT, HOTEL, 'ES', ctxFor(), { store, fetchImpl });
+		const result = await provider.searchTransfers(
+			{ from: AIRPORT, to: HOTEL, modes: ['taxi'], countryCode: 'ES' },
+			ctxFor()
+		);
 
 		expect(fetchImpl).toHaveBeenCalledTimes(2);
 		expect(result.ok).toBe(true);
-		expect(result.ok && result.data.distanceMeters).toBe(5000);
+		if (!result.ok) return;
+		expect(taxiIn(result.data).fareEstimate?.kind).toBe('estimate');
+	});
+
+	it('spends no extra request rating a route the same call already fetched', async () => {
+		// The estimate is arithmetic over a distance OSRM returns anyway, so asking for one
+		// must never cost the shared demo server a second lookup (issue #213).
+		const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(routeBody(600, 5000)));
+		const provider = createOsrmTransferProvider({ store: new MemoryCacheStore(), fetchImpl });
+		const result = await provider.searchTransfers(
+			{ from: AIRPORT, to: HOTEL, modes: ['drive', 'taxi'], countryCode: 'ES' },
+			ctxFor()
+		);
+
+		expect(fetchImpl).toHaveBeenCalledTimes(1);
+		expect(result.requestsUsed).toBe(1);
 	});
 });
 
@@ -697,11 +751,14 @@ describe('fetchedAt on a cache hit (issue #151)', () => {
 		const provider = createOsrmTransferProvider({ store, fetchImpl });
 
 		const keys = await keysWrittenBy(store, () =>
-			provider.searchTransfers({ from: AIRPORT, to: HOTEL, modes: ['drive'] }, ctxFor())
+			provider.searchTransfers({ from: AIRPORT, to: HOTEL, modes: ['taxi'], countryCode: 'ES' }, ctxFor())
 		);
 		const [storedAt] = await ageStoredEntriesBy(store, TWO_HOURS_MS, keys);
 
-		const result = await getTaxiFareEstimate(AIRPORT, HOTEL, 'ES', ctxFor(), { store, fetchImpl });
+		const result = await provider.searchTransfers(
+			{ from: AIRPORT, to: HOTEL, modes: ['taxi'], countryCode: 'ES' },
+			ctxFor()
+		);
 
 		expect(result.requestsUsed).toBe(0);
 		expect(result.source.fetchedAt).toBe(new Date(storedAt).toISOString());

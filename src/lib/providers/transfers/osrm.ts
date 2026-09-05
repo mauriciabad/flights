@@ -1,12 +1,14 @@
 /**
  * OSRM adapter: walking and driving durations from the public, keyless OSRM demo
  * infrastructure, plus a taxi fare *estimate* derived from driving distance and a
- * per-country rate table (taxi-rate-table.ts) — never a quote.
+ * per-country rate table (taxi-rate-table.ts) — never a quote. Issue #249 puts that
+ * estimate on the taxi `Transfer` itself, in `fareEstimate`: a different field and a
+ * different type from the `price` a provider would quote (domain/fare.ts).
  *
  * Issue #9. Implements TransferProvider (issue #2, ../types.ts) for the walk/drive
- * modes, plus two additional exports (`findTransfersToMany`, `getTaxiFareEstimate`)
- * that fall outside that interface's one-pair-at-a-time shape — see their own comments
- * for why they exist alongside it rather than being folded into `searchTransfers`.
+ * modes, plus one additional export (`findTransfersToMany`) that falls outside that
+ * interface's one-pair-at-a-time shape — see its own comment for why it exists alongside
+ * that interface rather than being folded into `searchTransfers`.
  *
  * ## Why this file does not call router.project-osrm.org for anything but driving
  *
@@ -683,6 +685,25 @@ function routeToTransfer(mode: TransferMode, route: RouteData): Transfer {
 	return { mode, duration, legs: [leg], path: route.path };
 }
 
+/**
+ * A taxi ride, carrying what the rate card says it costs when the caller named a country
+ * to rate it against. Issue #249.
+ *
+ * `price` stays unset, always. A `Transfer` carries a real `Money` or nothing, and nothing
+ * here is quoted: this is a driving distance run through a table of municipal tariffs. The
+ * guess goes in `fareEstimate`, whose type a caller cannot assign to `price` by accident
+ * (domain/fare.ts), and `groundFare` in domain/transfer.ts is what makes every reader
+ * choose between the two deliberately.
+ *
+ * No estimate without a distance. `findTransfersToMany` caches duration-only entries, and
+ * rating a ride whose length nobody measured would be a rate card multiplied by a guess.
+ */
+function taxiTransfer(route: RouteData, countryCode: IsoCountryCode | undefined): Transfer {
+	const transfer = routeToTransfer('taxi', route);
+	if (countryCode === undefined || route.distanceMeters === undefined) return transfer;
+	return { ...transfer, fareEstimate: estimateTaxiFare(route.distanceMeters, countryCode) };
+}
+
 // ---------------------------------------------------------------------------
 // TransferProvider
 // ---------------------------------------------------------------------------
@@ -807,18 +828,17 @@ async function searchTransfersImpl(
 					ctx,
 					options,
 					store,
-					requestsUsed
+					requestsUsed,
+					// A fare needs the distance, and `findTransfersToMany` writes cache entries
+					// carrying only a duration. Asking for it here re-fetches such an entry in
+					// full instead of quietly returning a taxi with no estimate.
+					requestedModes.includes('taxi') && query.countryCode !== undefined
 				);
 				if (outcome.kind === 'value') {
 					if (outcome.requestMade) requestsUsed++;
 					oldestStoredAt = olderFetchInstant(oldestStoredAt, outcome.storedAt);
 					if (requestedModes.includes('drive')) results.push(routeToTransfer('drive', outcome.value));
-					if (requestedModes.includes('taxi')) {
-						// price is deliberately left unset here, never guessed at: a `Transfer`
-						// carries a real `Money` or nothing. The distance-based range lives in
-						// getTaxiFareEstimate below, in a type that cannot be mistaken for one.
-						results.push(routeToTransfer('taxi', outcome.value));
-					}
+					if (requestedModes.includes('taxi')) results.push(taxiTransfer(outcome.value, query.countryCode));
 				}
 			} catch (error) {
 				failures.push(error);
@@ -953,104 +973,6 @@ export async function findTransfersToMany(
 		}
 
 		return { ok: true, data: results, source: makeSource(oldestStoredAt), requestsUsed };
-	} catch (error) {
-		return { ok: false, error: toProviderError(error), source: makeSource(), requestsUsed };
-	}
-}
-
-// ---------------------------------------------------------------------------
-// Taxi fare estimate — outside TransferProvider on purpose: `Transfer.price` is a
-// `Money`, a single number a UI can print as a confirmed fare. Nothing this function
-// produces is confirmed — it is a driving distance run through a per-country rate
-// table — so it is returned as its own type instead, one a caller has to deliberately
-// reach past `Transfer` to get, and cannot accidentally assign to `Transfer.price`.
-// ---------------------------------------------------------------------------
-
-export interface TaxiFareResult {
-	/** Real, from the OSRM driving route between the two points — not an estimate. */
-	duration: Duration;
-	distanceMeters: number;
-	/** Distance-based approximation from TAXI_RATE_TABLE. Always a range; never a
-	 * quote. See taxi-rate-table.ts. */
-	fareEstimate: FareEstimate;
-}
-
-/**
- * Estimates what a taxi would cost for this route: a real driving duration and
- * distance from OSRM, run through the per-country rate table in taxi-rate-table.ts.
- * Brief line 77 / issue #9: this is the transport floor for when transit has stopped
- * running — whether the taxi fare still leaves the itinerary worth it is exactly the
- * question a range, not a single confident number, is honest about.
- */
-export async function getTaxiFareEstimate(
-	origin: Coordinates,
-	destination: Coordinates,
-	countryCode: IsoCountryCode,
-	ctx: ProviderContext,
-	options: OsrmProviderOptions = {}
-): Promise<ProviderResult<TaxiFareResult>> {
-	if (ctx.signal.aborted) {
-		return {
-			ok: false,
-			error: { code: 'cancelled', message: 'signal already aborted' },
-			source: makeSource(),
-			requestsUsed: 0
-		};
-	}
-
-	let requestsUsed = 0;
-	try {
-		assertValidCoordinates(origin, 'origin');
-		assertValidCoordinates(destination, 'destination');
-
-		const store = options.store ?? (await getDefaultStore());
-		const outcome = await getCachedRoute(
-			'driving',
-			origin,
-			destination,
-			ctx,
-			options,
-			store,
-			requestsUsed,
-			true
-		);
-
-		if (outcome.kind === 'no-route') {
-			return {
-				ok: false,
-				error: { code: 'unknown', message: 'OSRM found no driving route between these points' },
-				source: makeSource(),
-				requestsUsed
-			};
-		}
-		if (outcome.kind === 'skipped-over-budget') {
-			return {
-				ok: false,
-				error: { code: 'unknown', message: 'request budget was exhausted before a route could be fetched' },
-				source: makeSource(),
-				requestsUsed
-			};
-		}
-		if (outcome.requestMade) requestsUsed++;
-
-		const { distanceMeters, durationSeconds } = outcome.value;
-		if (distanceMeters === undefined) {
-			// requireDistance=true above guarantees a cache hit without a distance is
-			// treated as a miss and re-fetched in full — this branch documents that
-			// invariant rather than silently trusting it with a non-null assertion.
-			throw new Error('OSRM route was missing a distance despite requireDistance being set');
-		}
-
-		return {
-			ok: true,
-			data: {
-				duration: Math.round(durationSeconds / 60) as Duration,
-				distanceMeters: Math.round(distanceMeters),
-				fareEstimate: estimateTaxiFare(distanceMeters, countryCode)
-			},
-			source: makeSource(outcome.storedAt),
-			requestsUsed
-		};
 	} catch (error) {
 		return { ok: false, error: toProviderError(error), source: makeSource(), requestsUsed };
 	}

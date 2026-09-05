@@ -45,7 +45,6 @@ import type {
   AirportSizeClass,
   Coordinates,
   Duration,
-  FareEstimate,
   IsoCalendarDate,
   IsoCountryCode,
   IsoCurrencyCode,
@@ -71,10 +70,6 @@ import {
   NIGHTS_ASSUMED_BEFORE_A_PAIRING_EXISTS,
   stopoverStayCostMinorUnits,
 } from "../stays/stopover-cost";
-import {
-  getTaxiFareEstimate,
-  OSRM_PROVIDER_ID,
-} from "../providers/transfers/osrm";
 import {
   claimAutoWidenStaySources,
   flattenOk,
@@ -505,46 +500,6 @@ function servesAnyRequestedMode(
   return provider.modes.some((mode) => requested.includes(mode));
 }
 
-/**
- * OSRM's own distance-based taxi fare range for one A-to-B, computed only when `candidates`
- * already contains a `taxi` `Transfer` (proof OSRM ran and had a route for this exact pair)
- * and only when a country code is known to rate it against. Deliberately reaches past the
- * generic `TransferProvider` interface into osrm.ts's own `getTaxiFareEstimate`: a
- * `FareEstimate` only ever exists there, on purpose, never on `Transfer` itself
- * (osrm.ts's own header comment — so nothing can mistake this for a quoted `Transfer.price`).
- *
- * Never a second network request for the same route: osrm.ts's own driving-route fetch
- * always returns duration AND distance in one response, and the `searchTransfers` call that
- * produced the `taxi` candidate in `candidates` already cached both under this exact
- * coordinate pair — `getTaxiFareEstimate` finds that entry and returns it with
- * `requestsUsed: 0` (verified directly in osrm.test.ts's "reuses a driving route already
- * cached by searchTransfers" case). This is why every call site awaits `fetchBestTransfer`
- * FIRST and only then calls this: calling both concurrently for the same pair would race two
- * cache misses into two separate driving-route requests instead of one.
- */
-export async function estimateTaxiFareForLeg(
-  candidates: readonly Transfer[],
-  from: Coordinates,
-  to: Coordinates,
-  countryCode: IsoCountryCode | undefined,
-  signal: AbortSignal,
-  record: RecordProviderCall,
-): Promise<FareEstimate | undefined> {
-  if (countryCode === undefined) return undefined;
-  if (!candidates.some((transfer) => transfer.mode === "taxi"))
-    return undefined;
-  const result = await getTaxiFareEstimate(from, to, countryCode, { signal });
-  record(
-    {
-      id: OSRM_PROVIDER_ID,
-      kind: "transfer",
-      label: "OSRM (walking & driving)",
-    },
-    result,
-  );
-  return result.ok ? result.data.fareEstimate : undefined;
-}
-
 /** One candidate's stay search, resolved into everything downstream needs: every `Stay`
  * found (unfiltered, cheapest first — issue #80's "keep the candidate list" so a future
  * picker (#27) has alternatives, ineligible ones included, to show rather than silently
@@ -647,8 +602,9 @@ export interface FetchConnectionResourcesInput {
   travellers?: number;
   females?: number;
   /** Issue #114: the connection airport's own country, used only to rate a taxi fare
-   * estimate for this connection's two hotel-bound legs (`estimateTaxiFareForLeg`) —
-   * consulted for nothing else here. `undefined` degrades to no taxi estimate for this
+   * estimate for this connection's two hotel-bound legs — consulted for nothing else here.
+   * It goes onto the `TransferSearchQuery` (issue #249), so OSRM attaches the range to the
+   * taxi `Transfer` it builds. `undefined` degrades to no taxi estimate for this
    * connection, never a guess borrowed from the wrong country's rate card. */
   connectionCountryCode?: IsoCountryCode;
   /**
@@ -717,13 +673,6 @@ export interface ConnectionResourcesWithStayCandidates extends ConnectionResourc
   /** Same idea as `transferToHotelCandidates`, for the return leg (hotel to connection
    * airport) — no landing buffer: this leg ends at a departure, not a runway. */
   transferToConnectionAirportCandidates: Transfer[];
-  /** OSRM's distance-based taxi fare range for the hotel-bound leg, present only when a
-   * `taxi` candidate is among `transferToHotelCandidates` and a country code was given to
-   * rate it against. Never folds into any candidate's own `Transfer.price` — see
-   * `estimateTaxiFareForLeg`'s own doc comment for why that separation is deliberate. */
-  transferToHotelTaxiFareEstimate?: FareEstimate;
-  /** Same idea as `transferToHotelTaxiFareEstimate`, for the return leg. */
-  transferToConnectionAirportTaxiFareEstimate?: FareEstimate;
   /** Issue #119: the driving and taxi routes the road rule refused on the hotel-bound leg.
    * Set on the degraded outcome too, and that is the case it exists for: a route slow
    * enough to trip that rule leaves nothing behind it, so the leg has no transfer at all
@@ -807,6 +756,7 @@ export async function fetchConnectionResources(
           from: input.connectionCoordinates,
           to: destination,
           modes: [...ROAD_TRANSFER_MODES],
+          countryCode: input.connectionCountryCode,
         },
         input.transferProviders,
         input.keys,
@@ -819,6 +769,7 @@ export async function fetchConnectionResources(
           from: destination,
           to: input.connectionCoordinates,
           modes: [...ROAD_TRANSFER_MODES],
+          countryCode: input.connectionCountryCode,
         },
         input.transferProviders,
         input.keys,
@@ -885,31 +836,6 @@ export async function fetchConnectionResources(
   const transferToConnectionAirport =
     transferToConnectionAirportOutcome.selected;
 
-  // Sequenced after the transfers above have resolved (never `Promise.all`'d with them) —
-  // see `estimateTaxiFareForLeg`'s own doc comment for why that ordering is what keeps this
-  // a cache hit instead of a second driving-route request for the same pair.
-  const [
-    transferToHotelTaxiFareEstimate,
-    transferToConnectionAirportTaxiFareEstimate,
-  ] = await Promise.all([
-    estimateTaxiFareForLeg(
-      transferToHotelCandidates,
-      input.connectionCoordinates,
-      destination,
-      input.connectionCountryCode,
-      input.signal,
-      input.record,
-    ),
-    estimateTaxiFareForLeg(
-      transferToConnectionAirportCandidates,
-      destination,
-      input.connectionCoordinates,
-      input.connectionCountryCode,
-      input.signal,
-      input.record,
-    ),
-  ]);
-
   return {
     stay,
     transferAnchor,
@@ -918,8 +844,6 @@ export async function fetchConnectionResources(
     stayCandidates,
     transferToHotelCandidates,
     transferToConnectionAirportCandidates,
-    transferToHotelTaxiFareEstimate,
-    transferToConnectionAirportTaxiFareEstimate,
     transferToHotelWithheldRoad: withheldRoad.transferToHotel,
     transferToConnectionAirportWithheldRoad:
       withheldRoad.transferToConnectionAirport,
