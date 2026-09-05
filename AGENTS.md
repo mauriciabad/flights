@@ -249,11 +249,15 @@ lists the ones this project left behind with their ages, and `--kill` ends anyth
 than 90 minutes. Run it before a suite you need to trust, and kill your own when you are
 done rather than leaving them for whoever comes next.
 
-**And do not run two suites at once on this machine.** An agent working #227 saw
-`pnpm test:e2e` report 32 failures while `pnpm qa` and two vite builds were running
-alongside it; a clean serial run was 55 passed. It correctly re-ran instead of filing 32
-phantom defects, but the next agent might not. When a suite fails in a way that surprises
-you, check what else is running before you read the failures.
+**And do not run two suites at once on this machine.** Three agents hit this on one night.
+One saw `pnpm test:e2e` report 32 failures while `pnpm qa` and two vite builds ran alongside
+it; a clean serial run was 55 passed. Another saw `pwa.spec.ts`'s offline test fail at load
+average 34.9 and pass alone. All three re-ran rather than filing phantom defects, but the next
+agent might not.
+
+So before you read a surprising failure, read `uptime`. With several agents working this repo
+the load average sits near 17 even when nothing is testing, and a timing-sensitive spec is the
+first thing to break. A failure you cannot reproduce on a quiet machine is not a failure.
 
 ## Scratch files are shared, so name yours after yourself
 
