@@ -406,6 +406,10 @@
 		overflow-x: auto;
 		scroll-snap-type: x mandatory;
 		scroll-behavior: smooth;
+		/* Swiping past the last photograph must not chain out to the page, which on a phone
+		   is how a horizontal scroller triggers the browser's back gesture and throws the
+		   reader off the results entirely. `SegmentStub`'s own scroller does the same. */
+		overscroll-behavior-x: contain;
 		/* Firefox and Chrome hide it anyway at this height, but a scrollbar drawn across
 		   the bottom of a photograph is a scrollbar drawn across a photograph. */
 		scrollbar-width: none;
@@ -449,7 +453,11 @@
 		background: var(--color-bg-elevated);
 		color: var(--color-text);
 		cursor: pointer;
-		transition: background var(--transition-fast);
+		/* The pair `TripStrip` uses on its own tap targets: no 300ms wait for a double-tap
+		   that a photograph strip has no use for, and no grey flash over the picture. */
+		touch-action: manipulation;
+		-webkit-tap-highlight-color: transparent;
+		transition: background-color var(--transition-fast);
 	}
 
 	.bed-arrow:hover:not(:disabled) {
@@ -501,6 +509,9 @@
 		font-weight: var(--font-weight-semibold);
 		line-height: var(--line-height-sm);
 		color: var(--color-text);
+		/* Property names are a provider's free text and some of them are very long with no
+		   spaces to break on. Same treatment `EmptyState` and `SegmentStub` give theirs. */
+		overflow-wrap: anywhere;
 	}
 
 	/* Riding inside the name's own paragraph rather than in a row of its own, so a long
@@ -601,6 +612,13 @@
 		font-size: var(--font-size-xs);
 		line-height: var(--line-height-xs);
 		color: var(--color-text-muted);
+	}
+
+	/* A flex item will not shrink below its longest word without this, and the sentence
+	   beside the pictogram carries place names nobody here chose the length of. */
+	.bed-transfer span {
+		min-width: 0;
+		overflow-wrap: anywhere;
 	}
 
 	/* Colour swap rather than opacity, matching the rest of the card's deprioritised

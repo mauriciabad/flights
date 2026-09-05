@@ -103,7 +103,10 @@ test.describe('the segment stub (issue #227)', () => {
 		await card.locator('.trip-strip-hit-stopover').hover();
 		await expect(panel).toContainText('STOPOVER');
 		await expect(panel).toContainText('nights in Vienna');
-		await expect(panel).toContainText('/night');
+		// "Per night", not "/night": issue #279 turned the bed's rate into a labelled figure
+		// rather than a sentence. Still the same guarantee this test was written for, that
+		// the stub carries one nightly rate rather than a per-day line.
+		await expect(panel).toContainText('Per night');
 	});
 
 	test('a keyboard reaches every segment through one tab stop, and Escape closes the panel', async ({ page }) => {
