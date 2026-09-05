@@ -1,6 +1,6 @@
 import { test, expect, type Page } from './support/fixtures';
 import { FIXTURE_FLIGHT_NUMBERS, FIXTURE_PRICES } from './support/fixture-markers';
-import { mockAllKeylessProviders, routeRyanairFlights } from './support/providers';
+import { AIRLINE_LOGO_BASE_URL, mockAllKeylessProviders, routeRyanairFlights } from './support/providers';
 
 /**
  * Issue #324: the map of every connection between two airports.
@@ -74,6 +74,38 @@ async function search(page: Page): Promise<void> {
 	});
 	await page.goto(`/results/?${params}`);
 	await expect(page.getByText('still searching')).toHaveCount(0, { timeout: 20_000 });
+}
+
+/** Every request that left the browser for somebody else: not the test server's own bundle,
+ * and not the basemap style, which is CARTO's keyless one. */
+function isProviderCall(url: string, origin: string): boolean {
+	return !url.startsWith('data:') && !url.startsWith(origin) && !url.includes('basemaps.cartocdn.com');
+}
+
+/**
+ * Blocks until the page has made no provider request for `quietMs`.
+ *
+ * This exists because "still searching" going away does NOT mean the page is quiet.
+ * `stillSearching` is `searchesInFlight > 0`, and issue #293's background refresh
+ * deliberately counts in `refreshesInFlight` instead, so a refetch keeps firing provider
+ * requests behind a settled-looking page. Measured: 65 of them arrived in the six seconds
+ * after the indicator cleared, before this dialog was opened at all.
+ *
+ * Without this the request assertion below is really measuring the tail of somebody else's
+ * refresh, which it did: it passed nine runs locally and failed in CI, in the direction that
+ * hides a real leak rather than inventing one.
+ */
+async function waitUntilQuiet(page: Page, origin: string, quietMs = 1500, maxMs = 30_000): Promise<void> {
+	let lastCall = Date.now();
+	const bump = (request: { url(): string }) => {
+		if (isProviderCall(request.url(), origin)) lastCall = Date.now();
+	};
+	page.on('request', bump);
+	const deadline = Date.now() + maxMs;
+	while (Date.now() < deadline && Date.now() - lastCall < quietMs) {
+		await page.waitForTimeout(100);
+	}
+	page.off('request', bump);
 }
 
 async function openMap(page: Page) {
@@ -240,23 +272,56 @@ test.describe('the connections map (issue #324)', () => {
 		expect(names.some((name) => name.includes('Vienna'))).toBe(true);
 	});
 
-	test('drawing the map spends no provider request', async ({ page }) => {
+	test('drawing the map spends no provider request, for any connection on it', async ({ page }) => {
 		await search(page);
+		const origin = new URL(page.url()).origin;
 
-		// Every request from here on. The calendar strips are a read of IndexedDB and the
-		// basemap is CARTO's keyless style; a provider call would mean this screen costs the
-		// owner money to look at, which AGENTS.md forbids outright.
+		// The dialog's cost is measured against a QUIET page. See `waitUntilQuiet`: the
+		// results page keeps refetching after the search indicator clears, and counting from
+		// there measured somebody else's requests as this screen's.
+		await waitUntilQuiet(page, origin);
+
 		const requests: string[] = [];
 		page.on('request', (request) => requests.push(request.url()));
 
 		await openMap(page);
-		await page.locator('dialog.connections-dialog .panel-row').first().click();
-		await expect(page.locator('dialog.connections-dialog .panel-name')).toBeVisible();
 
-		const origin = new URL(page.url()).origin;
-		const providerCalls = requests.filter(
-			(url) => !url.startsWith('data:') && !url.startsWith(origin) && !url.includes('basemaps.cartocdn.com')
+		// Every connection, not just the first. The calendars load lazily per connection, so
+		// a fetch hiding in that path would only appear for a city nobody had opened, which
+		// is exactly the case a one-row test would miss. Hovering is what previews a row, so
+		// this is the sweep the owner asked for, done to all of them.
+		for (const row of await page.locator('dialog.connections-dialog .panel-row').all()) {
+			await row.hover();
+			await expect(page.locator('dialog.connections-dialog .panel-name')).toBeVisible();
+		}
+		await page.locator('dialog.connections-dialog .panel-row').first().click();
+		await expect(page.locator('dialog.connections-dialog .panel-price, dialog.connections-dialog .panel-block-headline').first()).toBeVisible();
+		// The calendar reads are async, so give them room to have happened before concluding
+		// they made no request.
+		await page.waitForTimeout(2000);
+
+		const providerCalls = requests.filter((url) => isProviderCall(url, origin));
+
+		// The constraint, stated as itself: this screen fetches no travel data. Not a fare,
+		// not a bed, not a route, from any provider, metered or free.
+		//
+		// `collectLegFares` is documented "Zero requests, always", and both of its sources,
+		// `readLedgerMonths` and `readCachedRyanairMonthGrid`, return empty on a miss rather
+		// than filling it. A calendar that fetched instead would cost two requests per
+		// stopover per month every time this dialog opened, which is the fan-out issue #324
+		// forbids outright and the reason this assertion exists.
+		const dataCalls = providerCalls.filter((url) => !url.startsWith(AIRLINE_LOGO_BASE_URL));
+		expect(dataCalls, `this screen fetched travel data: ${dataCalls.join(', ')}`).toEqual([]);
+
+		// Airline logos are the ONE thing it does fetch, and they are named here rather than
+		// filtered out quietly. `data/airline-logos.ts` records the measurement behind that
+		// host: keyless, no cookie set, response depends on the URL alone, and the URL
+		// carries a public IATA code already printed as text on the same row. It is a
+		// picture, not a provider call, and every result card already loads the same ones.
+		// If that ever stops being true this list is where it shows.
+		const unexpectedHosts = [...new Set(providerCalls.map((url) => new URL(url).origin))].filter(
+			(host) => !AIRLINE_LOGO_BASE_URL.startsWith(host)
 		);
-		expect(providerCalls, `unexpected requests: ${providerCalls.join(', ')}`).toEqual([]);
+		expect(unexpectedHosts, `unexpected hosts: ${unexpectedHosts.join(', ')}`).toEqual([]);
 	});
 });
