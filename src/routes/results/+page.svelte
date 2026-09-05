@@ -69,7 +69,11 @@
 		recordChoice,
 		recordStaySwap
 	} from '$lib/results/traveller-choices';
-	import type { StaySwapsByResult, TravellerChoicesByResult } from '$lib/results/traveller-choices';
+	import type {
+		StaySwapsByResult,
+		TravellerChoices,
+		TravellerChoicesByResult
+	} from '$lib/results/traveller-choices';
 	import { applyBedToDraft, isSameBed, journeyForBed, routeBedForDraft } from '$lib/results/pick-bed';
 	import { stopoverForRanking } from '$lib/stays';
 	import {
@@ -488,6 +492,17 @@
 		if (!bed.stay || isSameBed(bed.stay, itinerary.stay)) return;
 		applyBedToDraft(draft, bed.stay, journeyForBed(draft, bed.stay), query?.minLayoverTime);
 		if (airport) void routeBedForDraft(draft, bed.stay, airport, query?.minLayoverTime);
+	}
+
+	/**
+	 * One decision made in the customiser, kept where a rebuilt draft cannot reach it.
+	 *
+	 * Choosing a bed by hand is also the answer to a swap this app announced, and so is
+	 * handing one back, so anything that mentions the bed at all retires the notice.
+	 */
+	function recordCustomiserChoice(id: string, choice: Partial<TravellerChoices>) {
+		choicesByResult = recordChoice(choicesByResult, id, choice);
+		if ('stay' in choice) staySwapByResult = recordStaySwap(staySwapByResult, id, undefined);
 	}
 
 	/**
@@ -1388,6 +1403,9 @@
 			{stayProviders}
 			{transitLookupBudget}
 			onNightsChange={(nights) => chooseNights(customisingResult, nights)}
+			staySwap={staySwapByResult[customisingResult.id]}
+			stayIsChosen={choicesByResult[customisingResult.id]?.stay !== undefined}
+			onchoice={(choice) => recordCustomiserChoice(customisingResult.id, choice)}
 		/>
 	{:else}
 		<p class="customise-idle">

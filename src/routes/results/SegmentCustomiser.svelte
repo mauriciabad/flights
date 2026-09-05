@@ -48,7 +48,7 @@
 	import { DEFAULT_LANDING_TO_TRANSPORT_RULES } from '$lib/domain';
 	import type { ItinerarySegmentId } from '$lib/itinerary-map/segment-id';
 	import { recomputeItineraryWaitingTimes } from '$lib/algorithm/build';
-	import { FlightPicker, Skeleton, StopoverNights, TransportPicker, WaitingTimeStepper, visitDaysOf } from '$lib/components';
+	import { Button, FlightPicker, Skeleton, StopoverNights, TransportPicker, WaitingTimeStepper, visitDaysOf } from '$lib/components';
 	import { segmentStubFor } from '$lib/components/segment-stub';
 	import { unroutedLegNote } from '$lib/components/itinerary-timeline-format';
 	import { waitsOvernight } from '$lib/algorithm/nights';
@@ -73,9 +73,18 @@
 	import { keyStore } from '$lib/keys';
 	import { getProviderRegistry, hasUnconfiguredStayProvider, hasUsableStayProvider } from '$lib/results/provider-setup';
 	import { applyBedToDraft, journeyForBed, routeBedForDraft } from '$lib/results/pick-bed';
+	import type { AutomaticStaySwap, TravellerChoices } from '$lib/results/traveller-choices';
 	import type { ItineraryDraft } from '$lib/results/itinerary-draft.svelte';
 	import type { StopoverLengthOption } from '$lib/results/types';
-	import { StayPicker, describeNoStays, groupByProperty, isSameProperty, propertyKey } from '$lib/stays';
+	import {
+		StayPicker,
+		describeNoStays,
+		groupByProperty,
+		isSameProperty,
+		propertyKey,
+		recommendedStay,
+		stopoverForRanking
+	} from '$lib/stays';
 	import type { StayProviderOutcome } from '$lib/stays';
 
 	interface Props {
@@ -118,6 +127,19 @@
 		 */
 		transitLookupBudget?: TransitLookupBudget;
 		onNightsChange?: (nights: number) => void;
+		/**
+		 * Issue #367: a bed this app moved when the length last changed, held until the
+		 * traveller answers it. Never set for a bed they chose, because that one never moves.
+		 */
+		staySwap?: AutomaticStaySwap;
+		/** Whether the bed on this trip is the traveller's own pick rather than the app's. */
+		stayIsChosen?: boolean;
+		/**
+		 * Every decision made in this panel, sent to whoever can keep it. This panel edits a
+		 * draft, and changing the stopover's length destroys that draft, so a decision that
+		 * lived only here would be lost by the next press of the nights ladder.
+		 */
+		onchoice?: (choice: Partial<TravellerChoices>) => void;
 	}
 
 	/** Issue #114: no alternatives yet, which is the state before a connection's own
@@ -145,7 +167,10 @@
 		searchDone = false,
 		stayProviders = [],
 		transitLookupBudget,
-		onNightsChange
+		onNightsChange,
+		staySwap,
+		stayIsChosen = false,
+		onchoice
 	}: Props = $props();
 
 	const itinerary = $derived(draft.itinerary);
@@ -257,7 +282,11 @@
 	const maxConnectionWaitingTime = $derived(itinerary.connectionWaitingTime + itinerary.freeTime.duration);
 
 	function setWaitingTime(field: 'originWaitingTime' | 'connectionWaitingTime', minutes: number) {
-		draft.itinerary = recomputeItineraryWaitingTimes(itinerary, { [field]: minutes as Duration });
+		// One object for both, since a buffer the traveller typed is both an override to
+		// apply now and a decision to keep across the next rebuild of this draft.
+		const choice: Partial<TravellerChoices> = { [field]: minutes as Duration };
+		draft.itinerary = recomputeItineraryWaitingTimes(itinerary, choice);
+		onchoice?.(choice);
 	}
 
 	/**
@@ -275,6 +304,35 @@
 	function applyStaySelection(stay: Stay) {
 		applyBedToDraft(draft, stay, journeyForBed(draft, stay), minLayoverTime);
 		if (connectionAirport) void routeBedForDraft(draft, stay, connectionAirport, minLayoverTime);
+		// Touching the bed is what makes it the traveller's, and from here on the length
+		// ladder leaves it alone. It is also the answer to any swap this panel announced.
+		onchoice?.({ stay });
+	}
+
+	/** The bed the ranking puts first for the trip as it now stands, which is what the
+	 * picker below is drawing at the head of its own list. */
+	const recommendedForNow = $derived(
+		connectionAirport
+			? recommendedStay(
+					stayCandidates,
+					stopoverForRanking(itinerary, connectionAirport, travellers, females)
+				)
+			: undefined
+	);
+
+	/**
+	 * Hands the bed back to the app: it takes the recommendation now, and follows it again
+	 * the next time the length changes. Excel's "Restore to Calculated Column Formula".
+	 *
+	 * Deliberately not `applyStaySelection`, which would record this as a choice and pin the
+	 * very bed the traveller just stopped pinning.
+	 */
+	function useRecommendedBed() {
+		const stay = recommendedForNow;
+		if (!stay) return;
+		applyBedToDraft(draft, stay, journeyForBed(draft, stay), minLayoverTime);
+		if (connectionAirport) void routeBedForDraft(draft, stay, connectionAirport, minLayoverTime);
+		onchoice?.({ stay: undefined });
 	}
 
 	/**
@@ -529,6 +587,28 @@
 					{connectionLabel}
 					{onNightsChange}
 				/>
+				{#if staySwap}
+					{@const swap = staySwap}
+					<!-- Issue #367. An announcement, not a question: the bed has already moved and
+					     the price on the card is the new one. WCAG 4.1.3 is about how a change
+					     reported without moving focus has to be marked up, and this is that
+					     markup. Pressing the button both puts the previous bed back and makes it
+					     the traveller's, so it stops moving: Google Docs' autocorrect undo, which
+					     is what makes announcing this worth the room it takes. -->
+					<div class="bed-swap" role="status" data-testid="bed-swap">
+						<p class="bed-swap-line">
+							{swap.nights === 1 ? '1 night' : `${swap.nights} nights`} moved the bed from {swap.from
+								.property.name} to {swap.to.property.name}.
+						</p>
+						<Button
+							size="md"
+							variant="secondary"
+							class="bed-swap-action"
+							data-testid="keep-previous-bed"
+							onclick={() => applyStaySelection(swap.from)}>Keep {swap.from.property.name}</Button
+						>
+					</div>
+				{/if}
 				{#if stayIsRelevant}
 					{#if !connectionAirport}
 						<Skeleton height="6rem" />
@@ -566,6 +646,8 @@
 							{searchDone}
 							{stayProviders}
 							hasUnconfiguredStayProvider={hasWiderProviderToAdd}
+							chosen={stayIsChosen}
+							onuseRecommended={useRecommendedBed}
 						/>
 					{/if}
 				{/if}
@@ -719,6 +801,36 @@
 		display: flex;
 		flex-direction: column;
 		gap: var(--space-3);
+	}
+
+	/* The one warm rule on a navy panel, which is what the accent means everywhere else
+	   here: this is the thing that changed. Wraps to two rows in the 300px rail and sits on
+	   one as soon as there is room, with no breakpoint to keep in step. */
+	.bed-swap {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: var(--space-2) var(--space-3);
+		padding: var(--space-3);
+		background: var(--color-surface);
+		border: 1px solid var(--color-border);
+		border-left: 3px solid var(--color-accent);
+		border-radius: var(--radius-md);
+	}
+
+	.bed-swap-line {
+		flex: 1 1 12rem;
+		margin: 0;
+		font-size: var(--font-size-sm);
+		color: var(--color-text);
+		text-wrap: pretty;
+	}
+
+	/* A property name is as long as its owner made it, so this button cannot keep
+	   `Button`'s own `white-space: nowrap`. */
+	.bed-swap :global(.bed-swap-action) {
+		white-space: normal;
+		text-align: center;
 	}
 
 	.stay-notice {
