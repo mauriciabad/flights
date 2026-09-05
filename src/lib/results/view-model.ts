@@ -15,7 +15,7 @@
  */
 
 import { formatAge } from '$lib/format';
-import type { PriceFreshness, ScoredResult } from './types';
+import type { PriceFreshness, ProvenancePart, ScoredResult } from './types';
 
 /** Short label plus a semantic tone for the price badge, so ResultCard only has to pick a
  * CSS class from `tone` rather than re-deriving one from the freshness union itself. */
@@ -67,4 +67,64 @@ export function describePriceFreshness(freshness: PriceFreshness): PriceFreshnes
 				tone: 'warning'
 			};
 	}
+}
+
+/**
+ * The card's footer sentence: which providers are behind this price, and when each of them
+ * was last retrieved.
+ *
+ * Issue #289. This used to be `Math.min` over every part, printed once as "fetched N ago".
+ * The sources on one card do not share a TTL and never will: Kiwi offers last 15 minutes
+ * and Ryanair fares an hour, while a Hostelworld bed and an OSRM road route are both cached
+ * for 30 days, because a road does not move. So the oldest TTL on the card won the sentence.
+ * Measured with `tools/probe-card-age.mjs` on a warm reload: 76 provider responses landed
+ * inside three seconds, every flight and bed entry came back 0 minutes old, and the footer
+ * read "fetched 3 hours ago" about a road route nothing had any reason to refetch. That
+ * number could only ever get worse, so a traveller was being told to distrust a fare this
+ * app had retrieved a minute earlier, and a genuinely stale bed looked exactly the same.
+ *
+ * The rule now is that a printed age names the sources it is actually about. Sources are
+ * grouped by the age they format to, freshest group first, and each group carries its own
+ * "fetched". One group is the ordinary case, a search whose parts all landed together, and
+ * it produces the same single-age sentence as before.
+ *
+ * Freshest first so that the price's own age is what a reader reaches first and the road
+ * route is what trails off. That buys less than it sounds like: measured at 375px, this row
+ * shows about a tenth of its own text whatever it says, and the `title` is what carries the
+ * sentence on a phone. It is worth having on a card wide enough to read the line, and it
+ * costs nothing.
+ *
+ * A provider is named once, at the age of the oldest part it supplied. Kiwi answering for
+ * one leg out of cache and refetching the other is one source that is as fresh as its worst
+ * contribution, not two Kiwis on the same card.
+ *
+ * `now` is a parameter rather than a `Date.now()` call so this is testable, which is the
+ * whole reason it lives here and not in the component. The bug shipped inside `ResultCard`,
+ * where nothing could reach it.
+ */
+export function describeSources(parts: readonly ProvenancePart[], now: number): string | undefined {
+	if (parts.length === 0) return undefined;
+
+	const oldestByLabel = new Map<string, number>();
+	for (const part of parts) {
+		const fetchedAt = new Date(part.fetchedAt).getTime();
+		const seen = oldestByLabel.get(part.providerLabel);
+		if (seen === undefined || fetchedAt < seen) oldestByLabel.set(part.providerLabel, fetchedAt);
+	}
+
+	const byAge = new Map<string, { labels: string[]; fetchedAt: number }>();
+	for (const [label, fetchedAt] of oldestByLabel) {
+		const age = formatAge(Math.max(0, now - fetchedAt));
+		const group = byAge.get(age);
+		if (group === undefined) byAge.set(age, { labels: [label], fetchedAt });
+		else {
+			group.labels.push(label);
+			group.fetchedAt = Math.min(group.fetchedAt, fetchedAt);
+		}
+	}
+
+	return [...byAge]
+		.sort(([, a], [, b]) => b.fetchedAt - a.fetchedAt)
+		.map(([age, group], index) => `${index === 0 ? 'via ' : ''}${group.labels.join(' & ')}, fetched ${age}`)
+		.join('; ');
 }
