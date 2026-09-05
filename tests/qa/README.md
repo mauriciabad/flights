@@ -64,6 +64,7 @@ readable, and it says so rather than pretending otherwise.
 | `quota-from-headers.qa.ts` | The remaining quota on screen is the provider's own number, not a local tally. |
 | `no-fabricated-flights.qa.ts` | Every itinerary names the provider that sourced it, flies legs that provider had a sellable fare on, and shows no flight number that is not in a timetable it served. |
 | `no-fixture-data.qa.ts` | No recorded response reaches a live answer, and the detector that decides that still works. |
+| `error-shown-verbatim.qa.ts` | A failed stay provider's own status and sentence reach the stopover fold, unedited, and no failure is quoted when nothing failed. |
 
 ## How it is built
 
@@ -76,6 +77,11 @@ answered. Most of what this suite asserts is about the traffic rather than the p
 the request log is usually the half the screen leaves out. It installs automatically for
 every check — a check that forgot to ask for it would otherwise run with no interception at
 all, which happened once while this was being written and quietly turned a red check green.
+
+Two of its options answer a provider with a failure, and they are not interchangeable.
+`failing` severs the connection, which is what a browser sees when a host is unreachable.
+`failWith` returns a real status and a real body. Only the second can ask whether the app
+repeats what a provider *said*, which is the question issue #240 found nothing was asking.
 
 **`support/responses.ts`** answers like the provider, not like a test. Ryanair prices a day
 on a leg it flies and answers a month of `unavailable` rows for one it does not, which is
