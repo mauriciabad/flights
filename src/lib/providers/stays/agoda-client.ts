@@ -52,6 +52,7 @@
  */
 
 import { recordRateLimitHeaders } from '../budget';
+import { describeProviderResponse, readProviderResponse, readRetryAfterSeconds } from '../response-evidence';
 import type { ProviderId } from '../types';
 import type {
 	AgodaFetchError,
@@ -62,6 +63,12 @@ import type {
 } from './agoda-types';
 
 const PROVIDER_ID: ProviderId = 'agoda';
+/** `getJson` below serves two unrelated hosts, so who was asked is a parameter rather
+ * than a constant. Labelling a Nominatim timeout "Agoda" would send the next reader to
+ * the wrong file, and this adapter's whole reason for calling a second host is already
+ * surprising enough (see this file's header). */
+const AGODA_LABEL = 'Agoda';
+const NOMINATIM_LABEL = 'Nominatim';
 const AGODA_HOST = 'agoda-com.p.rapidapi.com';
 const SEARCH_URL = `https://${AGODA_HOST}/hotels-homes/overnight-stays/search`;
 const GET_PRICES_URL = `https://${AGODA_HOST}/hotels-homes/get-prices`;
@@ -85,6 +92,7 @@ export interface GeocodeHttpDeps {
 
 async function getJson<T>(
 	url: string,
+	label: string,
 	init: RequestInit,
 	deps: { signal: AbortSignal; fetchImpl?: typeof fetch },
 	isShapeValid: (value: unknown) => value is T
@@ -98,13 +106,13 @@ async function getJson<T>(
 		// cancellation surfaces as a thrown error rather than a resolved-but-unsuccessful
 		// response.
 		if (deps.signal.aborted) {
-			return { ok: false, error: { code: 'cancelled', message: 'Agoda request was aborted' } };
+			return { ok: false, error: { code: 'cancelled', message: `${label} request was aborted` } };
 		}
 		return {
 			ok: false,
 			error: {
 				code: 'network-error',
-				message: cause instanceof Error ? cause.message : 'Agoda request failed',
+				message: cause instanceof Error ? cause.message : `${label} request failed`,
 				cause
 			}
 		};
@@ -118,37 +126,45 @@ async function getJson<T>(
 		recordRateLimitHeaders(PROVIDER_ID, response.headers);
 	}
 
-	if (response.status === 403) {
-		return {
-			ok: false,
-			error: { code: 'not-subscribed', message: 'Not subscribed to this API on RapidAPI', status: 403 }
-		};
-	}
-	if (response.status === 429) {
-		const retryAfterHeader = response.headers.get('retry-after');
-		const retryAfterSeconds = retryAfterHeader ? Number(retryAfterHeader) : undefined;
-		return {
-			ok: false,
-			error: {
-				code: 'rate-limited',
-				message: 'Rate-limited (HTTP 429)',
-				status: 429,
-				retryAfterSeconds: Number.isFinite(retryAfterSeconds) ? retryAfterSeconds : undefined
-			}
-		};
-	}
+	// Issue #191: one read of the body, before any branch, so every failure below carries
+	// the host's own sentence and its status code instead of the request URL, which is what
+	// used to be there and is worse than useless in an error badge.
+	//
+	// The 403 branch used to answer every 403 with our own "Not subscribed to this API on
+	// RapidAPI" without reading anything. `not-subscribed` is permanent for the session
+	// (budget/permanent-failures.ts), so a 403 meaning anything else killed the provider AND
+	// reported an unsubscribed account, the misdiagnosis AGENTS.md records from issue #122.
+	// Matching RapidAPI's literal wording also keeps keyless Nominatim out of that branch by
+	// construction: it has no subscription to be missing and never sends that sentence.
 	if (!response.ok) {
-		return {
-			ok: false,
-			error: { code: 'http-error', message: `Request to ${url} returned HTTP ${response.status}`, status: response.status }
-		};
+		const evidence = await readProviderResponse(response);
+		const message = describeProviderResponse(label, evidence);
+
+		if (response.status === 403) {
+			if (/not subscribed/i.test(evidence.message ?? '')) {
+				return { ok: false, error: { code: 'not-subscribed', message, status: 403 } };
+			}
+			return { ok: false, error: { code: 'http-error', message, status: 403 } };
+		}
+		if (response.status === 429) {
+			return {
+				ok: false,
+				error: {
+					code: 'rate-limited',
+					message,
+					status: 429,
+					retryAfterSeconds: readRetryAfterSeconds(response.headers)
+				}
+			};
+		}
+		return { ok: false, error: { code: 'http-error', message, status: response.status } };
 	}
 
 	let body: unknown;
 	try {
 		body = await response.json();
 	} catch (cause) {
-		return { ok: false, error: { code: 'malformed-response', message: 'Response was not valid JSON', cause } };
+		return { ok: false, error: { code: 'malformed-response', message: `${label} response was not valid JSON`, cause } };
 	}
 
 	// Agoda's own wrapper answers a bad request with HTTP 200 and `{"status":false,...}`
@@ -163,11 +179,14 @@ async function getJson<T>(
 	// "this call failed."
 	if (typeof body === 'object' && body !== null && (body as { status?: unknown }).status === false) {
 		const message = (body as { message?: unknown }).message;
+		// Issue #191: the status code belongs here too, and this is the branch where it
+		// carries the most. `200` with an error body is the reading that went missing in
+		// issue #122, and a message that omits it looks identical to a 4xx.
 		return {
 			ok: false,
 			error: {
 				code: 'malformed-response',
-				message: `Agoda rejected the request: ${typeof message === 'string' ? message : JSON.stringify(message)}`
+				message: `${label} returned HTTP ${response.status} rejecting the request: ${typeof message === 'string' ? message : JSON.stringify(message)}`
 			}
 		};
 	}
@@ -175,7 +194,10 @@ async function getJson<T>(
 	if (!isShapeValid(body)) {
 		return {
 			ok: false,
-			error: { code: 'malformed-response', message: `Response from ${url} did not match the shape this adapter expects` }
+			error: {
+				code: 'malformed-response',
+				message: `${label} response from ${url} did not match the shape this adapter expects`
+			}
 		};
 	}
 	return { ok: true, data: body };
@@ -217,6 +239,7 @@ export function fetchOvernightStaysSearch(
 	url.searchParams.set('checkout_date', params.checkoutDate);
 	return getJson(
 		url.toString(),
+		AGODA_LABEL,
 		{ headers: { 'x-rapidapi-key': deps.apiKey, 'x-rapidapi-host': AGODA_HOST } },
 		deps,
 		isAgodaSearchResponse
@@ -251,6 +274,7 @@ export function fetchGetPrices(
 	}
 	return getJson(
 		url.toString(),
+		AGODA_LABEL,
 		{ headers: { 'x-rapidapi-key': deps.apiKey, 'x-rapidapi-host': AGODA_HOST } },
 		deps,
 		isAgodaGetPricesResponse
@@ -289,7 +313,7 @@ export function fetchReverseGeocode(
 	url.searchParams.set('format', 'jsonv2');
 	url.searchParams.set('zoom', '10');
 	url.searchParams.set('accept-language', 'en');
-	return getJson(url.toString(), {}, deps, isNominatimReverseResponse);
+	return getJson(url.toString(), NOMINATIM_LABEL, {}, deps, isNominatimReverseResponse);
 }
 
 /** Re-exported for agoda.ts's `toProviderError` — kept here rather than duplicated, since

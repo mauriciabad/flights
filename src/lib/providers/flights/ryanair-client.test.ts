@@ -46,19 +46,68 @@ describe('fetchCheapestFaresPerDay', () => {
 		expect(result).toEqual({ ok: true, data: cheapestPerDayFixture });
 	});
 
-	it('maps a 429 to a rate-limited error, reading Retry-After', async () => {
+	// Issue #191: the message is asserted in full, not as `expect.any(String)`. The whole
+	// point of these two branches is which words come back, and a matcher that accepts any
+	// string passes just as happily for the sentence we used to invent.
+	it('maps a 429 to a rate-limited error carrying the body Ryanair sent, and reads Retry-After', async () => {
+		const fetchImpl = fakeFetch(
+			() => new Response('Too many requests, slow down', { status: 429, headers: { 'Retry-After': '30' } })
+		);
+		const result = await fetchCheapestFaresPerDay(route, { signal: new AbortController().signal, fetchImpl });
+		expect(result).toEqual({
+			ok: false,
+			error: {
+				code: 'rate-limited',
+				message: 'Ryanair returned HTTP 429 with body: Too many requests, slow down',
+				status: 429,
+				retryAfterSeconds: 30
+			}
+		});
+	});
+
+	it('says the body was empty rather than pretending it read one', async () => {
 		const fetchImpl = fakeFetch(() => new Response(null, { status: 429, headers: { 'Retry-After': '30' } }));
 		const result = await fetchCheapestFaresPerDay(route, { signal: new AbortController().signal, fetchImpl });
 		expect(result).toEqual({
 			ok: false,
-			error: { code: 'rate-limited', message: expect.any(String), status: 429, retryAfterSeconds: 30 }
+			error: {
+				code: 'rate-limited',
+				message: 'Ryanair returned HTTP 429 with an empty body',
+				status: 429,
+				retryAfterSeconds: 30
+			}
 		});
 	});
 
-	it('maps a 500 to an http-error', async () => {
+	it('maps a 500 to an http-error quoting what came back', async () => {
 		const fetchImpl = fakeFetch(() => new Response('server on fire', { status: 500 }));
 		const result = await fetchCheapestFaresPerDay(route, { signal: new AbortController().signal, fetchImpl });
-		expect(result).toEqual({ ok: false, error: { code: 'http-error', message: expect.any(String), status: 500 } });
+		expect(result).toEqual({
+			ok: false,
+			error: {
+				code: 'http-error',
+				message: 'Ryanair returned HTTP 500 with body: server on fire',
+				status: 500
+			}
+		});
+	});
+
+	// docs/PROVIDERS.md records that this host `404`s for an airport outside the network and
+	// answers `200` with `unavailable: true` rows for a route it does not fly, but it does
+	// not record a body for either. So this asserts the mechanism rather than claiming a
+	// sentence Ryanair has been seen to send: a JSON `message` is quoted in preference to the
+	// raw body, and whatever arrives here will be quoted the same way.
+	it('quotes a JSON message field in preference to the raw body', async () => {
+		const fetchImpl = fakeFetch(() => new Response(JSON.stringify({ message: 'Service unavailable' }), { status: 503 }));
+		const result = await fetchCheapestFaresPerDay(route, { signal: new AbortController().signal, fetchImpl });
+		expect(result).toEqual({
+			ok: false,
+			error: {
+				code: 'http-error',
+				message: 'Ryanair returned HTTP 503: Service unavailable',
+				status: 503
+			}
+		});
 	});
 
 	it('maps a 200 with invalid JSON to malformed-response', async () => {

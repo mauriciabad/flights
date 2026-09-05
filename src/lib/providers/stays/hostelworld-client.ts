@@ -54,9 +54,9 @@
  * through `tools/probe-browser.mjs`'s `PROBE_USER_AGENT` rather than assume that holds.
  */
 
+import { describeProviderResponse, readProviderResponse, readRetryAfterSeconds } from '../response-evidence';
 import type {
 	HostelworldContinentCountriesResponse,
-	HostelworldErrorResponse,
 	HostelworldFetchResult,
 	HostelworldPropertiesResponse
 } from './hostelworld-types';
@@ -78,17 +78,9 @@ export interface HostelworldHttpDeps {
 	fetchImpl?: typeof fetch;
 }
 
-/** Hostelworld's own sentence out of a 4xx body, or `undefined` when the body is not the
- * shape it uses for errors. Returned rather than logged, so the caller can put the
- * provider's wording in the message instead of inventing a cause for the status code. */
-function describeErrorBody(body: unknown): string | undefined {
-	const described = (body as HostelworldErrorResponse | null)?.description;
-	if (!Array.isArray(described)) return undefined;
-	const messages = described
-		.map((entry) => entry?.message)
-		.filter((text): text is string => typeof text === 'string' && text.length > 0);
-	return messages.length > 0 ? messages.join('; ') : undefined;
-}
+/** How every message out of this file names the host, so an error badge, a stopover note and
+ * a console line all agree about who was asked. */
+const LABEL = 'Hostelworld';
 
 /**
  * Every request this adapter makes, and it carries no headers at all.
@@ -110,51 +102,40 @@ async function getJson<T>(url: string, deps: HostelworldHttpDeps): Promise<Hoste
 		// is what separates "the user navigated away" from "the network is down" — two
 		// failures that need completely different UI treatment.
 		if (deps.signal.aborted) {
-			return { ok: false, error: { code: 'cancelled', message: 'Hostelworld request was aborted' } };
+			return { ok: false, error: { code: 'cancelled', message: `${LABEL} request was aborted` } };
 		}
 		return {
 			ok: false,
 			error: {
 				code: 'network-error',
-				message: cause instanceof Error ? cause.message : 'Hostelworld request failed',
+				message: cause instanceof Error ? cause.message : `${LABEL} request failed`,
 				cause
 			}
 		};
 	}
 
+	// Issue #203: the body is read before anything is decided, for every failure and not just
+	// the 4xx. This file used to parse it with `response.json()`, which throws on an HTML
+	// error page and left the one case where a quote matters most — a gateway between us and
+	// Hostelworld, answering in HTML — with nothing to quote. The 429 branch never looked at
+	// the body at all and wrote our own sentence over it. `../response-evidence.ts` reads text
+	// first and parses second, and recognises this host's `{"description":[{"message":…}]}`
+	// alongside every other error shape this repo has measured.
 	if (!response.ok) {
+		const evidence = await readProviderResponse(response);
+		const message = describeProviderResponse(LABEL, evidence);
+
 		if (response.status === 429) {
-			const header = response.headers.get('retry-after');
-			const seconds = header ? Number(header) : undefined;
 			return {
 				ok: false,
 				error: {
 					code: 'rate-limited',
-					message: 'Hostelworld rate-limited this request (HTTP 429)',
-					retryAfterSeconds: Number.isFinite(seconds) ? seconds : undefined
+					message,
+					retryAfterSeconds: readRetryAfterSeconds(response.headers)
 				}
 			};
 		}
-		// Read the body before deciding what to say. A `400` here carries Hostelworld's own
-		// diagnosis ("please pass valid currency three letter code") and that sentence is
-		// worth more than the status alone — AGENTS.md, and the Agoda `{"status":false,
-		// "message":"The location cannot be empty"}` episode it is written from.
-		let described: string | undefined;
-		try {
-			described = describeErrorBody(await response.json());
-		} catch {
-			described = undefined;
-		}
-		return {
-			ok: false,
-			error: {
-				code: 'http-error',
-				message: described
-					? `Hostelworld returned HTTP ${response.status}: ${described}`
-					: `Hostelworld returned HTTP ${response.status}`,
-				status: response.status
-			}
-		};
+		return { ok: false, error: { code: 'http-error', message, status: response.status } };
 	}
 
 	try {
@@ -164,7 +145,7 @@ async function getJson<T>(url: string, deps: HostelworldHttpDeps): Promise<Hoste
 			ok: false,
 			error: {
 				code: 'malformed-response',
-				message: 'Hostelworld response was not valid JSON',
+				message: `${LABEL} response was not valid JSON`,
 				cause
 			}
 		};
