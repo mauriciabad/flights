@@ -60,7 +60,7 @@
  * who does hold a key. This is a floor under the feature, not a replacement for them.
  */
 
-import { defineCacheKey, getDefaultStore } from '../../cache';
+import { defineCacheKey, getDefaultStore, readCachedEntry } from '../../cache';
 import type { CacheKey, CacheStore } from '../../cache';
 import { DEFAULT_SEARCH_CURRENCY, DEFAULT_TRAVELLERS } from '../../domain';
 import type { IsoCurrencyCode, Stay } from '../../domain';
@@ -195,26 +195,6 @@ async function resolveStore(options: HostelworldProviderOptions): Promise<CacheS
 	return options.store ?? (await getDefaultStore());
 }
 
-/** One cached value and the instant it came off the wire, which `source()` needs. */
-interface FreshCacheEntry<T> {
-	value: T;
-	storedAt: number;
-}
-
-/** Cache-aside against `CacheStore` directly, for the reason ryanair.ts's and
- * kiwi-public.ts's own `readCache` spell out: `staleWhileRevalidate` always calls its
- * fetcher, which is the wrong shape for a method resolving one `ProviderResult` with no
- * consumer able to see a provisional yield. */
-async function readCache<T>(
-	store: CacheStore,
-	key: CacheKey
-): Promise<FreshCacheEntry<T> | undefined> {
-	const entry = await store.get(key.raw);
-	if (entry === undefined) return undefined;
-	if (Date.now() - entry.storedAt >= entry.ttlMs) return undefined;
-	return { value: entry.value as T, storedAt: entry.storedAt };
-}
-
 // Mirrors cache/size.ts's internal `estimateByteSize`, which that module deliberately does
 // not export — every `CacheStore.set` caller needs some number here, and this is the same
 // approach the store implementations use internally.
@@ -282,6 +262,77 @@ function createHostelworldStayProvider(options: HostelworldProviderOptions = {})
 	 */
 	let cityIndexInFlight: Promise<{ cities: HostelworldCity[]; requestsUsed: number; error?: ProviderError }> | undefined;
 
+	/** Keys with a refresh already running. Three stopover candidates sharing a city ask for
+	 * the same beds at the same moment, and a background refresh each would spend three
+	 * requests to learn one price. */
+	const revalidating = new Set<string>();
+
+	/**
+	 * Refetches behind an answer already given. Returns nothing and rejects never: nobody is
+	 * awaiting it, so a rejection would be unhandled, and a failed refresh is not a failure
+	 * of the call that started it. The traveller keeps the beds they were shown, with the
+	 * real age of those prices still on the card.
+	 *
+	 * Never writes an empty or failed response over a real one. An error paired with no
+	 * properties means the request failed, not that the city sold out, and overwriting would
+	 * turn a background refresh into a silent loss of what is on screen.
+	 */
+	async function revalidate(key: CacheKey, fetchValue: () => Promise<unknown | undefined>, store: CacheStore): Promise<void> {
+		if (revalidating.has(key.raw)) return;
+		revalidating.add(key.raw);
+		try {
+			const value = await fetchValue();
+			if (value === undefined) return;
+			await writeCache(store, key, value, Date.now());
+		} catch {
+			// The held answer stays exactly as it was; the next search tries again.
+		} finally {
+			revalidating.delete(key.raw);
+		}
+	}
+
+	function revalidateContinent(
+		store: CacheStore,
+		key: CacheKey,
+		continentId: number,
+		ctx: ProviderContext
+	): Promise<void> {
+		return revalidate(
+			key,
+			async () => {
+				const response = await fetchContinentCountries(continentId, {
+					signal: ctx.signal,
+					fetchImpl: options.fetchImpl
+				});
+				return response.ok ? flattenGeoCities(response.data) : undefined;
+			},
+			store
+		);
+	}
+
+	function revalidateProperties(
+		store: CacheStore,
+		key: CacheKey,
+		cityId: number,
+		currency: IsoCurrencyCode,
+		checkIn: string,
+		nights: number,
+		guests: number,
+		ctx: ProviderContext
+	): Promise<void> {
+		return revalidate(
+			key,
+			async () => {
+				const response = await fetchCityProperties(
+					{ cityId, currency, dateStart: checkIn, numNights: nights, guests, perPage: PROPERTIES_PER_PAGE },
+					{ signal: ctx.signal, fetchImpl: options.fetchImpl }
+				);
+				return response.ok ? response.data : undefined;
+			},
+			store
+		);
+	}
+
 	/** One continent, cache-aside. A failure is returned rather than thrown so a single
 	 * unreachable continent costs its own cities and nothing else. */
 	async function loadContinent(
@@ -294,8 +345,14 @@ function createHostelworldStayProvider(options: HostelworldProviderOptions = {})
 			{ op: 'continentCities', continentId },
 			CITY_INDEX_TTL_MS
 		);
-		const cached = await readCache<HostelworldCity[]>(store, key);
-		if (cached) return { cities: cached.value, requestsUsed: 0 };
+		const cached = await readCachedEntry<HostelworldCity[]>(store, key);
+		if (cached) {
+			// Served at any age. Where Hostelworld's cities are is geography, so a month-old
+			// answer is still the right one, and refreshing it behind the traveller costs them
+			// nothing where making them wait for it costs them the whole page.
+			if (!cached.fresh) void revalidateContinent(store, key, continentId, ctx);
+			return { cities: cached.value, requestsUsed: cached.fresh ? 0 : 1 };
+		}
 
 		const response = await fetchContinentCountries(continentId, {
 			signal: ctx.signal,
@@ -434,8 +491,17 @@ function createHostelworldStayProvider(options: HostelworldProviderOptions = {})
 				{ op: 'properties', cityId, checkIn: query.checkIn, nights, guests, currency },
 				PROPERTIES_TTL_MS
 			);
-			const cached = await readCache<{ properties?: unknown[] }>(store, key);
+			const cached = await readCachedEntry<{ properties?: unknown[] }>(store, key);
 			if (cached) {
+				// Served at any age, never discarded for being past its hour. Three cities per
+				// candidate stopover, each refetched in sequence, is what held the results page
+				// blank for a traveller who reloaded a search the next morning. The age of what
+				// they are shown reaches the card through `noteFetchedAt`, so a stale bed is
+				// labelled rather than passed off as tonight's price.
+				if (!cached.fresh) {
+					requestsUsed += 1;
+					void revalidateProperties(store, key, cityId, currency, query.checkIn, nights, guests, ctx);
+				}
 				merged.push(
 					...mapPropertiesToStays(
 						cached.value.properties as Parameters<typeof mapPropertiesToStays>[0],
