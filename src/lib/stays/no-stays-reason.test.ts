@@ -150,6 +150,28 @@ describe('describeNoStays', () => {
 			expect(describeNoStays({ ...failing, hasUnconfiguredStayProvider: true }).action).toBeUndefined();
 		});
 
+		// The browser's own words for a blocked request, which is what a `network-error`
+		// carries. Two words are honest and unattributable, so the provider's name goes in
+		// front of them — attribution, not editing.
+		it('attributes a message that does not already name the provider', () => {
+			const notice = describeNoStays({
+				...failing,
+				stayProviders: [
+					{ label: 'Hostelworld (no key required)', answer: 'failed', errorMessage: 'Failed to fetch' }
+				]
+			});
+			expect(notice.providerFailures).toEqual(['Hostelworld (no key required): Failed to fetch']);
+		});
+
+		// The client labels its own messages with the host it called ("Hostelworld"); the
+		// registry label adds how that host is reached. Prefixing on a plain string match
+		// would print the name twice.
+		it('does not name the provider twice when its own message already does', () => {
+			expect(describeNoStays(failing).providerFailures).toEqual([
+				'Hostelworld returned HTTP 400: please pass valid currency three letter code'
+			]);
+		});
+
 		it('says so plainly when a failure carried no message at all', () => {
 			const notice = describeNoStays({
 				...failing,
@@ -171,7 +193,7 @@ describe('describeNoStays', () => {
 		expect(notice.description).toBe(
 			'Hostelworld (no key required) had nothing near London for these dates, and the rest could not answer.'
 		);
-		expect(notice.providerFailures).toEqual(['boom']);
+		expect(notice.providerFailures).toEqual(['Agoda (RapidAPI): boom']);
 	});
 
 	it('does not claim an answer nobody gave when no stay call was recorded', () => {

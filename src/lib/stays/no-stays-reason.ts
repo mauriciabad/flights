@@ -108,10 +108,33 @@ function nameList(outcomes: readonly StayProviderOutcome[]): string {
 	return `${labels.slice(0, -1).join(', ')} and ${labels[labels.length - 1]}`;
 }
 
-/** A failure with no message is itself worth saying plainly, rather than printing an empty
- * quote or silently dropping the provider from the list of things that went wrong. */
+/** `Hostelworld (no key required)` becomes `Hostelworld`. A client labels its own messages
+ * with the host it called; the registry label adds how that host is reached. They name the
+ * same provider and never match as strings, so the comparison is made on the part they
+ * share. */
+function brandOf(label: string): string {
+	return label.split(' (')[0];
+}
+
+/**
+ * One line per failed provider, its own message untouched.
+ *
+ * The label is prepended only when the message does not already carry it. An HTTP failure
+ * arrives as "Hostelworld returned HTTP 503: …" and needs nothing; a network failure arrives
+ * as the browser's own two words, "Failed to fetch", and with two providers down a reader
+ * cannot tell whose two words they are. Prefixing is attribution, not editing — nothing
+ * inside the provider's sentence changes.
+ *
+ * A failure with no message at all is itself worth saying plainly, rather than printing an
+ * empty quote or dropping the provider from the list of things that went wrong.
+ */
 function failureLines(failed: readonly StayProviderOutcome[]): string[] {
-	return failed.map((outcome) => outcome.errorMessage ?? `${outcome.label} failed without saying why.`);
+	return failed.map((outcome) => {
+		if (outcome.errorMessage === undefined) return `${outcome.label} failed without saying why.`;
+		return outcome.errorMessage.startsWith(brandOf(outcome.label))
+			? outcome.errorMessage
+			: `${outcome.label}: ${outcome.errorMessage}`;
+	});
 }
 
 export function describeNoStays(context: NoStaysContext): NoStaysNotice {
