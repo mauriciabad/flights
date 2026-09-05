@@ -1,11 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { FlightOffer, Itinerary } from '$lib/domain';
-import {
-	describeLengthStep,
-	describeStopoverChange,
-	neighbouringLengths,
-	stopoverLengthLabel
-} from './stopover-nights';
+import { describeLadderFlights, stopoverLadder, stopoverLengthLabel } from './stopover-nights';
 import { makeScoredResult } from './test-support';
 
 /** `makeScoredResult` already assembles a whole itinerary from the fields these functions
@@ -27,6 +22,10 @@ function itineraryWith(options: {
 	};
 }
 
+function option(itinerary: Itinerary) {
+	return { nights: itinerary.nightsInConnection, itinerary };
+}
+
 describe('stopoverLengthLabel', () => {
 	it('calls zero nights a flight change, never "0 nights"', () => {
 		// Issue #225: a trip with no night in it is not a stopover of no nights, and the
@@ -43,147 +42,169 @@ describe('stopoverLengthLabel', () => {
 	});
 });
 
-describe('describeStopoverChange', () => {
-	it('reports nothing to explain while the card sits at its shortest length', () => {
-		const minimum = itineraryWith({ nights: 1, priceMinorUnits: 28_200 });
+describe('stopoverLadder', () => {
+	it('prices the example the owner was shown, second night included', () => {
+		// The measurement that decided this issue's shape. BVC to PFO via London: one night
+		// EUR 265.00, two nights EUR 262.00 on a different onward fare, three nights
+		// EUR 289.00. Priced off the bed's EUR 13.00 nightly rate the second night would
+		// have read +EUR 13.00. It is minus three.
+		const oneNight = itineraryWith({ nights: 1, priceMinorUnits: 26_500 });
+		const twoNights = itineraryWith({ nights: 2, priceMinorUnits: 26_200 });
+		const threeNights = itineraryWith({ nights: 3, priceMinorUnits: 28_900 });
 
-		const change = describeStopoverChange(minimum, minimum);
+		const ladder = stopoverLadder(
+			oneNight,
+			[option(oneNight), option(twoNights), option(threeNights)],
+			'London'
+		);
 
-		expect(change).toMatchObject({ extraNights: 0, deltaMinorUnits: 0, changedFlights: 'none' });
-		expect(change.note).toBeUndefined();
+		expect(ladder.map((rung) => [rung.label, rung.delta])).toEqual([
+			['1 night', undefined],
+			['2 nights', '-€3.00'],
+			['3 nights', '+€24.00']
+		]);
 	});
 
-	it('reports nothing when the two itineraries are equal but not the same object', () => {
-		// Svelte 5 deep-proxies `$state`, so the same itinerary read through
-		// `result.itinerary` and through `result.stopover.minimumItinerary` arrives here as
-		// two different proxies. Comparing offers by reference made every default card in
-		// production print "Same price, on different flights both ways".
-		const minimum = itineraryWith({ nights: 1, priceMinorUnits: 28_200 });
-		const throughAnotherProxy = structuredClone(minimum);
+	it('marks the trip on screen and gives it no delta against itself', () => {
+		const oneNight = itineraryWith({ nights: 1, priceMinorUnits: 26_500 });
+		const twoNights = itineraryWith({ nights: 2, priceMinorUnits: 26_200 });
 
-		expect(describeStopoverChange(throughAnotherProxy, minimum).note).toBeUndefined();
+		const ladder = stopoverLadder(oneNight, [option(oneNight), option(twoNights)], 'London');
+
+		expect(ladder[0]).toMatchObject({ isCurrent: true, deltaMinorUnits: 0 });
+		expect(ladder[0]?.delta).toBeUndefined();
+		expect(ladder[1]?.isCurrent).toBe(false);
 	});
 
-	it('names the price move and the flight that moved with it', () => {
-		// Issue #224: "Do not silently cap it either. If the traveller extends beyond what
-		// the flight pairing supports, the onward flight has to change, and the card must
-		// say the price moved and why."
-		const minimum = itineraryWith({ nights: 1, priceMinorUnits: 28_200 });
-		const laterOnward: FlightOffer = { ...minimum.onwardFlight, flightNumber: 'LATER1' };
-		const extended = itineraryWith({
-			nights: 2,
-			priceMinorUnits: 32_300,
-			outbound: minimum.outboundFlight,
-			onward: laterOnward
-		});
+	it('re-anchors on the trip on screen once the traveller has extended', () => {
+		// The headline above the ladder is the trip currently shown (#230), so a rung's
+		// delta added to it has to be what that rung costs. Anchored to the shortest
+		// instead, standing on two nights would print "+EUR 24.00" beside a EUR 262.00
+		// headline for a EUR 289.00 trip.
+		const oneNight = itineraryWith({ nights: 1, priceMinorUnits: 26_500 });
+		const twoNights = itineraryWith({ nights: 2, priceMinorUnits: 26_200 });
+		const threeNights = itineraryWith({ nights: 3, priceMinorUnits: 28_900 });
 
-		const change = describeStopoverChange(extended, minimum);
+		const ladder = stopoverLadder(
+			twoNights,
+			[option(oneNight), option(twoNights), option(threeNights)],
+			'London'
+		);
 
-		expect(change.extraNights).toBe(1);
-		expect(change.deltaMinorUnits).toBe(4_100);
-		expect(change.changedFlights).toBe('onward');
-		expect(change.note).toBe('+€41.00 vs 1 night, on a different onward flight');
+		// And going back to one night really does cost three euros more, which is the whole
+		// finding this issue was reshaped around.
+		expect(ladder.map((rung) => rung.delta)).toEqual(['+€3.00', undefined, '+€27.00']);
 	});
 
-	it('says both when a longer stay needs a different flight in each direction', () => {
-		const minimum = itineraryWith({ nights: 1, priceMinorUnits: 28_200 });
-		const extended = itineraryWith({
-			nights: 3,
-			priceMinorUnits: 30_000,
-			outbound: { ...minimum.outboundFlight, flightNumber: 'EARLY1' },
-			onward: { ...minimum.onwardFlight, flightNumber: 'LATER1' }
-		});
+	it('says "same price" rather than "+€0.00" for a longer stay that costs the same', () => {
+		const oneNight = itineraryWith({ nights: 1, priceMinorUnits: 26_500 });
+		const twoNights = itineraryWith({ nights: 2, priceMinorUnits: 26_500 });
 
-		expect(describeStopoverChange(extended, minimum).changedFlights).toBe('both');
+		const ladder = stopoverLadder(oneNight, [option(oneNight), option(twoNights)], 'London');
+
+		expect(ladder[1]?.delta).toBe('same price');
 	});
 
-	it('names the same-day flights as the baseline, not "flight change"', () => {
-		// A city you can connect through in a day opens at zero nights (issue #225), so the
-		// first night the traveller adds is compared against that trip. "+EUR 60.00 vs
-		// flight change" reads as a fee; the words have to name the trip.
+	it('names the trip a button would produce, never the direction it points', () => {
+		// A screen reader announcing "longer" tells the user which way the button goes and
+		// nothing about where it lands, and where it lands is a different flight.
+		const oneNight = itineraryWith({ nights: 1, priceMinorUnits: 26_500 });
+		const twoNights = itineraryWith({ nights: 2, priceMinorUnits: 26_200 });
+
+		const ladder = stopoverLadder(oneNight, [option(oneNight), option(twoNights)], 'London');
+
+		expect(ladder[0]?.description).toBe('1 night in London, the trip shown');
+		expect(ladder[1]?.description).toBe('2 nights in London, -€3.00');
+	});
+
+	it('keeps the flight-change wording on a rung with no night in it', () => {
 		const sameDay = itineraryWith({ nights: 0, priceMinorUnits: 22_000 });
-		const overnight = itineraryWith({
-			nights: 1,
-			priceMinorUnits: 28_000,
-			outbound: sameDay.outboundFlight,
-			onward: { ...sameDay.onwardFlight, flightNumber: 'NEXTDAY1' }
+		const overnight = itineraryWith({ nights: 1, priceMinorUnits: 28_000 });
+
+		const ladder = stopoverLadder(sameDay, [option(sameDay), option(overnight)], 'London');
+
+		expect(ladder[0]?.label).toBe('Flight change');
+		expect(ladder[1]?.description).toBe('1 night in London, +€60.00');
+	});
+});
+
+describe('describeLadderFlights', () => {
+	it('says a different onward flight when only the onward leg moves', () => {
+		const oneNight = itineraryWith({ nights: 1, priceMinorUnits: 26_500 });
+		const twoNights = itineraryWith({
+			nights: 2,
+			priceMinorUnits: 26_200,
+			outbound: oneNight.outboundFlight,
+			onward: { ...oneNight.onwardFlight, flightNumber: 'LATER1' }
+		});
+		const threeNights = itineraryWith({
+			nights: 3,
+			priceMinorUnits: 28_900,
+			outbound: oneNight.outboundFlight,
+			onward: { ...oneNight.onwardFlight, flightNumber: 'LATER2' }
 		});
 
-		expect(describeStopoverChange(overnight, sameDay).note).toBe(
-			'+€60.00 vs the same-day flights, on a different onward flight'
+		expect(
+			describeLadderFlights(oneNight, [option(oneNight), option(twoNights), option(threeNights)])
+		).toBe('a different onward flight each time');
+	});
+
+	it('drops "each time" when there is only one other length', () => {
+		const oneNight = itineraryWith({ nights: 1, priceMinorUnits: 26_500 });
+		const twoNights = itineraryWith({
+			nights: 2,
+			priceMinorUnits: 26_200,
+			outbound: oneNight.outboundFlight,
+			onward: { ...oneNight.onwardFlight, flightNumber: 'LATER1' }
+		});
+
+		expect(describeLadderFlights(oneNight, [option(oneNight), option(twoNights)])).toBe(
+			'a different onward flight'
 		);
 	});
 
-	it('says so when a longer stay is not more expensive, rather than assuming a plus', () => {
-		// A later onward flight is sometimes the cheaper fare. Hiding that behind an
-		// assumed "+" would misreport the one number the traveller is deciding on.
-		const minimum = itineraryWith({ nights: 1, priceMinorUnits: 28_200 });
-		const extended = itineraryWith({
+	it('widens to "different flights" as soon as an outbound moves too', () => {
+		const oneNight = itineraryWith({ nights: 1, priceMinorUnits: 26_500 });
+		const twoNights = itineraryWith({
 			nights: 2,
-			priceMinorUnits: 26_000,
-			outbound: minimum.outboundFlight,
-			onward: { ...minimum.onwardFlight, flightNumber: 'CHEAP1' }
+			priceMinorUnits: 26_200,
+			outbound: oneNight.outboundFlight,
+			onward: { ...oneNight.onwardFlight, flightNumber: 'LATER1' }
+		});
+		const threeNights = itineraryWith({
+			nights: 3,
+			priceMinorUnits: 28_900,
+			outbound: { ...oneNight.outboundFlight, flightNumber: 'EARLY1' },
+			onward: { ...oneNight.onwardFlight, flightNumber: 'LATER2' }
 		});
 
-		const change = describeStopoverChange(extended, minimum);
-
-		expect(change.deltaMinorUnits).toBe(-2_200);
-		expect(change.note).toBe('-€22.00 vs 1 night, on a different onward flight');
-	});
-});
-
-describe('describeLengthStep', () => {
-	it('prices one more night off the two real totals, fare change included', () => {
-		// Issue #225 asks for "+x€per night". Taken from the bed's nightly rate it would
-		// have read EUR 22 here; the pairing that buys the night also costs EUR 19 more in
-		// fare, and EUR 41 is what the traveller actually pays.
-		const shown = itineraryWith({ nights: 1, priceMinorUnits: 28_200 });
-		const next = itineraryWith({ nights: 2, priceMinorUnits: 32_300 });
-
-		expect(describeLengthStep(shown, next)).toBe('one more night, +€41.00');
+		expect(
+			describeLadderFlights(oneNight, [option(oneNight), option(twoNights), option(threeNights)])
+		).toBe('different flights each time');
 	});
 
-	it('describes a step back down as well, so both buttons speak the same language', () => {
-		const shown = itineraryWith({ nights: 2, priceMinorUnits: 32_300 });
-		const shorter = itineraryWith({ nights: 1, priceMinorUnits: 28_200 });
+	it('says nothing when the city offers one length', () => {
+		const oneNight = itineraryWith({ nights: 1, priceMinorUnits: 26_500 });
 
-		expect(describeLengthStep(shown, shorter)).toBe('one night fewer, -€41.00');
+		expect(describeLadderFlights(oneNight, [option(oneNight)])).toBeUndefined();
 	});
 
-	it('gives a per-night rate when the next rung moves several nights at once', () => {
-		const shown = itineraryWith({ nights: 1, priceMinorUnits: 28_200 });
-		const next = itineraryWith({ nights: 4, priceMinorUnits: 40_200 });
+	it('compares flights by carrier, number and departure, never by object identity', () => {
+		// Svelte 5 deep-proxies `$state`, so the same offer read through `result.itinerary`
+		// and through `result.stopover.options` arrives here as two different proxies.
+		// Comparing by reference made every default card in production claim its flights
+		// had changed when nothing had.
+		const oneNight = itineraryWith({ nights: 1, priceMinorUnits: 26_500 });
+		const sameTripAnotherProxy = structuredClone(oneNight);
+		const twoNights = itineraryWith({
+			nights: 2,
+			priceMinorUnits: 26_200,
+			outbound: structuredClone(oneNight.outboundFlight),
+			onward: structuredClone(oneNight.onwardFlight)
+		});
 
-		expect(describeLengthStep(shown, next)).toBe('3 more nights, +€120.00 (€40.00 a night)');
-	});
-
-	it('says "same price" rather than printing a zero delta', () => {
-		const shown = itineraryWith({ nights: 1, priceMinorUnits: 28_200 });
-		const next = itineraryWith({ nights: 2, priceMinorUnits: 28_200 });
-
-		expect(describeLengthStep(shown, next)).toBe('one more night, same price');
-	});
-
-	it('is undefined at the end of the ladder, which is what disables the button', () => {
-		const shown = itineraryWith({ nights: 2, priceMinorUnits: 30_000 });
-
-		expect(describeLengthStep(shown, undefined)).toBeUndefined();
-	});
-});
-
-describe('neighbouringLengths', () => {
-	it('finds the rungs either side of the current one', () => {
-		expect(neighbouringLengths([1, 2, 4, 6], 2)).toEqual({ shorter: 1, longer: 4 });
-	});
-
-	it('has no shorter rung at the bottom, and no longer one at the top', () => {
-		expect(neighbouringLengths([1, 3], 1)).toEqual({ shorter: undefined, longer: 3 });
-		expect(neighbouringLengths([1, 3], 3)).toEqual({ shorter: 1, longer: undefined });
-	});
-
-	it('skips the gaps rather than inventing a length the city cannot do', () => {
-		// A city with a 1-night and a 6-night pairing and nothing between offers exactly
-		// those two. Stepping to "2" would be a trip no flight pairing supports.
-		expect(neighbouringLengths([1, 6], 1)).toEqual({ shorter: undefined, longer: 6 });
+		expect(
+			describeLadderFlights(sameTripAnotherProxy, [option(oneNight), option(twoNights)])
+		).toBeUndefined();
 	});
 });

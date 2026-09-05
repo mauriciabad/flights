@@ -721,19 +721,78 @@ code"}]}`, which the adapter surfaces verbatim.
 
 ### `guests` filters availability and never scales a price
 
-Asked for London 9-12 October 2026 at `guests=1` and again at `guests=3`, every price in
-the response was byte-identical while `totalNumberOfItems` fell from 74 to 71. So what
-comes back is the rate for one unit of inventory, and `guests` only decides which
-properties can host the party.
+Re-measured on 2026-09-05 for issue #206, which asked for this to be settled rather than
+inferred, because a party quoted a third of what its beds cost is a wrong price nobody would
+notice. London (city 3), 9 to 12 October 2026, EUR, at `guests` of 1, 2, 3, 4 and 6.
+
+Every property-level price and every room-level price came back identical at all five guest
+counts. What moved is `pagination.totalNumberOfItems`: 74, 74, 71, 69, 66. The server does
+read `guests`. It decides which properties can host the party and it never touches a number.
+Asked the same way, `/2.2/properties/330521/availability/` returned the same 63996 bytes at
+`guests=1` and at `guests=3`, differing only in the order of the entries in its
+`promotions` array.
+
+So the figure is the rate for one unit of inventory. Which unit, per room kind, is legible
+in `rooms` at Rest Up London for those dates. Room-level `lowestPricePerNight`, in EUR:
+
+| Dorm | Rate | Private | Rate |
+|---|---|---|---|
+| 4-bed | 15.87 | twin, shared bathroom | 35.39 |
+| 6-bed | 14.02 | twin, ensuite | 39.49 |
+| 6-bed ensuite | 16.29 | double, ensuite | 42.93 |
+| 8-bed | 12.82 | 4-bed | 61.85 |
+| 8-bed ensuite | 14.66 | 6-bed, shared bathroom | 81.32 |
+| 10-bed ensuite | 13.02 | 6-bed ensuite | 94.52 |
+| 12-bed ensuite | 12.32 | | |
+
+A private is the whole room, and the arithmetic says so on its own. The 4-bed private asks
+61.85 against 4 x 15.87 = 63.48 for the same four beds sold one at a time, the 6-bed asks
+81.32 against 6 x 14.02 = 84.12, the 6-bed ensuite asks 94.52 against 6 x 16.29 = 97.74.
+Every private lands within 3.5% of its own beds sold separately, which is not what a
+per-person figure would do.
+
+Hostelworld also says it in its own words, on every private room at
+`/2.2/properties/{id}/rooms/`:
+
+> In order to secure a Private Room, you will need to book the entire room. For example 3
+> persons booking a 4 bed private room will need to select and pay for 4 persons if they
+> wish to have a private room.
+
+**A dorm rate is one bed, so it is per person. A private rate is one room, so it is per
+party.** Neither moves with `guests`.
+
+Re-run independently at 03:40 the same morning, on the same city and dates, because #206
+said to settle it with evidence and one agent's table is not that. Same five guest counts,
+same answer: every property-level dorm and private rate byte-identical across 1, 2, 3, 4
+and 6, `totalNumberOfItems` again 74, 74, 71, 69, 66. Prices had moved by pennies overnight
+(Rest Up London's dorm average read 19.59 rather than 19.07), which is the useful part: the
+inventory repriced and the invariance did not budge. Safestay Kensington Holland Park makes
+the private-room half legible in one property, at `guests=1`:
+
+| Room | Rate | Beds x that property's cheapest dorm |
+|---|---|---|
+| Twin private, shared bathroom | 79.03 | 2 x 19.10 = 38.20 |
+| 9-bed private ensuite | 203.52 | 9 x 19.10 = 171.90 |
+| 12-bed private, shared bathroom | 248.92 | 12 x 19.10 = 229.20 |
+| 15-bed private ensuite | 306.37 | 15 x 19.10 = 286.50 |
+
+A private that tracks its own bed count that closely, from 2 beds to 15, is a room rate.
+A per-person rate of EUR 306.37 a night in a hostel is not a thing.
 
 That is not what `search/resources.ts` consumes: "`Stay` is priced as one flat per-night
 figure for the whole party." Agoda and Booking satisfy it for free, since both send
 `adults` and are quoted for that many people. Hostelworld does not, so
-`hostelworld-mapper.ts` multiplies the dorm and female-dorm figures by the party size — a
+`hostelworld-mapper.ts` multiplies the dorm and female-dorm figures by the party size. A
 unit of dorm inventory is one bed and three travellers need three. A private is one room
 and is taken as it comes. Left unmultiplied, a party of three would have been quoted a
 third of what the stopover costs them, and the acceptance trip could never have shown it
 because that trip is one traveller.
+
+`Stay.pricePerPersonPerNight` carries the per-bed rate the mapper started from, so issue
+#206's per-person figure is the number Hostelworld quoted rather than a division of the
+party total. A private, an Agoda quote and a Booking quote set nothing there, because
+splitting a room between the people in it would print a figure no provider ever gave. See
+`src/lib/domain/stay.ts`.
 
 ### The price field that is a trap
 

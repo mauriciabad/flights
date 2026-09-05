@@ -9,8 +9,13 @@
 	 * 55-60 behind an expander. Everything on it now is something a person actually weighs
 	 * when choosing between two trips:
 	 *
-	 * - **The total, with its parts** (`PriceLine`). "€273 = €229 flights + €44 bed" is the
-	 *   comparison; "€273" alone is a number you have to open a panel to trust.
+	 * - **Getting there** (`PriceLine`). The whole cost of this trip at the length on
+	 *   screen, with the three payments that make it: flights, bed at its nightly rate,
+	 *   ground with its ride count. "€273" alone is a number you have to open a panel to
+	 *   trust.
+	 * - **Staying longer** (`StopoverNights`). Every length this city's fares support, each
+	 *   priced against the number above it. It sits directly under that number because a
+	 *   delta printed anywhere else is a figure with no anchor on screen.
 	 * - **The trip strip** (`TripStrip`), roughly proportional to real time. The shape of
 	 *   the trip is the fastest thing on the card to read, and it carries the two figures
 	 *   that matter most (nights, and how long the stopover runs) in the place where they
@@ -95,14 +100,6 @@
 	// resolves, which is the same reason `connectionLabel` falls back to the bare code.
 	const connectionCountry = $derived(connectionAirport?.country.name);
 	const variantsLabel = $derived(describeVariants(result));
-
-	// Issue #224: the stopover lengths this connection offers, split into the two shapes
-	// the control wants: the ladder itself, and a lookup from a rung to the trip on it, so
-	// a button can price its own step before anyone presses it.
-	const availableNights = $derived(result.stopover.options.map((option) => option.nights));
-	const itineraryAtLength = $derived(
-		(nights: number) => result.stopover.options.find((option) => option.nights === nights)?.itinerary
-	);
 
 	// Provenance: distinct provider labels behind this price, and the OLDEST of their
 	// fetch times, the same "oldest part wins" reasoning `types.ts`'s freshness
@@ -212,6 +209,19 @@
 	<div class="card-main">
 		<PriceLine {itinerary} cityCentre={connectionAirport?.city.coordinates} />
 
+		<!-- Issue #225: "Staying longer", directly under the number it is measured against,
+		     because a delta printed anywhere else is a figure with no anchor on screen. It
+		     used to be a stepper down in the controls row; the owner asked to see every
+		     length's price at once, which a stepper cannot do without being pressed. -->
+		<StopoverNights
+			itinerary={result.itinerary}
+			options={result.stopover.options}
+			isFlightChange={result.stopover.isFlightChange}
+			{connectionLabel}
+			deprioritized={isDeprioritized}
+			{onNightsChange}
+		/>
+
 		<TripStrip {itinerary} {connectionCode} {connectionLabel} deprioritized={isDeprioritized} />
 
 		<MetricRail {itinerary} ids={CARD_METRIC_IDS} />
@@ -222,20 +232,6 @@
 		     FilterPanel.svelte's own Chip usage documents as the failure mode of a
 		     `$bindable` prop nobody binds. -->
 		<div class="card-controls">
-			<!-- Issue #224: how many nights this stopover is, and the traveller's control
-			     over it. It rides in this row rather than in a row of its own because the
-			     row's height is already set by the 44px button on the other end of it, and
-			     the phone card has no pixels to give (#197, #209). -->
-			<StopoverNights
-				itinerary={result.itinerary}
-				minimumItinerary={result.stopover.minimumItinerary}
-				available={availableNights}
-				{itineraryAtLength}
-				isFlightChange={result.stopover.isFlightChange}
-				{connectionLabel}
-				deprioritized={isDeprioritized}
-				{onNightsChange}
-			/>
 			{#if variantsLabel}
 				<!-- Brief line 67's "+2 more flight times through here". Beside the button
 				     that opens the picker able to swap them, not inside it: a button's label
@@ -459,17 +455,6 @@
 	.details-toggle:focus-visible {
 		outline: 2px solid var(--color-focus-ring);
 		outline-offset: 2px;
-	}
-
-	/* An auto right margin rather than `justify-content: space-between` on the row: with
-	   `space-between`, a control that wraps to a second line is the only item on it and
-	   gets pushed to the LEFT, which put "Show details" under the label on a 375px card.
-	   This way whatever wraps stays hard against the right edge. The margin moved from
-	   `.variants` to the nights control when that arrived (issue #224), since `.variants`
-	   is now often absent: it counts the flight times at THIS stopover length, and a
-	   shortest-length card usually has one. */
-	.card-controls :global(.stopover-nights) {
-		margin-right: auto;
 	}
 
 	.variants {

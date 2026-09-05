@@ -15,8 +15,47 @@
  * coincidence: both totals are linear in `pricePerNight`, so their difference is too.
  */
 
-import type { Money } from '$lib/domain';
+import type { Money, Stay } from '$lib/domain';
 import { currencyExponent, majorUnitsOf } from '$lib/domain';
+
+/** A bed's nightly rate split into the figure and who it covers, so the two surfaces that
+ * print it compose one decision into their own wording instead of each making it. */
+export interface NightlyRate {
+	/** The figure to print. The per-person rate when a provider quoted one, otherwise the
+	 * whole party's. */
+	money: Money;
+	/** "each", or "for 3". `undefined` for a single traveller, where per person and per
+	 * party are the same number and saying so is noise. */
+	audience?: string;
+}
+
+/**
+ * What one night of this bed costs, and who that figure covers. Issue #206.
+ *
+ * The rule is decided by what a provider actually quoted, never by arithmetic:
+ *
+ * - A Hostelworld dorm bed is quoted per person, measured rather than assumed
+ *   (docs/PROVIDERS.md, "`guests` filters availability and never scales a price"), so
+ *   `hostelworld-mapper.ts` keeps that quote on `pricePerPersonPerNight` and multiplies it
+ *   up to fill `pricePerNight`. Printing the quote back is exact by construction.
+ * - A private room, and every Agoda and Booking quote, is one room for the whole party
+ *   whatever its size. Hostelworld's own words on every private: "3 persons booking a 4 bed
+ *   private room will need to select and pay for 4 persons". So the figure is the room's
+ *   and the wording says how many people it is for. Cutting it into heads would put a
+ *   number on screen that nobody quoted, which is the mistake issue #206 was opened to
+ *   prevent.
+ *
+ * One function because two surfaces print this: the card's price breakdown
+ * (`components/itinerary-metrics.ts`) and the expanded panel's stopover block
+ * (`components/StopoverBlock.svelte`). They had two derivations of one fact, which is how
+ * a card reading EUR 13.00 and a panel reading EUR 39.00 for the same trip becomes a bug
+ * report.
+ */
+export function bedNightlyRate(stay: Stay, travellers: number): NightlyRate {
+	if (travellers <= 1) return { money: stay.pricePerNight };
+	if (stay.pricePerPersonPerNight) return { money: stay.pricePerPersonPerNight, audience: 'each' };
+	return { money: stay.pricePerNight, audience: `for ${travellers}` };
+}
 
 /** The stay's contribution to the itinerary total: this room kind's nightly price times
  * the nights actually spent in the connection city. Nights <= 0 (a day stopover with no

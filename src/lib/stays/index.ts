@@ -7,7 +7,8 @@
 export { default as StayPicker } from './StayPicker.svelte';
 export { femaleDormFit, femaleDormFitMessage, isFemaleDormSelectable } from './female-dorm-fit';
 export type { FemaleDormFit } from './female-dorm-fit';
-export { moneyDifference, stayTotalDelta, stayTotalForNights, formatMoney } from './pricing';
+export { bedNightlyRate, moneyDifference, stayTotalDelta, stayTotalForNights, formatMoney } from './pricing';
+export type { NightlyRate } from './pricing';
 export { formatDistanceKm, haversineDistanceKm } from './distance';
 export { ROOM_KIND_LABELS } from './room-kind';
 export { cheapestSelectableOption, isOptionSelectable, rankProperties, selectableOptions } from './rank';

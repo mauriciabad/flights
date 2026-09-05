@@ -24,7 +24,10 @@
 	 *   not when the plane leaves, which is exactly what #228 asks these lines to name.
 	 * - The night count is `itinerary.nightsInConnection`, off the flight schedule alone
 	 *   (issue #105), never off whether a bed was priced.
-	 * - The rate is `stay.pricePerNight` through `formatMoney`, the app's one money edge.
+	 * - The rate, and who it covers, is `bedNightlyRate` through `formatMoney`, the app's one
+	 *   money edge. The card's price breakdown composes the same two pieces into its own
+	 *   "Bed, 2 nights × €13.00 each", so the panel and the card cannot quote two different
+	 *   figures for one bed (issue #206).
 	 * - The room kind is `ROOM_KIND_LABELS`, the same table the stay picker's tiles use.
 	 * - The transfer's duration, mode and fare are `itinerary.transferToHotel` through
 	 *   `formatDuration`, `transferModeLabel` and `unpricedTransferNote`, and when nothing
@@ -52,7 +55,7 @@
 	 */
 	import type { Itinerary } from '$lib/domain';
 	import { formatDuration, formatMoney } from '$lib/format';
-	import { ROOM_KIND_LABELS } from '$lib/stays';
+	import { bedNightlyRate, ROOM_KIND_LABELS } from '$lib/stays';
 	import { freeTimeDays } from './free-time-days';
 	import { transferModeLabel, unpricedTransferNote, unroutedLegNote } from './itinerary-timeline-format';
 
@@ -73,9 +76,16 @@
 	const stay = $derived(itinerary.stay);
 	const toHotel = $derived(itinerary.transferToHotel);
 
+	// Issue #206: the rate, and who it covers. `bedNightlyRate` owns that decision so this
+	// line and the card's own "Bed, 2 nights × €13.00 each" can never quote two different
+	// figures for one bed. A dorm bed for three reads "2 nights, €13.00/night each"; a
+	// private room reads "2 nights, €44.00/night for 3", because a room is one unit
+	// whatever the party size and splitting it would be a number nobody quoted.
 	const nightsAndRate = $derived.by(() => {
 		if (!stay || nights === 0) return undefined;
-		return `${nights} ${nights === 1 ? 'night' : 'nights'}, ${formatMoney(stay.pricePerNight)}/night`;
+		const rate = bedNightlyRate(stay, itinerary.travellers);
+		const perNight = `${formatMoney(rate.money)}/night${rate.audience ? ` ${rate.audience}` : ''}`;
+		return `${nights} ${nights === 1 ? 'night' : 'nights'}, ${perNight}`;
 	});
 
 	/**

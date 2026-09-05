@@ -174,10 +174,18 @@ function coordinatesOf(property: HostelworldProperty | undefined): Coordinates |
  * class of error as the `lowest*` teaser above, and invisible on the acceptance trip
  * because that is one traveller, where every multiplier is 1.
  *
- * A private is one room, not one bed, and `guests` has already excluded properties that
- * cannot sleep the party, so that one is taken at face value. That half is inference from
- * how the inventory is shaped rather than a second measurement: nothing in the response
- * distinguishes a per-room figure from a per-person one that happens not to vary.
+ * Re-measured for issue #206 on 2026-09-05, at `guests` of 1, 2, 3, 4 and 6: every
+ * property-level and room-level price identical at all five, `totalNumberOfItems` moving
+ * 74, 74, 71, 69, 66. The private half is no longer inference either. Safestay Kensington
+ * sells a 9-bed private at 203.52 against nine of its own dorm beds at 19.15, a 12-bed at
+ * 248.92 and a 15-bed at 306.37; a per-person figure could not track bed count like that.
+ * Hostelworld also says it in words on every private at `/2.2/properties/{id}/rooms/`: "3
+ * persons booking a 4 bed private room will need to select and pay for 4 persons".
+ *
+ * So a dorm rate is one bed and a private rate is one room. The per-bed figure is kept on
+ * `Stay.pricePerPersonPerNight` for the dorm kinds, because it is the number Hostelworld
+ * actually quoted and issue #206 wants it on screen; a private sets nothing there, since
+ * splitting a room between the people in it is a number nobody gave us.
  */
 export function mapPropertyToStays(
 	property: HostelworldProperty | undefined,
@@ -204,18 +212,26 @@ export function mapPropertyToStays(
 	// A fractional or absent party size would scale a real price into a fake one, so it
 	// falls back to a single traveller rather than to `NaN` minor units.
 	const beds = Number.isInteger(guests) && guests > 0 ? guests : 1;
-	const perBed = (price: Money | undefined): Money | undefined =>
-		price && { minorUnits: price.minorUnits * beds, currency: price.currency };
+	const perParty = (perPerson: Money): Money => ({
+		minorUnits: perPerson.minorUnits * beds,
+		currency: perPerson.currency
+	});
+	const dormStay = (roomKind: RoomKind, perPerson: Money | undefined): Stay | undefined =>
+		perPerson && {
+			property: propertyRecord,
+			roomKind,
+			pricePerNight: perParty(perPerson),
+			pricePerPersonPerNight: perPerson
+		};
 
-	const priced: [RoomKind, Money | undefined][] = [
-		['dorm', perBed(toMoney(property.lowestAverageDormPricePerNight))],
-		['private', toMoney(property.lowestAveragePrivatePricePerNight)],
-		['female-dorm', perBed(cheapestRoomPriceOfKind(property.rooms?.dorms, 'female-dorm'))]
+	const privateRate = toMoney(property.lowestAveragePrivatePricePerNight);
+	const stays: (Stay | undefined)[] = [
+		dormStay('dorm', toMoney(property.lowestAverageDormPricePerNight)),
+		privateRate && { property: propertyRecord, roomKind: 'private', pricePerNight: privateRate },
+		dormStay('female-dorm', cheapestRoomPriceOfKind(property.rooms?.dorms, 'female-dorm'))
 	];
 
-	return priced
-		.filter((entry): entry is [RoomKind, Money] => entry[1] !== undefined)
-		.map(([roomKind, pricePerNight]) => ({ property: propertyRecord, roomKind, pricePerNight }));
+	return stays.filter((stay): stay is Stay => stay !== undefined);
 }
 
 /**
