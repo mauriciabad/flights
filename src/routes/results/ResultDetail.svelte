@@ -54,7 +54,7 @@
 	 * way replacing `itinerary` would.
 	 */
 	import { base } from '$app/paths';
-	import type { Airport, Duration, Itinerary, Stay } from '$lib/domain';
+	import type { Airport, Duration, Itinerary, Stay, Transfer } from '$lib/domain';
 	import type { ConnectionTransferOptions, ItineraryGroup, OuterTransferOptions, TransferLegOptions } from '$lib/search';
 	import type { ItinerarySegmentId } from '$lib/itinerary-map/segment-id';
 	import { recomputeItinerarySelection } from '$lib/algorithm/recompute-selection';
@@ -69,8 +69,12 @@
 	} from '$lib/components';
 	import { distinctFlightCount, hasSwappableAlternatives } from '$lib/components/picker-alternatives';
 	import { keyStore } from '$lib/keys';
-	import { hasUnconfiguredStayProvider, hasUsableStayProvider } from '$lib/results/provider-setup';
-	import { StayPicker, describeNoStays, groupByProperty, isSameProperty } from '$lib/stays';
+	import { SvelteMap } from 'svelte/reactivity';
+	import { DEFAULT_LANDING_TO_TRANSPORT_RULES } from '$lib/domain';
+	import { routeToProperty } from '$lib/search';
+	import type { PropertyRouting } from '$lib/search';
+	import { getProviderRegistry, hasUnconfiguredStayProvider, hasUsableStayProvider } from '$lib/results/provider-setup';
+	import { StayPicker, describeNoStays, groupByProperty, isSameProperty, propertyKey } from '$lib/stays';
 	import type { StayProviderOutcome } from '$lib/stays';
 
 	interface Props {
@@ -148,6 +152,21 @@
 	 * which is what `transitAnswers` below turns on. */
 	let pickedAnAlternative = $state(false);
 
+	/** Issue #267: what routing to each property produced, keyed by `propertyKey`, for the
+	 * lifetime of this panel. `PropertyRouting`'s three outcomes plus the two states a
+	 * fetch has before it has one, as a union rather than a pair of booleans: "asked and
+	 * nothing came back" and "not asked yet" are different sentences and #243 is what
+	 * happens when two states that read differently share one representation.
+	 *
+	 * A `SvelteMap` rather than a plain one because the rows below read it while a click
+	 * handler writes it; a plain `Map` mutated in place would not repaint. */
+	type PropertyRouteState = PropertyRouting | { kind: 'unrouted' } | { kind: 'routing' };
+	let propertyRouting = new SvelteMap<string, PropertyRouteState>();
+
+	/** Bumped on every pick, so a route that resolves after the traveller has moved on is
+	 * kept but not applied. See `routePickedProperty`. */
+	let routingGeneration = 0;
+
 	function applySelection(recomputed: RecomputedSelection) {
 		itinerary = recomputed.itinerary;
 		pickedAnAlternative = true;
@@ -184,19 +203,114 @@
 	 */
 	function applyStaySelection(stay: Stay) {
 		const routed = isSameProperty(stay.property, routedProperty);
+		applyStayWithJourney(
+			stay,
+			routed
+				? // Both legs or none. `transferAnchor === 'stay'` should mean the pipeline
+					// routed to this bed, but #211 is the case where a bed is priced and a
+					// transfer provider was unreachable, so the pair is not guaranteed and
+					// half of it would rebuild half the stopover.
+					journeyOf(initialItinerary.transferToHotel, initialItinerary.transferToConnectionAirport)
+				: (propertyRouting.get(propertyKey(stay.property)) ?? { kind: 'unrouted' })
+		);
+		void routePickedProperty(stay);
+	}
+
+	function journeyOf(
+		transferToHotel: Transfer | undefined,
+		transferToConnectionAirport: Transfer | undefined
+	): PropertyRouteState {
+		if (!transferToHotel || !transferToConnectionAirport) return { kind: 'unrouted' };
+		return { kind: 'routed', transferToHotel, transferToConnectionAirport };
+	}
+
+	/** Writes one bed and the journey known for it, whatever that journey is. Every branch
+	 * below goes through here rather than through its own `recomputeItinerarySelection`
+	 * call, so a routed answer and an unrouted one cannot end up rebuilding the trip two
+	 * different ways. `transferToHotel: undefined` is what makes the panel say "Nothing
+	 * routed to this property" — `recomputeItinerarySelection` sets `transferAnchor:
+	 * 'unrouted-stay'` from exactly that (issue #264). */
+	function applyStayWithJourney(stay: Stay, routing: PropertyRouteState) {
+		const journey = routing.kind === 'routed' ? routing : undefined;
 		applySelection(
 			recomputeItinerarySelection(
 				itinerary,
 				{
 					staySelection: {
 						stay,
-						transferToHotel: routed ? initialItinerary.transferToHotel : undefined,
-						transferToConnectionAirport: routed ? initialItinerary.transferToConnectionAirport : undefined
+						transferToHotel: journey?.transferToHotel,
+						transferToConnectionAirport: journey?.transferToConnectionAirport
 					}
 				},
 				minLayoverTime
 			)
 		);
+	}
+
+	/**
+	 * Issue #267. The search routes to the one property it picks and to no other, so until
+	 * this ran, picking any other bed could only ever say the journey to it was unknown.
+	 * This asks OSRM the same question the pipeline asks, for the bed the traveller just
+	 * tapped, and rewrites the trip when the answer lands.
+	 *
+	 * ## Why this is a handler and not an `$effect`
+	 *
+	 * AGENTS.md's "the Svelte trap that cost us a working search": an `$effect` that calls
+	 * an async function without awaiting it runs the synchronous prefix on the effect's own
+	 * call stack, so any `$state` that prefix writes counts as the effect writing its own
+	 * dependency, and it retriggers until Svelte aborts. This writes `propertyRouting` and
+	 * `itinerary`, both `$state`, so as an effect it would be exactly #87 again. #264 fixed
+	 * its own version of this by deleting an effect; nothing here creates one. The fetch
+	 * starts from a click and from nowhere else.
+	 *
+	 * ## Why the answer can arrive after the traveller has moved on
+	 *
+	 * `routingGeneration` is bumped on every pick, and a resolved route only reaches
+	 * `itinerary` while its own generation is still the current one. Without that, tapping
+	 * bed A then bed B and having A's slower route land second would put A's journey under
+	 * B's name — which is #243's defect exactly, reintroduced through the back door by the
+	 * fix for it. The answer is still kept in `propertyRouting` either way: it cost a
+	 * request, it is true about that property, and tapping back to it is then instant.
+	 */
+	async function routePickedProperty(stay: Stay) {
+		const key = propertyKey(stay.property);
+		if (isSameProperty(stay.property, routedProperty)) return;
+		const known = propertyRouting.get(key);
+		if (known && known.kind !== 'unrouted') return;
+		if (!connectionAirport) return;
+
+		const generation = ++routingGeneration;
+		propertyRouting.set(key, { kind: 'routing' });
+
+		const routing = await routeOnce(stay, connectionAirport);
+		propertyRouting.set(key, routing);
+		// Superseded: the traveller picked something else while this was in the queue. The
+		// answer is banked above and dropped here, never written onto whatever bed is on
+		// screen now.
+		if (generation !== routingGeneration) return;
+		if (routing.kind === 'routed') applyStayWithJourney(stay, routing);
+	}
+
+	async function routeOnce(stay: Stay, airport: Airport): Promise<PropertyRouteState> {
+		const controller = new AbortController();
+		try {
+			return await routeToProperty({
+				connectionCoordinates: airport.coordinates,
+				propertyCoordinates: stay.property.coordinates,
+				transferProviders: getProviderRegistry().ofKind('transfer'),
+				keys: keyStore.availableKeys,
+				signal: controller.signal,
+				landingToTransportRules: DEFAULT_LANDING_TO_TRANSPORT_RULES,
+				connectionAirportSize: airport.sizeClass,
+				// Deliberately dropped rather than folded into `SearchSnapshot.providers`:
+				// this call happens after the search is over, and counting it there would
+				// change a provider row the traveller reads as "what this search did".
+				// `PropertyRouting`'s own `failed` branch carries the provider's words.
+				record: () => {}
+			});
+		} catch (error) {
+			return { kind: 'failed', message: error instanceof Error ? error.message : String(error) };
+		}
 	}
 
 	// `ItineraryGroup.variants`: every (outbound, onward) pair the free tier found for this
