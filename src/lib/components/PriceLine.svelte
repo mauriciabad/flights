@@ -185,19 +185,6 @@
 						<span class="price-part-amount font-mono tabular-nums"
 							>{formatMoneyRange(row.cost.lowMinorUnits, row.cost.highMinorUnits, row.cost.currency)}</span
 						>
-						{#if row.cost.converted}
-							{@const source = row.cost.converted}
-							<!-- Issue #339. The converted figure is the one a traveller compares with
-							     the total; this is the one they hand over at the taxi rank, and it is
-							     also what stops the euro range reading as a quote. Its own line, after
-							     the amount and inside the same row, so the receipt's right-hand column
-							     of figures stays a column you can add. -->
-							<span class="price-part-source">
-								from <span class="font-mono tabular-nums"
-									>{formatMoneyRange(source.fromLowMinorUnits, source.fromHighMinorUnits, source.from)}</span
-								>
-							</span>
-						{/if}
 					{:else if row.cost.kind === 'free'}
 						<span class="price-part-amount">free</span>
 					{:else}
@@ -305,21 +292,6 @@
 		color: var(--color-text-muted);
 	}
 
-	/* Issue #339's "from £73.73-£116.46", under the converted amount and hard to the same
-	   right edge. `flex-basis: 100%` puts it on its own line inside the row's existing wrap
-	   rather than in a second flex row, so the amount above it keeps the right-hand column
-	   every other figure on the receipt lines up in.
-
-	   Same size and same `--color-text-muted` as the amount it qualifies, rather than a
-	   step fainter. `--color-text-faint` measures 4.19:1 on `--color-surface`, under AA,
-	   and this is a currency a traveller is being told to expect at a taxi rank, which is
-	   the wrong line on the card to make hard to read. The hierarchy comes from the lighter
-	   weight and the word "from" instead. */
-	.price-part-source {
-		flex-basis: 100%;
-		text-align: right;
-		color: var(--color-text-muted);
-	}
 
 	/* Issue #305's hotel group. A column, not a row, because it holds a header row and its
 	   own rows; the header keeps the receipt's two-edge shape so the rate lands in the same

@@ -274,15 +274,18 @@ describe("a converted ground line (issue #339)", () => {
 		]);
 	});
 
-	it('names the rate card\'s own range underneath, because that is what the driver charges', () => {
-		// A bare euro figure reads as a quote. It is a rate card applied to a distance and
-		// then crossed at a rate of some age, and the traveller pays the pounds.
-		expect(sources(convertedTrip())).toEqual([undefined, undefined, undefined, 'from £73.72-£116.44']);
+	it('shows the traveller\'s currency alone, with no rate-card range beside it', () => {
+		// The owner asked for the source range off the receipt: he picked a currency and the
+		// receipt should be in it. The arithmetic is still written down where a reader can
+		// ask for it, in the transport picker's disclosure, which names the rate card's own
+		// currency, its range, and the ECB reference date behind the conversion. Provenance
+		// belongs behind a click; the receipt is a column of figures you add up.
+		expect(sources(convertedTrip())).toEqual([undefined, undefined, undefined, undefined]);
 	});
 
-	it('adds no source line to a row nothing converted', () => {
-		// A Spanish ride for a euro trip is already in the traveller's currency, and "from
-		// €X" under €X is noise dressed as provenance.
+	it('adds no source line to a row nothing converted either', () => {
+		// Unchanged by that: a Spanish ride for a euro trip was never converted, so there was
+		// never a second figure to drop.
 		expect(sources(twoRatedTaxisInEuros())).toEqual([undefined, undefined, undefined, undefined]);
 	});
 
