@@ -13,8 +13,10 @@
  * `ResultDetail.svelte`. The orchestrator who tried to confirm it by hand failed seven times
  * in a row, every time for a different correct-behaviour reason:
  *
- * 1. The notice lives inside `{#snippet stepOptions}`, so it exists only for the timeline
- *    row the reader has opened. Two clicks: "Show details", then the stopover row.
+ * 1. The notice lives in the customise panel, so it exists only for the segment the reader
+ *    has picked. Two clicks since issue #278: unfold the trip strip, then pick the
+ *    stopover row. (Before it: "Show details", then the row, and the notice unfolded
+ *    inside the row itself.)
  * 2. `stayIsRelevant` is `nightsInConnection > 0 || stay !== undefined`, so a same-day
  *    flight change correctly renders no missing-bed notice at all. The first card on the
  *    page is not reliably a card with a night in it.
@@ -71,8 +73,8 @@ const FAILURE_BODY = JSON.stringify({ message: FAILURE_SENTENCE });
 const OUR_EMPTY_HANDED_WORDING = 'failed without saying why';
 
 interface OpenedStopover {
-	/** The stopover row, with its options fold already unfolded. */
-	row: Locator;
+	/** The customise panel, already showing the stopover this card offers. */
+	panel: Locator;
 	/** What that row said about its own length, quoted back in a failure message so a reader
 	 * can see which card was opened. */
 	nightsLine: string;
@@ -93,10 +95,10 @@ async function openStopoverWithANight(page: Page): Promise<OpenedStopover> {
 
 	for (let index = 0; index < count; index += 1) {
 		const entry = entries.nth(index);
-		const toggle = entry.locator('.details-toggle');
-		if ((await toggle.count()) === 0) continue;
+		const unfold = entry.locator('.trip-strip-unfold');
+		if ((await unfold.count()) === 0) continue;
 
-		await toggle.click();
+		await unfold.click();
 		const row = entry.locator('[data-segment="free-time"]');
 		await expect(row).toBeVisible();
 
@@ -114,24 +116,29 @@ async function openStopoverWithANight(page: Page): Promise<OpenedStopover> {
 		);
 
 		if (!Number.isFinite(nights) || nights < 1) {
-			await toggle.click();
+			await unfold.click();
 			continue;
 		}
 
 		await row.click();
+		const panel = page.getByTestId('segment-customiser');
 		await expect(
-			row.locator('.tl-expansion'),
-			`Clicking the stopover row on a card reading "${nightsLine}" unfolded nothing. ItineraryTimeline.svelte renders ResultDetail's stepOptions snippet as .tl-expansion inside the selected row; one of those two has stopped happening, and every assertion below is about what that fold contains.`
+			panel,
+			`Clicking the stopover row on a card reading "${nightsLine}" filled no customise panel. Since issue #278 the page holds one selection and renders SegmentCustomiser for it, as a rail beside the list above 64rem and a sheet below; either the row stopped reporting its selection or the panel stopped mounting, and every assertion below is about what that panel contains.`
 		).toBeVisible();
-		return { row, nightsLine };
+		await expect(
+			panel,
+			`The customise panel is showing something other than the stopover after clicking the stopover row on "${nightsLine}".`
+		).toHaveAttribute('data-segment', 'free-time');
+		return { panel, nightsLine };
 	}
 
 	throw new Error(
 		[
 			'No card on the results page has a stopover with a night in it, so the missing-bed notice could not be reached at all.',
-			`Stopover rows seen, in order: ${seen.length > 0 ? seen.join(' | ') : '(none: no card had a details toggle)'}.`,
+			`Stopover rows seen, in order: ${seen.length > 0 ? seen.join(' | ') : '(none: no card had a trip strip to unfold)'}.`,
 			'',
-			'`stayIsRelevant` in ResultDetail.svelte is `nightsInConnection > 0 || stay !== undefined`, so a page of',
+			'`stayIsRelevant` in SegmentCustomiser.svelte is `nightsInConnection > 0 || stay !== undefined`, so a page of',
 			'same-day flight changes correctly shows no notice anywhere. If that is what happened, the scenario in',
 			'tests/qa/support/scenario.ts has stopped producing an overnight pairing. SELLING_DAY_OFFSETS is what',
 			'spaces the two legs onto different days.'
@@ -160,13 +167,13 @@ test.describe("a stay provider's failure reaches the page in its own words", () 
 				`Nothing was asked of Hostelworld (${HOSTELWORLD_HOST}) during this search, so no failure could have been rendered and this check proves nothing. Requests this search made:\n${bench.describeTraffic()}`
 			).toBeGreaterThan(0);
 
-			const { row, nightsLine } = await openStopoverWithANight(page);
-			const notice = row.locator('[data-testid="stay-notice"]');
+			const { panel, nightsLine } = await openStopoverWithANight(page);
+			const notice = panel.locator('[data-testid="stay-notice"]');
 			const failure = notice.locator('[data-testid="stay-provider-failure"]');
 
 			await expect(
 				failure,
-				`The stopover fold rendered no [data-testid="stay-provider-failure"], on a card whose row reads "${nightsLine}", after ${asked} request(s) to Hostelworld all answered ${FAILURE_STATUS}. describeNoStays() puts a failed provider's message in providerFailures and ResultDetail.svelte renders one <p> per entry; one of those two has stopped happening. What the fold does say:\n\n${await row.locator('.tl-expansion').innerText()}`
+				`The stopover panel rendered no [data-testid="stay-provider-failure"], on a card whose row reads "${nightsLine}", after ${asked} request(s) to Hostelworld all answered ${FAILURE_STATUS}. describeNoStays() puts a failed provider's message in providerFailures and SegmentCustomiser.svelte renders one <p> per entry; one of those two has stopped happening. What the panel does say:\n\n${await panel.innerText()}`
 			).toHaveCount(1);
 
 			const shown = (await failure.innerText()).trim();
@@ -212,17 +219,17 @@ test.describe("a stay provider's failure reaches the page in its own words", () 
 			'Hostelworld was never asked, so this control proves nothing'
 		).toBeGreaterThan(0);
 
-		const { row, nightsLine } = await openStopoverWithANight(page);
+		const { panel, nightsLine } = await openStopoverWithANight(page);
 
 		// Beds were priced, so the fold is a picker rather than a notice. Asserted rather than
 		// assumed: without it, a fold that failed to render at all would pass the check below.
 		await expect(
-			row.locator('.stay-picker'),
-			`Hostelworld answered normally and the stopover fold on "${nightsLine}" still shows no stay picker, so this control is not looking at a healthy fold. What it does say:\n\n${await row.locator('.tl-expansion').innerText()}`
+			panel.locator('.stay-picker'),
+			`Hostelworld answered normally and the stopover panel on "${nightsLine}" still shows no stay picker, so this control is not looking at a healthy panel. What it does say:\n\n${await panel.innerText()}`
 		).toBeVisible();
 
 		await expect(
-			row.locator('[data-testid="stay-provider-failure"]'),
+			panel.locator('[data-testid="stay-provider-failure"]'),
 			'The stopover quotes a provider failure while every provider answered. An error shown when nothing went wrong is an invented error, which is the same rule read the other way round.'
 		).toHaveCount(0);
 	});

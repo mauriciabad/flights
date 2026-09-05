@@ -65,7 +65,7 @@
 	import { insertStable, slotsToResults, toSlot } from '$lib/results/stream-order';
 	import type { StreamSlot } from '$lib/results/stream-order';
 	import { connectionAirportCode, deriveScoredResult, summarizePriceCalendarOutcome, widenOptionGroupKey } from '$lib/results/types';
-	import type { AffordableWiden, ProviderStatus, WidenOptionGroup } from '$lib/results/types';
+	import type { AffordableWiden, ProviderStatus, ScoredResult, WidenOptionGroup } from '$lib/results/types';
 	import FilterPanel from './FilterPanel.svelte';
 	import NoResultsBoard from './NoResultsBoard.svelte';
 	import ProviderStatusStrip from './ProviderStatusStrip.svelte';
@@ -282,13 +282,16 @@
 	 * already fetched, and the bed's nightly rate was quoted once for the whole stay;
 	 * `buildItineraries` multiplied it out per pairing when the search ran.
 	 */
-	function chooseNights(code: string, nights: number) {
-		chosenNightsByConnection = { ...chosenNightsByConnection, [code]: nights };
+	function chooseNights(result: ScoredResult, nights: number) {
+		chosenNightsByConnection = { ...chosenNightsByConnection, [result.id]: nights };
 		// A different length is a different onward flight, so any flight, transfer or bed
-		// picked against the old one was for a trip that no longer exists. Dropping the
-		// draft is the honest answer rather than the cheap one; the previous version got
-		// here by keying `ResultDetail` on the nights so it remounted.
-		drafts.delete(code);
+		// picked against the old one was for a trip that no longer exists. The draft starts
+		// again from the trip at the new length, taken off the very option the ladder just
+		// priced rather than derived a second time here: `StopoverLengthOption` carries the
+		// itinerary precisely so a control can price a rung before it is taken.
+		const option = result.stopover.options.find((candidate) => candidate.nights === nights);
+		if (option) drafts.set(result.id, new ItineraryDraft(option.itinerary));
+		else drafts.delete(result.id);
 	}
 
 	/**
@@ -662,8 +665,10 @@
 		filters = emptyFilters();
 	}
 
-	function toggleTimeline(id: string) {
-		openTimelineId = openTimelineId === id ? null : id;
+	function toggleTimeline(result: ScoredResult) {
+		const opening = openTimelineId !== result.id;
+		openTimelineId = opening ? result.id : null;
+		if (opening) draftFor(result.id, result.itinerary);
 	}
 
 	/**
@@ -676,12 +681,26 @@
 		return drafts.get(id)?.itinerary ?? streamed;
 	}
 
+	/**
+	 * The draft for one card, made if it does not exist yet.
+	 *
+	 * Only ever called from an event handler. Writing a `SvelteMap` while a template or a
+	 * `$derived` is evaluating is `state_unsafe_mutation`, and a lazily-created draft read
+	 * during render is exactly that. Every path that can lead to an edit goes through a
+	 * handler first: you unfold a timeline or pick a segment before you can change
+	 * anything, and both of those create the draft on the way in.
+	 */
 	function draftFor(id: string, streamed: Itinerary): ItineraryDraft {
 		const existing = drafts.get(id);
 		if (existing) return existing;
 		const created = new ItineraryDraft(streamed);
 		drafts.set(id, created);
 		return created;
+	}
+
+	/** The render-safe half: reads, never writes. */
+	function draftOf(id: string): ItineraryDraft | undefined {
+		return drafts.get(id);
 	}
 
 	/**
@@ -731,6 +750,7 @@
 		customisingResult ? connectionAirportCode(customisingResult.itinerary) : undefined
 	);
 	const customisingSegment = $derived(customisingResult ? (customising?.segment ?? null) : null);
+	const customisingDraft = $derived(customisingResult ? draftOf(customisingResult.id) : undefined);
 	/** The sheet only exists on a phone, and only with something picked. A sheet holding
 	 * the idle prompt would cover the results to say nothing. */
 	const sheetIsOpen = $derived(!sidebarIsColumn && customisingResult !== undefined && customisingSegment !== null);
@@ -817,9 +837,9 @@
 <!-- One panel, two containers. The rail and the sheet are never both mounted, so there is
      one `SegmentCustomiser` instance at a time and no pair of them to disagree. -->
 {#snippet customisePanel()}
-	{#if customisingResult && customisingCode && query}
+	{#if customisingResult && customisingDraft && customisingCode && query}
 		<SegmentCustomiser
-			draft={draftFor(customisingResult.id, customisingResult.itinerary)}
+			draft={customisingDraft}
 			segment={customisingSegment}
 			stopoverOptions={customisingResult.stopover.options}
 			isFlightChange={customisingResult.stopover.isFlightChange}
@@ -835,7 +855,7 @@
 			minLayoverTime={query.minLayoverTime}
 			searchDone={primarySearchDone && !stillSearching}
 			{stayProviders}
-			onNightsChange={(nights) => chooseNights(customisingResult.id, nights)}
+			onNightsChange={(nights) => chooseNights(customisingResult, nights)}
 		/>
 	{:else}
 		<p class="customise-idle">
@@ -1010,11 +1030,13 @@
 									onSelectSegment={(segment) =>
 										selectSegment(result.id, result.itinerary, selected === segment ? null : segment)}
 									timelineOpen={openTimelineId === result.id}
-									onToggleTimeline={() => toggleTimeline(result.id)}
+									onToggleTimeline={() => toggleTimeline(result)}
 								>
 									{#snippet timeline()}
+										{@const draft = draftOf(result.id)}
+										{#if draft}
 										<ResultDetail
-											draft={draftFor(result.id, result.itinerary)}
+											{draft}
 											selectedSegmentId={selected}
 											onSelectSegment={(segment) => selectSegment(result.id, result.itinerary, segment)}
 											group={groupsByConnection[result.id]}
@@ -1024,6 +1046,7 @@
 											connectionAirport={connectionAirports[code]}
 											minLayoverTime={query.minLayoverTime}
 										/>
+										{/if}
 									{/snippet}
 								</ResultCard>
 							</li>

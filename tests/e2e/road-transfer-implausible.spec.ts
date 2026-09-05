@@ -1,6 +1,7 @@
 import { test, expect } from './support/fixtures';
 import { FIXTURE_FLIGHT_NUMBERS, FIXTURE_PRICES } from './support/fixture-markers';
 import { mockAllKeylessProviders, mockOsrm, routeRyanairFlights } from './support/providers';
+import { customiser, openTimeline } from './support/results-ui';
 
 /**
  * Issue #119's second half, in a real browser against a real build.
@@ -53,7 +54,7 @@ test.describe('a road route too slow for the distance (issue #119)', () => {
 
 		await page.goto('/results/?dep=2027-03-08&arr=2027-03-27&from=BCN&to=TLL');
 		await expect(page.getByText('still searching')).toHaveCount(0, { timeout: 20_000 });
-		await page.getByRole('button', { name: 'Show details' }).first().click();
+		await openTimeline(page);
 
 		const detail = page.locator('.result-detail');
 		const hotelRow = detail.locator('.itinerary-timeline [data-segment="transfer-to-hotel"]');
@@ -67,8 +68,8 @@ test.describe('a road route too slow for the distance (issue #119)', () => {
 		// And the refusal reaches the options, not only the pick. A 33-hour drive must not be
 		// sitting one click away under any label.
 		await hotelRow.click();
-		await expect(detail.locator('.picker-row', { hasText: 'Drive' })).toHaveCount(0);
-		await expect(detail.locator('.picker-row', { hasText: 'Taxi' })).toHaveCount(0);
+		await expect(customiser(page).locator('.picker-row', { hasText: 'Drive' })).toHaveCount(0);
+		await expect(customiser(page).locator('.picker-row', { hasText: 'Taxi' })).toHaveCount(0);
 		await expect(detail).not.toContainText('33h 0m');
 	});
 });

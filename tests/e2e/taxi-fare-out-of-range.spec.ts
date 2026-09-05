@@ -1,6 +1,7 @@
 import { test, expect } from './support/fixtures';
 import { FIXTURE_FLIGHT_NUMBERS, FIXTURE_PRICES } from './support/fixture-markers';
 import { mockAllKeylessProviders, mockOsrm, routeRyanairFlights } from './support/providers';
+import { customiser, openTimeline } from './support/results-ui';
 
 /**
  * Issue #246, in a real browser against a real build, which is where this bug lived and
@@ -49,13 +50,15 @@ test.describe('a transfer longer than the rate cards cover (issue #246)', () => 
 
 		await page.goto('/results/?dep=2027-03-08&arr=2027-03-27&from=BCN&to=TLL');
 		await expect(page.getByText('still searching')).toHaveCount(0, { timeout: 20_000 });
-		await page.getByRole('button', { name: 'Show details' }).first().click();
+		await openTimeline(page);
 
 		const detail = page.locator('.result-detail');
 		const hotelRow = detail.locator('.itinerary-timeline [data-segment="transfer-to-hotel"]');
 		await hotelRow.click();
 
-		const taxiRow = detail.locator('.picker-row', { hasText: 'Taxi' }).first();
+		// Issue #278: picking the row fills the customise rail beside the list rather
+		// than unfolding a picker inside the row.
+		const taxiRow = customiser(page).locator('.picker-row', { hasText: 'Taxi' }).first();
 		await expect(taxiRow).toBeVisible();
 
 		// The duration is a real measurement and stays: OSRM's 4560 seconds is 1h 16m, plus

@@ -1,6 +1,7 @@
 import { test, expect } from './support/fixtures';
 import { FIXTURE_FLIGHT_NUMBERS, FIXTURE_PRICES } from './support/fixture-markers';
 import { mockAllKeylessProviders, routeRyanairFlights } from './support/providers';
+import { customiser, openTimeline } from './support/results-ui';
 
 /**
  * Issue #104: the regression guard for the gap that issue describes. Before it, a real
@@ -77,7 +78,7 @@ test.describe('result detail (issue #104)', () => {
 		await expect(card).toBeVisible();
 		await expect(card).toContainText('VIE');
 
-		await page.getByRole('button', { name: 'Show details' }).first().click();
+		await openTimeline(page);
 
 		const detail = page.locator('.result-detail');
 		await expect(detail).toBeVisible();
@@ -108,7 +109,9 @@ test.describe('result detail (issue #104)', () => {
 		const outboundRow = detail.locator('.itinerary-timeline [data-segment="outbound-flight"]');
 		await expect(outboundRow).toContainText('2 flights');
 		await outboundRow.click();
-		const outboundPicker = detail.getByRole('radiogroup', { name: /Outbound/ });
+		// Issue #278: the picker is in the customise rail beside the list, not folded
+		// into the row. The row is still what selects it.
+		const outboundPicker = customiser(page).getByRole('radiogroup', { name: /Outbound/ });
 		// The 8 March outbound, which is the one the card is NOT on since issue #224 made the
 		// shorter stopover the default.
 		const alternativeRow = outboundPicker.locator('.picker-row', { hasText: '€9,111.11' });

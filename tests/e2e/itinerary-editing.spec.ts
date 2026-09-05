@@ -1,6 +1,7 @@
 import { test, expect } from './support/fixtures';
 import { FIXTURE_FLIGHT_NUMBERS, FIXTURE_PRICES } from './support/fixture-markers';
 import { mockAllKeylessProviders, mockHostelworld, routeRyanairFlights } from './support/providers';
+import { customiser, openTimeline } from './support/results-ui';
 
 /**
  * Editing a built itinerary (issue #18's fourth scenario): change the waiting time or the
@@ -57,7 +58,7 @@ test.describe('editing a stopover keeps one trip on the screen', () => {
 		await page.goto('/results/?dep=2027-03-08&arr=2027-03-27&from=BCN&to=TLL');
 		await expect(page.getByText('still searching')).toHaveCount(0, { timeout: 20_000 });
 
-		await page.getByRole('button', { name: 'Show details' }).first().click();
+		await openTimeline(page);
 		const detail = page.locator('.result-detail');
 		await expect(detail).toBeVisible();
 
@@ -90,7 +91,7 @@ test.describe('editing a stopover keeps one trip on the screen', () => {
 		// Issue #243. Reaching the stay list is the two taps a traveller makes: open the
 		// stopover row, then pick the other property.
 		await detail.locator('[data-segment="free-time"]').click();
-		const nearProperty = detail.locator('.alt-card', { hasText: 'FIXTURE Lodge' });
+		const nearProperty = customiser(page).locator('.alt-card', { hasText: 'FIXTURE Lodge' });
 		await expect(nearProperty).toBeVisible();
 		await nearProperty.click();
 

@@ -236,6 +236,17 @@
 
 	let openTimer: ReturnType<typeof setTimeout> | undefined;
 	let closeTimer: ReturnType<typeof setTimeout> | undefined;
+	/** True for the length of one pointer gesture on a hit target. Plain bookkeeping: the
+	 * focus handler reads it, nothing renders from it. Cleared in a macrotask, which lands
+	 * after the focus and the click the same press dispatches. */
+	let focusFromPointer = false;
+
+	function onHitPointerDown() {
+		focusFromPointer = true;
+		setTimeout(() => {
+			focusFromPointer = false;
+		}, 0);
+	}
 
 	const lastTarget = $derived(Math.max(0, targets.length - 1));
 	const panelIndex = $derived(Math.min(activeIndex ?? shownIndex, lastTarget));
@@ -310,15 +321,19 @@
 
 	/**
 	 * A click focuses the button it lands on, and on a touch screen that focus is the only
-	 * thing that fires before the click. Opening the preview on every focus would
-	 * therefore put a popover over the sheet the tap just opened. `:focus-visible` is the
-	 * platform's own answer to "did this focus come from the keyboard", so the preview
-	 * follows the keyboard and the pointer's own hover, and never a tap.
+	 * thing that fires before the click. Opening the preview on every focus would put a
+	 * popover over the sheet the same tap opens, so a focus that arrives mid-gesture opens
+	 * nothing and the keyboard's own focus still does.
+	 *
+	 * Deliberately a flag rather than `matches(':focus-visible')`. That pseudo-class is a
+	 * browser heuristic about the last input a person used, and it does not apply to a
+	 * programmatic `element.focus()` with no keyboard interaction before it, which is
+	 * exactly what a test driver does. The behaviour under test would then depend on how
+	 * the test reached the button.
 	 */
-	function onHitFocus(index: number, event: FocusEvent) {
+	function onHitFocus(index: number) {
 		focusIndex = index;
-		const button = event.currentTarget;
-		if (!(button instanceof HTMLElement) || !button.matches(':focus-visible')) return;
+		if (focusFromPointer) return;
 		open(index, 'focus');
 	}
 
@@ -408,8 +423,9 @@
 				aria-describedby={activeIndex === index ? panelId : undefined}
 				onpointerenter={(event) => onHitEnter(index, event)}
 				onpointerleave={onHitLeave}
+				onpointerdown={onHitPointerDown}
 				onclick={() => onHitActivate(index)}
-				onfocus={(event) => onHitFocus(index, event)}
+				onfocus={() => onHitFocus(index)}
 				onblur={onHitBlur}
 				onkeydown={(event) => onHitKeydown(event, index)}
 			></button>
