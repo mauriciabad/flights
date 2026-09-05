@@ -86,7 +86,13 @@
 	import { insertStable, insertWithoutDisplacing, slotsToResults, toSlot } from '$lib/results/stream-order';
 	import type { StreamSlot } from '$lib/results/stream-order';
 	import { connectionAirportCode, deriveScoredResult, summarizePriceCalendarOutcome, widenOptionGroupKey } from '$lib/results/types';
-	import type { AffordableWiden, ProviderStatus, ScoredResult, WidenOptionGroup } from '$lib/results/types';
+	import type {
+		AffordableWiden,
+		PairingRequest,
+		ProviderStatus,
+		ScoredResult,
+		WidenOptionGroup
+	} from '$lib/results/types';
 	import FilterPanel from './FilterPanel.svelte';
 	import NoResultsBoard from './NoResultsBoard.svelte';
 	import ProviderStatusStrip from './ProviderStatusStrip.svelte';
@@ -429,48 +435,92 @@
 	}
 
 	/**
-	 * The length the traveller picked, and the trip that follows from it.
-	 *
-	 * `results` below re-derives this card from the group it already has, so the card's
-	 * content changes and its POSITION does not. A list that reordered itself under the
-	 * finger that just pressed + is the exact instability `stream-order.ts` exists to
-	 * prevent, and leaving `order` alone is the cheapest possible way to guarantee it.
-	 *
-	 * ## Why the bed is re-decided here
-	 *
-	 * More nights is more free time, and free time is what makes a central bed worth paying
-	 * for (issue #366). The picker's list has re-sorted on every length change since #219
-	 * while the booked bed stayed where the pipeline put it, which ranked it for one night
-	 * and no days out. So the length change re-asks the question, and `bedForLength` answers
-	 * it with the traveller's own bed whenever they have chosen one.
-	 *
-	 * ## What it costs
-	 *
-	 * Nothing from a stay provider or a timetable. Every length is a flight pairing this
-	 * search already fetched, every candidate bed was quoted once for the whole stay, and
-	 * a swapped bed's timetable stays behind issue #267's press. A bed that actually moves
-	 * costs the 2 OSRM road requests that already follow any bed swap, and OSRM is free.
+	 * Issue #387: everything the traveller has pinned about one card, as one object, because
+	 * the two axes resolve together. Asking for three nights AND Thursday is one question
+	 * about which pairing to show, and answering it in two places is how a date rung comes to
+	 * undo a nights rung.
 	 */
+	function requestedPairingFor(code: string): PairingRequest {
+		return {
+			nights: requestedNightsFor(code),
+			departureDate: choicesByResult[code]?.departureDate
+		};
+	}
+
+	/** The length the traveller picked, and the trip that follows from it. */
 	function chooseNights(result: ScoredResult, nights: number) {
-		choicesByResult = recordChoice(choicesByResult, result.id, { nights });
-		const previousStay = shownItinerary(result.id, result.itinerary).stay;
 		// A different length is a different onward flight, so any flight or transfer picked
 		// against the old one was for a trip that no longer exists. The draft starts again
 		// from the trip at the new length, taken off the very option the ladder just priced
 		// rather than derived a second time here: `StopoverLengthOption` carries the
 		// itinerary precisely so a control can price a rung before it is taken.
 		const option = result.stopover.options.find((candidate) => candidate.nights === nights);
-		if (!option) {
+		rebuildForChoice(result, { nights }, option?.itinerary);
+	}
+
+	/**
+	 * Issue #387: the same gesture on the other axis.
+	 *
+	 * A different departure date is a different pairing in every way a different length is,
+	 * and usually more so: both flights move, the nights often move with them, and the hotel
+	 * bill follows. So it takes the same path, which is what makes the bed re-ranking, the
+	 * announcement and the pinned airport buffers work here without a second copy of any of
+	 * them.
+	 */
+	function chooseDepartureDate(result: ScoredResult, date: string) {
+		const option = result.departure.options.find((candidate) => candidate.date === date);
+		rebuildForChoice(result, { departureDate: date }, option?.itinerary);
+	}
+
+	/**
+	 * One decision from either ladder, and the trip it produces.
+	 *
+	 * `results` below re-derives this card from the group it already has, so the card's
+	 * content changes and its POSITION does not. A list that reordered itself under the
+	 * finger that just pressed a rung is the exact instability `stream-order.ts` exists to
+	 * prevent, and leaving `order` alone is the cheapest possible way to guarantee it.
+	 *
+	 * `next` is the itinerary the pressed rung already priced, not one re-derived here: both
+	 * ladders carry their trips precisely so a rung can price itself before it is taken, and
+	 * deriving it a second time is how the number on the button and the number on the card
+	 * come to disagree. `undefined` means this connection cannot do what was asked, which
+	 * drops the draft rather than showing a trip nobody chose.
+	 *
+	 * ## Why the bed is re-decided here
+	 *
+	 * More nights is more free time, and free time is what makes a central bed worth paying
+	 * for (issue #366). The picker's list has re-sorted on every length change since #219
+	 * while the booked bed stayed where the pipeline put it, which ranked it for one night
+	 * and no days out. So the change re-asks the question, and `bedForLength` answers it
+	 * with the traveller's own bed whenever they have chosen one. Since issue #387 a
+	 * departure date asks it too, and for a stronger reason: a different day is usually
+	 * different nights in a different part of the week, at a different nightly rate.
+	 *
+	 * ## What it costs
+	 *
+	 * Nothing from a stay provider or a timetable. Every length and every date is a flight
+	 * pairing this search already fetched, every candidate bed was quoted once for the whole
+	 * stay, and a swapped bed's timetable stays behind issue #267's press. A bed that
+	 * actually moves costs the 2 OSRM road requests that already follow any bed swap, and
+	 * OSRM is free.
+	 */
+	function rebuildForChoice(
+		result: ScoredResult,
+		choice: Partial<TravellerChoices>,
+		next: Itinerary | undefined
+	) {
+		choicesByResult = recordChoice(choicesByResult, result.id, choice);
+		const previousStay = shownItinerary(result.id, result.itinerary).stay;
+		if (!next) {
 			drafts.delete(result.id);
 			staySwapByResult = recordStaySwap(staySwapByResult, result.id, undefined);
 			return;
 		}
-
 		const choices = choicesByResult[result.id] ?? {};
 		// Before the ranking, because an airport buffer the traveller typed is time the
 		// stopover does not get to spend in the city, and days in the city are half of what
 		// decides which bed is worth the fare out to it.
-		const itinerary = reapplyWaitingTimes(option.itinerary, choices);
+		const itinerary = reapplyWaitingTimes(next, choices);
 		const airport = connectionAirports[result.id];
 		const bed = bedForLength({
 			previous: previousStay,
@@ -515,8 +565,15 @@
 	 */
 	const results = $derived(
 		slotsToResults(order).map((result) => {
-			const requested = requestedNightsFor(result.id);
-			if (requested === undefined || requested === result.itinerary.nightsInConnection) return result;
+			const requested = requestedPairingFor(result.id);
+			// Issue #387: a date pin always re-derives, because the card carries no field that
+			// could answer "is this already the right day" the way `nightsInConnection` answers
+			// it for the length. Re-deriving is arithmetic over `variants`, which the page is
+			// already holding.
+			const settled =
+				requested.departureDate === undefined &&
+				(requested.nights === undefined || requested.nights === result.itinerary.nightsInConnection);
+			if (settled) return result;
 			const group = groupsByConnection[result.id];
 			if (!group) return result;
 			return deriveScoredResult(
@@ -810,7 +867,7 @@
 						group,
 						snapshot,
 						sequenceFor(group.connectionAirportCode),
-						untrack(() => requestedNightsFor(group.connectionAirportCode))
+						untrack(() => requestedPairingFor(group.connectionAirportCode))
 					);
 					// Issue #314: a result whose sorted place would push a card the traveller can
 					// see off the bottom of a phone goes to the end of the list instead. It is on
@@ -1402,7 +1459,9 @@
 			searchDone={primarySearchDone && !stillSearching}
 			{stayProviders}
 			{transitLookupBudget}
+			departureOptions={customisingResult.departure.options}
 			onNightsChange={(nights) => chooseNights(customisingResult, nights)}
+			onDateChange={(date) => chooseDepartureDate(customisingResult, date)}
 			staySwap={staySwapByResult[customisingResult.id]}
 			stayIsChosen={choicesByResult[customisingResult.id]?.stay !== undefined}
 			onchoice={(choice) => recordCustomiserChoice(customisingResult.id, choice)}
