@@ -39,31 +39,32 @@ const RESERVED_SLOTS = 2;
 const SEARCH_URL = '/results/?dep=2027-03-08&arr=2027-03-27&from=BCN&to=TLL';
 
 /**
- * Vienna is answered first and is the more expensive trip; Charleroi answers a second later
- * and is cheaper, so it scores better and would have taken Vienna's place at the top. That is
- * the arrival order issue #314 measured three times in one production run.
+ * Vienna is answered first and is the more expensive trip; Berlin answers a second later and
+ * is cheaper, so it scores better and would have taken Vienna's place at the top. That is the
+ * arrival order issue #314 measured three times in one production run.
  *
  * It was Bergamo until issue #340. Ranking a stopover on how evenly it splits the journey
- * drops Bergamo out of Barcelona to Tallinn's candidates: northern Italy is a corner cut off
- * a journey that ends in the Baltic, and a fare fixture cannot put back a city the connection
- * graph no longer proposes. Nothing about what this file tests changes — a cheaper trip still
- * arrives second and still has to land at the end — only which city stands in.
+ * drops Bergamo out of Barcelona to Tallinn's candidates, northern Italy being a corner cut
+ * off a journey that ends in the Baltic, and a fare fixture cannot put back a city the
+ * connection graph no longer proposes. The six candidates are Vienna, Budapest, Berlin,
+ * Charleroi, Kraków and Stansted, read off the connections panel rather than guessed.
  *
- * The six candidates are now Vienna, Budapest, Berlin, Charleroi, Kraków and Stansted, read
- * off the connections panel rather than guessed. Four of the five price cleanly with this
- * fixture and Berlin does not: it is proposed, and then refused with "nothing flies here"
- * even though the mock answers `BCN/BER/cheapestPerDay` exactly as it answers the other four.
- * I did not chase it down. It is in fare fetching rather than in candidate selection, which
- * is the half issue #340 changed, so it is somebody's else's bug or nobody's — but do not
- * reach for BER here expecting it to work.
+ * That branch reached for Berlin, found it refused with "Nothing flies here" against a fixture
+ * that priced it, could not spend the afternoon on it and took Charleroi instead. Issue #354
+ * is that afternoon. Berlin was missing from `fixtures/ryanair/active-airports.json`, which is
+ * where this adapter reads every airport's IANA zone, so `ryanair-mapper.ts` dropped every
+ * BCN-BER fare for having no zone to date it in and the candidate came out of
+ * `processCandidate` blocked as `no-outbound-flight`. Nothing about the fare mock was wrong.
+ * Berlin is in that fixture now, `guard.spec.ts` fails the suite the next time a spec prices
+ * a flight at an airport the list cannot time, and this file uses the city it wanted.
  */
-const CONNECTION_DELAY_MS: Record<string, number> = { VIE: 0, CRL: 1200 };
+const CONNECTION_DELAY_MS: Record<string, number> = { VIE: 0, BER: 1200 };
 
 function flights() {
 	const specs = [];
 	for (const [connection, premium] of [
 		['VIE', 120],
-		['CRL', 0]
+		['BER', 0]
 	] as const) {
 		specs.push({
 			dep: 'BCN',
@@ -185,11 +186,11 @@ test.describe('the results page holds still while it fills', () => {
 		await expect(stopover).toContainText('Vienna');
 		const before = (await firstCard.boundingBox())!;
 
-		// Charleroi is cheaper, so it sorts above Vienna, and Vienna is the card filling the
+		// Berlin is cheaper, so it sorts above Vienna, and Vienna is the card filling the
 		// screen. It arrives anyway, at the end.
 		await expect(page.locator('.result-card')).toHaveCount(2, { timeout: 20_000 });
 		await expect(page.locator('.result-card').nth(1).locator('.route-leg-stopover')).toContainText(
-			'Charleroi'
+			'Berlin'
 		);
 
 		// The whole point: the card the traveller is reading has not moved, and it is still
@@ -204,7 +205,7 @@ test.describe('the results page holds still while it fills', () => {
 		await control.click();
 		await expect(control).toHaveCount(0);
 		await expect(page.locator('.result-card').first().locator('.route-leg-stopover')).toContainText(
-			'Charleroi'
+			'Berlin'
 		);
 	});
 

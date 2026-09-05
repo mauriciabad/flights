@@ -183,24 +183,32 @@ test.describe('itinerary map: every transfer leg, distinct markers, honest geome
 				])
 			})
 		);
-		await routeRyanairFlights(page.context(), [
-			{
-				dep: 'KEF',
-				arr: 'OSL',
-				depDate: '2027-03-08T06:20:00',
-				arrDate: '2027-03-08T10:05:00',
-				price: FIXTURE_PRICES.first,
-				flightNumber: FIXTURE_FLIGHT_NUMBERS[5]
-			},
-			{
-				dep: 'OSL',
-				arr: 'TBS',
-				depDate: '2027-03-11T09:30:00',
-				arrDate: '2027-03-11T16:10:00',
-				price: FIXTURE_PRICES.second,
-				flightNumber: FIXTURE_FLIGHT_NUMBERS[6]
-			}
-		]);
+		await routeRyanairFlights(
+			page.context(),
+			[
+				{
+					dep: 'KEF',
+					arr: 'OSL',
+					depDate: '2027-03-08T06:20:00',
+					arrDate: '2027-03-08T10:05:00',
+					price: FIXTURE_PRICES.first,
+					flightNumber: FIXTURE_FLIGHT_NUMBERS[5]
+				},
+				{
+					dep: 'OSL',
+					arr: 'TBS',
+					depDate: '2027-03-11T09:30:00',
+					arrDate: '2027-03-11T16:10:00',
+					price: FIXTURE_PRICES.second,
+					flightNumber: FIXTURE_FLIGHT_NUMBERS[6]
+				}
+			],
+			// These three are not in the shared airport fixture and do not belong there:
+			// the block above answers `active-airports` with its own network, zones and
+			// all. Issue #354's check measures the shared list, which is the wrong list
+			// here.
+			{ airportsAnsweredBySpec: true }
+		);
 
 		// -----------------------------------------------------------------
 		// 2b. Kiwi.com's keyless endpoint, answering with nothing. This spec builds one
