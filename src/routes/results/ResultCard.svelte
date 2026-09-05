@@ -18,7 +18,10 @@
 	 *   strip's caption already prints "2 nights in Vienna" in bold teal.
 	 * - **Free time, in flight, airport wait, door to door** (`MetricRail`, the four in
 	 *   `CARD_METRIC_IDS`). The figures that decide whether a cheap itinerary is actually
-	 *   cheap. Airport waiting in particular is the cost nobody quotes.
+	 *   cheap. Airport waiting in particular is the cost nobody quotes. Free time is a day
+	 *   count since issue #228, "2 full days" rather than the "2d 15h" the owner called
+	 *   misleading; the edge times and the stay it buys are in the expanded panel, because
+	 *   seven lines times four cards is not a results screen.
 	 *
 	 * The header's freshness badge renders only when its tone is not neutral. "Current
 	 * price" and "Priced 3m ago" said the same thing as the footer's "fetched 3m ago" one

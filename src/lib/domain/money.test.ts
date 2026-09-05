@@ -16,6 +16,7 @@ import {
 	majorUnitsOf,
 	minorUnitsPerMajorUnit,
 	moneyFromDecimalString,
+	moneyFromFormattedString,
 	moneyFromMajorUnits
 } from './money';
 
@@ -287,5 +288,71 @@ describe('nothing outside this module scales money by a hardcoded 100', () => {
 			offenders,
 			'use moneyFromMajorUnits / moneyFromDecimalString / majorUnitsOf (domain/money.ts) instead'
 		).toEqual([]);
+	});
+});
+
+/**
+ * Issue #192. Both Sky Scrapper adapters read a display string by stripping everything but
+ * digits, a dot and a comma and then deleting the commas, which reads a comma decimal
+ * separator as a thousands separator. "60,99 €" came out as 6099 euros.
+ *
+ * The four shapes the issue names as acceptance are the first case below. Everything after
+ * it is a shape that has to be refused rather than guessed at, which is the half of this
+ * function that stops the next locale producing the same bug.
+ */
+describe('moneyFromFormattedString', () => {
+	it('reads the four shapes issue #192 names', () => {
+		expect(moneyFromFormattedString('18 €', 'EUR')).toEqual({ minorUnits: 1800, currency: 'EUR' });
+		expect(moneyFromFormattedString('$1,234.50', 'USD')).toEqual({ minorUnits: 123450, currency: 'USD' });
+		expect(moneyFromFormattedString('60,99 €', 'EUR')).toEqual({ minorUnits: 6099, currency: 'EUR' });
+		expect(moneyFromFormattedString('45 000,00 Ft', 'HUF')).toEqual({ minorUnits: 4500000, currency: 'HUF' });
+	});
+
+	it('never reads a comma decimal separator as a hundredfold', () => {
+		expect(majorUnitsOf(moneyFromFormattedString('60,99 €', 'EUR')!)).toBe(60.99);
+		expect(majorUnitsOf(moneyFromFormattedString('45 000,00 Ft', 'HUF')!)).toBe(45000);
+	});
+
+	it('reads the group separators real currency formatters emit', () => {
+		// The non-breaking and narrow no-break spaces `Intl` itself emits, which a plain
+		// / /g would leave sitting in among the digits.
+		expect(moneyFromFormattedString('45 000,00 Ft', 'HUF')?.minorUnits).toBe(4500000);
+		expect(moneyFromFormattedString('1 234,56 €', 'EUR')?.minorUnits).toBe(123456);
+		expect(moneyFromFormattedString('1.234,56 €', 'EUR')?.minorUnits).toBe(123456);
+		expect(moneyFromFormattedString('1,234,567 ¥', 'JPY')?.minorUnits).toBe(1234567);
+	});
+
+	it('takes the later separator as the decimal point when both are present', () => {
+		expect(majorUnitsOf(moneyFromFormattedString('1,234.50', 'EUR')!)).toBe(1234.5);
+		expect(majorUnitsOf(moneyFromFormattedString('1.234,50', 'EUR')!)).toBe(1234.5);
+	});
+
+	it('groups a lone separator with three digits behind it, unless a dinar makes that ambiguous', () => {
+		// ".500" is not a shape a two-decimal currency has, so it can only be grouping.
+		expect(moneyFromFormattedString('1,500 €', 'EUR')?.minorUnits).toBe(150000);
+		// For a three-decimal currency both readings exist and disagree, so neither is taken.
+		expect(moneyFromFormattedString('1,500 KWD', 'KWD')).toBeUndefined();
+	});
+
+	it('refuses a string that does not pin down exactly one amount', () => {
+		expect(moneyFromFormattedString('18 € - 24 €', 'EUR')).toBeUndefined();
+		expect(moneyFromFormattedString('call for price', 'EUR')).toBeUndefined();
+		expect(moneyFromFormattedString('12,34,567', 'EUR')).toBeUndefined();
+		expect(moneyFromFormattedString('1,2345', 'EUR')).toBeUndefined();
+		expect(moneyFromFormattedString('-60,99 €', 'EUR')).toBeUndefined();
+		expect(moneyFromFormattedString('', 'EUR')).toBeUndefined();
+		expect(moneyFromFormattedString('.', 'EUR')).toBeUndefined();
+		expect(moneyFromFormattedString(',99 €', 'EUR')).toBeUndefined();
+	});
+
+	it('refuses anything that is not a string, and any currency that is not a code', () => {
+		expect(moneyFromFormattedString(undefined, 'EUR')).toBeUndefined();
+		expect(moneyFromFormattedString(60.99, 'EUR')).toBeUndefined();
+		expect(moneyFromFormattedString('18 €', 'EUROS')).toBeUndefined();
+		expect(moneyFromFormattedString('18 €', undefined)).toBeUndefined();
+	});
+
+	it('normalises the currency code the way every other constructor here does', () => {
+		expect(moneyFromFormattedString('18 €', ' eur ')).toEqual({ minorUnits: 1800, currency: 'EUR' });
 	});
 });

@@ -1,5 +1,5 @@
 import type { IsoCurrencyCode, Money } from '../../domain';
-import { moneyFromDecimalString, moneyFromMajorUnits } from '../../domain';
+import { moneyFromDecimalString, moneyFromFormattedString, moneyFromMajorUnits } from '../../domain';
 
 /**
  * `search-one-way`'s itinerary price carries both a number (`raw`, major units, e.g.
@@ -21,7 +21,7 @@ export function parseItineraryPrice(
 	currency: IsoCurrencyCode
 ): Money | undefined {
 	if (price === undefined) return undefined;
-	return fromRaw(price.raw, currency) ?? fromFormatted(price.formatted, currency);
+	return fromRaw(price.raw, currency) ?? moneyFromFormattedString(price.formatted, currency);
 }
 
 function fromRaw(raw: unknown, currency: IsoCurrencyCode): Money | undefined {
@@ -32,7 +32,6 @@ function fromRaw(raw: unknown, currency: IsoCurrencyCode): Money | undefined {
 	return undefined;
 }
 
-function fromFormatted(formatted: unknown, currency: IsoCurrencyCode): Money | undefined {
-	if (typeof formatted !== 'string') return undefined;
-	return moneyFromDecimalString(formatted.replace(/[^0-9.,]/g, '').replace(/,/g, ''), currency);
-}
+// The display-string fallback is `moneyFromFormattedString` in domain/money.ts, shared with
+// skyscanner-money.ts. Both files used to carry the same regex, and both read a
+// comma-decimal price a hundred times too high (issue #192).

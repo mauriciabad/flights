@@ -266,8 +266,8 @@ describe('ItineraryTimeline, overnight local-time correctness', () => {
 
 		const times = outboundRow!.querySelectorAll('.tl-time-clock');
 		const dates = outboundRow!.querySelectorAll('.tl-time-date');
-		expect(times[0].textContent).toBe('23:10');
-		expect(times[1].textContent).toBe('00:35');
+		expect(times[0].textContent).toBe('11:10pm');
+		expect(times[1].textContent).toBe('12:35am');
 		// The two ends land on different calendar dates, and each shows its own airport's
 		// wall-clock date, not the same date twice or a date shifted by the machine's own
 		// timezone (which, in CI, is neither Vienna's nor Istanbul's).

@@ -9,6 +9,7 @@ export { femaleDormFit, femaleDormFitMessage, isFemaleDormSelectable } from './f
 export type { FemaleDormFit } from './female-dorm-fit';
 export { moneyDifference, stayTotalDelta, stayTotalForNights, formatMoney } from './pricing';
 export { formatDistanceKm, haversineDistanceKm } from './distance';
+export { ROOM_KIND_LABELS } from './room-kind';
 export { cheapestSelectableOption, isOptionSelectable, rankProperties, selectableOptions } from './rank';
 export { groupByProperty, propertyOf } from './types';
 export { describeNoStays } from './no-stays-reason';

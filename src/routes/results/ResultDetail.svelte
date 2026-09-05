@@ -43,7 +43,14 @@
 	import type { ItinerarySegmentId } from '$lib/itinerary-map/segment-id';
 	import { sumMoney } from '$lib/algorithm/build';
 	import type { RecomputedSelection } from '$lib/algorithm/recompute-selection';
-	import { FlightPicker, ItineraryMap, ItineraryTimeline, Skeleton, TransportPicker } from '$lib/components';
+	import {
+		FlightPicker,
+		ItineraryMap,
+		ItineraryTimeline,
+		Skeleton,
+		StopoverBlock,
+		TransportPicker
+	} from '$lib/components';
 	import { distinctFlightCount, hasSwappableAlternatives } from '$lib/components/picker-alternatives';
 	import { keyStore } from '$lib/keys';
 	import { hasUsableStayProvider } from '$lib/results/provider-setup';
@@ -336,6 +343,16 @@
 	<div class="result-detail-map">
 		<ItineraryMap {itinerary} bind:selectedSegmentId />
 	</div>
+
+	<!-- Issue #228's block, in full. It lands here rather than on the card because seven
+	     lines repeated down a results list is not a results screen, and here rather than
+	     inside the timeline because the timeline's own left column already prints these two
+	     clock readings as its spine. Above the timeline: "what do I get here" is the
+	     question a person asks before reading the trip step by step. -->
+	<StopoverBlock
+		{itinerary}
+		connectionLabel={connectionAirport?.city.name ?? itinerary.outboundFlight.arrivalAirport}
+	/>
 
 	<!-- aria-live: this sentence flips when a provider answers, not when the traveller does
 	     anything, so a screen reader would otherwise never learn that alternatives arrived. -->

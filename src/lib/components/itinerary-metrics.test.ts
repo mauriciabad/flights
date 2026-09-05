@@ -54,7 +54,27 @@ describe('itineraryMetrics', () => {
 
 	it('reads a multi-day total in days rather than as a three-digit hour count', () => {
 		expect(valueOf(makeItinerary({ totalMinutes: 4560 }), 'total-time')).toBe('3d 4h');
-		expect(valueOf(makeItinerary({ freeTimeMinutes: 4320 }), 'free-time')).toBe('3d');
+	});
+
+	// Issue #228, the owner: "showing the duration as '2d 15h free' on the free days is
+	// misleading and wrong. we should display it in full days count". So this cell counts
+	// whole days off the real window, and no longer reads `times.free` at all.
+	it('counts free time in whole days, off the window rather than off its duration', () => {
+		const overFourNights = makeItinerary({
+			freeTimeStart: '2026-10-09T21:10:00',
+			freeTimeEnd: '2026-10-13T09:05:00'
+		});
+		expect(valueOf(overFourNights, 'free-time')).toBe('3 full days');
+	});
+
+	it('says "No full days" for a stopover that gives none, plural and never "0"', () => {
+		// A mandatory one-night connection: in at 9:55pm, out at 4:55am. Seven hours of
+		// free time and not one whole day, which "7h" flattered and this does not.
+		const oneNight = makeItinerary({
+			freeTimeStart: '2026-10-08T21:55:00',
+			freeTimeEnd: '2026-10-09T04:55:00'
+		});
+		expect(valueOf(oneNight, 'free-time')).toBe('No full days');
 	});
 
 	it('colours the stopover figures with the token reserved for the free city', () => {

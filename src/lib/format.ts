@@ -28,6 +28,8 @@
 
 import type { Duration, LocalDateTime, Money } from './domain';
 import { currencyExponent, majorUnitsOf } from './domain';
+import type { TimeFormat } from './settings/time-format.svelte';
+import { timeFormat } from './settings/time-format.svelte';
 
 /**
  * Treats a LocalDateTime's wall-clock digits as if they were UTC, purely to hand them to
@@ -40,17 +42,45 @@ function asWallClockDate(dateTime: LocalDateTime): Date {
 }
 
 /**
- * "23:50": 24-hour, zero-padded, exactly the digits on the airport clock.
+ * The clock reading at that airport: `9:05am` by default, `09:05` for a traveller who has
+ * asked for 24-hour in settings.
  *
  * Read straight off `LocalDateTime.local` with a regex rather than through `Intl`, the
  * same technique `algorithm/score.ts`'s `wallClockHours` uses and for the same reason:
  * this is a reading on a departure board at that airport, and there is no locale question
- * to answer. Falls back to the raw string if the shape is ever not what the domain
- * promises, rather than throwing inside a render.
+ * to answer. Sending it through `toLocaleTimeString` would answer a different question, in
+ * the *viewer's* timezone, which is how a Cyprus departure renders in Madrid time.
+ * Falls back to the raw string if the shape is ever not what the domain promises, rather
+ * than throwing inside a render.
+ *
+ * ## What issue #229 settled, and the three cases that catch a naive version
+ *
+ * The owner: "i want am/pm not 24h format" and "i dont like pad digits, anywhere in ui".
+ * So in 12-hour form the hour never carries a leading zero, and `:00` is dropped
+ * altogether: `4am`, not `4:00am`, which is both what a person says and what he wrote in
+ * every worked example on #228. Midnight is `12:15am` and noon is `12:15pm`, the pair that
+ * a `hour % 12` with no special case renders as `0:15am` and `0:15pm`.
+ *
+ * 24-hour form keeps its padding. That is not an oversight about padded digits: 24-hour is
+ * the departure-board convention and `09:05` is how a departure board writes it, the
+ * clocks sit in `tabular-nums` columns that only align at a fixed width, and a traveller
+ * who switches to it is asking for exactly that convention.
+ *
+ * The preference is resolved here, in the default argument, rather than threaded through
+ * two dozen call sites. Reading it inside the call means a component that has never heard
+ * of the setting still honours it, and reading a rune during a render is what makes the
+ * screen redraw when the choice changes. Pass `format` explicitly to pin one reading, which
+ * is what the tests do.
  */
-export function formatClockTime(dateTime: LocalDateTime): string {
+export function formatClockTime(dateTime: LocalDateTime, format: TimeFormat = timeFormat.current): string {
 	const match = /T(\d{2}):(\d{2})/.exec(dateTime.local);
-	return match ? `${match[1]}:${match[2]}` : dateTime.local;
+	if (match === null) return dateTime.local;
+	const [, hours, minutes] = match;
+	if (format === '24h') return `${hours}:${minutes}`;
+	const hour24 = Number(hours);
+	const hour12 = hour24 % 12 === 0 ? 12 : hour24 % 12;
+	const meridiem = hour24 < 12 ? 'am' : 'pm';
+	return minutes === '00' ? `${hour12}${meridiem}` : `${hour12}:${minutes}${meridiem}`;
 }
 
 const WEEKDAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -90,6 +120,14 @@ export function formatCalendarDate(dateTime: LocalDateTime): string {
  * Saturday, Sunday morning" rather than as a duration (issue #209). */
 export function formatWeekday(dateTime: LocalDateTime): string {
 	return WEEKDAY_NAMES[asWallClockDate(dateTime).getUTCDay()]!;
+}
+
+/** "Fri 9": the weekday and the day of the month, with no month name and no padded day.
+ * The shape the owner wrote the free-time block in on #228, where three lines sit under
+ * each other and the month is already established by the trip around them. */
+export function formatWeekdayAndDay(dateTime: LocalDateTime): string {
+	const date = asWallClockDate(dateTime);
+	return `${WEEKDAY_NAMES[date.getUTCDay()]} ${date.getUTCDate()}`;
 }
 
 /** "Friday": the long form of `formatWeekday`, for a sentence rather than a stamp. */
@@ -141,12 +179,18 @@ export function formatDuration(duration: Duration | number): string {
  * used where the number really can run past a day, which in this app is total door-to-door
  * time and a multi-night stopover's free time. Below 24 hours it is exactly
  * `formatDuration`, so a short trip never suddenly renders in a different shape.
+ *
+ * Rounds to whole hours before splitting, not after. Issue #217 was the other order: it
+ * took the whole days out and then rounded what was left, so a remainder of 23h 30m or
+ * more rounded to 24 and printed "2d 24h" on a real card. Rounding first puts that carry
+ * in the day count, where a reader would put it.
  */
 export function formatLongDuration(duration: Duration | number): string {
 	const totalMinutes = Math.round(duration);
 	if (totalMinutes < 24 * 60) return formatDuration(totalMinutes);
-	const days = Math.floor(totalMinutes / (24 * 60));
-	const hours = Math.round((totalMinutes % (24 * 60)) / 60);
+	const totalHours = Math.round(totalMinutes / 60);
+	const days = Math.floor(totalHours / 24);
+	const hours = totalHours % 24;
 	return hours === 0 ? `${days}d` : `${days}d ${hours}h`;
 }
 

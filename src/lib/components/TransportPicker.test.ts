@@ -169,7 +169,7 @@ describe('TransportPicker: no-service transit', () => {
 		});
 
 		const text = normalizedText(root);
-		expect(text).toContain('No public transport until 05:20');
+		expect(text).toContain('No public transport until 5:20am');
 		expect(text).toContain('4h 20m after you land');
 		// Not an empty state: the row still renders with its own duration and schedule.
 		expect(text).toContain('25m');
@@ -230,8 +230,8 @@ describe('TransportPicker: no-service transit', () => {
 
 		const text = normalizedText(root);
 		expect(text).not.toContain('No public transport until');
-		expect(text).toContain('Departs 01:05');
-		expect(text).toContain('Next: 01:20, 01:35');
+		expect(text).toContain('Departs 1:05am');
+		expect(text).toContain('Next: 1:20am, 1:35am');
 	});
 });
 
@@ -373,7 +373,7 @@ describe('TransportPicker: what missing it costs (issue #135)', () => {
 			})
 		);
 
-		expect(text).toContain('Miss it and the next one is 05:20, 4h 10m later');
+		expect(text).toContain('Miss it and the next one is 5:20am, 4h 10m later');
 	});
 
 	it('says nothing later arrives in time for a leg that has to make a check-in', () => {
@@ -393,9 +393,9 @@ describe('TransportPicker: what missing it costs (issue #135)', () => {
 
 		const text = normalizedText(mountPicker({ itinerary, alternatives: [transit] }));
 
-		expect(text).toContain('The last one that gets you there by 06:15');
+		expect(text).toContain('The last one that gets you there by 6:15am');
 		expect(text).toContain('Miss it and nothing later arrives in time');
-		expect(text).toContain('Earlier and still in time: 04:45');
+		expect(text).toContain('Earlier and still in time: 4:45am');
 		// Never the overnight-gap framing: an empty `following` here means the deadline was
 		// respected, not that the timetable ran out.
 		expect(text).not.toContain('Nothing runs after it');
@@ -416,7 +416,7 @@ describe('TransportPicker: what missing it costs (issue #135)', () => {
 
 		const text = normalizedText(mountPicker({ itinerary, alternatives: [transit] }));
 
-		expect(text).toContain('Planned for Mon, 1 Jun, arriving by 06:15');
+		expect(text).toContain('Planned for Mon, 1 Jun, arriving by 6:15am');
 	});
 });
 

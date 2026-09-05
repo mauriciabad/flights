@@ -6,15 +6,9 @@
 	 * itinerary total immediately" means in practice; StayPicker.svelte owns the actual
 	 * switch, this component only renders one option and reports a click.
 	 */
-	import type { RoomKind } from '$lib/domain';
 	import { formatMoney, stayTotalForNights } from './pricing';
+	import { ROOM_KIND_LABELS } from './room-kind';
 	import type { StayOption } from './types';
-
-	const ROOM_KIND_LABELS: Record<RoomKind, string> = {
-		dorm: 'Dorm bed',
-		private: 'Private room',
-		'female-dorm': 'Female-only dorm'
-	};
 
 	interface Props {
 		option: StayOption;

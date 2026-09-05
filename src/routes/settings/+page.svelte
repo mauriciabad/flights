@@ -11,12 +11,14 @@
 	 * runs in the browser, so the skeleton below is a one-tick safety net, not a real
 	 * loading state.
 	 *
-	 * The page grew a second thing to set, so the heading it grew under stopped being true:
-	 * the `h1` is "Settings" and the keys now sit in their own labelled section beneath it.
-	 * The currency picker goes last on purpose. Issue #123 already established that the
-	 * providers are what people come to this page for, and moved the export bar above the
-	 * list so it would not push them below the fold on a phone; a card added at the top
-	 * would undo that decision for a setting most people touch once.
+	 * The page grew things to set beyond the keys, so the heading it grew under stopped
+	 * being true: the `h1` is "Settings" and the keys now sit in their own labelled section
+	 * beneath it. The two display pickers go last on purpose. Issue #123 already
+	 * established that the providers are what people come to this page for, and moved the
+	 * export bar above the list so it would not push them below the fold on a phone; a card
+	 * added at the top would undo that decision for a setting most people touch once. The
+	 * clock (issue #229) sits below the currency because it changes nothing but the glyphs,
+	 * where the currency changes what every provider is asked for.
 	 */
 	import { keyStore } from '$lib/keys';
 	import { Skeleton } from '$lib/components';
@@ -24,6 +26,7 @@
 	import CurrencyPicker from './CurrencyPicker.svelte';
 	import ProviderKeyCard from './ProviderKeyCard.svelte';
 	import KeyExportImport from './KeyExportImport.svelte';
+	import TimeFormatPicker from './TimeFormatPicker.svelte';
 </script>
 
 <svelte:head>
@@ -82,6 +85,7 @@
 	</section>
 
 	<CurrencyPicker />
+	<TimeFormatPicker />
 </div>
 
 <style>

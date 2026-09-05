@@ -24,6 +24,7 @@ import { greatCircleDistanceKm, unpricedTransferLegs } from '$lib/domain';
 import { scaleFareForParty, sumMoney } from '$lib/algorithm/build';
 import { formatDuration, formatLongDuration, formatMoney } from '$lib/format';
 import { formatDistanceKm } from '$lib/stays/distance';
+import { freeTimeDays } from './free-time-days';
 
 export type ItineraryMetricId =
 	| 'in-flight'
@@ -59,9 +60,14 @@ export const ALL_METRIC_IDS: readonly ItineraryMetricId[] = [
 /**
  * The four figures a results card carries, and the argument for each one.
  *
- * Free time is what the stopover is actually worth. In-flight and airport waiting are
- * the two halves of "how much of this trip is spent travelling", and they are the pair
- * the traveller trades against price. Door to door closes it.
+ * Free time is what the stopover is actually worth, and since issue #228 it is a count of
+ * whole days rather than a duration. The card gets the count alone: the two edge times and
+ * the stay they bracket are the expanded panel's `StopoverBlock`, because seven lines
+ * repeated down a results list is not a results screen.
+ *
+ * In-flight and airport waiting are the two halves of "how much of this trip is spent
+ * travelling", and they are the pair the traveller trades against price. Door to door
+ * closes it.
  *
  * Nights is deliberately absent: the trip strip above this rail already prints "2 nights
  * in Vienna" in bold teal, so a NIGHTS cell repeated the one figure the card shows as a
@@ -98,7 +104,13 @@ function buildMetric(itinerary: Itinerary, id: ItineraryMetricId): ItineraryMetr
 			return {
 				id,
 				label: 'Free time',
-				value: formatLongDuration(itinerary.times.free),
+				// Issue #228. This cell used to be `formatLongDuration(times.free)`, and the
+				// owner's objection to that is the issue: "showing the duration as '2d 15h
+				// free' on the free days is misleading and wrong". A duration answers "how
+				// long"; what a person asks about a stopover is how many whole days they
+				// get. `StopoverBlock` in the expanded panel is the long form of this cell:
+				// the same count, with its two edge times and the stay they bracket.
+				value: freeTimeDays(itinerary.freeTime.start, itinerary.freeTime.end)?.count ?? 'No full days',
 				tone: 'stopover'
 			};
 		case 'nights':
