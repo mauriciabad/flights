@@ -1,0 +1,315 @@
+{
+ "properties": [
+  {
+   "id": 320470,
+   "name": "Borgo Ripa Urban Travel",
+   "overallRating": {
+    "overall": 82,
+    "numberOfRatings": "295"
+   },
+   "latitude": 41.8874274,
+   "longitude": 12.4785009,
+   "type": "HOSTEL",
+   "address1": "Lungotevere Ripa 3",
+   "lowestPricePerNight": {
+    "value": "53.35",
+    "currency": "EUR"
+   },
+   "lowestPrivatePricePerNight": {
+    "value": "177.84",
+    "currency": "EUR"
+   },
+   "lowestDormPricePerNight": {
+    "value": "53.35",
+    "currency": "EUR"
+   },
+   "lowestAveragePricePerNight": {
+    "value": "53.35",
+    "currency": "EUR"
+   },
+   "lowestAverageDormPricePerNight": {
+    "value": "53.35",
+    "currency": "EUR"
+   },
+   "lowestAveragePrivatePricePerNight": {
+    "value": "183.77",
+    "currency": "EUR"
+   },
+   "distance": {
+    "value": 1.45,
+    "units": "km"
+   },
+   "city": {
+    "id": "36",
+    "name": "Rome",
+    "hrpRating": "80"
+   },
+   "country": {
+    "id": "105",
+    "name": "Italy"
+   },
+   "rooms": {
+    "dorms": [
+     {
+      "id": 912457,
+      "name": "Standard 6 Bed Male Dorm",
+      "capacity": "6",
+      "basicType": "Male Dorm",
+      "ensuite": false,
+      "averagePrice": {
+       "value": "62.40",
+       "currency": "EUR"
+      }
+     },
+     {
+      "id": 912455,
+      "name": "Standard 4 Bed Male Dorm",
+      "capacity": "4",
+      "basicType": "Male Dorm",
+      "ensuite": false,
+      "averagePrice": {
+       "value": "72.80",
+       "currency": "EUR"
+      }
+     }
+    ],
+    "privates": [
+     {
+      "id": 912343,
+      "name": "Standard Double Bed Private Ensuite",
+      "capacity": "2",
+      "basicType": "Dbl Private",
+      "ensuite": true,
+      "averagePrice": {
+       "value": "214.93",
+       "currency": "EUR"
+      }
+     }
+    ]
+   },
+   "images": [
+    {
+     "prefix": "a.hwstatic.com/propertyimages/3/320470/aqazjgrv7pkfacbhv8ys",
+     "suffix": ".jpg"
+    }
+   ]
+  },
+  {
+   "id": 48889,
+   "name": "Sandy Hostel",
+   "overallRating": {
+    "overall": 80,
+    "numberOfRatings": "1396"
+   },
+   "latitude": 41.8967316,
+   "longitude": 12.4956744,
+   "type": "HOSTEL",
+   "address1": "Via Cavour 136, 00184 - Roma",
+   "lowestPricePerNight": {
+    "value": "50.00",
+    "currency": "EUR"
+   },
+   "lowestPrivatePricePerNight": {
+    "value": "150.00",
+    "currency": "EUR"
+   },
+   "lowestDormPricePerNight": {
+    "value": "50.00",
+    "currency": "EUR"
+   },
+   "lowestAveragePricePerNight": {
+    "value": "50.00",
+    "currency": "EUR"
+   },
+   "lowestAverageDormPricePerNight": {
+    "value": "50.00",
+    "currency": "EUR"
+   },
+   "lowestAveragePrivatePricePerNight": {
+    "value": "150.00",
+    "currency": "EUR"
+   },
+   "distance": {
+    "value": 1.08,
+    "units": "km"
+   },
+   "city": {
+    "id": "36",
+    "name": "Rome",
+    "hrpRating": "80"
+   },
+   "country": {
+    "id": "105",
+    "name": "Italy"
+   },
+   "rooms": {
+    "dorms": [
+     {
+      "id": 472735,
+      "name": "Standard 4 Bed Female Dorm",
+      "capacity": "4",
+      "basicType": "Female Dorm",
+      "ensuite": false,
+      "averagePrice": {
+       "value": "50.00",
+       "currency": "EUR"
+      }
+     },
+     {
+      "id": 561026,
+      "name": "Standard 4 Bed Female Dorm",
+      "capacity": "4",
+      "basicType": "Female Dorm",
+      "ensuite": false,
+      "averagePrice": {
+       "value": "50.00",
+       "currency": "EUR"
+      }
+     },
+     {
+      "id": 631824,
+      "name": "Standard 4 Bed Female Dorm",
+      "capacity": "4",
+      "basicType": "Female Dorm",
+      "ensuite": false,
+      "averagePrice": {
+       "value": "50.00",
+       "currency": "EUR"
+      }
+     }
+    ],
+    "privates": [
+     {
+      "id": 451998,
+      "name": "Basic Twin Private Ensuite",
+      "capacity": "2",
+      "basicType": "Private",
+      "ensuite": true,
+      "averagePrice": {
+       "value": "150.00",
+       "currency": "EUR"
+      }
+     },
+     {
+      "id": 618577,
+      "name": "Basic Twin Private Ensuite",
+      "capacity": "2",
+      "basicType": "Private",
+      "ensuite": true,
+      "averagePrice": {
+       "value": "150.00",
+       "currency": "EUR"
+      }
+     }
+    ]
+   },
+   "images": [
+    {
+     "prefix": "a.hwstatic.com/propertyimages/4/48889/1",
+     "suffix": ".jpg"
+    }
+   ]
+  },
+  {
+   "id": 289082,
+   "name": "Il Plancton",
+   "overallRating": {
+    "overall": 87,
+    "numberOfRatings": "441"
+   },
+   "latitude": 41.905583,
+   "longitude": 12.463894,
+   "type": "HOSTEL",
+   "address1": "Via Crescenzio 43",
+   "lowestPricePerNight": {
+    "value": "52.01",
+    "currency": "EUR"
+   },
+   "lowestDormPricePerNight": {
+    "value": "52.01",
+    "currency": "EUR"
+   },
+   "lowestAveragePricePerNight": {
+    "value": "52.01",
+    "currency": "EUR"
+   },
+   "lowestAverageDormPricePerNight": {
+    "value": "52.01",
+    "currency": "EUR"
+   },
+   "distance": {
+    "value": 1.72,
+    "units": "km"
+   },
+   "city": {
+    "id": "36",
+    "name": "Rome",
+    "hrpRating": "80"
+   },
+   "country": {
+    "id": "105",
+    "name": "Italy"
+   },
+   "rooms": {
+    "dorms": [
+     {
+      "id": 632806,
+      "name": "Basic 6 Bed Mixed Dorm Ensuite",
+      "capacity": "6",
+      "basicType": "Mixed Dorm",
+      "ensuite": true,
+      "averagePrice": {
+       "value": "61.19",
+       "currency": "EUR"
+      }
+     },
+     {
+      "id": 853151,
+      "name": "Basic 4 Bed Female Dorm Ensuite",
+      "capacity": "4",
+      "basicType": "Female Dorm",
+      "ensuite": true,
+      "averagePrice": {
+       "value": "67.79",
+       "currency": "EUR"
+      }
+     },
+     {
+      "id": 1005162,
+      "name": "Basic 4 Bed Male Dorm Ensuite",
+      "capacity": "4",
+      "basicType": "Male Dorm",
+      "ensuite": true,
+      "averagePrice": {
+       "value": "67.79",
+       "currency": "EUR"
+      }
+     }
+    ],
+    "privates": []
+   },
+   "images": [
+    {
+     "prefix": "a.hwstatic.com/propertyimages/2/289082/brhfn18mfz4qemvcf0qa",
+     "suffix": ".jpg"
+    }
+   ]
+  }
+ ],
+ "location": {
+  "city": {
+   "id": 36,
+   "name": "Rome",
+   "idCountry": 105,
+   "country": "Italy"
+  },
+  "region": {
+   "id": "126",
+   "name": "Lazio"
+  }
+ },
+ "pagination": {
+  "numberOfPages": 1,
+  "totalNumberOfItems": 3
+ }
+}

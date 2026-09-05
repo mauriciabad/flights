@@ -13,7 +13,7 @@
  * Issue #80: the one `Stay` picked here has to be one the party can actually book, not
  * merely the cheapest one a provider happened to return — a `female-dorm` a group has no
  * female travellers for is not a cheaper option, it is a wrong total. `fetchCheapestStay`
- * filters by `stays/female-dorm-fit.ts` (issue #27's own rule, reused rather than
+ * filters by `stays/gendered-room-fit.ts` (issue #27's own rule, reused rather than
  * re-derived) before ranking, and `fetchConnectionResources` keeps every candidate found
  * alongside the pick (`ConnectionResourcesWithStayCandidates.stayCandidates`) so a caller
  * still has real alternatives to offer once a stay picker is wired up, instead of only this
@@ -61,11 +61,7 @@ import {
   maxPlausibleTransitMinutes,
 } from "../domain";
 import type { ConnectionResources } from "../algorithm/build";
-import {
-  femaleDormFit,
-  isFemaleDormSelectable,
-  isWomenOnlyStay,
-} from "../stays/female-dorm-fit";
+import { isStayBookableByGroup } from "../stays/gendered-room-fit";
 import {
   NIGHTS_ASSUMED_BEFORE_A_PAIRING_EXISTS,
   stopoverStayCostMinorUnits,
@@ -153,25 +149,6 @@ export function rankStaysForStopover(
       stopoverStayCostMinorUnits(a, connectionCoordinates, NIGHTS_ASSUMED_BEFORE_A_PAIRING_EXISTS) -
       stopoverStayCostMinorUnits(b, connectionCoordinates, NIGHTS_ASSUMED_BEFORE_A_PAIRING_EXISTS),
   );
-}
-
-/**
- * Whether this `Stay` can be booked as the whole party's one stay — issue #80. Every
- * non-`female-dorm` room kind always qualifies; a `female-dorm` goes through
- * `stays/female-dorm-fit.ts`'s rule, built for issue #27's picker and reused here rather
- * than re-derived, so the pipeline and the picker can never disagree about what counts as
- * bookable. A zero-female group excludes it outright, and so does a mixed group — `Stay`
- * is priced as one flat per-night figure for the whole party, and there is no way to book
- * a female-only dorm for 1 of 4 travellers as "the" stay without inventing a formula
- * nobody asked for, the same call #27's picker already made and documents in its own UI.
- */
-function isStaySelectable(
-  stay: Stay,
-  travellers: number | undefined,
-  females: number | undefined,
-): boolean {
-  if (!isWomenOnlyStay(stay)) return true;
-  return isFemaleDormSelectable(femaleDormFit(travellers, females));
 }
 
 /** Preference order when more than one `Transfer` mode is on offer for the same A-to-B:
@@ -507,7 +484,7 @@ function servesAnyRequestedMode(
 interface StaySearchOutcome {
   /** Every `Stay` returned, cheapest first, gender-eligibility NOT applied. */
   candidates: Stay[];
-  /** The cheapest candidate that is also `isStaySelectable` for this party, or
+  /** The cheapest candidate that is also `isStayBookableByGroup` for this party, or
    * `undefined` when every candidate found is a `female-dorm` this party cannot fully
    * use — never a stay nobody in the group can book, no matter how cheap. */
   selected: Stay | undefined;
@@ -528,7 +505,7 @@ interface StaySearchOutcome {
  * cap would be left out of `widenTo` here exactly the way it is for flights, still showing
  * up in `report.skipped` rather than being auto-run.
  *
- * Issue #80: filtering by `isStaySelectable` happens BEFORE picking the cheapest, not
+ * Issue #80: filtering by `isStayBookableByGroup` happens BEFORE picking the cheapest, not
  * after — the previous version ranked by raw price alone and returned index `[0]`, which
  * could and did hand a female-only dorm to a group with no female travellers. A price for
  * a bed nobody in the party can book is not a cheaper option, it is a wrong answer.
@@ -574,7 +551,7 @@ async function fetchCheapestStay(
   );
   const candidates = rankStaysForStopover(inSearchCurrency, query.near);
   const selected = candidates.find((stay) =>
-    isStaySelectable(stay, travellers, females),
+    isStayBookableByGroup(stay, travellers, females),
   );
   return { candidates, selected };
 }
@@ -597,7 +574,7 @@ export interface FetchConnectionResourcesInput {
   /** `SearchQuery.travellers`/`.females` — the only two fields this module needs from the
    * whole query, threaded down rather than passing the query object itself so this stays
    * a narrow interface (AGENTS.md). An absent `females` is NOT the same as `0` — see
-   * `stays/female-dorm-fit.ts`'s own doc comment, which this module matches rather than
+   * `stays/gendered-room-fit.ts`'s own doc comment, which this module matches rather than
    * inventing a third interpretation. */
   travellers?: number;
   females?: number;
@@ -661,7 +638,7 @@ export interface ConnectionResourcesWithStayCandidates extends ConnectionResourc
    * applied — the candidate list issue #80 exists to stop discarding, so a results page
    * has real alternatives to hand issue #27's `StayPicker` instead of only this
    * pipeline's already-decided pick. `stay` above is this list's cheapest entry that also
-   * passes `isStaySelectable` for this party. Empty, not missing, when nothing was found. */
+   * passes `isStayBookableByGroup` for this party. Empty, not missing, when nothing was found. */
   stayCandidates: Stay[];
   /** Issue #114: every `Transfer` a usable provider returned for the connection-airport-
    * to-hotel leg, landing-buffer already applied to each one (the same buffer

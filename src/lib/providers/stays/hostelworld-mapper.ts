@@ -66,17 +66,30 @@ export function toMoney(price: HostelworldPrice | undefined): Money | undefined 
 }
 
 /**
- * Hostelworld's own `basicType` for a room ("Mixed Dorm", "Female Dorm", "Private", "Dbl
- * Private") mapped onto domain/stay.ts's three kinds, falling back to the room's display
- * name when `basicType` is absent.
+ * Hostelworld's own `basicType` for a room mapped onto domain/stay.ts's room kinds,
+ * falling back to the room's display name when `basicType` is absent.
  *
- * Female is tested first because "Female Dorm" satisfies the dorm test too, and getting
- * that order wrong prices a women-only room as mixed inventory — issue #27's whole point is
- * that those are not the same beds.
+ * The five values a live page actually carries, counted across Rome, London, Berlin and
+ * Paphos on 2026-09-05 with `tools/probe-female-dorms.mjs`: "Mixed Dorm" (226), "Private"
+ * (159), "Female Dorm" (74), "Dbl Private" (38), "Male Dorm" (12). Not one room in those
+ * 91 properties was missing a `basicType`, so the name fallback is a guard rather than a
+ * path this provider takes.
+ *
+ * `basicType` is consulted ALONE when it is there, rather than concatenated with the
+ * display name the way this used to work. Hostelworld's taxonomy is structured and the
+ * name is prose, and matching prose against the same substrings lets a marketing sentence
+ * overrule the field that knows the answer.
+ *
+ * Female is tested first because "Female Dorm" contains "male" as well as "dorm", so
+ * either of the other two tests would swallow it. Getting that order wrong prices a
+ * women-only room as inventory anyone can book. Issue #27's whole point is that those
+ * are not the same beds, and issue #288's is that a male dorm is not either.
  */
 export function classifyRoomKind(room: HostelworldRoom): RoomKind | undefined {
-	const label = `${room.basicType ?? ''} ${room.name ?? ''}`.toLowerCase();
+	const basicType = room.basicType?.trim() ?? '';
+	const label = (basicType.length > 0 ? basicType : (room.name ?? '')).toLowerCase();
 	if (label.includes('female')) return 'female-dorm';
+	if (label.includes('male')) return 'male-dorm';
 	if (label.includes('dorm')) return 'dorm';
 	if (label.includes('private') || label.includes('apartment') || label.includes('room')) {
 		return 'private';
@@ -85,8 +98,8 @@ export function classifyRoomKind(room: HostelworldRoom): RoomKind | undefined {
 }
 
 /** The cheapest room of one kind among the room types Hostelworld returned, by minor units
- * in whatever currency each is quoted in. Only ever used for `female-dorm`, which has no
- * property-level field — see `mapPropertyToStays`. */
+ * in whatever currency each is quoted in. Used for the two restricted dorm kinds, which
+ * have no property-level field of their own. See `mapPropertyToStays`. */
 function cheapestRoomPriceOfKind(
 	rooms: readonly HostelworldRoom[] | undefined,
 	kind: RoomKind
@@ -99,6 +112,35 @@ function cheapestRoomPriceOfKind(
 		if (!cheapest || price.minorUnits < cheapest.minorUnits) cheapest = price;
 	}
 	return cheapest;
+}
+
+/**
+ * Whether `lowestAverageDormPricePerNight` may be sold as a MIXED dorm bed. Issue #288's
+ * root cause, and the one line that decides it.
+ *
+ * That field is unqualified: Hostelworld calls it the cheapest dorm here and says nothing
+ * about who may sleep in it. Passing it straight through as a `dorm` invents a bed anyone
+ * can book at properties whose every listed dorm is restricted. Measured on 2026-09-05
+ * with `tools/probe-female-dorms.mjs`: 10 of Rome's 30 properties, 2 of Berlin's 30 and 1
+ * of London's 30 are exactly that. The London one is "Hostelle - women only hostel
+ * London", the property from issue #207 that the owner was recommended and could not stay
+ * in; every dorm it lists is a Female Dorm, and it was still offering a 26.59 mixed bed.
+ *
+ * So the figure only becomes a mixed dorm when the room list confirms a mixed dorm exists.
+ * When the list holds only restricted dorms, those kinds are priced from their own rooms
+ * instead and this figure is dropped. Its price may well be the cheaper one, but there is
+ * no way to tell WHICH restricted kind it belongs to at a property listing both, and
+ * guessing is what this whole issue is about. Too high is the safe direction (the mapper's
+ * `mapPropertyToStays` comment argues why); inventing an unrestricted bed is not.
+ *
+ * An empty or absent room list means Hostelworld sent no room breakdown at all, which
+ * never once happened across those 91 properties (`show-rooms=1` is mandatory, see
+ * hostelworld-client.ts). There is no evidence in either direction then, so the figure is
+ * passed through as it always was.
+ */
+function listsAMixedDorm(dorms: readonly HostelworldRoom[] | undefined): boolean {
+	if (!dorms || dorms.length === 0) return true;
+	return dorms.some((room) => classifyRoomKind(room) === 'dorm');
 }
 
 /** `{prefix, suffix}` is a URL with its scheme missing, and nothing else. Confirmed 200
@@ -144,20 +186,28 @@ function coordinatesOf(property: HostelworldProperty | undefined): Coordinates |
  * the two collapse to the same value (46.78 each, same property, 2026-09-04). A per-stay
  * total could not do that.
  *
- * ## Female dorms come from a different place, and are not directly comparable
+ * ## Restricted dorms come from a different place, and are not directly comparable
  *
- * No property-level field carries a female-only price, so that one is the cheapest
- * `Female Dorm` in `rooms.dorms` (present only with `show-rooms=1`). That array is not the
- * property's full inventory — its cheapest mixed dorm can price ABOVE the property-level
- * dorm average, which is only possible if the property-level figure draws on rates the
- * array does not list. So the female-dorm `Stay` is a real, bookable per-night rate that
- * is not guaranteed to be the cheapest female bed there.
+ * No property-level field carries a female-only or male-only price, so each of those is
+ * the cheapest room of that `basicType` in `rooms.dorms` (present only with
+ * `show-rooms=1`). That array is not the property's full inventory. Its cheapest mixed
+ * dorm can price ABOVE the property-level dorm average, which is only possible if the
+ * property-level figure draws on rates the array does not list. So a restricted-dorm
+ * `Stay` is a real, bookable per-night rate that is not guaranteed to be the cheapest bed
+ * of its kind there.
  *
  * That asymmetry is safe in the one direction it is used. `search/resources.ts` ranks every
- * candidate by price and picks the cheapest bookable one, so a female-dorm price that is
- * too HIGH only ever loses to a mixed dorm; it can never make a total look cheaper than it
- * is. Deriving a female price from the property-level average instead would be the
+ * candidate by price and picks the cheapest bookable one, so a restricted-dorm price that
+ * is too HIGH only ever loses to a mixed dorm; it can never make a total look cheaper than
+ * it is. Deriving a restricted price from the property-level average instead would be the
  * dangerous direction, and inventing one is not on the table.
+ *
+ * The mixed dorm needs the same care in reverse, which is issue #288 and `listsAMixedDorm`
+ * above: the property-level figure only becomes a `dorm` when the room list confirms a
+ * mixed dorm exists there. Without that check it manufactured a bed anyone could book at
+ * every women-only and men-only property in the page, which is how "Number of females"
+ * came to change nothing a traveller could see. Whatever `females` said, the fabricated
+ * mixed bed was always eligible, always cheapest and always the answer.
  *
  * ## A dorm figure is per bed, so `guests` multiplies it. Measured, because it decides a price
  *
@@ -241,11 +291,15 @@ export function mapPropertyToStays(
 			pricePerPersonPerNight: perPerson
 		};
 
+	const dorms = property.rooms?.dorms;
 	const privateRate = toMoney(property.lowestAveragePrivatePricePerNight);
 	const stays: (Stay | undefined)[] = [
-		dormStay('dorm', toMoney(property.lowestAverageDormPricePerNight)),
+		listsAMixedDorm(dorms)
+			? dormStay('dorm', toMoney(property.lowestAverageDormPricePerNight))
+			: undefined,
 		privateRate && { property: propertyRecord, roomKind: 'private', pricePerNight: privateRate },
-		dormStay('female-dorm', cheapestRoomPriceOfKind(property.rooms?.dorms, 'female-dorm'))
+		dormStay('female-dorm', cheapestRoomPriceOfKind(dorms, 'female-dorm')),
+		dormStay('male-dorm', cheapestRoomPriceOfKind(dorms, 'male-dorm'))
 	];
 
 	return stays.filter((stay): stay is Stay => stay !== undefined);

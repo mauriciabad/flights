@@ -6,8 +6,16 @@ import type { Money } from "./money";
  * matters because "Number of females" (brief line 34) decides whether those beds are even
  * available to filter in or out — a female dorm bed is not the same inventory as a mixed
  * dorm bed, so collapsing them into one `dorm` kind would lose that filter.
+ *
+ * `male-dorm` joined them for issue #288, and for the same reason rather than for
+ * symmetry's sake. Hostelworld sells one: `basicType: "Male Dorm"` is 8 of the 69 dorm
+ * rooms in a live Rome page and 3 of the 135 in London
+ * (`tools/probe-female-dorms.mjs`, 2026-09-05). Without a kind of its own it classified
+ * as `dorm`, so the app offered a woman a bed she cannot book. Issue #27's rule pointed
+ * the other way. Two of those Rome properties sell dorm beds and nothing but male ones,
+ * so it is not a rounding error either.
  */
-export type RoomKind = "dorm" | "private" | "female-dorm";
+export type RoomKind = "dorm" | "private" | "female-dorm" | "male-dorm";
 
 /**
  * A guest score together with the scale its provider published it on.

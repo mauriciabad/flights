@@ -68,6 +68,11 @@ export function classifyBookingRoomKind(
     /dorm|dormitory|\bbed in\b|shared\s+room/i.test(roomName);
   if (isDormLike && /\bfemale\b|\bwomen'?s?\b|\bladies\b/i.test(roomName))
     return "female-dorm";
+  // Issue #288, and the same ordering rule as the female test above it: a men-only dorm
+  // a woman cannot book is the same error as a women-only one a man cannot, and Booking
+  // has no structured field for either.
+  if (isDormLike && /\bmale\b|\bmen'?s?\b|\bgents\b/i.test(roomName))
+    return "male-dorm";
   if (isDormLike) return "dorm";
   return "private";
 }

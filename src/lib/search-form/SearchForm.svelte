@@ -328,7 +328,7 @@
 					fallback={0}
 					min={0}
 					placeholder="Any"
-					hint="Only checks whether female-only dorms fit your group. It never affects pricing."
+					hint="Decides whether a women-only or men-only dorm fits your group. It changes which beds you are offered, never what one costs."
 					error={errors.females}
 					onblur={() => markTouched('females')}
 				/>

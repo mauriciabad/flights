@@ -2,13 +2,13 @@
 	/**
 	 * One row in the "cheaper first" alternatives list (issue #27). Clicking a bookable
 	 * row hands its cheapest eligible option to the parent as the new selected stay;
-	 * a property with nothing this group can book (every room is a female-only dorm
-	 * they can't use) still shows, per rank.ts's "sort last, don't drop", but as an
+	 * a property with nothing this group can book (every room is a women-only or
+	 * men-only dorm they can't use) still shows, per rank.ts's "sort last, don't drop", but as an
 	 * inert row with the reason stated rather than a price.
 	 */
 	import type { Airport } from '$lib/domain';
 	import { formatPropertyRating } from '$lib/format';
-	import { femaleDormFit, femaleDormFitMessage } from './female-dorm-fit';
+	import { stayGenderFitMessage } from './gendered-room-fit';
 	import { formatDistanceKm, haversineDistanceKm } from './distance';
 	import { formatMoney, stayTotalForNights } from './pricing';
 	import { cheapestSelectableOption } from './rank';
@@ -39,12 +39,19 @@
 		return centre ? haversineDistanceKm(property.coordinates, centre) : undefined;
 	});
 
-	// Every ineligible option here is a female-only dorm this group can't (fully) use
-	// (rank.ts's `isOptionSelectable`) - reusing that message rather than a generic "not
-	// available" keeps the reason honest and specific, same copy the open property's own
-	// tiles show for the identical situation.
+	// Every ineligible option here is a women-only or men-only room this group can't
+	// (fully) use (rank.ts's `isOptionSelectable`) - reusing that message rather than a
+	// generic "not available" keeps the reason honest and specific, same copy the open
+	// property's own tiles show for the identical situation.
+	//
+	// Issue #288: asked of the cheapest room rather than assumed to be about women, since
+	// a property whose only dorm is a men-only one gives a female traveller the mirror
+	// answer. The cheapest is the one whose tile the reader would have reached for.
+	const cheapestOption = $derived(
+		group.options.reduce((a, b) => (b.stay.pricePerNight.minorUnits < a.stay.pricePerNight.minorUnits ? b : a))
+	);
 	const unavailableReason = $derived(
-		cheapest ? undefined : femaleDormFitMessage(femaleDormFit(travellers, females), travellers, females)
+		cheapest ? undefined : stayGenderFitMessage(cheapestOption.stay, travellers, females)
 	);
 
 	// Issue #281, the same one-retry shape StayPicker's own photograph uses: hold the

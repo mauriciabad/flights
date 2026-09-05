@@ -794,6 +794,44 @@ party total. A private, an Agoda quote and a Booking quote set nothing there, be
 splitting a room between the people in it would print a figure no provider ever gave. See
 `src/lib/domain/stay.ts`.
 
+### Which dorms the room list actually names, and what it does not say
+
+Measured for issue #288 with `tools/probe-female-dorms.mjs` on 2026-09-05, from a real page
+origin: Rome, London, Berlin and Paphos, `show-rooms=1`, 91 properties and 350 rooms.
+
+| `basicType` | rooms |
+|---|---|
+| Mixed Dorm | 226 |
+| Private | 159 |
+| Female Dorm | 74 |
+| Dbl Private | 38 |
+| Male Dorm | 12 |
+
+Three things worth having written down.
+
+**`basicType` is always there, and so is `capacity`.** Not one room in 350 was missing
+either. `classifyRoomKind` reads `basicType` alone when it is present and keeps the display
+name only as a guard, so a marketing sentence cannot overrule the structured field.
+
+**Hostelworld sells male-only dorms.** Only 12 rooms, but 2 of Rome's 30 properties sell
+dorm beds and nothing but male ones, so it is not a rounding error. They classified as
+ordinary dorms until #288, which offered a woman a bed she cannot book. `domain/stay.ts`
+has a `male-dorm` kind now.
+
+**`lowestAverageDormPricePerNight` is not evidence of a mixed dorm.** The field is
+unqualified: it names the cheapest dorm and says nothing about who may sleep in it. 13 of
+those 91 properties carry it while listing no mixed dorm at all, 10 in Rome, 2 in Berlin
+and 1 in London. The London one is `Hostelle - women only hostel London`, the property from
+#207. Passed through as a `dorm` it invented a bed anyone could book, always cheapest and
+always eligible, which is how "Number of females" came to change nothing on screen. The
+mapper now emits that figure as a `dorm` only where the room list holds a mixed room.
+
+Note the direction of the remaining uncertainty. The room array is NOT the property's full
+inventory: at Il Plancton in Rome the property-level 52.01 prices below its cheapest listed
+mixed room at 61.19. So a restricted-dorm rate taken from the room list can be higher than
+the cheapest bed of that kind really is. Too high only ever loses during ranking; too low
+would make a total look cheaper than it is, and inventing one is not on the table.
+
 ### The price field that is a trap
 
 `lowestDormPricePerNight` is the cheapest SINGLE night of the stay, a "from" teaser.
