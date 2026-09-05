@@ -1,6 +1,7 @@
 import { expect, test } from './support/fixtures';
 import { FIXTURE_FLIGHT_NUMBERS, FIXTURE_PRICES } from './support/fixture-markers';
 import { mockAllKeylessProviders, mockHostelworld, routeRyanairFlights } from './support/providers';
+import { waitForSearchToSettle } from '../shared/search-wait';
 
 /**
  * Issue #288: "the female-traveller count changes nothing". The search form promises to
@@ -61,7 +62,7 @@ async function searchWithFemales(page: import('@playwright/test').Page, females:
 	await page.goto(
 		`/results/?dep=2027-03-08&arr=2027-03-27&from=BCN&to=TLL&people=2&females=${females}`
 	);
-	await expect(page.getByText('still searching')).toHaveCount(0, { timeout: 30_000 });
+	await waitForSearchToSettle(page, { timeout: 30_000 });
 
 	await expect(page.locator('.result-card').first()).toBeVisible();
 	// The timeline preview's own caption is what unfolds the full timeline since #278.

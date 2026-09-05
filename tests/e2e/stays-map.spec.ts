@@ -2,6 +2,7 @@ import { expect, test, type Page } from './support/fixtures';
 import { FIXTURE_FLIGHT_NUMBERS, FIXTURE_PRICES } from './support/fixture-markers';
 import { mockAllKeylessProviders, mockHostelworld, routeRyanairFlights } from './support/providers';
 import { customiser, openTimeline, pickStripSegment } from './support/results-ui';
+import { waitForSearchToSettle } from '../shared/search-wait';
 
 /**
  * Issues #319 and #307: the stay list, the map it opens, and the photographs.
@@ -73,7 +74,7 @@ async function openStays(page: Page): Promise<string[]> {
 	await page.goto('/results/?dep=2027-03-08&arr=2027-03-27&from=BCN&to=TLL');
 	// The reading this file takes is worthless while a provider is still answering: a card
 	// measured mid-search is a card whose stay list has not arrived.
-	await expect(page.getByText('still searching')).toHaveCount(0, { timeout: 30_000 });
+	await waitForSearchToSettle(page, { timeout: 30_000 });
 	await expect(page.locator('.result-card').first()).toBeVisible();
 	await openTimeline(page);
 	await pickStripSegment(page, 'stopover');

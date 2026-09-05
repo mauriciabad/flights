@@ -2,6 +2,7 @@ import { test, expect } from './support/fixtures';
 import type { Page } from './support/fixtures';
 import { FIXTURE_FLIGHT_NUMBERS, FIXTURE_PRICES } from './support/fixture-markers';
 import { mockAllKeylessProviders, routeRyanairFlights } from './support/providers';
+import { waitForSearchToSettle } from '../shared/search-wait';
 
 /**
  * Getting out of a screen you opened. Issue #311.
@@ -43,7 +44,7 @@ async function openResults(page: Page) {
 		route.fulfill({ status: 200, contentType: 'application/json', body: EMPTY_MAP_STYLE })
 	);
 	await page.goto(RESULTS_URL);
-	await expect(page.getByText('still searching')).toHaveCount(0, { timeout: 20_000 });
+	await waitForSearchToSettle(page, { timeout: 20_000 });
 	await expect(page.locator('.result-card').first()).toBeVisible();
 }
 

@@ -23,7 +23,7 @@
 import { test, expect } from './support/bench';
 import { KIWI_PUBLIC_HOST } from './support/catalog';
 import { resultsUrl } from './support/scenario';
-import { resultCards, waitForSearchToFinish } from './support/page';
+import { resultCards, waitForSearchToSettle } from './support/page';
 
 /**
  * `ROUTE_PROBES_PER_KEPT_CANDIDATE` (3) times `DEFAULT_MAX_CANDIDATES` (6), which is the
@@ -55,7 +55,7 @@ test.describe('route-graph fan-out', () => {
 	test('one search asks a bounded number of airports for their routes', async ({ page, bench, withKeys }) => {
 		await withKeys();
 		await page.goto(resultsUrl());
-		await waitForSearchToFinish(page);
+		await waitForSearchToSettle(page);
 
 		const lookups = routeGraphLookups(bench.requests);
 		expect(
@@ -77,12 +77,12 @@ test.describe('route-graph fan-out', () => {
 		await withKeys();
 		await page.clock.install({ time: new Date('2026-09-20T09:00:00Z') });
 		await page.goto(resultsUrl());
-		await waitForSearchToFinish(page);
+		await waitForSearchToSettle(page);
 		expect(await resultCards(page).count(), 'the first search found nothing to cache').toBeGreaterThan(0);
 
 		bench.resetLog();
 		await page.goto(resultsUrl());
-		await waitForSearchToFinish(page);
+		await waitForSearchToSettle(page);
 
 		const lookups = routeGraphLookups(bench.requests);
 		expect(

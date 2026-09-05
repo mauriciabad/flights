@@ -2,6 +2,7 @@ import { expect, test } from './support/fixtures';
 import { FIXTURE_FLIGHT_NUMBERS, FIXTURE_PRICES } from './support/fixture-markers';
 import { mockAllKeylessProviders, mockHostelworld, routeRyanairFlights } from './support/providers';
 import { openTimeline } from './support/results-ui';
+import { waitForSearchToSettle } from '../shared/search-wait';
 
 /**
  * Issue #279's bed block, measured rather than read.
@@ -82,7 +83,7 @@ test.describe('the picked bed on the card (issue #279)', () => {
 
 		await page.setViewportSize({ width: 375, height: 780 });
 		await page.goto('/results/?dep=2027-03-08&arr=2027-03-27&from=BCN&to=TLL');
-		await expect(page.getByText('still searching')).toHaveCount(0, { timeout: 20_000 });
+		await waitForSearchToSettle(page, { timeout: 20_000 });
 
 		await openTheDetail(page);
 
@@ -167,7 +168,7 @@ test.describe('the picked bed on the card (issue #279)', () => {
 
 		await page.setViewportSize({ width: 375, height: 780 });
 		await page.goto('/results/?dep=2027-03-08&arr=2027-03-27&from=BCN&to=TLL');
-		await expect(page.getByText('still searching')).toHaveCount(0, { timeout: 20_000 });
+		await waitForSearchToSettle(page, { timeout: 20_000 });
 
 		await openTheDetail(page);
 

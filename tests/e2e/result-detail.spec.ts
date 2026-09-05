@@ -2,6 +2,7 @@ import { test, expect } from './support/fixtures';
 import { FIXTURE_FLIGHT_NUMBERS, FIXTURE_PRICES } from './support/fixture-markers';
 import { mockAllKeylessProviders, routeRyanairFlights } from './support/providers';
 import { customiser, openTimeline, pickStripSegment } from './support/results-ui';
+import { waitForSearchToSettle } from '../shared/search-wait';
 
 /**
  * Issue #104: the regression guard for the gap that issue describes. Before it, a real
@@ -72,7 +73,7 @@ test.describe('result detail (issue #104)', () => {
 		);
 
 		await page.goto('/results/?dep=2027-03-08&arr=2027-03-27&from=BCN&to=TLL');
-		await expect(page.getByText('still searching')).toHaveCount(0, { timeout: 20_000 });
+		await waitForSearchToSettle(page, { timeout: 20_000 });
 
 		const card = page.locator('.result-card').first();
 		await expect(card).toBeVisible();
@@ -172,7 +173,7 @@ test.describe('result detail (issue #104)', () => {
 		]);
 
 		await page.goto('/results/?dep=2027-03-08&arr=2027-03-27&from=BCN&to=TLL');
-		await expect(page.getByText('still searching')).toHaveCount(0, { timeout: 20_000 });
+		await waitForSearchToSettle(page, { timeout: 20_000 });
 
 		const card = page.locator('.result-card').first();
 		const stripCaption = card.locator('.trip-strip-caption-mid');

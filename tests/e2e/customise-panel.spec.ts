@@ -3,6 +3,7 @@ import type { Page } from './support/fixtures';
 import { FIXTURE_FLIGHT_NUMBERS, FIXTURE_PRICES } from './support/fixture-markers';
 import { mockAllKeylessProviders, routeRyanairFlights } from './support/providers';
 import { customiser, openTimeline, pickStripSegment, pickTimelineSegment } from './support/results-ui';
+import { waitForSearchToSettle } from '../shared/search-wait';
 
 /**
  * Issue #278: the card stopped being a thing you open, and the controls moved beside it.
@@ -49,7 +50,7 @@ async function openResults(page: Page) {
 		route.fulfill({ status: 200, contentType: 'application/json', body: EMPTY_MAP_STYLE })
 	);
 	await page.goto('/results/?dep=2027-03-08&arr=2027-03-27&from=BCN&to=TLL');
-	await expect(page.getByText('still searching')).toHaveCount(0, { timeout: 20_000 });
+	await waitForSearchToSettle(page, { timeout: 20_000 });
 	const card = page.locator('.result-card').first();
 	await expect(card).toBeVisible();
 	return card;

@@ -22,13 +22,13 @@
 
 import { test, expect } from './support/bench';
 import { resultsUrl } from './support/scenario';
-import { resultCards, waitForSearchToFinish } from './support/page';
+import { resultCards, waitForSearchToSettle } from './support/page';
 
 test.describe('the bench still answers this app', () => {
 	test('a recorded search produces itineraries', async ({ page, bench, withKeys }) => {
 		await withKeys();
 		await page.goto(resultsUrl());
-		await waitForSearchToFinish(page);
+		await waitForSearchToSettle(page);
 
 		const ryanairRequests = bench.requests.filter((request) => request.providerId === 'ryanair');
 		expect(

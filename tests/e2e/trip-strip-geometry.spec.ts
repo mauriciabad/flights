@@ -2,6 +2,7 @@ import { test, expect } from './support/fixtures';
 import type { Page } from './support/fixtures';
 import { FIXTURE_FLIGHT_NUMBERS, FIXTURE_PRICES } from './support/fixture-markers';
 import { mockAllKeylessProviders, mockHostelworld, routeRyanairFlights } from './support/providers';
+import { waitForSearchToSettle } from '../shared/search-wait';
 
 /**
  * Where the trip strip's captions and hit targets actually are, in pixels.
@@ -63,7 +64,7 @@ async function openResults(page: Page, url = '/results/?dep=2027-03-08&arr=2027-
 	await page.goto(url);
 	// The reading is worthless until the search settles: a card mid-stream is a different
 	// height and a different set of segments from the one a traveller reads.
-	await expect(page.getByText('still searching')).toHaveCount(0, { timeout: 20_000 });
+	await waitForSearchToSettle(page, { timeout: 20_000 });
 	const card = page.locator('.result-card').first();
 	await expect(card).toBeVisible();
 	return card;

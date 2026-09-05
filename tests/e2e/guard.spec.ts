@@ -214,6 +214,31 @@ test.describe('fixtures cannot be mistaken for real results', () => {
 		).toEqual([]);
 	});
 
+	test('nothing waits for the results page to stop saying "still searching"', () => {
+		// Issue #337. `toHaveCount(0)` on that text is satisfied by absence, and the text is
+		// absent on a page that has not started searching for the same reason it is absent
+		// on a finished one. Ten runs on the fixture results-layout.spec.ts uses: nine
+		// returned in under 40ms with zero cards on screen, and the first card arrived 3.8
+		// seconds later. Both suites wait on `data-search-phase` now
+		// (tests/shared/search-wait.ts), and half a migration would keep the flake while
+		// hiding which specs still have it.
+		const suiteDirs = [e2eDir, path.join(repoRoot, 'tests', 'qa')];
+		const offenders = suiteDirs
+			.flatMap((dir) => findFiles(dir, (name) => name.endsWith('.ts')))
+			.filter((file) => file !== thisFile)
+			.map((file) => ({ file, code: stripComments(readFileSync(file, 'utf-8')) }))
+			.filter(({ code }) => code.includes("getByText('still searching')"))
+			.map(({ file }) => relative(file));
+
+		expect(
+			offenders,
+			'These files wait on the "still searching" text:\n' +
+				offenders.join('\n') +
+				'\nThat wait passes before the search starts. Use `waitForSearchToSettle` from ' +
+				'tests/shared/search-wait.ts, which waits for the page to say it settled.'
+		).toEqual([]);
+	});
+
 	test('the probe tools observe the network, never answer it', () => {
 		// tools/probe-*.mjs are the instruments AGENTS.md and docs/ACCEPTANCE.md tell
 		// agents to verify production with. An instrument that can serve a fixture cannot

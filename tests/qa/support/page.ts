@@ -2,24 +2,38 @@
  * Reading the results screen the way a person reads it.
  *
  * Every locator here is derived from what is actually rendered — `.result-card`,
- * `.freshness-badge`, `.provenance`, the "still searching" subhead — because the app has no
- * test ids and adding them would be a production change in a QA-only PR. If a selector here
- * stops matching, the screen changed, which is a thing worth being told about rather than a
- * thing to route around.
+ * `.freshness-badge`, `.provenance` — because the app has no test ids and adding them would
+ * be a production change in a QA-only PR. If a selector here stops matching, the screen
+ * changed, which is a thing worth being told about rather than a thing to route around.
+ *
+ * The one exception is `data-search-phase`, which issue #337 added to the results page for
+ * these suites to wait on. It is there because no rendered thing could answer the question:
+ * the screen says "still searching" or nothing, and "nothing" covers both a search that has
+ * not begun and one that has ended.
  */
 
 import { expect, type Locator, type Page } from '@playwright/test';
+import { waitForSearchToSettle as settle } from '../../shared/search-wait';
 
 /** Live keyless providers are far slower than a recording — a real Ryanair round trip per
  * leg per candidate, and OSRM throttles itself on top. Measured at just over 45s on a
  * warm connection, so recorded runs keep the tight bound and live runs get room. */
 const SEARCH_TIMEOUT_MS = process.env.QA_LIVE === '1' ? 180_000 : 45_000;
 
-/** The results subhead drops "still searching" when the stream reaches its final snapshot.
- * That, not a timeout, is how this suite knows a search has finished. */
-export async function waitForSearchToFinish(page: Page, timeout = SEARCH_TIMEOUT_MS): Promise<void> {
-	await expect(page.locator('.results-subhead')).toBeVisible({ timeout: 15_000 });
-	await expect(page.getByText('still searching')).toHaveCount(0, { timeout });
+/**
+ * Blocks until the results page says its search has settled. Issue #337.
+ *
+ * This used to wait for the words "still searching" to be absent, which a page that has
+ * not started searching satisfies just as well as one that has finished. It happened to
+ * hold on this bench — measured six times, the indicator was already up before `goto`
+ * returned and no provider request arrived after the wait — but nothing enforced that,
+ * and the e2e suite is where the same assertion lands on the wrong side of the race.
+ * `budget.ts` is the owner's money, so it does not get to depend on luck.
+ *
+ * A thin wrapper over the shared helper, only to carry the live-versus-recorded bound.
+ */
+export async function waitForSearchToSettle(page: Page, timeout = SEARCH_TIMEOUT_MS): Promise<void> {
+	await settle(page, { timeout });
 }
 
 export function resultCards(page: Page): Locator {

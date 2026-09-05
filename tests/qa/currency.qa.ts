@@ -24,7 +24,7 @@
 import { test, expect } from './support/bench';
 import { QA_KEYS } from './support/bench';
 import { resultsUrl } from './support/scenario';
-import { currenciesIn, resultCards, resultsText, waitForSearchToFinish } from './support/page';
+import { currenciesIn, resultCards, resultsText, waitForSearchToSettle } from './support/page';
 
 async function connectionCities(page: import('@playwright/test').Page): Promise<string[]> {
 	return resultCards(page).locator('.city').allInnerTexts();
@@ -36,7 +36,7 @@ test.describe('currency', () => {
 		// Run one: no stay keys, so no stay is ever priced and nothing can disagree about a
 		// currency. This is the baseline the traveller already has.
 		await page.goto(resultsUrl());
-		await waitForSearchToFinish(page);
+		await waitForSearchToSettle(page);
 		const bedless = await connectionCities(page);
 
 		// Run two: identical search, with the two stay providers configured. An init script
@@ -46,7 +46,7 @@ test.describe('currency', () => {
 			window.localStorage.setItem('flights.byokKeys.v1', JSON.stringify(keys));
 		}, QA_KEYS);
 		await page.goto(resultsUrl());
-		await waitForSearchToFinish(page);
+		await waitForSearchToSettle(page);
 		const priced = await connectionCities(page);
 
 		const lost = bedless.filter((city) => !priced.includes(city));
@@ -68,7 +68,7 @@ test.describe('currency', () => {
 	test('a rendered itinerary quotes one currency', async ({ page, withKeys }) => {
 		await withKeys();
 		await page.goto(resultsUrl());
-		await waitForSearchToFinish(page);
+		await waitForSearchToSettle(page);
 
 		const cards = await resultCards(page).all();
 		expect(cards.length, 'no itineraries rendered, so there is nothing to check').toBeGreaterThan(0);
@@ -106,7 +106,7 @@ test.describe('currency', () => {
 	test('a configured stay provider prices at least one bed', async ({ page, bench, withKeys }) => {
 		await withKeys();
 		await page.goto(resultsUrl());
-		await waitForSearchToFinish(page);
+		await waitForSearchToSettle(page);
 
 		const cards = await resultCards(page).allInnerTexts();
 		expect(cards.length, 'nothing was found, so nothing could carry a bed').toBeGreaterThan(0);

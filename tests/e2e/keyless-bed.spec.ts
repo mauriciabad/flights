@@ -1,6 +1,7 @@
 import { test, expect } from './support/fixtures';
 import { FIXTURE_FLIGHT_NUMBERS, FIXTURE_PRICES } from './support/fixture-markers';
 import { mockAllKeylessProviders, mockHostelworld, routeRyanairFlights } from './support/providers';
+import { waitForSearchToSettle } from '../shared/search-wait';
 
 /**
  * `docs/ACCEPTANCE.md` condition 3, "A bed is priced into the total", for a visitor who has
@@ -66,7 +67,7 @@ test.describe('a bed is priced with no key at all (ACCEPTANCE.md condition 3)', 
 		);
 
 		await page.goto('/results/?dep=2027-03-08&arr=2027-03-27&from=BCN&to=TLL');
-		await expect(page.getByText('still searching')).toHaveCount(0, { timeout: 20_000 });
+		await waitForSearchToSettle(page, { timeout: 20_000 });
 
 		const card = page.locator('.result-card').first();
 		await expect(card).toBeVisible();

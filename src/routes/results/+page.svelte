@@ -429,6 +429,31 @@
 	const stillSearching = $derived(searchesInFlight > 0);
 
 	/**
+	 * Issue #337: where this page's search has got to, as an attribute a test can wait for.
+	 *
+	 * The traveller has only ever been told two of these three. "Still searching" is on
+	 * screen or it is not, and it is absent both before the search starts and after it
+	 * ends, which is correct for a person watching one page and useless as a signal: 34
+	 * spec files waited for that text to be missing, and nine runs in ten that wait returned
+	 * about 3.8 seconds before the first card existed, because the text was missing for the
+	 * "not started" reason. `results-stream-consumption.spec.ts` is the sharpest case — the
+	 * regression guard for #87, a page frozen before it renders anything, was passing on a
+	 * page that had rendered nothing.
+	 *
+	 * `settled` is the one a test wants and the DOM could not express: `primarySearchDone`
+	 * is only ever set from a snapshot carrying `done`, so no page that has not run a search
+	 * can reach it. `searching` covers a widen the traveller triggered as well as the
+	 * primary run, for the same reason `stillSearching` does.
+	 *
+	 * Deliberately NOT counting `refreshesInFlight`. A background revalidation must not
+	 * make either the page or this attribute claim a search is running (#293), and a spec
+	 * that needs the network quiet as well should say so.
+	 */
+	const searchPhase: 'idle' | 'searching' | 'settled' = $derived(
+		stillSearching ? 'searching' : primarySearchDone ? 'settled' : 'idle'
+	);
+
+	/**
 	 * Issue #71: the stopovers this search has actually surfaced, handed to `/results/when/`
 	 * so it knows which two legs to price a year of.
 	 *
@@ -1195,7 +1220,7 @@
 	>
 </svelte:head>
 
-<div class="results-page">
+<div class="results-page" data-search-phase={searchPhase}>
 	{#if !parsedQuery}
 		<EmptyState title={noQueryCopy.title} description={noQueryCopy.description}>
 			{#snippet action()}

@@ -3,6 +3,7 @@ import { routeRyanairFlights } from './support/providers';
 import { FIXTURE_FLIGHT_NUMBERS, FIXTURE_NAMES, FIXTURE_PRICES } from './support/fixture-markers';
 import { mockHostelworld, mockKiwiPublic } from './support/providers';
 import { openTimeline } from './support/results-ui';
+import { waitForSearchToSettle } from '../shared/search-wait';
 
 /**
  * Issue #118: the owner's own complaint, verified against a real search end to end
@@ -279,7 +280,7 @@ test.describe('itinerary map: every transfer leg, distinct markers, honest geome
 			toLoc: `FIXTURE end point@${TBS_LOC.lat},${TBS_LOC.lon}`
 		});
 		await page.goto(`/results/?${params}`);
-		await expect(page.getByText('still searching')).toHaveCount(0, { timeout: 20_000 });
+		await waitForSearchToSettle(page, { timeout: 20_000 });
 
 		const card = page.locator('.result-card').first();
 		await expect(card).toBeVisible();

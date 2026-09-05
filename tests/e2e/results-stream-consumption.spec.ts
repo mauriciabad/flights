@@ -1,5 +1,6 @@
 import { test, expect } from './support/fixtures';
 import { mockAllKeylessProviders } from './support/providers';
+import { waitForSearchToSettle } from '../shared/search-wait';
 
 /**
  * Regression coverage for issue #87: a real search on the results page never returned
@@ -50,8 +51,13 @@ test.describe('results: issue #87 regression (search stream must be consumed)', 
 		await expect(page.locator('h1')).toContainText('TLL');
 
 		// The actual regression check: an effect stuck in `effect_update_depth_exceeded`
-		// never clears "still searching", no matter how long this waits.
-		await expect(page.getByText('still searching')).toHaveCount(0, { timeout: 15_000 });
+		// never reaches a settled search, no matter how long this waits.
+		//
+		// Issue #337: this line used to wait for the words "still searching" to be absent,
+		// which the frozen page it guards against satisfies perfectly — #87's symptom was a
+		// page that rendered nothing at all. The guard was passing on the failure it exists
+		// to catch. `settled` comes from a snapshot carrying `done`, so it cannot.
+		await waitForSearchToSettle(page, { timeout: 15_000 });
 
 		// Ryanair is free and keyless — its plate appearing at all proves the stream was
 		// genuinely drained into `providerStatuses`, not merely started and abandoned.

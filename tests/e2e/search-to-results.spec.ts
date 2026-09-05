@@ -1,6 +1,7 @@
 import { expect, test } from './support/fixtures';
 import { FIXTURE_FLIGHT_NUMBERS, FIXTURE_PRICES } from './support/fixture-markers';
 import { mockAllKeylessProviders, routeRyanairFlights } from './support/providers';
+import { waitForSearchToSettle } from '../shared/search-wait';
 
 /**
  * The journey from a search to its results, which used to be two tabs and a person's own
@@ -88,7 +89,7 @@ test.describe('search to results', () => {
 		await mockConnectingFlights(page);
 
 		await page.goto(`/results/?dep=${DEPARTURE}&arr=${ARRIVAL}&from=BCN&to=TLL`);
-		await expect(page.getByText('still searching')).toHaveCount(0, { timeout: 20_000 });
+		await waitForSearchToSettle(page, { timeout: 20_000 });
 
 		const editToggle = page.getByRole('button', { name: 'Edit search' });
 		await expect(editToggle).toHaveAttribute('aria-expanded', 'false');
@@ -256,7 +257,7 @@ test.describe('on a phone', () => {
 		await mockConnectingFlights(page);
 
 		await page.goto(`/results/?dep=${DEPARTURE}&arr=${ARRIVAL}&from=BCN&to=TLL`);
-		await expect(page.getByText('still searching')).toHaveCount(0, { timeout: 20_000 });
+		await waitForSearchToSettle(page, { timeout: 20_000 });
 
 		const card = page.locator('.result-card').first();
 		await expect(card).toBeVisible();
@@ -282,7 +283,7 @@ test.describe('on a phone', () => {
 		await fillValidSearch(page);
 		await page.getByRole('button', { name: 'Search flights' }).click();
 		await page.waitForURL(/\/results\//);
-		await expect(page.getByText('still searching')).toHaveCount(0, { timeout: 20_000 });
+		await waitForSearchToSettle(page, { timeout: 20_000 });
 
 		// `.app-content` is the element that scrolls, not the document (#177), and
 		// SvelteKit only ever resets the document. Without the layout's own reset this

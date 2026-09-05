@@ -37,7 +37,7 @@
 
 import { test, expect, type Bench } from './support/bench';
 import { DESTINATION, ORIGIN, ROUTE_GRAPH, flies, resultsUrl } from './support/scenario';
-import { resultCards, waitForSearchToFinish } from './support/page';
+import { resultCards, waitForSearchToSettle } from './support/page';
 
 /** `cheapestPerDay` echoes back neither airport, so the route is in the request path — the
  * same place `ryanair-mapper.ts` has to take it from. */
@@ -147,7 +147,7 @@ test.describe('no fabricated flights', () => {
 	test('every itinerary names its provider and flies legs that provider offered', async ({ page, bench, withKeys }) => {
 		await withKeys();
 		await page.goto(resultsUrl());
-		await waitForSearchToFinish(page);
+		await waitForSearchToSettle(page);
 
 		const cards = await resultCards(page).all();
 		expect(cards.length, 'nothing was found, so nothing can be checked for fabrication').toBeGreaterThan(0);
@@ -225,7 +225,7 @@ test.describe('no fabricated flights', () => {
 	test('every flight number on screen came out of a timetable', async ({ page, bench, withKeys }) => {
 		await withKeys();
 		await page.goto(resultsUrl());
-		await waitForSearchToFinish(page);
+		await waitForSearchToSettle(page);
 
 		const cards = await resultCards(page).all();
 		expect(cards.length, 'nothing was found, so nothing can be checked for fabrication').toBeGreaterThan(0);
@@ -264,7 +264,7 @@ test.describe('no fabricated flights', () => {
 	test('a route the provider does not fly produces no offer for it', async ({ page, bench, withKeys }) => {
 		await withKeys();
 		await page.goto(resultsUrl());
-		await waitForSearchToFinish(page);
+		await waitForSearchToSettle(page);
 
 		// The scenario's whole premise: the origin has no direct route to the destination.
 		// If one shows up anyway, something invented it — which is exactly the shape of the

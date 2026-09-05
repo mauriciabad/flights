@@ -2,6 +2,7 @@ import { test, expect } from './support/fixtures';
 import { FIXTURE_FLIGHT_NUMBERS } from './support/fixture-markers';
 import { mockAllKeylessProviders, routeRyanairFlights } from './support/providers';
 import type { RyanairFlightSpec } from './support/providers';
+import { waitForSearchToSettle } from '../shared/search-wait';
 
 /**
  * Issue #232: the card says where this trip's fare sits among the fares this browser has
@@ -58,7 +59,7 @@ async function search(page: import('@playwright/test').Page, flights: RyanairFli
 	// most-recently-registered matching route first.
 	await routeRyanairFlights(page.context(), flights);
 	await page.goto(RESULTS_URL);
-	await expect(page.getByText('still searching')).toHaveCount(0, { timeout: 20_000 });
+	await waitForSearchToSettle(page, { timeout: 20_000 });
 	await expect(page.locator('.result-card').first()).toBeVisible();
 }
 

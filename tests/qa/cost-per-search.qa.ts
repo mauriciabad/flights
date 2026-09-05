@@ -16,7 +16,7 @@
 import { test, expect } from './support/bench';
 import { REQUESTS_PER_SEARCH, budgetsThatOutrunTheirFreeTier, describeVerdict, judge } from './budget';
 import { resultsUrl } from './support/scenario';
-import { waitForSearchToFinish } from './support/page';
+import { waitForSearchToSettle } from './support/page';
 
 test.describe('cost per search', () => {
 	test('the declared budget still leaves a month of searches', () => {
@@ -30,7 +30,7 @@ test.describe('cost per search', () => {
 	test('one search stays inside every provider budget', async ({ page, bench, withKeys }) => {
 		await withKeys();
 		await page.goto(resultsUrl());
-		await waitForSearchToFinish(page);
+		await waitForSearchToSettle(page);
 
 		const over: string[] = [];
 		for (const [providerId, count] of bench.countsByProvider()) {
@@ -58,7 +58,7 @@ test.describe('cost per search', () => {
 	test('every provider the search touches has a declared budget', async ({ page, bench, withKeys }) => {
 		await withKeys();
 		await page.goto(resultsUrl());
-		await waitForSearchToFinish(page);
+		await waitForSearchToSettle(page);
 
 		const undeclared = [...bench.countsByProvider().keys()].filter(
 			(providerId) => providerId !== undefined && REQUESTS_PER_SEARCH[providerId] === undefined

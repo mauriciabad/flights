@@ -51,7 +51,7 @@
 import { expect, test } from './support/bench';
 import { HOSTELWORLD_HOST } from './support/catalog';
 import { FIXTURE_TEXT_TOKEN } from './support/markers';
-import { waitForSearchToFinish } from './support/page';
+import { waitForSearchToSettle } from './support/page';
 import { resultsUrl } from './support/scenario';
 import type { Locator, Page } from '@playwright/test';
 
@@ -156,7 +156,7 @@ test.describe("a stay provider's failure reaches the page in its own words", () 
 
 		test('the stopover quotes the status and the sentence Hostelworld sent', async ({ page, bench }) => {
 			await page.goto(resultsUrl());
-			await waitForSearchToFinish(page);
+			await waitForSearchToSettle(page);
 
 			// Vacuity guard first. Everything below is about what the page does with a failed
 			// response, so a run where no request ever reached Hostelworld would assert nothing
@@ -212,7 +212,7 @@ test.describe("a stay provider's failure reaches the page in its own words", () 
 	 */
 	test('the same fold carries no failure line when Hostelworld answers normally', async ({ page, bench }) => {
 		await page.goto(resultsUrl());
-		await waitForSearchToFinish(page);
+		await waitForSearchToSettle(page);
 
 		expect(
 			bench.countFor('hostelworld'),
