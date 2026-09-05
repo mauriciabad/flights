@@ -10,7 +10,8 @@
 import { scoreItinerary } from '$lib/algorithm/score';
 import type { Airport, Duration, FlightOffer, Itinerary, LocalDateTime, Money } from '$lib/domain';
 import type { ProviderId } from '$lib/providers/types';
-import type { ScoredResult, StopoverLengths } from './types';
+import { departureDateOf } from '$lib/algorithm/pairings';
+import type { DepartureDates, ScoredResult, StopoverLengths } from './types';
 
 function localDateTime(local: string): LocalDateTime {
 	return { local, timeZone: 'Europe/Vienna', utcOffsetMinutes: 120 };
@@ -70,6 +71,11 @@ export function makeItinerary(
 		freeTimeStart?: string;
 		freeTimeEnd?: string;
 		travellers?: number;
+		/** Issue #387: the outbound's own local departure, which is the date the departure
+		 * ladder groups on. Local wall clock at the origin airport, never an instant. */
+		outboundDeparture?: string;
+		outboundArrival?: string;
+		onwardDeparture?: string;
 	} = {}
 ): Itinerary {
 	const connectionCode = overrides.connectionAirportCode ?? 'VIE';
@@ -78,6 +84,9 @@ export function makeItinerary(
 	if (overrides.outboundCarrier) {
 		outboundFlight.carrier = { iataCode: overrides.outboundCarrier, name: `${overrides.outboundCarrier} Airline` };
 	}
+	if (overrides.outboundDeparture) outboundFlight.departure = localDateTime(overrides.outboundDeparture);
+	if (overrides.outboundArrival) outboundFlight.arrival = localDateTime(overrides.outboundArrival);
+	if (overrides.onwardDeparture) onwardFlight.departure = localDateTime(overrides.onwardDeparture);
 	const travellers = overrides.travellers ?? 1;
 	const nightsInConnection = overrides.nightsInConnection ?? 0;
 	// Mirrors `buildItineraries`' own total: both fares scaled to the party by each offer's
@@ -132,6 +141,7 @@ export function makeScoredResult(
 		sequence?: number;
 		variantCount?: number;
 		stopoverLengths?: StopoverLengths;
+		departureDates?: DepartureDates;
 	} = {}
 ): ScoredResult {
 	idCounter += 1;
@@ -151,6 +161,12 @@ export function makeScoredResult(
 			minimum: nights,
 			minimumItinerary: itinerary,
 			isFlightChange: nights === 0
+		},
+		// Issue #387: one pairing leaves on one day, which is what almost every test here
+		// wants. `departureDates` above overrides it for the tests about the ladder itself.
+		departure: overrides.departureDates ?? {
+			options: [{ date: departureDateOf(itinerary), itinerary }],
+			current: departureDateOf(itinerary)
 		},
 		price: {
 			parts: [

@@ -19,11 +19,15 @@ import type { IataAirlineCode, IataAirportCode, Itinerary, Money } from '$lib/do
 import { currencyExponent, majorUnitsOf } from '$lib/domain';
 import type { ItineraryScore } from '$lib/algorithm/score';
 import { moneyCostOf } from '$lib/algorithm/score';
-import { defaultStopoverLength, isFlightChange, stopoverLengths, stopoverOfLength } from '$lib/algorithm/stopover-length';
+import { isFlightChange } from '$lib/algorithm/stopover-length';
+import { departureDateOf, departureDates, pairingsOn, resolveStopover } from '$lib/algorithm/pairings';
+import type { PairingView } from '$lib/algorithm/pairings';
+import type { DepartureDateOption } from './departure-ladder';
 import type { ProviderError, ProviderId, ProviderKind } from '$lib/providers/types';
 import type { ProviderIssueReason } from '$lib/components';
 import type {
 	ItineraryGroup,
+	ItineraryResult,
 	ItinerarySources,
 	PriceCalendarOutcome,
 	ProviderStatus,
@@ -33,6 +37,19 @@ import type {
 } from '$lib/search';
 
 export type { ItineraryGroup, ProviderStatus, SearchSnapshot, WidenOption } from '$lib/search';
+
+/**
+ * How to read one of `ItineraryGroup.variants`, for every function that ranks them.
+ *
+ * One definition rather than one per call site, because since issue #387 four things rank
+ * the same pairings: the card's own default, the nights ladder, the departure ladder and
+ * the flight pickers. A picker that ranked by score while the card ranked by price would
+ * put a saving on a row and then not honour it when pressed.
+ */
+export const VARIANT_VIEW: PairingView<ItineraryResult> = {
+	tripOf: (variant) => variant.score.itinerary,
+	costOf: (variant) => moneyCostOf(variant.score)
+};
 
 /**
  * How trustworthy an itinerary's headline price is right now, reconstructed for display
@@ -182,9 +199,44 @@ export interface ScoredResult {
 	 * total, and the nights control is what reaches them; counting them here would have
 	 * promised "3 more flight times" and delivered three other trips. */
 	variantCount: number;
-	/** Issue #224: the stopover lengths this connection offers, and which one is shown. */
+	/** Issue #224: the stopover lengths this connection offers, and which one is shown.
+	 * Narrowed to the chosen departure date when the traveller has picked one, so pressing a
+	 * nights rung can never move them to another day behind their back. */
 	stopover: StopoverLengths;
+	/** Issue #387: the dates this connection can leave on, and which one is shown. */
+	departure: DepartureDates;
 	price: ResultProvenance;
+}
+
+/**
+ * Issue #387: which days this stopover can be flown on, and the trip on each.
+ *
+ * The second axis of `ItineraryGroup.variants`, and the one that had no control until this
+ * issue. The owner, on his own search:
+ *
+ * > if I want to know what's the best combination for flying on the 17 for example I can't
+ * > because it shows this message and I have to manually figure out the best outgoing flight
+ */
+export interface DepartureDates {
+	/** Every date this connection offers, in calendar order, with the trip on each, so a
+	 * rung prices itself before it is pressed. */
+	options: DepartureDateOption[];
+	/** The date the shown trip leaves on. */
+	current: string;
+}
+
+/**
+ * What the traveller has pinned about one card. Both fields are absent until they say
+ * otherwise, and absent means "whatever the app recommends", which is the same law
+ * `TravellerChoices` states for the record this is a slice of.
+ *
+ * Structural rather than an import of `TravellerChoices`, so `results/types.ts` keeps
+ * knowing nothing about the record the page holds; every field here is a member of it.
+ */
+export interface PairingRequest {
+	nights?: number;
+	/** `YYYY-MM-DD` in the origin airport's own calendar. */
+	departureDate?: string;
 }
 
 /** Maps the pipeline's real error taxonomy onto the vocabulary `ErrorState.svelte`
@@ -269,22 +321,32 @@ function oldestPartAgeMs(parts: readonly ProvenancePart[]): number {
  * whole search's lifetime, the same "first-seen order, never recomputed" rule
  * `stream-order.ts` needs to keep ties stable.
  *
- * `requestedNights` is issue #224's nights control: the length the traveller has chosen
- * for THIS stopover, if any. Omitted, or asking for a length this city cannot do, falls
- * back to `group.best`, the shortest one it can. Nothing here re-prices or re-fetches:
- * every length is a pairing this search already has in `variants`, so moving between them
- * costs no provider request at all.
+ * `requested` is what the traveller has pinned about this card: issue #224's nights control
+ * and issue #387's departure date. Either one omitted, or asking for something this city
+ * cannot do, falls back to the pairing it would have opened on anyway. Nothing here
+ * re-prices or re-fetches: every length and every date is a pairing this search already has
+ * in `variants`, so moving between them costs no provider request at all.
  */
 export function deriveScoredResult(
 	group: ItineraryGroup,
 	snapshot: Pick<SearchSnapshot, 'providers' | 'done'>,
 	sequence: number,
-	requestedNights?: number
+	requested?: PairingRequest
 ): ScoredResult {
-	const lengths = stopoverLengths(group.variants, (variant) => variant.score.itinerary.nightsInConnection);
-	const minimum = defaultStopoverLength(lengths, (variant) => moneyCostOf(variant.score));
-	const chosen =
-		(requestedNights === undefined ? undefined : stopoverOfLength(lengths, requestedNights)) ?? minimum;
+	// Issue #387: the date ladder is computed over every pairing, because it IS the list of
+	// days on offer, and each rung honours the pinned length where its own date can.
+	const dates = departureDates(group.variants, VARIANT_VIEW, requested?.nights);
+
+	// The lengths, on the other hand, are the ones the chosen DAY can do. Offering a length
+	// that only exists on another date would move the traveller to that date the moment they
+	// pressed it, which is the silent re-optimisation this issue exists to stop. A pinned
+	// date this group cannot do falls back to the whole set rather than emptying the card.
+	const sameDay = requested?.departureDate
+		? pairingsOn(group.variants, VARIANT_VIEW, requested.departureDate)
+		: [];
+	const pool = sameDay.length > 0 ? sameDay : group.variants;
+
+	const { lengths, minimum, chosen } = resolveStopover(pool, VARIANT_VIEW, requested?.nights);
 	// `group.variants` is never empty (a group exists because a variant put it there), so
 	// both of the above resolve; `group.best` is the honest fallback if that ever changes.
 	const shown = chosen?.pick ?? group.best;
@@ -304,6 +366,10 @@ export function deriveScoredResult(
 			minimum: minimumShown.score.itinerary.nightsInConnection,
 			minimumItinerary: minimumShown.score.itinerary,
 			isFlightChange: isFlightChange(lengths)
+		},
+		departure: {
+			options: dates.map((date) => ({ date: date.date, itinerary: date.pick.score.itinerary })),
+			current: departureDateOf(shown.score.itinerary)
 		},
 		price: buildProvenance(shown.sources, snapshot.providers, snapshot.done)
 	};
