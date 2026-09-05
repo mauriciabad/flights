@@ -87,6 +87,7 @@
 	import type { PriceHistory } from '$lib/results/price-band';
 	import { connectionAirportCode } from '$lib/results/types';
 	import type { ScoredResult } from '$lib/results/types';
+	import { revealMinimally } from '$lib/results/reveal-scroll';
 	import { describePriceFreshness, describeSources } from '$lib/results/view-model';
 	import { technicalStopDetail, technicalStopLabel } from '$lib/components/technical-stop-note';
 	import PriceBand from './PriceBand.svelte';
@@ -142,12 +143,16 @@
 	/**
 	 * Issue #278: on a phone the customise panel is a sheet at the foot of the screen, and a
 	 * reader who taps a 3px transfer seam and gets a panel sitting on top of it has lost the
-	 * context that made the tap mean anything.
+	 * context that made the tap mean anything. So a covered strip is scrolled clear.
 	 *
-	 * `scroll-margin-bottom` below inflates this block's box by the sheet's own height for
-	 * scrolling purposes only, so `block: 'nearest'` lands the strip above the sheet rather
-	 * than merely inside the viewport. On a wide screen the margin is zero and this call is a
-	 * no-op for a strip already on screen.
+	 * Issue #308 is what that cost. It was `scroll-margin-bottom` plus
+	 * `scrollIntoView({ block: 'nearest' })`, and the margin inflated this block's box by the
+	 * sheet's whole height for scrolling purposes, so an entirely visible strip read as one
+	 * that did not fit and every tap moved the page. The owner: "it updates my scroll and is
+	 * anoying." `revealMinimally` states the same intent as arithmetic instead: it measures
+	 * what a bottom sheet is actually covering right now and scrolls by the smallest amount
+	 * that clears it, which on a wide screen, where the panel is a sidebar covering nothing,
+	 * is exactly zero.
 	 *
 	 * An effect rather than a handler because the selection arrives as a prop: it can be set
 	 * from the timeline or the map as well as from the strip. It reads props and calls a DOM
@@ -157,11 +162,7 @@
 	let stripEl = $state<HTMLElement>();
 	$effect(() => {
 		if (!selectedSegmentId || !stripEl) return;
-		// `scrollIntoView` takes no notice of `prefers-reduced-motion` on its own, unlike the
-		// CSS transitions app.css already flattens for it. A reader who has asked for less
-		// motion gets the same final position without the travel.
-		const still = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-		stripEl.scrollIntoView({ block: 'nearest', behavior: still ? 'auto' : 'smooth' });
+		revealMinimally(stripEl);
 	});
 
 	/**
@@ -622,27 +623,6 @@
 	/* Desktop-sized padding and gaps were a third of what put the phone card over the
 	   620px it has under the header and tab bar; one card per screen means no comparing. */
 	@media (max-width: 34rem) {
-		/* The customise sheet's own ceiling (`min(50dvh, 26rem)` on the results page) plus a
-		   little air. `scrollIntoView({ block: 'nearest' })` treats this as part of the
-		   strip's box, so a selected segment scrolls clear of the sheet instead of sitting
-		   underneath it. */
-		.card-strip {
-			scroll-margin-bottom: calc(min(50dvh, 26rem) + var(--space-4));
-		}
-
-		.card-main {
-			padding: var(--space-3) var(--space-4);
-			gap: var(--space-3);
-		}
-
-		/* The customise sheet's own ceiling (`min(50dvh, 26rem)` on the results page) plus
-		   a little air. `scrollIntoView({ block: 'nearest' })` treats this as part of the
-		   strip's box, so a selected segment scrolls clear of the sheet instead of sitting
-		   underneath it. */
-		.card-strip {
-			scroll-margin-bottom: calc(min(50dvh, 26rem) + var(--space-4));
-		}
-
 		/* MetricRail's auto-fit grid seats three cells at this width, which leaves the
 		   fourth figure alone on a second row: two by two reads as two pairs, three plus
 		   one reads as a leftover. Scoped to this card because the timeline's totals

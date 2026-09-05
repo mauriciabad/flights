@@ -30,6 +30,7 @@
 	import { DEFAULT_SEARCH_CURRENCY } from '$lib/domain';
 	import type { Airport, IataAirportCode, Itinerary, SearchQuery, Stay } from '$lib/domain';
 	import type { ItinerarySegmentId } from '$lib/itinerary-map/segment-id';
+	import { BOTTOM_SHEET_ATTRIBUTE } from '$lib/results/reveal-scroll';
 	import { recordItineraryGroup } from '$lib/flexible-dates';
 	import { keyStore } from '$lib/keys';
 	import { buildSearchQuery } from '$lib/search-form/model';
@@ -849,7 +850,11 @@
 		// runs from a click handler and writes no state, so there is no reactive loop to
 		// create (AGENTS.md, the `$effect` trap).
 		await tick();
-		panelEl?.focus();
+		// Issue #308: `preventScroll`, because focusing an element scrolls it into view by
+		// default and the panel is the second thing that was moving the page under a
+		// traveller who only tapped a segment. The panel is sticky at the top of its own
+		// column on the only width where it is focused at all, so it is already on screen.
+		panelEl?.focus({ preventScroll: true });
 	}
 
 	function restoreFocus() {
@@ -1285,6 +1290,7 @@
 	<aside
 		bind:this={sheetEl}
 		class="customise-sheet"
+		{...{ [BOTTOM_SHEET_ATTRIBUTE]: '' }}
 		aria-label="Customise the selected trip"
 		tabindex="-1"
 		style:translate={sheetDragY > 0 ? `0 ${sheetDragY}px` : undefined}
