@@ -203,6 +203,13 @@ export function unroutedLegNote(
 		// routes to the one property it picks itself and no other, so nothing has ever been
 		// asked about this address. Distinct from the last sentence in this branch, which
 		// would blame a transport provider for refusing a question nobody put to it.
+		//
+		// First, and that matters more than it looks. `withheldRoad` below describes the leg
+		// the SEARCH routed, to the property the search picked. Once the traveller has moved
+		// to a different one, that refusal is about an address they are no longer looking at,
+		// and printing "the road route in takes 33h" beside this property's name would be
+		// #243's own wrong-address bug arriving from the other direction. Reorder these two
+		// and `itinerary-timeline-format.test.ts` fails on purpose.
 		if (context.transferAnchor === 'unrouted-stay') {
 			return leg === 'to-hotel'
 				? 'Nothing routed to this property, so the journey to it is unknown.'

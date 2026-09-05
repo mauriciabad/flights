@@ -242,6 +242,29 @@ describe('unroutedLegNote', () => {
 		expect(note).toBe('The road route back takes 33h to cover 157 km in a straight line, so it is not offered.');
 	});
 
+	it('lets a property nobody routed win over a refusal about a different one', () => {
+		// Both facts can be true at once and they are about different addresses. `withheldRoad`
+		// describes the leg the SEARCH routed, to the property the search picked; once the
+		// traveller has moved to another one, `transferAnchor` is 'unrouted-stay' and that
+		// refusal is about somewhere they are no longer looking at. Printing it here would be
+		// issue #243's wrong-address bug arriving from the other direction, so the ordering in
+		// `unroutedLegNote` is load-bearing and this is what fails when somebody swaps it.
+		const both = {
+			hasStay: true,
+			nightsInConnection: 1,
+			transferAnchor: 'unrouted-stay' as const,
+			withheldRoad: { count: 2, quickest: 1980 as Duration, straightLineKm: 156.6 }
+		};
+
+		expect(unroutedLegNote('to-hotel', both)).toBe(
+			'Nothing routed to this property, so the journey to it is unknown.'
+		);
+		expect(unroutedLegNote('from-hotel', both)).toBe(
+			'Nothing routed back from this property, so the journey back is unknown.'
+		);
+		expect(unroutedLegNote('to-hotel', both)).not.toMatch(/33h/);
+	});
+
 	it('leaves a nightless connection alone, since there is no hotel leg to route to', () => {
 		// The refusal is true and irrelevant: this traveller is not going to a bed at all, and
 		// the same-day sentence is what they need to read.

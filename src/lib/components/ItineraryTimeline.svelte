@@ -474,17 +474,11 @@
 				<p class="tl-label">
 					{label}<span class="tl-detail-inline tl-detail-absent"
 						>&nbsp;&middot; {unroutedLegNote(leg, {
-<<<<<<< HEAD
 							hasStay: itinerary.stay !== undefined,
 							nightsInConnection: itinerary.nightsInConnection,
 							overnightWait: isOvernightWait(itinerary.freeTime.start, itinerary.freeTime.end),
-							transferAnchor: itinerary.transferAnchor
-=======
-							withheldRoad: withheldRoad?.[leg],
-							hasStay: shown.stay !== undefined,
-							nightsInConnection: shown.nightsInConnection,
-							overnightWait: isOvernightWait(shown.freeTime.start, shown.freeTime.end)
->>>>>>> e931bc8 (Say a road route was refused, not that nobody could route one)
+							transferAnchor: itinerary.transferAnchor,
+							withheldRoad: withheldRoad?.[leg]
 						})}</span
 					>{@render optionMark(segment)}
 				</p>
