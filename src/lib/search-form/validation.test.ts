@@ -19,8 +19,16 @@ function validSearch(): SearchFormFields {
 	return fields;
 }
 
-function messageFor(fields: SearchFormFields, field: keyof typeof FIELD_INPUT_ID) {
-	return issuesByField(validateSearchFields(fields, { today: TODAY }))[field];
+/** A stand-in for the real dataset (issue #327), so these rules stay testable without
+ * loading 165KB of generated JSON to find out that ZZZ is not an airport. */
+const KNOWS_REAL_AIRPORTS = (code: string) => ['BCN', 'OTP'].includes(code);
+
+function messageFor(
+	fields: SearchFormFields,
+	field: keyof typeof FIELD_INPUT_ID,
+	knowsAirport?: (code: string) => boolean
+) {
+	return issuesByField(validateSearchFields(fields, { today: TODAY, knowsAirport }))[field];
 }
 
 describe('validateSearchFields', () => {
@@ -68,6 +76,66 @@ describe('validateSearchFields', () => {
 			}
 		]);
 		expect(hasBlockingIssue(issues)).toBe(false);
+	});
+
+	// Issue #327. The form cannot produce one of these (`AirportField` clears a code it
+	// cannot resolve), but a URL can, and a URL does not go through the form.
+	it('refuses a destination code the dataset has never heard of', () => {
+		const fields = validSearch();
+		fields.destinationAirport = 'ZZZ';
+		expect(messageFor(fields, 'destinationAirport', KNOWS_REAL_AIRPORTS)).toBe(
+			'"ZZZ" is not an airport code we know. Check where you are flying to, or type a city name and pick the airport from the list.'
+		);
+	});
+
+	it('refuses an origin code the dataset has never heard of', () => {
+		const fields = validSearch();
+		fields.originAirport = 'ZZZ';
+		expect(messageFor(fields, 'originAirport', KNOWS_REAL_AIRPORTS)).toBe(
+			'"ZZZ" is not an airport code we know. Check where you are flying from, or type a city name and pick the airport from the list.'
+		);
+	});
+
+	it('names both ends when neither code is an airport', () => {
+		const fields = validSearch();
+		fields.originAirport = 'ZZZ';
+		fields.destinationAirport = 'QQQ';
+		const issues = validateSearchFields(fields, {
+			today: TODAY,
+			knowsAirport: KNOWS_REAL_AIRPORTS
+		});
+		expect(issues.map((issue) => issue.field)).toEqual(['originAirport', 'destinationAirport']);
+		expect(issues[0].message).toContain('"ZZZ"');
+		expect(issues[1].message).toContain('"QQQ"');
+		expect(hasBlockingIssue(issues)).toBe(true);
+	});
+
+	// The same retired code at both ends. "ZZZ is also your origin" would send someone to
+	// change a field that was never the problem.
+	it('says the code is unknown rather than that it repeats the origin', () => {
+		const fields = validSearch();
+		fields.originAirport = 'ZZZ';
+		fields.destinationAirport = 'ZZZ';
+		expect(messageFor(fields, 'destinationAirport', KNOWS_REAL_AIRPORTS)).toContain(
+			'is not an airport code we know'
+		);
+	});
+
+	// The dataset loads asynchronously and `knowsAirport` is absent until it lands. An
+	// absent answer is "not known yet", so a real airport must not read as an error while
+	// the download is in flight.
+	it('says nothing about an unrecognised code when nothing can answer the question', () => {
+		const fields = validSearch();
+		fields.destinationAirport = 'ZZZ';
+		expect(validateSearchFields(fields, { today: TODAY })).toEqual([]);
+	});
+
+	it('still refuses an origin equal to its destination when both are real airports', () => {
+		const fields = validSearch();
+		fields.destinationAirport = 'BCN';
+		expect(messageFor(fields, 'destinationAirport', KNOWS_REAL_AIRPORTS)).toBe(
+			'BCN is also your origin. Pick somewhere else to fly to.'
+		);
 	});
 
 	it('refuses zero travellers', () => {

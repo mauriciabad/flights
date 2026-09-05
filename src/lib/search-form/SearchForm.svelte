@@ -28,6 +28,7 @@
 	 */
 	import { tick, untrack } from 'svelte';
 	import { Button, Icon } from '$lib/components';
+	import { knownAirportCodes } from '$lib/data/known-airports.svelte';
 	import {
 		DEFAULT_LANDING_TO_TRANSPORT_RULES,
 		DEFAULT_MIN_LAYOVER_TIME_MINUTES,
@@ -138,7 +139,20 @@
 		landingToTransportRules: rowsToLandingToTransportRules(transportRows)
 	});
 
-	const issues = $derived(validateSearchFields(effectiveFields, { today }));
+	/**
+	 * Issue #327: the form checks the same dataset the search does. Typing a code that
+	 * resolves to nothing was already impossible (`AirportField` clears one it cannot look
+	 * up), but a URL fills these fields without passing through any of that, and this form
+	 * is what the results page opens over a link carrying `to=ZZZ`. Without this, that
+	 * screen said the search could not run while the form above it showed nothing wrong.
+	 */
+	const issues = $derived.by(() => {
+		const known = knownAirportCodes();
+		return validateSearchFields(effectiveFields, {
+			today,
+			knowsAirport: known ? (code: string) => known.has(code) : undefined
+		});
+	});
 	const allMessages = $derived(issuesByField(issues));
 
 	/**
