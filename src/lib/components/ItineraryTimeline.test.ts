@@ -139,16 +139,18 @@ function renderSelectionHarness(itinerary: Itinerary, options: { withExpansion?:
 	return { root: target, harness };
 }
 
-/** Reads one figure from the totals rail by its label, rather than searching the whole
- * section's text: `formatDuration` can render the same string (e.g. "4h") for two
+/** Reads one figure from the harness's totals rail by its label, rather than searching the
+ * whole section's text: `formatDuration` can render the same string (e.g. "4h") for two
  * different totals that happen to share a value, so matching by the `<dt>` is the only way
  * to be sure which total actually moved.
  *
- * The rail is `MetricRail` now, shared with the results card, so the labels are that
- * component's (`itinerary-metrics.ts`) and its `<dd>` can carry a caveat span alongside
- * the figure; hence the trim. */
+ * The rail belongs to the harness since issue #309 took the timeline's own copy away, and
+ * that makes these assertions stronger rather than weaker: it renders from the itinerary
+ * the CALLER holds, so a figure moving here proves the stepper's edit reached the binding
+ * instead of staying inside the component. Labels are `itinerary-metrics.ts`'s and a `<dd>`
+ * can carry a caveat span alongside its figure; hence the trim. */
 function getTotal(root: HTMLElement, label: string): string {
-	const dt = Array.from(root.querySelectorAll('.itinerary-timeline-totals dt')).find(
+	const dt = Array.from(root.querySelectorAll('.harness-totals dt')).find(
 		(el) => el.textContent === label
 	);
 	const dd = dt?.nextElementSibling;
@@ -159,7 +161,10 @@ function getTotal(root: HTMLElement, label: string): string {
 describe('ItineraryTimeline, editable waiting time recomputes totals', () => {
 	it('raising the origin waiting-time input grows the airport-waiting and total-time totals shown on the page', () => {
 		const itinerary = makeItinerary();
-		const root = renderTimeline(itinerary);
+		// Through the harness, because the rail these read moved there with issue #309. The
+		// figures are rendered from the caller's own itinerary, which is the binding under
+		// test rather than an incidental detail of where the rail lives.
+		const { root } = renderSelectionHarness(itinerary);
 
 		const originInput = root.querySelector<HTMLInputElement>('[data-segment="origin-waiting"] input');
 		expect(originInput).not.toBeNull();
@@ -191,7 +196,7 @@ describe('ItineraryTimeline, editable waiting time recomputes totals', () => {
 		const itinerary = makeItinerary({
 			onwardDeparture: localDateTime('2026-06-03T00:45:00', 'Europe/Vienna', 120)
 		});
-		const root = renderTimeline(itinerary);
+		const { root } = renderSelectionHarness(itinerary);
 
 		const nightsBefore = getTotal(root, 'Nights');
 		const freeTotalBefore = getTotal(root, 'Free time');

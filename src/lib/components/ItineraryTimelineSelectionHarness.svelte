@@ -17,10 +17,19 @@
 	 * the caller holds, which is what stops `ResultDetail`'s stopover block from going on
 	 * describing the trip from before the edit, and `currentItinerary` is how a `.ts` test
 	 * reads what the caller ended up with.
+	 *
+	 * The totals rail below the timeline is this harness's, not the timeline's. Issue #309
+	 * removed the one the timeline used to render, because the results card prints the same
+	 * four figures a few centimetres above it. What the rail is here for is unchanged and is
+	 * the whole point of `bind:itinerary`: it reads the itinerary the CALLER holds, so a
+	 * figure that moves here proves the edit left the timeline, which is exactly what the
+	 * card's own rail does on the real screen.
 	 */
 	import type { Itinerary } from '../domain';
 	import type { ItinerarySegmentId } from '../itinerary-map/segment-id';
+	import { ALL_METRIC_IDS } from './itinerary-metrics';
 	import ItineraryTimeline from './ItineraryTimeline.svelte';
+	import MetricRail from './MetricRail.svelte';
 
 	interface Props {
 		itinerary: Itinerary;
@@ -56,3 +65,5 @@
 	expansion={withExpansion ? probe : undefined}
 	optionMarks={withExpansion ? { 'outbound-flight': '2 flights' } : undefined}
 />
+
+<MetricRail {itinerary} ids={ALL_METRIC_IDS} class="harness-totals" />

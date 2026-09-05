@@ -65,7 +65,6 @@ test.describe('editing a stopover keeps one trip on the screen', () => {
 		const block = detail.locator('.stopover');
 		const toBed = detail.locator('[data-segment="transfer-to-hotel"]');
 		const fromBed = detail.locator('[data-segment="transfer-to-connection-airport"]');
-		const nights = detail.locator('.itinerary-timeline-totals .metric', { hasText: 'Nights' });
 
 		// The property the search routed to, with a journey somebody actually measured: the
 		// row and the block quote the same 25 minutes, which is the agreement under test.
@@ -76,11 +75,12 @@ test.describe('editing a stopover keeps one trip on the screen', () => {
 		await expect(block).toContainText('25m from the airport');
 		await expect(block).toContainText('you arrive 55m after landing');
 		await expect(toBed.locator('.tl-duration')).toHaveText('25m');
-		await expect(nights).toContainText('2');
 		// "Nights 2" since issue #279, where the block's night count became a labelled figure
-		// instead of part of a sentence. The agreement under test is unchanged: the rail's
-		// count and the block's count are the same number.
+		// instead of part of a sentence. Issue #309 removed the timeline's totals rail, which
+		// printed the same count a second time; the agreement now under test is between this
+		// block and the trip strip's caption on the card above it.
 		await expect(block).toContainText('Nights 2');
+		await expect(page.locator('.result-card').first().locator('.trip-strip-caption-mid')).toContainText('2 nights');
 
 		// Issue #250. 1530 minutes at the connection eats a night off the far end of the
 		// stopover. The block used to keep printing the saved trip's window, bed and rate
@@ -89,8 +89,8 @@ test.describe('editing a stopover keeps one trip on the screen', () => {
 		await connectionWait.fill('1530');
 		await connectionWait.dispatchEvent('input');
 
-		await expect(nights).toContainText('1');
 		await expect(block).toContainText('Nights 1');
+		await expect(page.locator('.result-card').first().locator('.trip-strip-caption-mid')).toContainText('1 night');
 
 		// Issue #243. Reaching the stay list is the two taps a traveller makes: open the
 		// stopover row, then pick the other property.

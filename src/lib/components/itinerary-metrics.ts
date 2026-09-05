@@ -46,8 +46,19 @@ export interface ItineraryMetric {
 	note?: string;
 }
 
-/** Everything the builder can produce, in the order a totals bar reads them: the parts
- * first, then what they add up to. */
+/**
+ * Everything the builder can produce, in the order a totals bar reads them: the parts
+ * first, then what they add up to.
+ *
+ * Issue #309 left this without a renderer in the app. The timeline's totals rail was the
+ * only caller, and it printed four of these six a few centimetres under the identical rail
+ * on the card, so it went; the two it did not duplicate, `nights` and `total-price`, are on
+ * the card as the trip strip's caption and as the headline with its receipt. What still
+ * reads it is `ItineraryTimelineSelectionHarness`, which stands in for the card while a
+ * unit test checks that a waiting-time edit reaches the caller's itinerary. If nothing has
+ * claimed `nights` or `total-price` by the time somebody next reads this, they and
+ * `totalPriceCaveat` are dead and should go.
+ */
 export const ALL_METRIC_IDS: readonly ItineraryMetricId[] = [
 	'in-flight',
 	'airport-waiting',
@@ -74,6 +85,10 @@ export const ALL_METRIC_IDS: readonly ItineraryMetricId[] = [
  * shape. Total price is absent for the same reason: it is the card's headline, printed
  * once at the top with its own breakdown. Four cells also fit a 375px card in two rows of
  * two, where five left a dangling cell and an empty slot.
+ *
+ * Since issue #309 these four are the only ones on screen anywhere, and this rail is the
+ * only thing that prints them. The owner's rule is that expanding a card must not change
+ * what it says, so a second copy of any of them is a defect wherever it appears.
  */
 export const CARD_METRIC_IDS: readonly ItineraryMetricId[] = [
 	'free-time',

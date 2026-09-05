@@ -25,6 +25,21 @@
 	 *   misleading; the edge times and the stay it buys are in the unfolded timeline,
 	 *   because seven lines times four cards is not a results screen.
 	 *
+	 * ## Issue #309: this card owns every summary figure, and nothing repeats it
+	 *
+	 * The owner, on the expanded card: **"at the bottom info is duplicaded and messy. all
+	 * info should be already in the card, so expanding shouldn change."** Four of the six
+	 * figures were printed twice, once by the rail at the foot of this file and again by an
+	 * identical rail the timeline rendered a few centimetres lower, which is what #278's
+	 * restructure left behind when the expanded panel moved inside the card instead of
+	 * replacing it.
+	 *
+	 * So the rule is now a rule and not an accident. Every summary figure has exactly one
+	 * surface: the four above are this rail's, the night count is the trip strip's caption,
+	 * and the total is the headline with its receipt under it. The timeline unfolds detail,
+	 * step by step, and restates none of it. Anything added to the timeline that this card
+	 * already prints is the same defect coming back.
+	 *
 	 * ## Issue #278: the card stopped being a thing you open
 	 *
 	 * There was a "Show details" button under a dashed rule, and everything worth doing

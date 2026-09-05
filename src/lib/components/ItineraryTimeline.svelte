@@ -28,13 +28,21 @@
 	 * - The waiting rows lost "Buffer before Ryanair FR1234 boards". The very next row is
 	 *   that flight, with that flight number on it.
 	 *   The stepper moved onto the label's own line.
-	 * - The totals bar is now `MetricRail`, shared with the results card, which is what
-	 *   stopped the two of them disagreeing about which figures an itinerary even has.
+	 * - The totals bar is gone. Issue #309: it printed Free time, In flight, Airport wait
+	 *   and Door to door a second time, a few centimetres under the identical rail on the
+	 *   card, because #278 turned the card-level expander into a timeline that unfolds
+	 *   inside the card rather than replacing it. The owner's rule is the wider one: "all
+	 *   info should already be in the card, so expanding shouldn change". So the card owns
+	 *   every summary figure and this component owns the step-by-step detail, and the two
+	 *   sets no longer overlap at all. `Nights` and `Total price` went with the rail rather
+	 *   than being kept as the two that happened not to be duplicated: the trip strip's own
+	 *   caption prints "2 nights in Vienna" in bold teal, and the card's headline is the
+	 *   total with its receipt under it.
 	 *
 	 * ## DOM shape
 	 *
-	 * This component's root is the `<ol>` itself, with no wrapping `<div>`, followed by a
-	 * sibling totals rail. Each schedule step is one `<li class="tl-row">`, always in the
+	 * This component's root is the `<ol>` itself, with no wrapping `<div>` and nothing
+	 * after it. Each schedule step is one `<li class="tl-row">`, always in the
 	 * same order, and every row has exactly four children which subgrid this list's four
 	 * columns. That is a change from two, and it is what makes clocks line up under clocks
 	 * and prices under prices however tall any one row turns out to be.
@@ -82,12 +90,10 @@
 	import type { UnroutedLeg } from './itinerary-timeline-format';
 	import type { WithheldRoutes } from '../search/types';
 	import { freeTimeDays } from './free-time-days';
-	import { ALL_METRIC_IDS } from './itinerary-metrics';
 	import { technicalStopDetail } from './technical-stop-note';
 	import AirlineLogo from './AirlineLogo.svelte';
 	import ModeIcon from './ModeIcon.svelte';
 	import { transferIconKind, type ModeIconKind } from './mode-icon';
-	import MetricRail from './MetricRail.svelte';
 	import TimeCell from './TimeCell.svelte';
 	import WaitingTimeStepper from './WaitingTimeStepper.svelte';
 
@@ -774,8 +780,6 @@
 	{/if}
 </ol>
 
-<MetricRail {itinerary} ids={ALL_METRIC_IDS} class="itinerary-timeline-totals" />
-
 <style>
 	/* ---------------------------------------------------------------------
 	 * Four columns, the same four on every row: WHEN, the rail, WHAT, HOW
@@ -1216,15 +1220,6 @@
 	   Without this a selected "Start" row would open onto a dashed, padded box of air. */
 	.tl-expansion:empty {
 		display: none;
-	}
-
-	/* ---------------------------------------------------------------------
-	 * Totals. `MetricRail` draws them; this only places the block.
-	 * ------------------------------------------------------------------- */
-	:global(.itinerary-timeline-totals) {
-		margin-top: var(--space-4);
-		padding-top: var(--space-3);
-		border-top: 2px dashed var(--color-border-strong);
 	}
 
 	/* ---------------------------------------------------------------------

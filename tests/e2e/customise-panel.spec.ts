@@ -165,8 +165,11 @@ test.describe('the customise rail on a wide screen', () => {
 	test('a waiting time edited in the rail changes the totals in the timeline', async ({ page }) => {
 		const card = await openResults(page);
 		await openTimeline(page);
-		const nights = card.locator('.itinerary-timeline-totals .metric', { hasText: 'Nights' });
-		await expect(nights).toContainText('1');
+		// Issue #309: the night count belongs to the trip strip's own caption, in bold teal,
+		// and to nowhere else on this screen. The timeline's totals rail that used to repeat
+		// it is gone, so this reads the caption.
+		const nights = card.locator('.trip-strip-caption-mid');
+		await expect(nights).toContainText('1 night');
 
 		await pickStripSegment(page, 'wait', 1);
 		await expect(customiser(page)).toHaveAttribute('data-segment', 'connection-waiting');
@@ -178,7 +181,12 @@ test.describe('the customise rail on a wide screen', () => {
 		await input.fill('1530');
 		await input.dispatchEvent('input');
 
-		await expect(nights).toContainText('0');
+		// A stopover with no night left in it is not "0 nights": the caption says how long the
+		// traveller is there for instead, and the receipt loses its Hotel group entirely,
+		// because there is no bed to book. Both are asserted, since the first alone would
+		// pass on a caption that had merely stopped updating.
+		await expect(nights).not.toContainText('night');
+		await expect(card.locator('.price-group')).toHaveCount(0);
 	});
 });
 
