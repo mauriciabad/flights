@@ -57,6 +57,57 @@
 	}
 
 	const onSettings = $derived(page.url.pathname === `${base}${settingsHref}`);
+
+	/**
+	 * Issue #311: the one control in the chrome closes what it opened.
+	 *
+	 * The owner: "the lav button should be a toggle, so it becomes a close button for
+	 * settings." Opening settings was one tap and leaving it was the browser's back button,
+	 * which he is explicit is not an answer: he asked for a visible way out.
+	 *
+	 * A control whose meaning changes has to say so in every channel, not only in its
+	 * drawing (MDN on `aria-expanded`: the accessible name of the controlling object should
+	 * reflect the change). So the icon becomes a cross, the accessible name becomes "Close
+	 * settings", and `aria-expanded` flips, which is what stops a screen reader announcing
+	 * "Settings" on the control that leaves settings.
+	 *
+	 * Where it goes back to is the previous entry when there is one, so a traveller returns
+	 * to the results they were reading rather than to a fresh search, and their history stops
+	 * growing a settings entry every time they check a key. With nothing behind them (a
+	 * bookmark, a shared link, a cold PWA launch) the `href` is the search, which is the one
+	 * place every route in this app can start from.
+	 */
+	let cameFromInApp = $state(false);
+	let navEl = $state<HTMLAnchorElement>();
+	/** Set by an activation of the control below, cleared by the navigation it caused. Plain
+	 * bookkeeping: nothing renders from it. */
+	let returnFocusToNav = false;
+
+	afterNavigate((navigation) => {
+		cameFromInApp = navigation.from !== null;
+		if (!returnFocusToNav) return;
+		returnFocusToNav = false;
+		// SvelteKit resets focus to the document after a client-side navigation, so a screen
+		// reader announces the new page. That is right for a link that takes you somewhere and
+		// wrong for a toggle: this control is in the shell, so it is still on screen and still
+		// under the finger that pressed it, and #283 is what happens when a control moves out
+		// from under a keyboard reader. `preventScroll` because the header never leaves the
+		// viewport, so there is nothing to scroll to.
+		navEl?.focus({ preventScroll: true });
+	});
+
+	const navHref = $derived(onSettings ? fullHref('/') : fullHref(settingsHref));
+	const navLabel = $derived(onSettings ? 'Close settings' : 'Settings');
+
+	function onNavClick(event: MouseEvent) {
+		// Every gesture that means "open this somewhere else" stays the browser's, and takes
+		// the focus question with it.
+		if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0) return;
+		returnFocusToNav = true;
+		if (!onSettings || !cameFromInApp) return;
+		event.preventDefault();
+		history.back();
+	}
 </script>
 
 <svelte:head>
@@ -93,12 +144,18 @@
 		</a>
 
 		<a
+			bind:this={navEl}
 			class="app-settings"
-			href={fullHref(settingsHref)}
+			href={navHref}
 			aria-current={onSettings ? 'page' : undefined}
+			aria-expanded={onSettings}
+			aria-label={navLabel}
+			onclick={onNavClick}
 		>
-			<Icon name="settings" />
-			<span class="app-settings-label">Settings</span>
+			<!-- Issue #311: the icon changes with the name, because a control whose meaning
+			     changes has to say so in every channel a person reads. -->
+			<Icon name={onSettings ? 'x' : 'settings'} />
+			<span class="app-settings-label">{navLabel}</span>
 		</a>
 	</header>
 

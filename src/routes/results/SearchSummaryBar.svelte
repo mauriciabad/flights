@@ -14,6 +14,7 @@
 	 * it holds on screen and a whole form is not.
 	 */
 	import { tick } from 'svelte';
+	import { Icon } from '$lib/components';
 	import type { SearchFormFields } from '$lib/search-form/model';
 	import SearchForm from '$lib/search-form/SearchForm.svelte';
 	import type { SearchSummary } from '$lib/search-history';
@@ -81,15 +82,22 @@
 			aria-controls="search-editor"
 			onclick={toggle}
 		>
+			<!-- Issue #311: the icon follows the label. This control already read "Close" when
+			     the editor was open and went on drawing a pencil, so the two channels a
+			     traveller reads disagreed about what pressing it would do. -->
 			<span class="edit-icon" aria-hidden="true">
-				<svg viewBox="0 0 24 24" fill="none">
-					<path
-						d="M4 20h4l10-10a2.8 2.8 0 0 0-4-4L4 16v4Z"
-						stroke="currentColor"
-						stroke-width="1.8"
-						stroke-linejoin="round"
-					/>
-				</svg>
+				{#if expanded}
+					<Icon name="x" />
+				{:else}
+					<svg viewBox="0 0 24 24" fill="none">
+						<path
+							d="M4 20h4l10-10a2.8 2.8 0 0 0-4-4L4 16v4Z"
+							stroke="currentColor"
+							stroke-width="1.8"
+							stroke-linejoin="round"
+						/>
+					</svg>
+				{/if}
 			</span>
 			{expanded ? 'Close' : 'Edit search'}
 		</button>
