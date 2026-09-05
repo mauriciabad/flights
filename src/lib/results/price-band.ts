@@ -41,7 +41,7 @@
  */
 
 import type { IataAirportCode, IsoCalendarDate, IsoCurrencyCode, Itinerary, Money } from '$lib/domain';
-import { cheapestByDeparture, monthStartOf, shortMonthLabel } from '$lib/flexible-dates';
+import { cheapestByDeparture, monthLabel, monthStartOf, shortMonthLabel } from '$lib/flexible-dates';
 import type { DayFare } from '$lib/flexible-dates';
 
 /**
@@ -253,16 +253,23 @@ export function bandRankSentence(
 /**
  * The caveat, which is the half that keeps this honest.
  *
- * Every clause earns its place. "One adult, flights only" says which figure is on the
- * track, and the card's own headline is a different, larger number. The month range says
- * which departures the band is made of, since a January fare and a July fare are not
- * evidence about each other. And the last clause is the whole difference between us and
- * Google: they are banding a market, we are banding a browser's own history, and the issue
- * is explicit that the copy has to say which claim it is making.
+ * Two clauses, each said exactly once on the card. The month range, because a January fare
+ * and a July fare are not evidence about each other and a reader is entitled to know which
+ * departures went into the band. Then the whole difference between this and Google: they
+ * are banding a market, we are banding one browser's own history, and the issue is explicit
+ * that the copy has to say which claim it is making.
+ *
+ * What is on the track (one adult, flights only) is named beside the figure itself in
+ * `PriceBand.svelte`, not repeated here.
  */
 export function bandEvidenceSentence(band: PriceHistory): string {
-	const from = shortMonthLabel(monthStartOf(band.earliestDeparture));
-	const to = shortMonthLabel(monthStartOf(band.latestDeparture));
-	const span = from === to ? `departures in ${from}` : `departures from ${from} to ${to}`;
-	return `One adult, flights only, ${span}. Prices seen in this browser, not the market.`;
+	const fromMonth = monthStartOf(band.earliestDeparture);
+	const toMonth = monthStartOf(band.latestDeparture);
+	// The year is on the label because a band is evidence about a season as much as a route,
+	// and "Mar" alone leaves a reader guessing which March. It is printed once when both ends
+	// share a year, and twice when they do not.
+	const from = fromMonth.slice(0, 4) === toMonth.slice(0, 4) ? shortMonthLabel(fromMonth) : monthLabel(fromMonth);
+	const span =
+		fromMonth === toMonth ? `Departures in ${monthLabel(toMonth)}` : `Departures from ${from} to ${monthLabel(toMonth)}`;
+	return `${span}. Prices seen in this browser, not the market.`;
 }

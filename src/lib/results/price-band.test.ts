@@ -220,9 +220,9 @@ describe('the sentences', () => {
 
 	/** The clause that separates this from Google's claim. If it ever stops being rendered,
 	 * the app is asserting something about a market it has never seen. */
-	it('says what is on the track and whose prices they are', () => {
+	it('names the departures it covers and whose prices they are', () => {
 		expect(bandEvidenceSentence(band)).toBe(
-			'One adult, flights only, departures in Oct. Prices seen in this browser, not the market.'
+			'Departures in Oct 2026. Prices seen in this browser, not the market.'
 		);
 	});
 
@@ -244,6 +244,6 @@ describe('the sentences', () => {
 			)
 		);
 
-		expect(bandEvidenceSentence(spanning)).toContain('departures from Oct to Nov');
+		expect(bandEvidenceSentence(spanning)).toContain('Departures from Oct to Nov 2026');
 	});
 });
