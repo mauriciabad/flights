@@ -1,3 +1,6 @@
+import { readdirSync, readFileSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { expect, test } from './support/fixtures';
 import { FIXTURE_FLIGHT_NUMBERS, FIXTURE_PRICES } from './support/fixture-markers';
 import { mockAllKeylessProviders, routeRyanairFlights } from './support/providers';
@@ -61,6 +64,61 @@ async function fillValidSearch(
 	await fillAirport(page, 'destination-airport', to);
 	await page.locator('#soonest-departure').fill(DEPARTURE);
 	await page.locator('#latest-arrival').fill(ARRIVAL);
+}
+
+/**
+ * What the results page has actually filed, read from the key the store owns. Issue #358:
+ * the `<h1>` appearing is not evidence of that write. The heading is rendered straight from
+ * the URL while the write happens in an effect once the search has been validated, so a
+ * spec that navigated away on the heading was racing a write that had not happened — the
+ * same shape as #337, where a wait that was not evidence let a suite pass over a page that
+ * had not started searching.
+ */
+async function filedSearches(page: import('@playwright/test').Page): Promise<string> {
+	return (await page.evaluate(() => localStorage.getItem('flights.searchHistory.v1'))) ?? '';
+}
+
+/**
+ * The built chunk holding `airports.generated.json`, found by its first row: its name is a
+ * content hash and changes with every build. Resolved on first use rather than at import,
+ * because Playwright loads this file to collect its tests before `webServer` has run
+ * `pnpm build`, and a clean checkout has no `build/` to read yet.
+ */
+let airportDatasetChunk: string | undefined;
+function findAirportDatasetChunk(): string {
+	if (airportDatasetChunk) return airportDatasetChunk;
+	const chunkDir = path.join(
+		path.dirname(fileURLToPath(import.meta.url)),
+		'..',
+		'..',
+		'build',
+		'app',
+		'immutable',
+		'chunks'
+	);
+	airportDatasetChunk = readdirSync(chunkDir).find((file) =>
+		readFileSync(path.join(chunkDir, file), 'utf-8').slice(0, 400).includes('"iataCode"')
+	);
+	if (!airportDatasetChunk) throw new Error(`No airports dataset chunk in ${chunkDir}.`);
+	return airportDatasetChunk;
+}
+
+/**
+ * Serves the airports dataset `delayMs` late, so the window in which the page knows the
+ * search but not whether its airports are real is wide enough to assert against.
+ *
+ * Delays and then continues, rather than fetching the chunk to recognise it by its body: a
+ * `route.fetch` whose page navigates away mid-delay throws "Response has been disposed" and
+ * fails the test for a reason that has nothing to do with what it asserts. That cost seven
+ * of twenty runs while this was being measured.
+ */
+async function holdBackAirportDataset(page: import('@playwright/test').Page, delayMs: number) {
+	await page.context().route(`**/${findAirportDatasetChunk()}`, async (route) => {
+		await new Promise((resolve) => setTimeout(resolve, delayMs));
+		await route.continue().catch(() => {
+			// The page that asked for it is gone. Nothing to serve and nothing wrong.
+		});
+	});
 }
 
 test.describe('search to results', () => {
@@ -127,6 +185,20 @@ test.describe('search to results', () => {
 		// Gone for good, not just gone from this render.
 		await page.reload();
 		await expect(page.getByRole('link', { name: /BCN.*TLL/ })).toHaveCount(0);
+	});
+
+	test('a search is filed without waiting for the airport dataset', async ({ page }) => {
+		// Issue #358. Nothing here is asked of the airports dataset: whether BCN and TLL are
+		// real is a different question from whether somebody searched them, and the traveller
+		// who opens a results link and immediately switches tabs used to lose the search
+		// because the app was still answering the first question. Ten seconds of held-back
+		// dataset against a five-second poll, so passing means the write did not wait for it.
+		await mockConnectingFlights(page);
+		await holdBackAirportDataset(page, 10_000);
+
+		await page.goto(`/results/?dep=${DEPARTURE}&arr=${ARRIVAL}&from=BCN&to=TLL`);
+		await expect(page.getByRole('heading', { level: 1 })).toContainText('BCN');
+		await expect.poll(() => filedSearches(page), { timeout: 5_000 }).toContain('from=BCN');
 	});
 
 	test('the chrome offers exactly two destinations, and Results is not one of them', async ({
