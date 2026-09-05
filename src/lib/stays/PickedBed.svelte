@@ -255,7 +255,12 @@
 			<div class="bed-figure">
 				<dt class="bed-figure-label font-mono">Per night</dt>
 				<dd class="bed-figure-value font-mono tabular-nums">
-					{rate.amount}{#if rate.audience}<span class="bed-figure-note">{rate.audience}</span>{/if}
+					{rate.amount}
+					<!-- The space before this matters and is not formatting. The note is a block,
+					     so it drops to its own line either way, but with the markup closed up
+					     the two run together in `textContent` and a screen reader says
+					     "twenty euros for three" as one word: "€20.00for 3". -->
+					{#if rate.audience}<span class="bed-figure-note">{rate.audience}</span>{/if}
 				</dd>
 			</div>
 			<div class="bed-figure">

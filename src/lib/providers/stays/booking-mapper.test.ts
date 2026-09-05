@@ -95,7 +95,13 @@ describe('mapSearchResultToCandidate (real fixture)', () => {
 			property: {
 				name: 'Ibis Vienna Airport',
 				coordinates: { latitude: 48.1229461354855, longitude: 16.4396694302559 },
-				images: [ibis!.main_photo_url],
+				// Not `ibis!.main_photo_url` verbatim: that URL points at the 60x60
+				// thumbnail Booking hands out in a search row, and the mapper upgrades it.
+				// Asserted as the literal so this test fails if the size segment moves,
+				// rather than following the mapper wherever it goes.
+				images: [
+					'https://cf.bstatic.com/xdata/images/hotel/max1024x768/751028262.jpg?k=763506dd7aef0b3a2f070946ddc0c2531a421c031cbd286f07bb5841aa8b9ff4&o='
+				],
 				// #245: Booking scores out of 10, and the scale travels with the number.
 				rating: { value: 7.8, outOf: 10 }
 			},
