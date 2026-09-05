@@ -1,0 +1,17 @@
+{
+	"code": "Ok",
+	"waypoints": [
+		{ "hint": "FIXTURE-origin", "distance": 4.2, "name": "", "location": [16.5697, 48.1103] },
+		{ "hint": "FIXTURE-destination", "distance": 8.1, "name": "FIXTURE Ringstraße", "location": [16.3738, 48.2082] }
+	],
+	"routes": [
+		{
+			"geometry": "_p~iF~ps|U_ulLnnqC_mqNvxq`@",
+			"legs": [{ "steps": [], "summary": "", "weight": 4560, "duration": 4560, "distance": 94900 }],
+			"weight_name": "routability",
+			"weight": 4560,
+			"duration": 4560,
+			"distance": 94900
+		}
+	]
+}

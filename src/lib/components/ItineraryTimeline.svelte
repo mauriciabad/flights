@@ -70,6 +70,7 @@
 		formatDuration,
 		formatLongDuration,
 		formatMoney,
+		formatPropertyRating,
 		transferDetailLine,
 		unpricedTransferNote,
 		unroutedLegNote
@@ -690,9 +691,13 @@
 			     zero-night line went with it, because "Day stopover in London" one line up
 			     already says no night is spent here. -->
 			{#if shown.stay}
+				<!-- Issue #245: `&nbsp;&middot;` rather than a newline before the separator.
+				     Svelte trims the whitespace at the start of an `{#if}` block, so the
+				     indented version rendered as "dorm· rated" on production. Same
+				     `&nbsp;&middot;` the unrouted-leg row above uses, for the same reason. -->
 				<p class="tl-stopover-stay">
-					{shown.stay.property.name} &middot; {shown.stay.roomKind}{#if shown.stay.property.rating}
-						&middot; rated {shown.stay.property.rating}/5{/if}
+					{shown.stay.property.name} &middot; {shown.stay.roomKind}{#if shown.stay.property.rating}&nbsp;&middot;
+						rated {formatPropertyRating(shown.stay.property.rating)}{/if}
 				</p>
 			{/if}
 		</div>

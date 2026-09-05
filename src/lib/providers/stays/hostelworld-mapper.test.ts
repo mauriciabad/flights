@@ -176,13 +176,33 @@ describe('mapPropertyToStays', () => {
 		}
 	});
 
-	it('joins the two halves of an image URL and keeps the rating on its own scale', () => {
+	it('joins the two halves of an image URL and carries the rating with the scale it is on', () => {
 		const stays = mapPropertyToStays(backpackers, 1);
 		expect(stays[0].property.images[0]).toMatch(
 			/^https:\/\/a\.hwstatic\.com\/propertyimages\/.+\.jpg$/
 		);
-		// Out of 100, passed through raw per domain/stay.ts's Property.rating comment.
-		expect(stays[0].property.rating).toBe(88);
+		// #245: the value stays exactly as Hostelworld sent it, and `outOf` says which
+		// scale that is, so a screen can never label it with somebody else's.
+		expect(stays[0].property.rating).toEqual({ value: 88, outOf: 100 });
+	});
+
+	it('treats a Hostelworld zero as "nobody has rated this", not as the worst score there is', () => {
+		// #245. Measured live on 2026-09-05, city 3671 (Gatwick), the same property the issue
+		// reported showing "0.0 rating" in the picker:
+		//   The Gatwick White House Hotel
+		//     overallRating  { overall: 0, numberOfRatings: "100" }
+		//     ratingBreakdown { ratingsCount: 0, security: 0, ..., average: 0 }
+		//   The Lawn Guest House
+		//     overallRating  { overall: 100, numberOfRatings: "16" }
+		//     ratingBreakdown { ratingsCount: 1, security: 100, ..., average: 100 }
+		// `numberOfRatings` is not a count of ratings — `ratingBreakdown.ratingsCount` is,
+		// and it is 0 for exactly the property scoring 0. Zero out of a hundred with a
+		// hundred reviews is a claim nobody made.
+		const unrated: HostelworldProperty = {
+			...backpackers,
+			overallRating: { overall: 0 }
+		};
+		expect(mapPropertyToStays(unrated, 1)[0].property.rating).toBeUndefined();
 	});
 
 	it('returns nothing for a hole in the properties array rather than throwing', () => {

@@ -26,7 +26,7 @@
  * and a local wall-clock time plus its offset. Nothing here is ever stored or compared.
  */
 
-import type { Duration, LocalDateTime, Money } from './domain';
+import type { Duration, LocalDateTime, Money, PropertyRating } from './domain';
 import { currencyExponent, majorUnitsOf } from './domain';
 import type { TimeFormat } from './settings/time-format.svelte';
 import { timeFormat } from './settings/time-format.svelte';
@@ -248,6 +248,24 @@ export function formatTimeDelta(deltaMinutes: number, laterWord = 'later', earli
 	if (deltaMinutes === 0) return 'same time';
 	const word = deltaMinutes > 0 ? laterWord : earlierWord;
 	return `${formatDuration(Math.abs(deltaMinutes))} ${word}`;
+}
+
+/**
+ * A guest score as its provider publishes it to people: `8.7/10`, `7.8/10`, `4.4/5`.
+ *
+ * Issue #245. Three adapters feed this, on three scales, and the timeline used to label
+ * all three `/5`. The scale now arrives with the number (`PropertyRating`) and this is the
+ * only place that turns the pair into a string, so the timeline row and the stay picker
+ * can no longer describe one hostel two ways on one screen.
+ *
+ * The one conversion is 100 to 10. Hostelworld's API says 87 and Hostelworld's own site
+ * says 8.7 for the same hostel, so a 0-100 API scale is a 0-10 published scale with the
+ * decimal point moved; printing "87/100" would be arithmetically true and unlike anything
+ * the traveller will see when they go to book. Every other scale prints as it arrives.
+ */
+export function formatPropertyRating(rating: PropertyRating): string {
+	const published = rating.outOf === 100 ? { value: rating.value / 10, outOf: 10 } : rating;
+	return `${published.value.toFixed(1)}/${published.outOf}`;
 }
 
 /**

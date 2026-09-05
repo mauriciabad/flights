@@ -10,6 +10,7 @@
 	 * shape of delta regardless of which list the click came from.
 	 */
 	import type { Airport, Money, Stay } from '$lib/domain';
+	import { formatPropertyRating } from '$lib/format';
 	import { Button, Card, EmptyState } from '$lib/components';
 	import RoomKindTile from './RoomKindTile.svelte';
 	import StayAlternativeCard from './StayAlternativeCard.svelte';
@@ -198,11 +199,11 @@
 				</div>
 
 				<div class="stay-open-facts">
+					<!-- Issue #245: "(scale as reported by the source)" is gone with the doubt
+					     that needed it. The scale arrives on the rating now, so this can name
+					     it, and the timeline row a few centimetres away names the same one. -->
 					{#if openProperty.rating !== undefined}
-						<span class="stay-open-rating">
-							{openProperty.rating.toFixed(1)} rating
-							<span class="stay-open-rating-note">(scale as reported by the source)</span>
-						</span>
+						<span class="stay-open-rating">rated {formatPropertyRating(openProperty.rating)}</span>
 					{/if}
 					<span class="stay-open-distance">{formatDistanceKm(distanceToAirportKm)} from the airport</span>
 					{#if distanceToCentreKm !== undefined}
@@ -334,11 +335,6 @@
 	.stay-open-rating {
 		color: var(--color-text);
 		font-weight: var(--font-weight-medium);
-	}
-
-	.stay-open-rating-note {
-		font-weight: var(--font-weight-regular);
-		color: var(--color-text-faint);
 	}
 
 	.stay-room-kinds {

@@ -208,6 +208,79 @@ describe('TransportPicker: no-service transit', () => {
 		expect(text).toContain('French national per-km ceiling');
 	});
 
+	it('says how long the ride is and that nobody priced it, when the rate card will not reach', () => {
+		// Issue #246: production showed "Taxi 1h 17m £274.06-£439.44 ESTIMATE" for a 95 km
+		// airport run, more than twice the €173.00 flight it connects to. The duration is
+		// real and stays; the fare is a number this app has no basis for and goes.
+		const walkTransfer: Transfer = { mode: 'walk', duration: 40 as Duration, legs: [] };
+		const itinerary = baseItinerary(walkTransfer);
+		const taxi: Transfer = { mode: 'taxi', duration: 76 as Duration, legs: [] };
+		const taxiFareEstimate: TaxiFareEstimate = {
+			kind: 'out-of-range',
+			distanceKm: 94.9,
+			ratedUpToKm: 30,
+			countryCode: 'GB',
+			citation: 'Back-calculated from a London 5km fare comparison of roughly $23.'
+		};
+
+		const root = mountPicker({ itinerary, alternatives: [taxi], taxiFareEstimate });
+
+		const text = normalizedText(root);
+		expect(text).toContain('1h 16m');
+		expect(text).toContain('No fare estimate');
+		expect(text).toContain('95 km');
+
+		// Scoped to the price cell rather than the whole row: the citation quotes its own
+		// source, "roughly $23 for 5 km in London", and that figure is evidence about the
+		// card, not a fare this app is putting on this ride.
+		const taxiRow = [...root.querySelectorAll('.picker-row')].find((row) =>
+			row.querySelector('.row-mode-label')?.textContent?.includes('Taxi')
+		);
+		const priceCell = taxiRow?.querySelector('.row-price')?.textContent ?? '';
+		expect(priceCell).toContain('No fare estimate');
+		expect(priceCell).not.toMatch(/[£€$]/);
+		expect(priceCell).not.toMatch(/\d/);
+	});
+
+	it('offers the taxi against a dead timetable without pretending to know the fare', () => {
+		// The other surface the estimate reaches, and the one the issue quoted: "A taxi now
+		// takes about 1h 46m and costs roughly £268.75-£430.90." The taxi is still the answer
+		// to "there is no bus for four hours"; what it costs is the half nobody measured.
+		const walkTransfer: Transfer = { mode: 'walk', duration: 40 as Duration, legs: [] };
+		const itinerary = baseItinerary(walkTransfer);
+		const transit: Transfer = {
+			mode: 'transit',
+			duration: 25 as Duration,
+			legs: [],
+			transitSchedule: {
+				intended: localDateTime('2026-06-01T05:20:00'),
+				following: [],
+				plannedFor: departAfter('2026-06-01T01:00:00')
+			}
+		};
+		const taxi: Transfer = { mode: 'taxi', duration: 76 as Duration, legs: [] };
+		const taxiFareEstimate: TaxiFareEstimate = {
+			kind: 'out-of-range',
+			distanceKm: 94.9,
+			ratedUpToKm: 30,
+			countryCode: 'GB',
+			citation: 'Back-calculated from a London 5km fare comparison of roughly $23.'
+		};
+
+		const root = mountPicker({
+			itinerary,
+			alternatives: [transit, taxi],
+			taxiFareEstimate,
+			referenceMoment: localDateTime('2026-06-01T01:00:00')
+		});
+
+		const gapLine = root.querySelector('.schedule-gap-alternative')?.textContent ?? '';
+		expect(gapLine.replace(/\s+/g, ' ').trim()).toBe(
+			'A taxi now takes about 1h 16m over 95 km. No rate card here reaches that far, so the fare is unknown.'
+		);
+		expect(gapLine).not.toContain('costs roughly');
+	});
+
 	it('does not use the dramatic gap framing for a normal, imminent departure', () => {
 		const walkTransfer: Transfer = { mode: 'walk', duration: 5 as Duration, legs: [] };
 		const itinerary = baseItinerary(walkTransfer);

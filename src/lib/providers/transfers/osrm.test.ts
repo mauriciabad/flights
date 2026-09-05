@@ -549,9 +549,26 @@ describe('getTaxiFareEstimate', () => {
 		if (!result.ok) return;
 		expect(result.data.duration).toBe(10);
 		expect(result.data.distanceMeters).toBe(5000);
-		expect(result.data.fareEstimate.kind).toBe('estimate');
 		expect(result.data.fareEstimate.countryCode).toBe('ES');
+		if (result.data.fareEstimate.kind !== 'estimate') throw new Error('expected a priced range');
 		expect(result.data.fareEstimate.lowMinorUnits).toBeLessThan(result.data.fareEstimate.highMinorUnits);
+	});
+
+	it('carries the rate table\'s refusal through for a ride longer than the cards cover', async () => {
+		// Issue #246: the duration and distance are real measurements and still come back;
+		// only the fare is withheld. 95 km is the Gatwick-to-London-Backpackers run the issue
+		// reported priced at £268.75-£430.90.
+		const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(routeBody(4560, 94_900)));
+		const result = await getTaxiFareEstimate(AIRPORT, HOTEL, 'GB', ctxFor(), {
+			store: new MemoryCacheStore(),
+			fetchImpl
+		});
+
+		expect(result.ok).toBe(true);
+		if (!result.ok) return;
+		expect(result.data.duration).toBe(76);
+		expect(result.data.distanceMeters).toBe(94_900);
+		expect(result.data.fareEstimate.kind).toBe('out-of-range');
 	});
 
 	it('reuses a driving route already cached by searchTransfers instead of fetching again', async () => {

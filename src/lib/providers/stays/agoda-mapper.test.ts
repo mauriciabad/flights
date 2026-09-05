@@ -168,6 +168,17 @@ describe('mapSearchPropertyToCandidate (real fixture)', () => {
 		const soldOut = properties.find((p) => p.propertyId === 65548);
 		expect(mapSearchPropertyToCandidate(soldOut!)).toBeUndefined();
 	});
+
+	it('carries the rating with the out-of-5 scale Agoda publishes it on', () => {
+		// #245. The whole fixture sits on 1.5 to 5, which is what an out-of-5 star rating
+		// looks like; the scale now travels with the number instead of being guessed at the
+		// point it is printed.
+		const mercure = properties.find((p) => p.propertyId === 50373);
+		expect(mapSearchPropertyToCandidate(mercure!)?.property.rating).toEqual({
+			value: 4,
+			outOf: 5
+		});
+	});
 });
 
 describe('extractHeadlinePrice / filterWithinRadius (synthetic)', () => {

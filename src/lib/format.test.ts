@@ -10,6 +10,7 @@ import {
 	formatMoney,
 	formatMoneyDelta,
 	formatMoneyRange,
+	formatPropertyRating,
 	formatTimeDelta,
 	formatUtcOffset,
 	formatWeekday,
@@ -226,5 +227,21 @@ describe('formatAge', () => {
 		expect(formatAge(5 * 60_000)).toBe('5 minutes ago');
 		expect(formatAge(3 * 60 * 60_000)).toBe('3 hours ago');
 		expect(formatAge(2 * 24 * 60 * 60_000)).toBe('2 days ago');
+	});
+});
+
+describe('formatPropertyRating', () => {
+	it('prints each provider on the scale it published, not one hardcoded scale', () => {
+		// #245: production printed Hostelworld's 87 as "87/5". These are the three scales
+		// this repo has captured live — hostelworld-properties-london.json (63/68/88),
+		// booking-search-vienna.json (7.8/7.4), agoda-search-vienna.json (4.0/5.0/1.5/3.0).
+		expect(formatPropertyRating({ value: 87, outOf: 100 })).toBe('8.7/10');
+		expect(formatPropertyRating({ value: 7.8, outOf: 10 })).toBe('7.8/10');
+		expect(formatPropertyRating({ value: 4.4, outOf: 5 })).toBe('4.4/5');
+	});
+
+	it('always shows one decimal, so 4 out of 5 reads at the same precision as 4.4', () => {
+		expect(formatPropertyRating({ value: 4, outOf: 5 })).toBe('4.0/5');
+		expect(formatPropertyRating({ value: 100, outOf: 100 })).toBe('10.0/10');
 	});
 });

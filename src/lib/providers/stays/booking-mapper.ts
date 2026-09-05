@@ -117,9 +117,11 @@ export function mapSearchResultToCandidate(
         typeof result.main_photo_url === "string" && result.main_photo_url
           ? [result.main_photo_url]
           : [],
+      // Issue #245: out of 10 (see `booking-types.ts`), and the scale rides along so no
+      // screen has to guess which one this is.
       rating:
         typeof rating === "number" && Number.isFinite(rating)
-          ? rating
+          ? { value: rating, outOf: 10 }
           : undefined,
       // Read from the property name because neither provider has a field for it. Its
       // rooms are named ordinarily, so classifying rooms alone let a women-only

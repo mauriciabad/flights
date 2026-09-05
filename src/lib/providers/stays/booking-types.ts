@@ -31,8 +31,9 @@ export interface BookingSearchResult {
 	latitude?: number;
 	longitude?: number;
 	main_photo_url?: string;
-	/** Out of 10 (a live "Pannonia Tower" result scored 8.8) — passed through raw, same
-	 * as Agoda's out-of-5 scale, per domain/stay.ts's Property.rating comment. */
+	/** Out of 10 (a live "Pannonia Tower" result scored 8.8). Carried through raw with
+	 * `outOf: 10` beside it, the same way Agoda's out-of-5 scale is, per domain/stay.ts's
+	 * `PropertyRating`. */
 	review_score?: number;
 	composite_price_breakdown?: {
 		gross_amount_per_night?: BookingMoneyAmount;

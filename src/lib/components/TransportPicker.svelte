@@ -38,10 +38,10 @@
 		formatCalendarDate,
 		formatClockTime,
 		formatDuration,
+		formatKilometres,
 		formatMoney,
 		formatMoneyDelta,
 		formatMoneyRange,
-		formatStraightLineKm,
 		formatTimeDelta,
 		isDifferentCalendarDate,
 		summariseTransferLegs,
@@ -221,7 +221,7 @@
 						withheld.count === 1
 							? 'The only route that came back took'
 							: `The quickest of the ${withheld.count} routes that came back took`;
-					return `Public transport was checked${when}. ${route} ${formatDuration(withheld.quickest)} to cover ${formatStraightLineKm(withheld.straightLineKm)} in a straight line, so it is not offered as a transfer.`;
+					return `Public transport was checked${when}. ${route} ${formatDuration(withheld.quickest)} to cover ${formatKilometres(withheld.straightLineKm)} in a straight line, so it is not offered as a transfer.`;
 				}
 				// Answered with a route, yet no transit row reached this picker, and not for
 				// that reason. Nothing honest to say beyond that, and staying silent would be
@@ -244,7 +244,7 @@
 <section class="transport-picker">
 	<div role="radiogroup" aria-label={legLabel} class="picker-list">
 		{#each rows as row (transferKey(row.transfer))}
-			{@const isTaxiEstimate = row.transfer.mode === 'taxi' && taxiFareEstimate}
+			{@const taxiFare = row.transfer.mode === 'taxi' ? taxiFareEstimate : undefined}
 			{@const summary = summariseTransferLegs(row.transfer.legs)}
 			<label
 				class={[
@@ -267,9 +267,13 @@
 					</span>
 				</span>
 				<span class="row-price font-mono tabular-nums">
-					{#if isTaxiEstimate && taxiFareEstimate}
-						{formatMoneyRange(taxiFareEstimate.lowMinorUnits, taxiFareEstimate.highMinorUnits, taxiFareEstimate.currency)}
+					{#if taxiFare?.kind === 'estimate'}
+						{formatMoneyRange(taxiFare.lowMinorUnits, taxiFare.highMinorUnits, taxiFare.currency)}
 						<span class="estimate-tag">estimate</span>
+					{:else if taxiFare?.kind === 'out-of-range'}
+						<!-- Issue #246: this column is too narrow for the reason, so the reason is
+						     one tap away in the disclosure below and this states the fact. -->
+						<span class="price-unknown">No fare estimate</span>
 					{:else if row.transfer.price}
 						{formatMoney(row.transfer.price)}
 					{:else}
@@ -283,7 +287,7 @@
 						<span class="row-current">Current pick</span>
 					{:else if row.delta}
 						<span class="delta-text">
-							{#if isTaxiEstimate}
+							{#if taxiFare?.kind === 'estimate'}
 								estimate only
 							{:else if row.delta.hasPriceComparison && !row.delta.currencyMismatch}
 								{formatMoneyDelta(row.delta.priceDeltaMinorUnits ?? 0, row.transfer.price!.currency)} ·
@@ -331,10 +335,18 @@
 							<p class="schedule-gap-headline">
 								No {transferModeLabel(row.transfer.mode).toLowerCase()} until {formatClockTime(schedule.intended)}{#if row.gapMinutes !== undefined && row.gapMinutes > 0}, that is {formatDuration(row.gapMinutes)} after {referenceLabel}{/if}.
 							</p>
-							{#if taxiRow && taxiFareEstimate}
+							{#if taxiRow && taxiFareEstimate?.kind === 'estimate'}
 								<p class="schedule-gap-alternative">
 									A taxi now takes about {formatDuration(taxiRow.duration)} and costs roughly
 									{formatMoneyRange(taxiFareEstimate.lowMinorUnits, taxiFareEstimate.highMinorUnits, taxiFareEstimate.currency)}.
+								</p>
+							{:else if taxiRow && taxiFareEstimate?.kind === 'out-of-range'}
+								<!-- Issue #246: the duration is measured and stays. The fare is the half
+								     nothing here knows, and "roughly £268-£431" was the app inventing it. -->
+								<p class="schedule-gap-alternative">
+									A taxi now takes about {formatDuration(taxiRow.duration)} over
+									{formatKilometres(taxiFareEstimate.distanceKm)}. No rate card here reaches that far, so
+									the fare is unknown.
 								</p>
 							{/if}
 						{:else}
@@ -379,7 +391,7 @@
 					</div>
 				{/if}
 
-				{#if isTaxiEstimate && taxiFareEstimate}
+				{#if taxiFare}
 					<!-- The <label> above (this row) re-fires a click on its own <input> for any
 					     bubbled click whose target is not itself a form control, and <summary> gets
 					     no such exemption. Stopping propagation here is what keeps opening the
@@ -387,9 +399,24 @@
 					     own remove-button handler. -->
 					<details class="taxi-citation">
 						<summary onclick={(event) => event.stopPropagation()}>
-							{taxiFareEstimate.rateSource === 'fallback' ? 'Approximate rate (no country-specific data)' : 'Where this estimate comes from'}
+							{#if taxiFare.kind === 'out-of-range'}
+								Why there is no fare estimate
+							{:else if taxiFare.rateSource === 'fallback'}
+								Approximate rate (no country-specific data)
+							{:else}
+								Where this estimate comes from
+							{/if}
 						</summary>
-						<p>{taxiFareEstimate.citation}</p>
+						<!-- Issue #246: the card that would have answered is still named, because
+						     "nothing here can price this" is worth more with the reason attached. -->
+						{#if taxiFare.kind === 'out-of-range'}
+							<p>
+								{formatKilometres(taxiFare.distanceKm)} is past the city rate card these estimates come from,
+								which covers rides up to {formatKilometres(taxiFare.ratedUpToKm)}. Stretched that far it put
+								this transfer above the price of the flight it connects to, so it is not stretched.
+							</p>
+						{/if}
+						<p>{taxiFare.citation}</p>
 					</details>
 				{/if}
 

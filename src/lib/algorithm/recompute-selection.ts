@@ -34,7 +34,10 @@ export interface SelectionOverrides {
 	transferToDestinationLocation?: Transfer;
 }
 
-export type ItineraryWarningCode = 'layover-too-short' | 'insufficient-connection-time';
+export type ItineraryWarningCode =
+	| 'layover-too-short'
+	| 'flights-out-of-order'
+	| 'insufficient-connection-time';
 
 /**
  * Issue #28's acceptance criteria, verbatim: "Picking a later outbound flight that breaks
@@ -90,8 +93,23 @@ export function recomputeItinerarySelection(
 	// RULE mirrors build.ts: layover is the raw flight-to-flight gap, never the airport
 	// waiting-time buffer. Here it is checked, not filtered: an itinerary that fails it is
 	// still returned, with the warning attached, per this module's whole point.
+	//
+	// Issue #247: the sign picks which fact is reported, because a negative gap is not a
+	// short layover. Production said "Only -3230 minutes between the flights, below the
+	// 30-minute minimum layover" for an outbound landing two days after the onward flight
+	// left. `minutesBetween` was right — both times are LGW's own and it converts each
+	// through its own offset before subtracting — but there was no layover there to be
+	// short, and a negative duration is not a thing to print. A gap that is positive and
+	// under the minimum still reads the way it always did; that is the case the sentence
+	// was written for.
 	const layover = minutesBetween(outboundFlight.arrival, onwardFlight.departure);
-	if (layover < minLayoverTime) {
+	const flightsOutOfOrder = layover < 0;
+	if (flightsOutOfOrder) {
+		warnings.push({
+			code: 'flights-out-of-order',
+			message: 'The onward flight leaves before this one lands, so there is no connection to make.'
+		});
+	} else if (layover < minLayoverTime) {
 		warnings.push({
 			code: 'layover-too-short',
 			message:
@@ -107,7 +125,12 @@ export function recomputeItinerarySelection(
 		? addLocalMinutes(onwardFlight.departure, -(transferToConnectionAirport.duration + connectionWaitingTime))
 		: addLocalMinutes(onwardFlight.departure, -connectionWaitingTime);
 	const freeDuration = minutesBetween(freeStart, freeEnd);
-	if (freeDuration < 0) {
+	// Not reported alongside `flights-out-of-order`, because there it is the consequence
+	// rather than the cause and it names the wrong culprit. Two flights in the wrong order
+	// leave negative free time whatever the transfers and the buffer are, and production
+	// stacked both sentences on one row: the second blamed the transfers for a trip that
+	// had no connection in it at all.
+	if (freeDuration < 0 && !flightsOutOfOrder) {
 		warnings.push({
 			code: 'insufficient-connection-time',
 			message:

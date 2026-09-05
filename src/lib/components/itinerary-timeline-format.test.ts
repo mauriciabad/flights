@@ -7,7 +7,7 @@ import {
 	formatMoney,
 	formatMoneyDelta,
 	formatMoneyRange,
-	formatStraightLineKm,
+	formatKilometres,
 	formatTimeDelta,
 	formatUtcOffset,
 	isDifferentCalendarDate,
@@ -297,13 +297,13 @@ describe('transferDetailLine', () => {
 	});
 });
 
-describe('formatStraightLineKm', () => {
+describe('formatKilometres', () => {
 	it('rounds to whole kilometres, with a space that cannot break', () => {
-		expect(formatStraightLineKm(9.7)).toBe('10\u00a0km');
-		expect(formatStraightLineKm(48.9)).toBe('49\u00a0km');
+		expect(formatKilometres(9.7)).toBe('10\u00a0km');
+		expect(formatKilometres(48.9)).toBe('49\u00a0km');
 	});
 
 	it('keeps a decimal under a kilometre, where rounding to zero would read as nonsense', () => {
-		expect(formatStraightLineKm(0.42)).toBe('0.4\u00a0km');
+		expect(formatKilometres(0.42)).toBe('0.4\u00a0km');
 	});
 });

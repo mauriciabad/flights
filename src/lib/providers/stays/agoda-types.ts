@@ -32,8 +32,8 @@ export interface AgodaSearchProperty {
 		informationSummary?: {
 			displayName?: string;
 			/** Out of 5 in every property this adapter has seen live (docs/PROVIDERS.md
-			 * convention: pass the raw provider scale through, since normalising it is a
-			 * display concern per domain/stay.ts's Property.rating comment). */
+			 * convention: pass the raw provider scale through, with `outOf: 5` beside it so
+			 * a screen knows which scale it has — domain/stay.ts's `PropertyRating`). */
 			rating?: number | null;
 			geoInfo?: { latitude?: number; longitude?: number };
 		};

@@ -96,7 +96,8 @@ describe('mapSearchResultToCandidate (real fixture)', () => {
 				name: 'Ibis Vienna Airport',
 				coordinates: { latitude: 48.1229461354855, longitude: 16.4396694302559 },
 				images: [ibis!.main_photo_url],
-				rating: 7.8
+				// #245: Booking scores out of 10, and the scale travels with the number.
+				rating: { value: 7.8, outOf: 10 }
 			},
 			headlinePrice: { minorUnits: 6545, currency: 'EUR' }
 		});
