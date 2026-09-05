@@ -111,11 +111,15 @@
 	.ground-legs-row {
 		display: flex;
 		gap: var(--space-2);
-		/* Capped, because these are thumbnails and a full-width desktop row turns each into
-		   a 260px picture of one line. The owner asked for "3 smaller maps"; at 34rem they
-		   are about 165px each, which is the size at which a leg's shape reads and stops
-		   competing with the timeline under it. */
-		max-width: 34rem;
+		/* Full width of the card, on the owner's instruction: "the timeline preview width
+		   doesn't use 100% parent". This row used to stop at 34rem, which left it 86px
+		   short of a 630px card at 1440 and 22px short at 1280, so it read as a row that
+		   had failed to fill rather than one that had been sized.
+
+		   The cap was there because a full-width desktop row was going to turn each
+		   preview into "a 260px picture of one line". That number came from two legs; a
+		   three-leg trip at 630px gives about 205px each, and `flex: 1 1 0` below keeps
+		   them equal however many there are. */
 		margin: 0;
 		padding: 0;
 		list-style: none;
