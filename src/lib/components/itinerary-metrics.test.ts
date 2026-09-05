@@ -64,7 +64,7 @@ describe('itineraryMetrics', () => {
 			freeTimeStart: '2026-10-09T21:10:00',
 			freeTimeEnd: '2026-10-13T09:05:00'
 		});
-		expect(valueOf(overFourNights, 'free-time')).toBe('3 full days');
+		expect(valueOf(overFourNights, 'free-time')).toBe('3 days');
 	});
 
 	it('says "No full days" for a stopover that gives none, plural and never "0"', () => {

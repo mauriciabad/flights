@@ -214,6 +214,16 @@
 		<p class="stopover-edge font-mono tabular-nums">{days.from}</p>
 		<p class="stopover-days">{days.fullDays}</p>
 		<p class="stopover-edge font-mono tabular-nums">{days.until}</p>
+		{#if days.countMeaning}
+			<!-- Issue #306. The card has room for "2+ days" and not for a sentence, so the
+			     sentence lives here, where the stopover is described in full and the two
+			     clock readings it is about are printed directly above and below it. Not the
+			     explanatory text #228 rejected: that was "still counts" and "too late to
+			     count" annotating the day list, which the list already says by naming the
+			     days it names. This says what a suffix that did not exist then is claiming,
+			     against readings a reader can check it with. -->
+			<p class="stopover-part-day">{days.countMeaning}</p>
+		{/if}
 	{:else}
 		<p class="stopover-days">No full days</p>
 	{/if}
@@ -286,6 +296,15 @@
 		font-size: var(--font-size-xs);
 		line-height: var(--line-height-xs);
 		color: var(--color-text-muted);
+	}
+
+	/* A footnote to the three lines above it, quieter than the edges: it explains a mark on
+	   another surface rather than stating a fact about this trip that nothing else carries. */
+	.stopover-part-day {
+		margin-top: var(--space-1);
+		font-size: var(--font-size-xs);
+		line-height: var(--line-height-xs);
+		color: var(--color-text-faint);
 	}
 
 	/* The blank line the owner drew between the times and the stay, as space rather than
