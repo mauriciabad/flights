@@ -467,7 +467,6 @@
 		{legField}
 		{itinerary}
 		alternatives={options.candidates}
-		taxiFareEstimate={options.taxiFareEstimate}
 		{transitAnswer}
 		{referenceMoment}
 		{referenceLabel}

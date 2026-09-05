@@ -123,30 +123,6 @@
 
 	const timelineId = $props.id();
 
-	/**
-	 * Issue #278: on a phone the customise panel is a sheet at the foot of the screen, and
-	 * a reader who taps a 3px transfer seam and gets a panel sitting on top of it has lost
-	 * the context that made the tap mean anything.
-	 *
-	 * `scroll-margin-bottom` below inflates this block's box by the sheet's own height for
-	 * scrolling purposes only, so `block: 'nearest'` lands the strip above the sheet rather
-	 * than merely inside the viewport. On a wide screen the margin is zero and this call is
-	 * a no-op for a strip already on screen.
-	 *
-	 * An effect rather than a handler because the selection arrives as a prop: it can be
-	 * set from the timeline or the map as well as from the strip. It reads props and calls
-	 * a DOM method, and writes no state, so it cannot retrigger itself (AGENTS.md, the
-	 * `$effect` trap).
-	 */
-	let stripEl = $state<HTMLElement>();
-	$effect(() => {
-		if (!selectedSegmentId || !stripEl) return;
-		// `scrollIntoView` takes no notice of `prefers-reduced-motion` on its own, unlike the
-		// CSS transitions app.css already flattens for it. A reader who has asked for less
-		// motion gets the same final position without the travel.
-		const still = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-		stripEl.scrollIntoView({ block: 'nearest', behavior: still ? 'auto' : 'smooth' });
-	});
 	const connectionCode = $derived(connectionAirportCode(itinerary));
 
 	/**
