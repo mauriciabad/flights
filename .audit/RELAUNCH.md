@@ -152,3 +152,28 @@ package was the expensive one, 232k tokens of work that existed nowhere else.
 
 Use `git fetch origin main && git rebase origin/main` to move a working branch, never `-B`. If
 you must reset, push first.
+
+
+## Brief corrections earned after midnight
+
+**The pre-PR checklist must name `pnpm test:e2e`.** Every brief tonight said check, test, build,
+qa. CI also runs e2e, and #241 went red on a PR the orchestrator was waiting to merge because
+its agent ran the four it was told to run. Its own words: "That gap cost a red CI run."
+
+The full gate is:
+
+```
+pnpm check && pnpm test && pnpm build
+CI=1 E2E_PORT=<your own> pnpm test:e2e
+QA_PORT=<your own> pnpm qa
+```
+
+**Do not spawn a second agent for work an existing one is already finishing.** At 05:02 the
+orchestrator spawned a dedicated agent to fix the e2e test #241 had invalidated, while #241's
+own agent was already fixing it. It landed the fix at 05:10 in its fourth commit; the second
+agent was stopped at 05:20 having done the same work twice. Before spawning for a failure on
+an open PR, ask the PR's own agent whether it is already on it. The cost of asking is one
+message.
+
+**A red CI run on an agent's PR is not automatically the agent's to fix.** Check who is still
+alive first. `tools/agent-progress.mjs` shows it.
