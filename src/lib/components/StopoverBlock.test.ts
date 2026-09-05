@@ -23,7 +23,9 @@ function render(itinerary: Itinerary, connectionLabel = 'London'): string[] {
 	document.body.appendChild(target);
 	component = mount(StopoverBlock, { target, props: { itinerary, connectionLabel } });
 	flushSync();
-	return [...target.querySelectorAll('p')].map((p) => p.textContent!.trim());
+	// The city name is a field label rather than one of the block's lines, so it is not
+	// part of what the owner specified and does not belong in these assertions.
+	return [...target.querySelectorAll('p:not(.stopover-label)')].map((p) => p.textContent!.trim());
 }
 
 beforeEach(() => {
@@ -113,6 +115,14 @@ describe('what it says when a fact is missing', () => {
 		});
 		const { stay: _stay, ...withoutStay } = sameDay;
 		expect(render(withoutStay as Itinerary)).toContain('No night spent here, so there is no bed to price');
+	});
+
+	// "The stay block is always present in the same format." A line that disappeared when
+	// nobody could route to the bed would let the block change shape at the moment it has
+	// something to say. #211's sentence, the same one the timeline's transfer row prints.
+	it('keeps the transport line when nothing routed to the bed', () => {
+		const unrouted: Itinerary = { ...londonStopover(), transferToHotel: undefined };
+		expect(render(unrouted)).toContain('The bed is priced, but no transport provider could route to it.');
 	});
 
 	it('still prints a count when the window has no length at all', () => {
