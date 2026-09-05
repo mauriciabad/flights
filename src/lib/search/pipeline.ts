@@ -47,6 +47,7 @@ import { defaultStopover } from '../algorithm/stopover-length';
 import { getAirport } from '../data/airports';
 import {
 	DEFAULT_LANDING_TO_TRANSPORT_RULES,
+	groundTransferPoint,
 	type Airport,
 	type FlightOffer,
 	type IataAirlineCode,
@@ -147,7 +148,10 @@ async function fetchOuterTransfers(
 					// per itinerary in `transit-schedule.ts` (issue #135).
 					{
 						from: query.originLocation.coordinates,
-						to: originAirport.coordinates,
+						// Issue #341: the terminal, not the runway point. A traveller walks
+						// to a door, and at Gatwick the two are 1.4 km apart with the runway
+						// between them.
+						to: groundTransferPoint(originAirport),
 						modes: [...ROAD_TRANSFER_MODES],
 						countryCode: originAirport.country.isoCode
 					},
@@ -161,7 +165,7 @@ async function fetchOuterTransfers(
 		query.destinationLocation
 			? fetchBestTransfer(
 					{
-						from: destinationAirport.coordinates,
+						from: groundTransferPoint(destinationAirport),
 						to: query.destinationLocation.coordinates,
 						modes: [...ROAD_TRANSFER_MODES],
 						countryCode: destinationAirport.country.isoCode
@@ -488,7 +492,7 @@ async function processCandidate(input: ProcessCandidateInput): Promise<Candidate
 	// `resources.stay` to `undefined` rather than dropping the candidate, so having no
 	// flights, checked above, is the only thing that still empties one outright.
 	const resources = await fetchConnectionResources({
-		connectionCoordinates: connectionAirport.coordinates,
+		connectionCoordinates: groundTransferPoint(connectionAirport),
 		connectionAirportSize: connectionAirport.sizeClass,
 		connectionCountryCode: connectionAirport.country.isoCode,
 		// Issue #161: `undefined` for every airport without a hand-checked city point
@@ -555,7 +559,7 @@ async function processCandidate(input: ProcessCandidateInput): Promise<Candidate
 		const cardPairing = defaultStopover(scored, (score) => score.itinerary.nightsInConnection);
 		const refined = cardPairing ? await fetchTransitSchedules({
 			itinerary: cardPairing.itinerary,
-			connectionCoordinates: connectionAirport.coordinates,
+			connectionCoordinates: groundTransferPoint(connectionAirport),
 			connectionLandingBuffer: pickLandingToTransportTime(input.landingToTransportRules, connectionAirport.sizeClass),
 			destinationLandingBuffer: pickLandingToTransportTime(input.landingToTransportRules, input.destinationAirport.sizeClass),
 			transferProviders: input.transferProviders,

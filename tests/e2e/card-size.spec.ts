@@ -150,9 +150,6 @@ test.describe('result card size', () => {
 		// guarding is unchanged: that this fixture really is building the worst case, and has
 		// not quietly stopped, which is #298 happening again one level up.
 		await expect(tallest.locator('.price-group .price-part-label').first()).toHaveText('Hotel');
-		// A walked leg and a rated one on the same receipt, which is the pair that proves both
-		// readings of an absent price are being printed (`domain/transfer.ts`).
-		await expect(tallest.locator('.price-part-amount').filter({ hasText: 'free' })).toHaveCount(1);
 		const receipt = await tallest.locator('.price-part').evaluateAll((rows) =>
 			rows.map((row) => {
 				const label = row.querySelector('.price-part-label')?.textContent?.trim();
@@ -161,6 +158,17 @@ test.describe('result card size', () => {
 			})
 		);
 		console.log(`worst-case receipt: ${receipt.join(' | ')}`);
+		// A walked leg and a rated one on the same receipt, which is the pair that proves both
+		// readings of an absent price are being printed (`domain/transfer.ts`).
+		//
+		// "At least one of each" rather than exactly one free row. Issue #341 moved the ground
+		// legs to start at the airport's terminal instead of its runway point, and Tallinn's
+		// two are 1.8 km apart, so a leg this fixture used to reach by taxi is now inside
+		// walking distance and prints free. How many of the three land on foot is geography.
+		// Which two renderings appear is the property.
+		const ground = receipt.filter((row) => row.startsWith('Ride'));
+		expect(ground.some((row) => row.endsWith('free'))).toBe(true);
+		expect(ground.some((row) => !row.endsWith('free'))).toBe(true);
 		// Flights, the hotel group's header, at least one nights row and at least two named
 		// ground rows: the longest receipt this app can print.
 		expect(receipt.length).toBeGreaterThanOrEqual(5);

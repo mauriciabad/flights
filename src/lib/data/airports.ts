@@ -19,6 +19,7 @@ import type {
 	Country,
 	IataAirportCode
 } from '$lib/domain';
+import { loadAirportTerminals } from './airport-terminals';
 import { citySearchAliases, cityCentreOf, displayCityName } from './airport-city-names';
 import { loadCityCentres } from './city-centres';
 
@@ -188,7 +189,8 @@ const COUNTRY_NAME_ALIASES: Readonly<Record<string, readonly string[]>> = {
 
 function toAirport(
 	row: AirportDatasetRow,
-	generatedCentres: ReadonlyMap<IataAirportCode, Coordinates>
+	generatedCentres: ReadonlyMap<IataAirportCode, Coordinates>,
+	terminals: ReadonlyMap<IataAirportCode, Coordinates>
 ): Airport {
 	const coordinates: Coordinates = { latitude: row.latitude, longitude: row.longitude };
 	const country: Country = {
@@ -224,6 +226,10 @@ function toAirport(
 		icaoCode: row.icaoCode ?? undefined,
 		name: row.name,
 		coordinates,
+		// Issue #341: the building a traveller walks out of, where OSM has one. Absent for
+		// about a quarter of the dataset, and `groundTransferPoint` falls back to the
+		// runway point above — which is what every ground transfer used before this.
+		terminalCoordinates: terminals.get(row.iataCode),
 		city,
 		country,
 		// Airport.sizeClass is required, but a handful of scheduled-service airports
@@ -260,11 +266,12 @@ function loadRows(): Promise<AirportDatasetRow[]> {
  * it is still a module import rather than a network request.
  */
 export function loadAirports(): Promise<Airport[]> {
-	// Both chunks in parallel: the centres table is a fifth of the size of the airport
-	// rows, so waiting for it costs nothing, and doing it here rather than inside
-	// `cityCentreOf` keeps that function synchronous for the ten hand-checked entries.
-	airportsPromise ??= Promise.all([loadRows(), loadCityCentres()]).then(([rows, centres]) =>
-		rows.map((row) => toAirport(row, centres))
+	// All three chunks in parallel: the centres and terminals tables are each about a tenth
+	// of the size of the airport rows, so waiting for them costs nothing, and doing it here
+	// rather than inside `cityCentreOf` keeps that function synchronous for the ten
+	// hand-checked entries.
+	airportsPromise ??= Promise.all([loadRows(), loadCityCentres(), loadAirportTerminals()]).then(
+		([rows, centres, terminals]) => rows.map((row) => toAirport(row, centres, terminals))
 	);
 	return airportsPromise;
 }
