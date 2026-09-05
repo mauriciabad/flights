@@ -690,12 +690,23 @@
 		white-space: nowrap;
 	}
 
+	/* The one mark on this row that says "this does something". The words stay teal because
+	   teal is what the stopover is, and the chevron takes the accent because accent is what
+	   is interactive everywhere else in this app. Without it the control reads as a caption:
+	   a phone has no hover to discover it with, and colour alone would be the only signal. */
 	.trip-strip-chevron {
 		width: 0.85rem;
 		height: 0.85rem;
 		flex-shrink: 0;
 		align-self: center;
-		transition: transform var(--transition-fast);
+		color: var(--color-accent);
+		transition:
+			transform var(--transition-fast),
+			color var(--transition-fast);
+	}
+
+	.trip-strip-unfold:hover .trip-strip-chevron {
+		color: var(--color-accent-hover);
 	}
 
 	.trip-strip-chevron.is-open {

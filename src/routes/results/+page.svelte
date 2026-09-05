@@ -1465,6 +1465,7 @@
 	.customise-close {
 		margin-left: auto;
 		min-height: 2.75rem;
+		touch-action: manipulation;
 		padding-inline: var(--space-2);
 		border-radius: var(--radius-md);
 		font-size: var(--font-size-sm);
@@ -1523,7 +1524,11 @@
 		justify-content: center;
 		height: 1.75rem;
 		flex-shrink: 0;
+		/* The browser must not claim the vertical drag for scrolling, and a mouse drag along
+		   the top of the sheet must not select the text under it. */
 		touch-action: none;
+		user-select: none;
+		-webkit-user-select: none;
 		cursor: grab;
 	}
 

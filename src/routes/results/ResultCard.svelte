@@ -141,7 +141,11 @@
 	let stripEl = $state<HTMLElement>();
 	$effect(() => {
 		if (!selectedSegmentId || !stripEl) return;
-		stripEl.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+		// `scrollIntoView` takes no notice of `prefers-reduced-motion` on its own, unlike the
+		// CSS transitions app.css already flattens for it. A reader who has asked for less
+		// motion gets the same final position without the travel.
+		const still = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+		stripEl.scrollIntoView({ block: 'nearest', behavior: still ? 'auto' : 'smooth' });
 	});
 	const connectionCode = $derived(connectionAirportCode(itinerary));
 
