@@ -1,5 +1,5 @@
 import type { IsoCurrencyCode, Money } from '../../domain';
-import { moneyFromDecimalString, moneyFromMajorUnits } from '../../domain';
+import { moneyFromDecimalString, moneyFromFormattedString, moneyFromMajorUnits } from '../../domain';
 
 /**
  * Sky Scrapper's `price` object carries both a number (`raw`, in major units, e.g. `17.99`)
@@ -19,7 +19,7 @@ export function parseOfferPrice(
 	currency: IsoCurrencyCode
 ): Money | undefined {
 	if (price === undefined) return undefined;
-	return fromRaw(price.raw, currency) ?? fromFormatted(price.formatted, currency);
+	return fromRaw(price.raw, currency) ?? moneyFromFormattedString(price.formatted, currency);
 }
 
 function fromRaw(raw: unknown, currency: IsoCurrencyCode): Money | undefined {
@@ -30,10 +30,7 @@ function fromRaw(raw: unknown, currency: IsoCurrencyCode): Money | undefined {
 	return undefined;
 }
 
-/** Last resort: strip everything but digits and the decimal point from the display string,
- * e.g. "18 €" -> "18", "$1,234.50" -> "1234.50". Inherently lossy, since a formatted price
- * is usually already rounded, which is why `raw` is always tried first. */
-function fromFormatted(formatted: unknown, currency: IsoCurrencyCode): Money | undefined {
-	if (typeof formatted !== 'string') return undefined;
-	return moneyFromDecimalString(formatted.replace(/[^0-9.,]/g, '').replace(/,/g, ''), currency);
-}
+// The display-string fallback is `moneyFromFormattedString` in domain/money.ts. It used to
+// be six lines here and six identical lines in flights-sky-money.ts, and both read
+// "60,99 €" as 6099 euros because both deleted the comma as a thousands separator (issue
+// #192). Two copies of one rule is how #179 happened as well, so there is now one.

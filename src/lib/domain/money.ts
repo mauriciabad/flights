@@ -200,6 +200,109 @@ export function majorUnitsOf(money: Money): number {
 }
 
 /**
+ * A price a provider sent only as a display string ("18 €", "$1,234.50", "60,99 €") as
+ * `Money`, or `undefined` when the string does not pin down exactly one amount.
+ *
+ * Issue #192. Both Sky Scrapper adapters used to do this themselves, with the same two
+ * lines each: strip everything but digits, a dot and a comma, then delete the commas as
+ * thousands separators. That is right for `"$1,234.50"` and wrong everywhere a comma is a
+ * decimal point, so `"60,99 €"` became 6099 euros and `"45 000,00 Ft"` became 4 500 000
+ * forint. A fare a hundred times too high is a booking the traveller cannot make.
+ *
+ * ## Why this parses rather than refusing every formatted string
+ *
+ * #192 offered dropping the offer outright as the other honest option, and it is tempting:
+ * AGENTS.md's Money rule says a formatted string is never the canonical value, and this
+ * whole class of bug comes from treating one as if it were. But this path only runs when
+ * `raw` is missing, and refusing then means a European response with no numeric field
+ * yields an empty results page rather than a readable one. `"$1,234.50"` and `"60,99 €"`
+ * each have exactly one sensible reading; throwing them away is a loss with no safety
+ * bought, because the unreadable case is rejected either way.
+ *
+ * So the rule is that the separators must leave one reading standing, and anything else is
+ * `undefined`. Never a guess:
+ *
+ * - Whitespace, including the non-breaking and thin spaces real currency formatters use, is
+ *   a group separator. `"45 000,00"` is forty-five thousand.
+ * - Two numbers in one string is a range or a pair of prices, not a price. Rejected.
+ * - A leading minus is rejected on `moneyFromMajorUnits`' grounds: no provider quotes a
+ *   negative fare, so a field holding one is not the field that was meant.
+ * - With both separators present the later one is the decimal point and the earlier one
+ *   groups, which is the only self-consistent reading of `"1,234.50"` and of `"1.234,56"`.
+ * - With one separator and one or two digits after it, it is a decimal point. `60,99` is
+ *   sixty-something: no thousands group is two digits long.
+ * - With one separator and exactly three digits after it, both readings exist. They agree
+ *   for every currency whose minor unit is not three digits, since `.500` is not a shape a
+ *   two-decimal currency has, so it groups. For the dinars it is genuinely ambiguous and
+ *   `"1,234"` KWD is rejected rather than being either 1234 or 1.234 dinars.
+ * - Any other grouping is not a grouping. `"12,34,567"` is rejected rather than read.
+ *
+ * The result still goes through `moneyFromDecimalString`, so the exponent table and the
+ * rounding stay in one place. Being a rounded display string, the amount is only as exact
+ * as the provider printed it, which is why `raw` is tried first and this never is.
+ */
+export function moneyFromFormattedString(formatted: unknown, currency: unknown): Money | undefined {
+	const code = normaliseCurrencyCode(currency);
+	if (code === undefined || typeof formatted !== 'string') return undefined;
+
+	// Space is a group separator in most of Europe. `\s` already covers the ones a real
+	// currency formatter emits, U+00A0 and U+202F, which a plain / /g would miss.
+	const withoutSpaces = formatted.replace(/\s+/g, '');
+	if (/^[-−]/.test(withoutSpaces)) return undefined;
+	const numbers = withoutSpaces.match(/[\d.,]+/g);
+	// One price or nothing. "18 € - 24 €" is a range, and "call for price" is not a number.
+	if (numbers === null || numbers.length !== 1) return undefined;
+
+	const decimal = toDecimalString(numbers[0]!, currencyExponent(code));
+	if (decimal === undefined) return undefined;
+	return moneyFromDecimalString(decimal, code);
+}
+
+/** The digits of one formatted number as a plain `whole.fraction` string, or `undefined`
+ * when its separators leave more than one reading standing. */
+function toDecimalString(digits: string, exponent: CurrencyExponent): string | undefined {
+	const dots = digits.split('.').length - 1;
+	const commas = digits.split(',').length - 1;
+
+	if (dots === 0 && commas === 0) return /^\d+$/.test(digits) ? digits : undefined;
+
+	if (dots > 0 && commas > 0) {
+		const decimalSeparator = digits.lastIndexOf('.') > digits.lastIndexOf(',') ? '.' : ',';
+		const groupSeparator = decimalSeparator === '.' ? ',' : '.';
+		const cut = digits.lastIndexOf(decimalSeparator);
+		return joinGroups(digits.slice(0, cut), digits.slice(cut + 1), groupSeparator);
+	}
+
+	const separator = dots > 0 ? '.' : ',';
+	const parts = digits.split(separator);
+	const last = parts[parts.length - 1]!;
+
+	// More than one of the same separator only makes sense as grouping: "1,234,567".
+	if (parts.length > 2) return joinGroups(digits, '', separator);
+	// One or two digits after it is a decimal fraction. No thousands group is that short.
+	if (last.length === 1 || last.length === 2) {
+		return joinGroups(parts[0]!, last, separator === '.' ? ',' : '.');
+	}
+	// Three digits reads both ways, and only a three-decimal currency makes the two disagree.
+	if (last.length === 3) return exponent === 3 ? undefined : joinGroups(digits, '', separator);
+	return undefined;
+}
+
+/** `whole` with its group separators removed, joined to `fraction`, provided the grouping
+ * is a grouping: a first group of one to three digits and every later one of exactly three. */
+function joinGroups(whole: string, fraction: string, groupSeparator: string): string | undefined {
+	if (fraction !== '' && !/^\d+$/.test(fraction)) return undefined;
+	const groups = whole.split(groupSeparator);
+	if (groups.some((group) => !/^\d+$/.test(group))) return undefined;
+	if (groups.length > 1) {
+		if (groups[0]!.length < 1 || groups[0]!.length > 3) return undefined;
+		if (groups.slice(1).some((group) => group.length !== 3)) return undefined;
+	}
+	const digits = groups.join('');
+	return fraction === '' ? digits : `${digits}.${fraction}`;
+}
+
+/**
  * The currency this app asks every provider to quote in, and the one every price on screen
  * is therefore in. One value, imported everywhere, rather than a literal repeated at each
  * call site.
