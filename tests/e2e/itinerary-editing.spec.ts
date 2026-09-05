@@ -72,7 +72,10 @@ test.describe('editing a stopover keeps one trip on the screen', () => {
 		await expect(block).toContainText('55m from the airport');
 		await expect(toBed).toContainText('55m');
 		await expect(nights).toContainText('2');
-		await expect(block).toContainText('2 nights');
+		// "Nights 2" since issue #279, where the block's night count became a labelled figure
+		// instead of part of a sentence. The agreement under test is unchanged: the rail's
+		// count and the block's count are the same number.
+		await expect(block).toContainText('Nights 2');
 
 		// Issue #250. 1530 minutes at the connection eats a night off the far end of the
 		// stopover. The block used to keep printing the saved trip's window, bed and rate
@@ -82,7 +85,7 @@ test.describe('editing a stopover keeps one trip on the screen', () => {
 		await connectionWait.dispatchEvent('input');
 
 		await expect(nights).toContainText('1');
-		await expect(block).toContainText('1 night');
+		await expect(block).toContainText('Nights 1');
 
 		// Issue #243. Reaching the stay list is the two taps a traveller makes: open the
 		// stopover row, then pick the other property.

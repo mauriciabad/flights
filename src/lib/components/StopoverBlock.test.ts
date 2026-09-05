@@ -1,6 +1,6 @@
 import { flushSync, mount, unmount } from 'svelte';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import type { Itinerary } from '../domain';
+import type { Coordinates, Itinerary } from '../domain';
 import { makeItinerary } from '../results/test-support';
 import { timeFormat } from '../settings/time-format.svelte';
 import StopoverBlock from './StopoverBlock.svelte';
@@ -18,15 +18,43 @@ import StopoverBlock from './StopoverBlock.svelte';
 let target: HTMLElement | undefined;
 let component: Record<string, unknown> | undefined;
 
-function render(itinerary: Itinerary, connectionLabel = 'London'): string[] {
+/**
+ * Everything the block says, as one whitespace-normalised string.
+ *
+ * It used to be an array of `<p>` texts, which stopped describing the block when issue
+ * #279 gave the stay half a shape: the rate and the distance are a caption over a figure
+ * now, not a sentence. Normalising the whole thing keeps every assertion below readable
+ * and makes them stronger, because "Per night €20.00" only appears in this string when the
+ * caption and the figure are actually next to each other. A rail that pairs the right
+ * label with the wrong number is the mistake worth catching here.
+ */
+function render(itinerary: Itinerary, connectionLabel = 'London'): string {
+	mountBlock(itinerary, connectionLabel);
+	return text();
+}
+
+function mountBlock(
+	itinerary: Itinerary,
+	connectionLabel = 'London',
+	connectionCoordinates?: Coordinates
+) {
 	target = document.createElement('div');
 	document.body.appendChild(target);
-	component = mount(StopoverBlock, { target, props: { itinerary, connectionLabel } });
+	component = mount(StopoverBlock, {
+		target,
+		props: { itinerary, connectionLabel, connectionCoordinates }
+	});
 	flushSync();
-	// The city name is a field label rather than one of the block's lines, so it is not
-	// part of what the owner specified and does not belong in these assertions.
-	return [...target.querySelectorAll('p:not(.stopover-label)')].map((p) => p.textContent!.trim());
 }
+
+const text = () => target!.textContent!.replace(/\s+/g, ' ').trim();
+
+/** The three lines issue #228 settled, still their own elements and still in trip order.
+ * The city name above them is a field label rather than one of the lines, so it is out. */
+const timeLines = () =>
+	[...target!.querySelectorAll('.stopover > p:not(.stopover-label)')].map((p) =>
+		p.textContent!.trim()
+	);
 
 beforeEach(() => {
 	timeFormat.reset();
@@ -52,8 +80,8 @@ function londonStopover(overrides: Parameters<typeof makeItinerary>[0] = {}): It
 
 describe('the block the owner settled on', () => {
 	it('prints the three time lines in trip order, then the stay', () => {
-		const lines = render(londonStopover());
-		expect(lines.slice(0, 3)).toEqual([
+		render(londonStopover());
+		expect(timeLines()).toEqual([
 			'Fri 9 from 9:10pm',
 			'2 full days: Sat, Sun',
 			'Mon 12 until 9:05am'
@@ -61,10 +89,13 @@ describe('the block the owner settled on', () => {
 	});
 
 	it('names the property, the room and the nights with their rate', () => {
-		const lines = render(londonStopover());
-		expect(lines).toContain('Test stay');
-		expect(lines).toContain('Private room');
-		expect(lines).toContain('2 nights, €20.00/night');
+		const block = render(londonStopover());
+		expect(block).toContain('Test stay');
+		expect(block).toContain('Private room');
+		// Issue #279 split the one sentence into two labelled figures. Same two numbers,
+		// each paired with the caption that says what it is.
+		expect(block).toContain('Per night €20.00');
+		expect(block).toContain('Nights 2');
 	});
 
 	// Issue #206. Both surfaces that print this rate go through `bedNightlyRate`, so a card
@@ -74,8 +105,7 @@ describe('the block the owner settled on', () => {
 		// A private room is one unit of inventory whatever the party size, measured, not
 		// assumed: Hostelworld says in its own words that three people booking a four-bed
 		// private pay for four.
-		const lines = render(londonStopover({ travellers: 3 }));
-		expect(lines).toContain('2 nights, €20.00/night for 3');
+		expect(render(londonStopover({ travellers: 3 }))).toContain('Per night €20.00 for 3');
 	});
 
 	it('prints the per-person rate a provider quoted, marked as each', () => {
@@ -90,7 +120,7 @@ describe('the block the owner settled on', () => {
 			}
 		};
 
-		expect(render(inADorm)).toContain('2 nights, €13.00/night each');
+		expect(render(inADorm)).toContain('Per night €13.00 each');
 	});
 
 	// AGENTS.md: currency symbol first, English convention, and "each way" rather than
@@ -128,9 +158,9 @@ describe('what it says when a fact is missing', () => {
 		// Issue #140 ruled out "yet" for a state nothing is about to change.
 		const noBed = londonStopover();
 		const { stay: _stay, ...withoutStay } = noBed;
-		const lines = render(withoutStay as Itinerary);
-		expect(lines).toContain('No bed priced, so the total is a floor');
-		expect(lines.join(' ')).not.toContain('yet');
+		const block = render(withoutStay as Itinerary);
+		expect(block).toContain('No bed priced, so the total is a floor');
+		expect(block).not.toContain('yet');
 	});
 
 	it('says a same-day connection has no bed to price, rather than a missing one', () => {
@@ -160,11 +190,11 @@ describe('what it says when a fact is missing', () => {
 			transferToHotel: undefined,
 			transferAnchor: 'unrouted-stay'
 		};
-		const lines = render(picked);
-		expect(lines).toContain('Nothing routed to this property, so the journey to it is unknown.');
-		expect(lines.join(' ')).not.toMatch(/no transport provider could route/);
+		const block = render(picked);
+		expect(block).toContain('Nothing routed to this property, so the journey to it is unknown.');
+		expect(block).not.toMatch(/no transport provider could route/);
 		// The bed itself is still real and still priced; only its journey is unknown.
-		expect(lines).toContain('Test stay');
+		expect(block).toContain('Test stay');
 	});
 
 	it('still prints a count when the window has no length at all', () => {
@@ -176,8 +206,8 @@ describe('what it says when a fact is missing', () => {
 describe('the 24-hour setting', () => {
 	it('reaches these edge lines like every other clock in the app', () => {
 		timeFormat.set('24h');
-		const lines = render(londonStopover());
-		expect(lines.slice(0, 3)).toEqual(['Fri 9 from 21:10', '2 full days: Sat, Sun', 'Mon 12 until 09:05']);
+		render(londonStopover());
+		expect(timeLines()).toEqual(['Fri 9 from 21:10', '2 full days: Sat, Sun', 'Mon 12 until 09:05']);
 	});
 });
 
@@ -195,14 +225,15 @@ describe('a short overnight wait (issue #231)', () => {
 	}
 
 	it('names the wait and its length instead of a property nobody is checking into', () => {
-		const lines = render(overnightWait());
-		expect(lines).toContain('Overnight wait, 3h, too short to be worth a bed');
-		expect(lines).not.toContain('Test stay');
-		expect(lines.join(' ')).not.toContain('/night');
+		const block = render(overnightWait());
+		expect(block).toContain('Overnight wait, 3h, too short to be worth a bed');
+		expect(block).not.toContain('Test stay');
+		expect(block).not.toContain('Per night');
 	});
 
 	it('still shows both edges of the window, so the date change is not hidden', () => {
-		expect(render(overnightWait()).slice(0, 3)).toEqual([
+		render(overnightWait());
+		expect(timeLines()).toEqual([
 			'Tue 6 from 11:30pm',
 			'No full days',
 			'Wed 7 until 2:30am'
@@ -212,8 +243,8 @@ describe('a short overnight wait (issue #231)', () => {
 	it('does not tell a traveller awake at 3am that their connection is same-day', () => {
 		const unrouted = overnightWait();
 		const { stay: _stay, ...withoutStay } = unrouted;
-		const lines = render({ ...withoutStay, transferToHotel: undefined } as Itinerary);
-		expect(lines).toContain('Overnight wait, so there is no hotel leg here.');
+		const block = render({ ...withoutStay, transferToHotel: undefined } as Itinerary);
+		expect(block).toContain('Overnight wait, so there is no hotel leg here.');
 	});
 });
 
@@ -229,24 +260,23 @@ describe('how far out the bed is (issue #219)', () => {
 		};
 	}
 
-	function renderWithAirport(itinerary: Itinerary): string[] {
-		target = document.createElement('div');
-		document.body.appendChild(target);
-		component = mount(StopoverBlock, {
-			target,
-			props: { itinerary, connectionLabel: 'London', connectionCoordinates: GATWICK }
-		});
-		flushSync();
-		return [...target.querySelectorAll('p:not(.stopover-label)')].map((p) => p.textContent!.trim());
+	function renderWithAirport(itinerary: Itinerary): string {
+		mountBlock(itinerary, 'London', GATWICK);
+		return text();
 	}
 
-	it('prints the distance beside the room kind', () => {
+	it('prints the distance as a figure of its own, under the label that names it', () => {
 		// 0.0252 degrees of latitude north of Gatwick is 2.8 km.
-		const lines = renderWithAirport(withBedAt(GATWICK.latitude + 0.0252, GATWICK.longitude));
-		expect(lines).toContain('Private room · 2.8 km from the airport');
+		const block = renderWithAirport(withBedAt(GATWICK.latitude + 0.0252, GATWICK.longitude));
+		expect(block).toContain('From airport 2.8 km');
+		expect(block).toContain('Private room');
 	});
 
-	it('says the room kind alone when no airport position was resolved', () => {
-		expect(render(londonStopover())).toContain('Private room');
+	it('drops the figure entirely when no airport position was resolved', () => {
+		// Not a dash and not a zero. The itinerary carries only an IATA code, so there is no
+		// point to measure from and no number to print.
+		const block = render(londonStopover());
+		expect(block).toContain('Private room');
+		expect(block).not.toContain('From airport');
 	});
 });

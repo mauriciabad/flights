@@ -137,6 +137,21 @@ const CHECKS: Record<string, FixtureCheck> = {
 		map: (raw) =>
 			mapPropertiesToStays((raw as { properties?: never[] }).properties, AIRPORT, 50, 1).length
 	},
+	// The same shape carrying photographs, for issue #279's carousel. The image half of
+	// `mapPropertiesToStays` had no fixture behind it at all before this: every stay fixture
+	// here has `images: []`, so `imageUrls` joining a `{prefix, suffix}` pair into a URL was
+	// covered by unit tests and by nothing that runs the real adapter. This check maps the
+	// file and then asserts the URLs actually came out, because "the mapper accepted it" is
+	// exactly the guarantee that hid issue #194.
+	'hostelworld/properties-vienna-photos.json': {
+		readBy: 'providers/stays/hostelworld-mapper.ts mapPropertiesToStays',
+		yields: 'some',
+		map: (raw) => {
+			const stays = mapPropertiesToStays((raw as { properties?: never[] }).properties, AIRPORT, 25, 1);
+			const withPhotos = stays.filter((stay) => stay.property.images.length > 0);
+			return withPhotos.length;
+		}
+	},
 	'kiwi-public/one-per-city-empty.json': {
 		readBy: 'providers/flights/kiwi-public-mapper.ts mapOnePerCityResultToDestinations',
 		yields: 'none',

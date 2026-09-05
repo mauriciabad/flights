@@ -5,6 +5,7 @@
  */
 
 export { default as StayPicker } from './StayPicker.svelte';
+export { default as PickedBed } from './PickedBed.svelte';
 export { femaleDormFit, femaleDormFitMessage, isFemaleDormSelectable } from './female-dorm-fit';
 export type { FemaleDormFit } from './female-dorm-fit';
 export { bedNightlyRate, moneyDifference, stayTotalDelta, stayTotalForNights, formatMoney } from './pricing';
