@@ -156,13 +156,13 @@ saw timing-sensitive specs fail and pass again on a quiet re-run. AGENTS.md now 
 
 ## Still open, and who has it
 
-| # | what | who |
-| --- | --- | --- |
-| #243 #250 | detail-view edits do not propagate | agent, PR close |
-| #119 | long road transfers, plausibility half | agent, PR close |
+| #              | what                                        | who                            |
+| -------------- | ------------------------------------------- | ------------------------------ |
+| #243 #250      | detail-view edits do not propagate          | agent, PR close                |
+| #119           | long road transfers, plausibility half      | agent, PR close                |
 | #213 #242 #257 | OSRM burst, transit coverage, dead fixtures | agent, six commits, PR pending |
-| #249 | no ground transfer is ever priced | **you** |
-| #20 | validate against the brief | stays open by design |
+| #249           | no ground transfer is ever priced           | **you**                        |
+| #20            | validate against the brief                  | stays open by design           |
 
 ## One failure of mine worth recording
 
@@ -175,7 +175,6 @@ pointed it at by a path that only existed on an unmerged branch.
 The lesson is not "be careful with -B". It is that an orchestrator's own artefacts belong on
 `main` as soon as they exist, not on a working branch it keeps rebasing. That is what this PR
 does.
-
 
 ## Closing state, 07:20
 
@@ -197,14 +196,14 @@ PASS  P3c no console errors
 half and #20. The other four were filed in the last hour by agents finding real defects while
 fixing others.
 
-| # | what | who |
-| --- | --- | --- |
-| #267 | route to the property the traveller picks | the honest half of #243, left deliberately |
-| #266 | a waiting-time edit stales the timetable | agent working now |
-| #265 | free time gated on a stay after #161 changed the builder | agent working now |
-| #249 | no ground transfer is ever priced | **you**, two questions in the issue |
-| #119 | design half | **you** |
-| #20 | validate against the brief | open by design |
+| #    | what                                                     | who                                        |
+| ---- | -------------------------------------------------------- | ------------------------------------------ |
+| #267 | route to the property the traveller picks                | the honest half of #243, left deliberately |
+| #266 | a waiting-time edit stales the timetable                 | agent working now                          |
+| #265 | free time gated on a stay after #161 changed the builder | agent working now                          |
+| #249 | no ground transfer is ever priced                        | **you**, two questions in the issue        |
+| #119 | design half                                              | **you**                                    |
+| #20  | validate against the brief                               | open by design                             |
 
 **The acceptance route, verified on production at 06:51 after the last deploy:**
 
@@ -240,7 +239,6 @@ entry. More of that.
 Everything except the regression was caught the same way: by not explaining away a number I
 could not account for.
 
-
 ## One thing left unverified, said plainly
 
 **#269 is merged and deployed. I did not confirm it in a browser.**
@@ -271,3 +269,30 @@ seven attempts at #203 against a card with no nights. Each time the null result 
 like the good result, and each time the only thing that saved it was logging whether the
 precondition was met rather than only the outcome. That is worth a line in whatever check
 comes next: **assert that you got there, not just what you saw.**
+
+### Update: the swap has now been watched, and it holds as far as the browser can drive it
+
+`tools/verify-flight-swap-window.mjs` reaches the state the two failed probes could not. What
+they were missing is that `FlightPicker` renders each alternative as a `<label class="picker-row">`
+wrapping a visually hidden radio, so a search for `<button>` elements finds the picker open and
+reports it empty. The probe now names the flight it swapped from and the flight it swapped to.
+
+On `BCN` to `TLL`, first card, a swap from Wizz Air W61706 to Ryanair FR333 moved the Gdańsk
+window from `Wed 7 2:23am - 4:12am` to `Tue 6 3:08pm - Wed 7 4:12am`. Both edges land on the
+builder's own arithmetic, read off the screen: free time opens 48 minutes after the plane lands,
+which is exactly the taxi into town, and closes 138 minutes before the onward flight leaves,
+which is the 2h airport buffer plus the 18-minute ride back. Picking W61706 back restored
+`Wed 7 2:23am - 4:12am` character for character. No swap widened a window by the two in-city legs.
+
+**The one thing still not shown, said as plainly as the rest.** #265's shape needs a stopover
+with a night and no bed on the itinerary, because the gate #269 deleted read `stay &&`. A flight
+swap carries `itinerary.stay` through untouched (`recompute-selection.ts`), so a card whose
+stopover has a bed produces the same window under the old code and the new. The probe scans up
+to eight cards for "No bed priced, so the total is a floor" plus a routed ride, and on
+2026-09-05 neither route had one: every stopover the pipeline routed into town for also got a
+bed priced, and the bedless ones were same-day connections with no night to price. Nothing in
+the UI can unprice a bed either, since `StayPicker` only ever hands back a `Stay`.
+
+So: the swap path is correct in a browser, and the exact configuration that was wrong before
+#269 was not reachable from one today. That is weaker than a reproduction and stronger than
+what stood before, and the probe says which of the two it got.
