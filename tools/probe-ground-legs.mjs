@@ -90,21 +90,35 @@ const rows = page.locator('ul.results-list > li');
 const rowCount = await rows.count();
 console.log('cards on page:', rowCount);
 
+/** Every `Ground, ...` row on a receipt with the amount beneath it, not only the first.
+ * There can be two of them (a walked row and an unquoted one) and reporting one would hide
+ * exactly the pairing this tool exists to show. */
+function groundRows(cardText) {
+	const lines = cardText.split('\n');
+	const found = [];
+	lines.forEach((line, index) => {
+		if (line.startsWith('Ground,')) found.push(`${line.trim()} -> ${lines[index + 1]?.trim() ?? ''}`);
+	});
+	return found;
+}
+
 for (let i = 0; i < rowCount; i++) {
 	const row = rows.nth(i);
-	const cardText = await row.innerText().catch(() => '');
-	const ground = cardText.match(/Ground,[^\n]*\n[^\n]*/);
-	const route = cardText.split('\n').slice(0, 12).join(' ');
-	console.log(`\n=== card ${i} === ${route}`);
-	console.log('-- ground line:', ground ? JSON.stringify(ground[0]) : '(none)');
-	console.log('-- total caveat:', JSON.stringify((cardText.match(/excludes[^\n]*/) || ['(none)'])[0]));
+	const collapsed = await row.innerText().catch(() => '');
+	console.log(`\n=== card ${i} === ${collapsed.split('\n').slice(0, 12).join(' ')}`);
+	for (const line of groundRows(collapsed)) console.log('-- receipt:', JSON.stringify(line));
+	if (groundRows(collapsed).length === 0) console.log('-- receipt: (no ground row)');
 
 	const toggle = row.locator('button.details-toggle');
 	if ((await toggle.count()) === 0) continue;
 	await toggle.first().click();
 	await page.waitForTimeout(3000);
+	const expanded = await row.innerText().catch(() => '');
+	// The caveat lives on the totals bar inside the panel, never on the collapsed card, so
+	// it is only readable once this is open.
+	console.log('-- total caveat:', JSON.stringify((expanded.match(/excludes[^\n]*/) || ['(none)'])[0]));
 	console.log('-- expanded panel --');
-	console.log(await row.innerText().catch(() => ''));
+	console.log(expanded);
 	await toggle.first().click();
 	await page.waitForTimeout(600);
 }
