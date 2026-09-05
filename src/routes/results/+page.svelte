@@ -27,6 +27,7 @@
 	import { onRevalidationSettled } from '$lib/cache';
 	import { Button, Card, EmptyState, ErrorState, Skeleton } from '$lib/components';
 	import { getAirport } from '$lib/data/airports';
+	import { knownAirportCodes } from '$lib/data/known-airports.svelte';
 	import { DEFAULT_SEARCH_CURRENCY } from '$lib/domain';
 	import type { Airport, IataAirportCode, Itinerary, SearchQuery, Stay } from '$lib/domain';
 	import type { ItinerarySegmentId } from '$lib/itinerary-map/segment-id';
@@ -35,7 +36,7 @@
 	import { keyStore } from '$lib/keys';
 	import { buildSearchQuery } from '$lib/search-form/model';
 	import { searchParamsToFields } from '$lib/search-form/url-codec';
-	import { hasBlockingIssue, validateSearchFields } from '$lib/search-form/validation';
+	import { hasBlockingIssue, REQUIRED_SEARCH_FIELDS, validateSearchFields } from '$lib/search-form/validation';
 	import { normalizeQuery, RecentSearches, searchHistory, summarizeSearch } from '$lib/search-history';
 	import SearchSummaryBar from './SearchSummaryBar.svelte';
 	import {
@@ -99,7 +100,20 @@
 	 * a real browser. */
 	const todayIso = new Date().toISOString().slice(0, 10);
 
-	const issues = $derived(validateSearchFields(searchFields, { today: todayIso }));
+	/**
+	 * Issue #327: whether each airport code in the URL is one this app has ever heard of.
+	 * `undefined` until the dataset lands, which `validateSearchFields` reads as "not
+	 * checked yet" rather than as a verdict, and which `query` below waits out. A search
+	 * started before this could answer is precisely the one that reached `runSearch` with
+	 * `ZZZ` in it and threw where nobody would read it.
+	 */
+	const airportCodes = $derived(knownAirportCodes());
+	const issues = $derived(
+		validateSearchFields(searchFields, {
+			today: todayIso,
+			knowsAirport: airportCodes ? (code: string) => airportCodes.has(code) : undefined
+		})
+	);
 	/** A query that cannot describe a trip on any date. Nothing is asked of any provider
 	 * until it is fixed, which is the point: the traveller sees the reason in the field
 	 * instead of waiting out a search that was never going to answer. */
@@ -111,11 +125,58 @@
 		issues.filter((issue) => issue.severity === 'advisory').map((issue) => issue.message)
 	);
 
-	const query = $derived<SearchQuery | null>(blockingIssues.length > 0 ? null : parsedQuery);
+	const query = $derived<SearchQuery | null>(
+		blockingIssues.length > 0 || !airportCodes ? null : parsedQuery
+	);
+
+	/**
+	 * Issue #327: the reasons themselves, where the results would have been.
+	 *
+	 * The one sentence this replaced was true and named nothing. Someone following a link
+	 * with a retired airport code in it read a page that never said which code, which end
+	 * of the trip it was on, or that a code was the problem at all.
+	 */
+	const blockingSummary = $derived(
+		[
+			...blockingIssues.map((issue) => issue.message),
+			'No provider was asked anything. The form above is open on what to change.'
+		].join(' ')
+	);
+
+	/**
+	 * Issue #327: a link carrying half a search is not a link carrying none.
+	 *
+	 * `buildSearchQuery` only ever answers "are the four required fields here", so a URL
+	 * that lost its `to=` on the way through a chat app landed on the same "this link
+	 * carries no search" as an ordinary bare visit to `/results/`. That reads as a shrug to
+	 * the one person who can see their origin and their dates still in the address bar.
+	 */
+	const noQueryCopy = $derived.by(() => {
+		const missing = issues.filter(
+			(issue) => REQUIRED_SEARCH_FIELDS.has(issue.field) && issue.severity === 'blocking'
+		);
+		// Every required field empty is a bare visit rather than a broken link, and
+		// listing four things nobody has filled in yet helps nobody.
+		if (missing.length === 0 || missing.length === REQUIRED_SEARCH_FIELDS.size) {
+			return {
+				title: 'No search in this link',
+				description:
+					'A results page is a search plus its answers, and this link carries no search. Start one, or pick up where you left off.'
+			};
+		}
+		return {
+			title: 'This link is missing part of its search',
+			description: `${missing.map((issue) => issue.message).join(' ')} The rest of it is filled in already.`
+		};
+	});
 	const summary = $derived(parsedQuery ? summarizeSearch(parsedQuery) : undefined);
 	const normalizedQuery = $derived(
 		browser ? normalizeQuery(page.url.searchParams) : ''
 	);
+	/** Issue #327: exactly what the link carried, unnormalised, for the way back to the
+	 * search screen. Same prerender guard as `searchFields`: reading `searchParams` at
+	 * build time throws. */
+	const searchParamsFromLink = $derived(browser ? page.url.searchParams.toString() : '');
 
 	/** Opened by hand from the summary bar, or forced open when the URL's own search is
 	 * the thing that needs fixing. */
@@ -1042,12 +1103,14 @@
 
 <div class="results-page">
 	{#if !parsedQuery}
-		<EmptyState
-			title="No search in this link"
-			description="A results page is a search plus its answers, and this link carries no search. Start one, or pick up where you left off."
-		>
+		<EmptyState title={noQueryCopy.title} description={noQueryCopy.description}>
 			{#snippet action()}
-				<Button href={`${base}/`}>Go to search</Button>
+				<!-- Issue #327: carries whatever the link did have. The search screen fills its
+				     form from these same params, so someone whose URL lost only its `to=`
+				     arrives with their origin and their dates already in place, and
+				     `buildSearchQuery` returning null there is what stops it bouncing straight
+				     back here. -->
+				<Button href={`${base}/?${searchParamsFromLink}`}>Go to search</Button>
 			{/snippet}
 		</EmptyState>
 		<RecentSearches title="Pick up a recent search" />
@@ -1063,15 +1126,21 @@
 		/>
 
 		{#if blockingIssues.length > 0}
-			<!-- Nothing has been asked of any provider. This search describes a trip that
-			     cannot exist on any date (an origin equal to its destination, an arrival
-			     before its own departure, a party of nobody), so running it would spend
-			     requests to rediscover that. The form above is already open on the fields
-			     that need changing. -->
+			<!-- Nothing has been asked of any provider. This search names a place that is not
+			     an airport, or describes a trip that cannot exist on any date (an origin
+			     equal to its destination, an arrival before its own departure, a party of
+			     nobody), so running it would spend requests to rediscover that. The form
+			     above is already open on the fields that need changing.
+
+			     Issue #327: the message carries the reasons, not a pointer to them. What
+			     stood here said "the form above says what to change" and left the traveller
+			     to go and read it, and until #327 an unknown airport code did not reach this
+			     branch at all. It reached `runSearch`, which threw, above a page reading
+			     "0 of 0 itineraries shown". -->
 			<ErrorState
 				severity="error"
 				title="This search cannot be run as it stands"
-				message="No provider was asked anything. The form above says what to change."
+				message={blockingSummary}
 			/>
 		{:else if query}
 			<p class="results-subhead" aria-live="polite">

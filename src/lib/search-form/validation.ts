@@ -48,6 +48,18 @@ export interface SearchFieldIssue {
 	severity: IssueSeverity;
 }
 
+/**
+ * The four fields `buildSearchQuery` (model.ts) refuses to build a query without. Named
+ * once here rather than re-derived at a call site, so "this link is missing its
+ * destination" and "this link carries no search at all" can be told apart (issue #327).
+ */
+export const REQUIRED_SEARCH_FIELDS: ReadonlySet<SearchFieldKey> = new Set([
+	'originAirport',
+	'destinationAirport',
+	'soonestDeparture',
+	'latestArrival'
+]);
+
 /** The DOM id of each field's own input, so a caller can move focus to the first thing
  * that is wrong. These are set by hand on the components in `SearchForm.svelte`, and a
  * mismatch sends focus nowhere, which is why they live in one table. */
@@ -88,10 +100,35 @@ function isBefore(a: string, b: string): boolean {
 	return a < b;
 }
 
+/**
+ * Issue #327. Three letters that are not an airport is an ordinary thing to receive from
+ * a URL, not a mistake somebody made today: a retired IATA code, a shared link with a
+ * typo, an address bar someone edited. So it says which end of the trip the code was on
+ * and how to replace it, rather than only that something is wrong.
+ */
+function unknownAirportMessage(code: string, end: 'from' | 'to'): string {
+	return (
+		`"${code}" is not an airport code we know. Check where you are flying ${end}, ` +
+		'or type a city name and pick the airport from the list.'
+	);
+}
+
 interface ValidateOptions {
 	/** Today's calendar date where the traveller is, `YYYY-MM-DD`. Passed in rather than
 	 * read off the clock so the rules stay pure and a test can sit on any date. */
 	today: string;
+	/**
+	 * Whether a three-letter code names an airport in `$lib/data/airports`. Injected
+	 * rather than imported so this module stays pure and synchronous, and so that a
+	 * validator does not drag a 165KB generated dataset behind every caller
+	 * (`results/search-dependencies.ts` keeps `resolveAirport` out of its own signature
+	 * for the same reason). `$lib/data/known-airports.svelte.ts` is what components pass.
+	 *
+	 * Absent means "nobody can answer that here", never "not an airport". The dataset
+	 * loads asynchronously, and a caller that read a missing answer as a failure would
+	 * tell a traveller their real airport does not exist for as long as the download took.
+	 */
+	knowsAirport?: (code: string) => boolean;
 }
 
 /**
@@ -100,7 +137,7 @@ interface ValidateOptions {
  */
 export function validateSearchFields(
 	fields: SearchFormFields,
-	{ today }: ValidateOptions
+	{ today, knowsAirport }: ValidateOptions
 ): SearchFieldIssue[] {
 	const issues: SearchFieldIssue[] = [];
 	const add = (field: SearchFieldKey, message: string, severity: IssueSeverity = 'blocking') => {
@@ -118,6 +155,8 @@ export function validateSearchFields(
 		add('originAirport', 'Choose the airport you are flying from.');
 	} else if (!IATA_AIRPORT.test(origin)) {
 		add('originAirport', `An airport code is three letters, like BCN. "${origin}" is not one.`);
+	} else if (knowsAirport && !knowsAirport(origin)) {
+		add('originAirport', unknownAirportMessage(origin, 'from'));
 	}
 
 	if (!destination) {
@@ -127,6 +166,10 @@ export function validateSearchFields(
 			'destinationAirport',
 			`An airport code is three letters, like OTP. "${destination}" is not one.`
 		);
+	} else if (knowsAirport && !knowsAirport(destination)) {
+		// Before "is it your origin too", so a link carrying the same retired code at both
+		// ends says the useful thing twice rather than "ZZZ is also your origin".
+		add('destinationAirport', unknownAirportMessage(destination, 'to'));
 	} else if (destination === origin) {
 		add('destinationAirport', `${origin} is also your origin. Pick somewhere else to fly to.`);
 	}
