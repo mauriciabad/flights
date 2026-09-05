@@ -257,7 +257,7 @@ export interface Transfer {
 	 * Issue #266: the walk-out time `applyLandingBuffer` added to `duration`, kept rather
 	 * than only spent.
 	 *
-	 * Set on the two legs that begin at a runway, and on nothing else — a leg ending at a
+	 * Set on the two legs that begin at a runway, and on nothing else. A leg ending at a
 	 * departure gate is covered by the pre-boarding waiting time and never gets this
 	 * padding at all. `undefined` therefore means either "this leg does not start at a
 	 * runway" or "nobody applied the rule", and both of those are silence rather than a

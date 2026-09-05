@@ -60,7 +60,7 @@ export function readMissedService(schedule: TransitSchedule): MissedService {
  * airport's walk-out time. The landing is on the itinerary; the walk-out time is on the
  * transfer, because `applyLandingBuffer` records the minutes it adds instead of only
  * spending them on the duration. That was issue #266's second half, and recording the
- * number is the whole fix — it makes the moment derivable here rather than something a
+ * number is the whole fix. It makes the moment derivable here rather than something a
  * recompute has to carry forward, so a runway leg heals itself exactly the way a deadline
  * leg does.
  *

@@ -444,7 +444,7 @@
 {#snippet transferRow(field: TransitLegField, label: string, segment: ItinerarySegmentId, leg: UnroutedLeg)}
 	{@const transfer = itinerary[field]}
 	<!-- Issue #266: the timetable on this leg was fetched for one moment, and an edit moves
-	     that moment without being able to refetch — a waiting-time change on a leg that ends
+	     that moment without being able to refetch. A waiting-time change does it to a leg that ends
 	     at a gate, a flight swap on one that starts at a runway. `readStaleSchedule` returns
 	     the moment the leg happens at NOW when the two have parted company, and the row then
 	     says what it was planned for instead of printing departures for a trip nobody is

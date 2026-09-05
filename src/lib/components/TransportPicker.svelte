@@ -116,7 +116,7 @@
 
 	/** The cost, named before the button is pressed rather than after. Two `/plan`
 	 * requests, one per direction, out of `MAX_TRANSIT_LOOKUPS_PER_SEARCH` for the whole
-	 * search — the owner should never be surprised by a request he did not know he was
+	 * search. The owner should never be surprised by a request he did not know he was
 	 * authorising, and Transitous is run by volunteers. */
 	const TRANSIT_CHECK_REQUESTS = 2;
 
