@@ -112,7 +112,9 @@ export function bedForLength(input: {
 
 export type StaySwapsByResult = Readonly<Record<string, AutomaticStaySwap>>;
 
-/** Holds one result's unanswered swap, or forgets it when `swap` is absent. */
+/** `undefined` is a real argument here rather than a second function: a swap is recorded
+ * and retired from the same two places, and splitting them invites one of the two to be
+ * forgotten. */
 export function recordStaySwap(
 	all: StaySwapsByResult,
 	id: string,

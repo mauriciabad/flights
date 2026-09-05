@@ -37,9 +37,8 @@ export function recommendedStay(
  * The same answer for a caller that has already ranked, which `StayPicker` has: it draws
  * the whole ordered list and would otherwise rank a second time to learn its own head.
  *
- * Walks past a group with nothing selectable rather than giving up on it. `rankProperties`
- * sorts those last, so this only ever matters when every property is one, and then the
- * answer is `undefined` either way.
+ * `rankProperties` sorts a property with nothing this group can book last, so walking past
+ * one only matters when every property is one, and then the answer is `undefined` anyway.
  */
 export function firstBookableStay(
 	ranked: readonly PropertyStayOptions[],

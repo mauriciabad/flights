@@ -309,6 +309,13 @@
 		onchoice?.({ stay });
 	}
 
+	/** One sentence for both the region a screen reader hears and the words on screen, so
+	 * the two cannot drift apart. */
+	function swapSentence(swap: AutomaticStaySwap): string {
+		const length = swap.nights === 1 ? '1 night' : `${swap.nights} nights`;
+		return `${length} moved the bed from ${swap.from.property.name} to ${swap.to.property.name}.`;
+	}
+
 	/** The bed the ranking puts first for the trip as it now stands, which is what the
 	 * picker below is drawing at the head of its own list. */
 	const recommendedForNow = $derived(
@@ -587,19 +594,22 @@
 					{connectionLabel}
 					{onNightsChange}
 				/>
+				<!-- Issue #367. WCAG 4.1.3 governs how a change reported without moving focus is
+				     announced, and the region has to be in the accessibility tree before the
+				     change: a `role="status"` created together with its own text is usually not
+				     read at all. So the live region is mounted with the ladder and only its
+				     sentence appears, which is `ConnectionsPanel`'s pattern. It carries the
+				     sentence alone, because `role="status"` is atomic and would otherwise read
+				     the button's label as part of the announcement. -->
+				<p class="visually-hidden" role="status">{staySwap ? swapSentence(staySwap) : ''}</p>
 				{#if staySwap}
 					{@const swap = staySwap}
-					<!-- Issue #367. An announcement, not a question: the bed has already moved and
-					     the price on the card is the new one. WCAG 4.1.3 is about how a change
-					     reported without moving focus has to be marked up, and this is that
-					     markup. Pressing the button both puts the previous bed back and makes it
-					     the traveller's, so it stops moving: Google Docs' autocorrect undo, which
-					     is what makes announcing this worth the room it takes. -->
-					<div class="bed-swap" role="status" data-testid="bed-swap">
-						<p class="bed-swap-line">
-							{swap.nights === 1 ? '1 night' : `${swap.nights} nights`} moved the bed from {swap.from
-								.property.name} to {swap.to.property.name}.
-						</p>
+					<!-- An announcement, not a question: the bed has already moved and the price on
+					     the card is the new one. Pressing the button both puts the previous bed
+					     back and makes it the traveller's, so it stops moving: Google Docs'
+					     autocorrect undo, which is what makes announcing this worth its room. -->
+					<div class="bed-swap" data-testid="bed-swap">
+						<p class="bed-swap-line">{swapSentence(swap)}</p>
 						<Button
 							size="md"
 							variant="secondary"

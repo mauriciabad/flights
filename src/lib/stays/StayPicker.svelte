@@ -23,7 +23,7 @@
 	import { cheapestSelectableOption, isOptionSelectable, rankProperties } from './rank';
 	import { firstBookableStay } from './recommended-bed';
 	import { describeNoStays, type StayProviderOutcome } from './no-stays-reason';
-	import { isSameProperty, propertyOf, type PropertyStayOptions } from './types';
+	import { isSameBed, isSameProperty, propertyOf, type PropertyStayOptions } from './types';
 
 	interface Props {
 		/** Every candidate property for this connection, each with its priced room-kind
@@ -129,8 +129,15 @@
 	const fallbackStay = $derived(firstBookableStay(ranked, travellers, females));
 	const effectiveSelected = $derived(selected ?? fallbackStay);
 
+	// Structurally, not by reference. `stayCandidatesByConnection` is replaced wholesale on
+	// every snapshot while a draft holds its own frozen itinerary, so the bed this trip
+	// books and the identical bed in this list stop being one object the moment a
+	// background refresh lands. On reference equality the card then opened on whatever the
+	// ranking happened to put first, which since issue #366 is often not the booked bed at
+	// all, and issue #367's mark on that card would have named the wrong property.
 	const openGroup = $derived(
-		ranked.find((group) => group.options.some((option) => option.stay === effectiveSelected)) ?? ranked[0]
+		ranked.find((group) => group.options.some((option) => isSameBed(option.stay, effectiveSelected))) ??
+			ranked[0]
 	);
 	const openProperty = $derived(openGroup ? propertyOf(openGroup) : undefined);
 
@@ -289,7 +296,7 @@
 						<RoomKindTile
 							{option}
 							{nights}
-							selected={option.stay === effectiveSelected}
+							selected={isSameBed(option.stay, effectiveSelected)}
 							{selectable}
 							{caveat}
 							onselect={() => choose(option.stay)}

@@ -18,6 +18,7 @@ import { recomputeItinerarySelection } from '$lib/algorithm/recompute-selection'
 import { keyStore } from '$lib/keys';
 import { routeToProperty } from '$lib/search';
 import { isSameProperty, propertyKey } from '$lib/stays';
+export { isSameBed } from '$lib/stays';
 import type { ItineraryDraft, PropertyRouteState } from './itinerary-draft.svelte';
 import { getProviderRegistry } from './provider-setup';
 import { createSearchDependencies } from './search-dependencies';
@@ -143,16 +144,3 @@ export function journeyForBed(draft: ItineraryDraft, stay: Stay): PropertyRouteS
 		: draft.routingFor(stay);
 }
 
-/**
- * Whether two beds are the same room at the same address.
- *
- * Reference equality does not answer this: a stay read back out of IndexedDB has been
- * through JSON, so the candidate list and the itinerary can hold structurally equal copies
- * of one hostel (issue #188, the same reason `propertyKey` exists). Putting a bed on a
- * trip that already has it would change nothing on screen and still mark the draft as
- * edited, which takes away the timetables the search paid for.
- */
-export function isSameBed(a: Stay | undefined, b: Stay | undefined): boolean {
-	if (!a || !b) return false;
-	return a.roomKind === b.roomKind && isSameProperty(a.property, b.property);
-}
