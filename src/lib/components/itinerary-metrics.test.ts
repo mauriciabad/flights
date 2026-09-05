@@ -391,6 +391,32 @@ describe('priceBreakdown: a ride the rate card can describe', () => {
 	}
 
 	/** A taxi past what any card in the table reaches, which is issue #246's Gatwick run. */
+	/** Issue #339: the same rate-card range after `estimateTaxiFare` put it in the currency
+	 * the traveller picked. The bounds are euros; `converted` is the sterling or franc the
+	 * card is written in and the driver charges. */
+	function convertedTaxi(
+		lowMinorUnits: number,
+		highMinorUnits: number,
+		from: string,
+		displayCurrency = 'EUR'
+	): Transfer {
+		const rated = ratedTaxi(lowMinorUnits, highMinorUnits, displayCurrency);
+		const estimate = rated.fareEstimate;
+		if (estimate?.kind !== 'estimate') throw new Error('expected a fare range');
+		return {
+			...rated,
+			fareEstimate: {
+				...estimate,
+				converted: {
+					from: from as Money['currency'],
+					fromLowMinorUnits: Math.round(lowMinorUnits * 0.86),
+					fromHighMinorUnits: Math.round(highMinorUnits * 0.86),
+					rateDate: '2026-09-04'
+				}
+			}
+		};
+	}
+
 	const unratedTaxi: Transfer = {
 		mode: 'taxi',
 		duration: 76 as Duration,
@@ -467,7 +493,12 @@ describe('priceBreakdown: a ride the rate card can describe', () => {
 	it('splits two currencies into two lines rather than adding them up', () => {
 		// A trip with an origin location in Spain and a stopover in Britain rates one leg
 		// against the EUR card and the other against the GBP one. `sumMoney` throws on that
-		// mix by design and nothing in this repo converts, so the receipt says both.
+		// mix by design, so a receipt holding two source currencies says both.
+		//
+		// Since issue #339 this is the state a search reaches only when
+		// `data/exchange-rates.ts` had no rate to offer, since a search that can convert
+		// puts every one of these in the traveller's currency and they collapse to one
+		// line. The rows below carry no `converted`, which is exactly that case.
 		const trip = {
 			...makeItinerary({ nightsInConnection: 1 }),
 			transferToOriginAirport: ratedTaxi(1300, 1900, 'EUR'),
@@ -509,6 +540,57 @@ describe('priceBreakdown: a ride the rate card can describe', () => {
 			transferToHotel: ratedTaxi(2426, 3830, 'GBP')
 		};
 		expect(itineraryMetrics(trip, ['total-price'])[0]!.note).toBe('excludes unpriced ground transport');
+	});
+
+	it('adds two rides from two different rate cards once both read in the traveller\'s currency', () => {
+		// Issue #339's second case, and the one the split above could never answer. A ride
+		// in Spain and a ride in Britain are rated against two cards written in two
+		// currencies, and before conversion the receipt had to print two lines and the
+		// caveat had to name no figure at all. Converted, they are two amounts in one
+		// currency, which is a sum, so the traveller finally gets one number for what the
+		// ground will cost.
+		const trip = {
+			...makeItinerary({ nightsInConnection: 1 }),
+			transferToOriginAirport: convertedTaxi(1300, 1900, 'EUR'),
+			transferToHotel: convertedTaxi(2824, 4459, 'GBP'),
+			transferToConnectionAirport: convertedTaxi(2824, 4459, 'GBP')
+		};
+		const breakdown = priceBreakdown(trip);
+
+		expect(breakdown.estimatedGround).toEqual([
+			{ rides: 3, currency: 'EUR', lowMinorUnits: 6948, highMinorUnits: 10_818 }
+		]);
+		expect(itineraryMetrics(trip, ['total-price'])[0]!.note).toBe(
+			'excludes ground transport, about €69.48-€108.18'
+		);
+	});
+
+	it('keeps each row\'s own source currency while summing them into one caveat', () => {
+		// The sum above must not cost the traveller the fact that one of these rides is paid
+		// in pounds. Each row still carries where its own figure came from.
+		const trip = {
+			...makeItinerary({ nightsInConnection: 1 }),
+			transferToOriginAirport: convertedTaxi(1300, 1900, 'EUR'),
+			transferToHotel: convertedTaxi(2824, 4459, 'GBP'),
+			transferToConnectionAirport: convertedTaxi(2824, 4459, 'GBP')
+		};
+		const rows = priceBreakdown(trip).groundRows;
+
+		expect(rows.map((row) => [row.id, row.cost.kind === 'estimated' ? row.cost.converted?.from : undefined])).toEqual([
+			['from-origin', 'EUR'],
+			['hotel', 'GBP']
+		]);
+	});
+
+	it('refuses to merge the two hotel legs when they were converted from different cards', () => {
+		// A merged row prints one "from" line, and it would have to be wrong about one of
+		// them. Two rows each telling the truth beats one row averaging two rate cards.
+		const trip = {
+			...makeItinerary({ nightsInConnection: 1 }),
+			transferToHotel: convertedTaxi(2824, 4459, 'GBP'),
+			transferToConnectionAirport: convertedTaxi(2900, 4500, 'CHF')
+		};
+		expect(priceBreakdown(trip).groundRows.map((row) => row.id)).toEqual(['to-hotel', 'from-hotel']);
 	});
 
 	it('still says a bed is missing alongside an estimated ride', () => {

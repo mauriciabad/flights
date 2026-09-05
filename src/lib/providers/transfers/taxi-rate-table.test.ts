@@ -113,3 +113,71 @@ describe('estimateTaxiFare', () => {
 		}
 	});
 });
+
+describe('putting the estimate in the traveller\'s currency (issue #339)', () => {
+	/** The owner's own reading: a UK ride on a trip he asked for in euros. */
+	function gbRideInEuros(): FareRange {
+		const result = estimateTaxiFare(10_700, 'GB', 'EUR');
+		if (result.kind !== 'estimate') throw new Error('expected a fare range');
+		return result;
+	}
+
+	it('prints the traveller\'s currency and keeps the rate card\'s own range beside it', () => {
+		const converted = gbRideInEuros();
+		const unconverted = range(10_700, 'GB');
+
+		expect(converted.currency).toBe('EUR');
+		expect(converted.converted?.from).toBe('GBP');
+		// The source survives the conversion rather than being spent by it, which is what
+		// lets the receipt say what the driver actually charges. Byte-identical to the
+		// figures the rate card produces with no display currency asked for.
+		expect(converted.converted?.fromLowMinorUnits).toBe(unconverted.lowMinorUnits);
+		expect(converted.converted?.fromHighMinorUnits).toBe(unconverted.highMinorUnits);
+	});
+
+	it('converts both bounds or neither, so the range never mixes two currencies', () => {
+		const converted = gbRideInEuros();
+		const unconverted = range(10_700, 'GB');
+
+		expect(converted.lowMinorUnits).not.toBe(unconverted.lowMinorUnits);
+		expect(converted.highMinorUnits).not.toBe(unconverted.highMinorUnits);
+		expect(converted.lowMinorUnits).toBeLessThan(converted.highMinorUnits);
+		// Sterling is worth more than a euro, so the euro figures are the larger pair. A
+		// conversion applied upside down would still produce a plausible-looking range.
+		expect(converted.lowMinorUnits).toBeGreaterThan(unconverted.lowMinorUnits);
+	});
+
+	it('leaves the estimate alone when the rate card is already in the picked currency', () => {
+		// A Spanish ride for a traveller paying in euros. Converting EUR to EUR would be a
+		// no-op with a "converted from EUR" line under it, which is noise claiming to be
+		// provenance.
+		const spanish = estimateTaxiFare(5000, 'ES', 'EUR');
+		expect(spanish).toEqual(range(5000, 'ES'));
+		expect((spanish as FareRange).converted).toBeUndefined();
+	});
+
+	it('keeps the rate card\'s currency when no rate exists for the pair', () => {
+		// A currency the ECB does not publish, which `keys/storage.ts` will happily keep out
+		// of an imported key file. Pounds a driver really charges beat euros crossed at a
+		// rate nobody has, so this degrades to the pre-#339 behaviour rather than to a blank.
+		const noRate = estimateTaxiFare(10_700, 'GB', 'CVE');
+		expect(noRate).toEqual(range(10_700, 'GB'));
+		expect((noRate as FareRange).converted).toBeUndefined();
+	});
+
+	it('never converts the over-distance refusal, which carries no money to convert', () => {
+		const refusal = estimateTaxiFare(94_900, 'GB', 'EUR');
+		expect(refusal.kind).toBe('out-of-range');
+		expect(refusal).toEqual(estimateTaxiFare(94_900, 'GB'));
+	});
+
+	it('converts the fallback card too, so an unrated country still reads in the right currency', () => {
+		// The fallback card is denominated in EUR, so a traveller paying in pounds was
+		// reading euros for a country with no card of its own. Same defect, different row.
+		const fallback = estimateTaxiFare(8000, 'ZZ', 'GBP');
+		if (fallback.kind !== 'estimate') throw new Error('expected a fare range');
+		expect(fallback.rateSource).toBe('fallback');
+		expect(fallback.currency).toBe('GBP');
+		expect(fallback.converted?.from).toBe('EUR');
+	});
+});

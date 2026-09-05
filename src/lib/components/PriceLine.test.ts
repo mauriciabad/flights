@@ -223,3 +223,93 @@ describe('an estimated ground line (issue #249)', () => {
 		]);
 	});
 });
+
+describe("a converted ground line (issue #339)", () => {
+	/** The owner's own reading, with the fix applied. A Birmingham ride whose rate card is
+	 * written in sterling, on a trip he asked for in euros: the GBP figures are what
+	 * `estimateTaxiFare` produces from the GB card, the EUR ones what they cross to. */
+	const convertedTaxi: Transfer = {
+		...taxi,
+		fareEstimate: {
+			kind: 'estimate',
+			currency: 'EUR',
+			lowMinorUnits: 4290,
+			highMinorUnits: 6776,
+			countryCode: 'GB',
+			rateSource: 'country',
+			citation: 'London black-cab Tariff 1',
+			converted: {
+				from: 'GBP',
+				fromLowMinorUnits: 3686,
+				fromHighMinorUnits: 5822,
+				rateDate: '2026-09-04'
+			}
+		}
+	};
+
+	function convertedTrip(): Itinerary {
+		return {
+			...makeItinerary({ nightsInConnection: 1 }),
+			transferToHotel: convertedTaxi,
+			transferToConnectionAirport: convertedTaxi
+		};
+	}
+
+	/** The source line under a converted amount, per row, or `undefined` where there is
+	 * none. */
+	function sources(itinerary: Itinerary): (string | undefined)[] {
+		return [...render(itinerary).querySelectorAll('.price-part')].map((row) =>
+			row.querySelector('.price-part-source')?.textContent?.replace(/\s+/g, ' ').trim()
+		);
+	}
+
+	it('prints the amount in the currency the traveller picked, not the ride\'s country\'s', () => {
+		// The defect, verbatim from the issue: "Rides from and to hotel £115.04-£182.84 /
+		// should be in euros or whatever currency i pick". This is the line that was wrong.
+		expect(rows(convertedTrip()).map((row) => ({ ...row, line: row.line.replace(/\s+/g, ' ') }))).toEqual([
+			{ line: 'Flights -> €118.00', missing: false },
+			{ line: 'Hotel -> €20.00/night', missing: false },
+			{ line: '1 required night -> €20.00', missing: false },
+			{ line: 'Rides from and to hotel -> €85.80-€135.52', missing: false }
+		]);
+	});
+
+	it('names the rate card\'s own range underneath, because that is what the driver charges', () => {
+		// A bare euro figure reads as a quote. It is a rate card applied to a distance and
+		// then crossed at a rate of some age, and the traveller pays the pounds.
+		expect(sources(convertedTrip())).toEqual([undefined, undefined, undefined, 'from £73.72-£116.44']);
+	});
+
+	it('adds no source line to a row nothing converted', () => {
+		// A Spanish ride for a euro trip is already in the traveller's currency, and "from
+		// €X" under €X is noise dressed as provenance.
+		expect(sources(twoRatedTaxisInEuros())).toEqual([undefined, undefined, undefined, undefined]);
+	});
+
+	it('keeps the headline a floor, because converting did not move the estimate into it', () => {
+		// The load-bearing line of #292, unchanged by this issue. A converted guess is still
+		// a guess, still outside `totalPrice`, and still not something `results/sort.ts` and
+		// `results/filters.ts` get to decide a traveller's results with.
+		expect(headline(convertedTrip())).toBe('from€138.00');
+	});
+
+	function twoRatedTaxisInEuros(): Itinerary {
+		const spanish: Transfer = {
+			...taxi,
+			fareEstimate: {
+				kind: 'estimate',
+				currency: 'EUR',
+				lowMinorUnits: 780,
+				highMinorUnits: 975,
+				countryCode: 'ES',
+				rateSource: 'country',
+				citation: 'Barcelona municipal taxi tariff'
+			}
+		};
+		return {
+			...makeItinerary({ nightsInConnection: 1 }),
+			transferToHotel: spanish,
+			transferToConnectionAirport: spanish
+		};
+	}
+});

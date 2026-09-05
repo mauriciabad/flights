@@ -110,8 +110,13 @@ const CURRENCY_EXPONENTS: ReadonlyMap<string, CurrencyExponent> = new Map<string
  *
  * Three letters, because that is what a currency code is and what `Intl` will accept:
  * `format.ts` throws a `RangeError` on anything else, and a price that takes the results
- * page down when it renders is worse than a price that was dropped when it was read. */
-function normaliseCurrencyCode(currency: unknown): string | undefined {
+ * page down when it renders is worse than a price that was dropped when it was read.
+ *
+ * Exported since issue #339, for `data/exchange-rates.ts`, which looks a code up in a
+ * table the ECB keys by the same canonical form. A second copy of this regex living
+ * outside this module is the #179 mistake exactly: one question, answered independently in
+ * two places, right in both until one of them is not. */
+export function normaliseCurrencyCode(currency: unknown): string | undefined {
 	if (typeof currency !== 'string') return undefined;
 	const code = currency.trim().toUpperCase();
 	return /^[A-Z]{3}$/.test(code) ? code : undefined;

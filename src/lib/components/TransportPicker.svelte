@@ -473,6 +473,21 @@
 								this transfer above the price of the flight it connects to, so it is not stretched.
 							</p>
 						{/if}
+						{#if taxiFare.kind === 'estimate' && taxiFare.converted}
+							{@const source = taxiFare.converted}
+							<!-- Issue #339. The row above shows the traveller's currency so the figure can
+							     be held against the trip's total. This is where the arithmetic behind that
+							     is written down, because a converted estimate is an approximation of an
+							     approximation and the card has no room to say so. The driver charges the
+							     first of these two numbers. -->
+							<p>
+								The rate card is written in {source.from} and quotes
+								{formatMoneyRange(source.fromLowMinorUnits, source.fromHighMinorUnits, source.from)} for this
+								ride, which is what a driver would charge. The figure above is that range at the European
+								Central Bank's reference rate for {source.rateDate}, so it moves with the rate and is not a
+								price anyone has quoted.
+							</p>
+						{/if}
 						<p>{taxiFare.citation}</p>
 					</details>
 				{/if}
