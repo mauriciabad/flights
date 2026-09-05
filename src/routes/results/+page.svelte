@@ -28,7 +28,7 @@
 	import { Button, Card, EmptyState, ErrorState, Icon, Skeleton } from '$lib/components';
 	import { getAirport } from '$lib/data/airports';
 	import { knownAirportCodes } from '$lib/data/known-airports.svelte';
-	import { DEFAULT_SEARCH_CURRENCY } from '$lib/domain';
+	import { DEFAULT_MIN_LAYOVER_TIME_MINUTES, DEFAULT_SEARCH_CURRENCY } from '$lib/domain';
 	import type { Airport, IataAirportCode, Itinerary, SearchQuery, Stay } from '$lib/domain';
 	import type { ItinerarySegmentId } from '$lib/itinerary-map/segment-id';
 	import { BOTTOM_SHEET_ATTRIBUTE } from '$lib/results/reveal-scroll';
@@ -63,6 +63,11 @@
 	import { ItineraryDraft } from '$lib/results/itinerary-draft.svelte';
 	import { getProviderRegistry, stayProviderOutcomes } from '$lib/results/provider-setup';
 	import { createSearchDependencies } from '$lib/results/search-dependencies';
+	import {
+		buildConnectionsMapModel,
+		ConnectionsMapDialog,
+		type ConnectionBlock
+	} from '$lib/connections-map';
 	import { compareResults, sortResults } from '$lib/results/sort';
 	import type { SortMode } from '$lib/results/sort';
 	import { insertStable, slotsToResults, toSlot } from '$lib/results/stream-order';
@@ -214,6 +219,17 @@
 	 * `results/no-results.ts`. Gated to the primary search for the same reason
 	 * `directRouteKnown` is. */
 	let candidateCount = $state(0);
+	/**
+	 * Issue #324: every connection the search ranked, and why each one that produced nothing
+	 * produced nothing. Both come straight off the snapshot; the map re-derives neither.
+	 *
+	 * Kept even though `results` already carries the ones that worked, because the whole
+	 * point of the connections map is the ones that did not: a city with no viable pairing
+	 * never becomes a card, so the results list is the one place it can never appear.
+	 */
+	let candidateCodes = $state<IataAirportCode[]>([]);
+	let blockedConnections = $state<Record<string, ConnectionBlock>>({});
+	let connectionsMapOpen = $state(false);
 	/** True once the primary search has yielded its final snapshot. The empty-results board
 	 * explains what the providers answered, so it must not render in the frame between this
 	 * page mounting and the search starting, when nothing has been asked yet and
@@ -432,6 +448,50 @@
 		return query ? `${base}/results/when/?${query}` : `${base}/results/when/`;
 	});
 
+	/**
+	 * Issue #324: the connections map's whole picture, rebuilt on every snapshot.
+	 *
+	 * `undefined` until both endpoint airports have resolved out of the dataset, because
+	 * every arc and the baseline are measured from their coordinates. That is the same lazy
+	 * `getAirport` resolution the cards already wait on, and it is why the button that opens
+	 * this is disabled rather than absent while it settles: an affordance that appears late
+	 * is one a traveller has already decided is not there.
+	 */
+	const connectionsMapModel = $derived.by(() => {
+		const activeQuery = query;
+		if (!activeQuery) return undefined;
+		const originAirport = endpointAirports[activeQuery.originAirport];
+		const destinationAirport = endpointAirports[activeQuery.destinationAirport];
+		if (!originAirport || !destinationAirport) return undefined;
+		return buildConnectionsMapModel({
+			originAirport,
+			destinationAirport,
+			minLayoverTime: activeQuery.minLayoverTime ?? DEFAULT_MIN_LAYOVER_TIME_MINUTES,
+			candidateCodes,
+			airports: connectionAirports,
+			groups: Object.values(groupsByConnection),
+			blocked: blockedConnections
+		});
+	});
+
+	/**
+	 * The currency the price ledger is KEYED by, which is the one `recordItineraryGroup`
+	 * writes with a few hundred lines below.
+	 *
+	 * Deliberately not this page's own `currency`, which is read off the first result's
+	 * price and falls back to the default when a search returned nothing. The two agree on
+	 * every search that found something and disagree on exactly the searches whose calendars
+	 * are worth reading, so using the other one would have left the strips permanently empty
+	 * for a traveller who set a currency and got no results.
+	 */
+	const ledgerCurrency = $derived(keyStore.currency ?? DEFAULT_SEARCH_CURRENCY);
+
+	/** Upper-cased once here rather than per flight in the panel, and only ever used to quiet
+	 * a logo: the brief keeps an avoided airline in the results, greyed and scored down. */
+	const avoidedCarriers = $derived(
+		new Set((query?.airlinesToAvoid ?? []).map((code) => code.toUpperCase()))
+	);
+
 	/** Issue #136: the city name behind each connection code, for the "Connection city"
 	 * filter chips. Derived from the same `connectionAirports` records the cards already
 	 * use, so a chip and the card it filters can never name the same airport differently. */
@@ -510,6 +570,7 @@
 					widenOptions = snapshot.widenOptions;
 					directRouteKnown = snapshot.hasDirectRoute;
 					candidateCount = snapshot.candidates.length;
+					candidateCodes = snapshot.candidates.map((candidate) => candidate.airportCode);
 					if (snapshot.done) primarySearchDone = true;
 				}
 				const compare = untrack(() => compareResults(sortMode));
@@ -540,6 +601,11 @@
 				stayCandidatesByConnection = { ...stayCandidatesByConnection, ...snapshot.stayCandidatesByConnection };
 				transferOptionsByConnection = { ...transferOptionsByConnection, ...snapshot.transferOptionsByConnection };
 				outerTransferOptions = snapshot.outerTransferOptions;
+				// Replaced whole rather than merged: a refusal that no longer applies, because a
+				// widen finally priced that city, has to disappear rather than linger under the
+				// new itinerary. `pipeline.ts`'s `recordBlock` maintains the same invariant on
+				// its side.
+				blockedConnections = { ...snapshot.blockedConnections };
 			}
 		} finally {
 			if (options.background) refreshesInFlight -= 1;
@@ -634,6 +700,9 @@
 		// this time.
 		chosenNightsByConnection = {};
 		groupsByConnection = {};
+		candidateCodes = [];
+		blockedConnections = {};
+		connectionsMapOpen = false;
 		stayCandidatesByConnection = {};
 		transferOptionsByConnection = {};
 		outerTransferOptions = undefined;
@@ -703,7 +772,11 @@
 	 * new codes show up among the results, lazily and once per code, since
 	 * `getAirport` is async and this effect re-runs on every new arrival. */
 	$effect(() => {
-		const codes = new Set(results.map((result) => connectionAirportCode(result.itinerary)));
+		// Issue #324 widened this from "codes among the results" to "codes the search ranked".
+		// A connection with no viable pairing never becomes a result, and the connections map
+		// cannot draw a point for a city it has no coordinates for, so it would have silently
+		// dropped exactly the stopovers it exists to explain.
+		const codes = new Set([...results.map((result) => connectionAirportCode(result.itinerary)), ...candidateCodes]);
 		for (const code of codes) {
 			if (requestedAirportCodes.has(code)) continue;
 			requestedAirportCodes.add(code);
@@ -824,6 +897,27 @@
 
 	function clearFilters() {
 		filters = emptyFilters();
+	}
+
+	/**
+	 * Issue #324: leaves the map on the card for the stopover the traveller picked.
+	 *
+	 * The map answers "which stopovers exist and what is each worth"; choosing one, swapping
+	 * its flights and pricing its bed all still belong to the card, so this hands over rather
+	 * than growing a second place to do them. Scrolling is deferred to `tick()` because the
+	 * card's timeline has to exist before it can be brought into view.
+	 */
+	function openStopoverFromMap(code: IataAirportCode) {
+		connectionsMapOpen = false;
+		const result = results.find((candidate) => candidate.id === code);
+		if (!result) return;
+		openTimelineId = result.id;
+		draftFor(result.id, result.itinerary);
+		void tick().then(() => {
+			document
+				.querySelector(`[data-result-id="${CSS.escape(result.id)}"]`)
+				?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+		});
 	}
 
 	function toggleTimeline(result: ScoredResult) {
@@ -1168,6 +1262,39 @@
 				</span>
 			</a>
 
+			<!-- Issue #324. Beside the flexible-dates link and above the list, because "which
+			     stopovers exist at all" is a question about the whole route, decided before
+			     the first card is read, exactly like "which week is cheapest". A button
+			     rather than a link: it opens a dialog over this page and takes no URL of its
+			     own. -->
+			<button
+				type="button"
+				class="connections-map-link"
+				disabled={!connectionsMapModel || connectionsMapModel.connections.length === 0}
+				onclick={() => (connectionsMapOpen = true)}
+			>
+				<span class="connections-map-link-icon" aria-hidden="true">
+					<svg viewBox="0 0 24 24" fill="none">
+						<path
+							d="M3 6.5 9 4l6 2.5L21 4v13.5L15 20l-6-2.5L3 20z"
+							stroke="currentColor"
+							stroke-width="1.7"
+							stroke-linejoin="round"
+						/>
+						<path d="M9 4v13.5M15 6.5V20" stroke="currentColor" stroke-width="1.7" />
+					</svg>
+				</span>
+				<span class="connections-map-link-text">
+					See every connection on a map
+					{#if connectionsMapModel && connectionsMapModel.connections.length > 0}
+						<span class="connections-map-link-note"
+							>{connectionsMapModel.connections.length} airports considered, including the ones with no
+							trip</span
+						>
+					{/if}
+				</span>
+			</button>
+
 			<div class="results-layout">
 				<aside class="results-filters" aria-label="Filters and sorting">
 					<!-- On a phone this whole panel starts closed behind one button, because
@@ -1232,7 +1359,7 @@
 							{@const code = connectionAirportCode(result.itinerary)}
 							{@const itinerary = shownItinerary(result.id, result.itinerary)}
 							{@const selected = customising?.resultId === result.id ? customising.segment : null}
-							<li>
+							<li data-result-id={result.id}>
 								<ResultCard
 									{result}
 									{itinerary}
@@ -1374,6 +1501,20 @@
 	</aside>
 {/if}
 
+<!-- Issue #324. Rendering it is what opens it and removing it is what closes it, which is
+     `MapDialog`'s contract and the reason exactly one MapLibre instance can exist: the map
+     inside is unmounted with this block, so its `map.remove()` runs on every close. -->
+{#if connectionsMapOpen && connectionsMapModel && query}
+	<ConnectionsMapDialog
+		model={connectionsMapModel}
+		window={{ from: query.soonestDeparture, to: query.latestArrival }}
+		currency={ledgerCurrency}
+		{avoidedCarriers}
+		onopen={openStopoverFromMap}
+		onclose={() => (connectionsMapOpen = false)}
+	/>
+{/if}
+
 <style>
 	/* Issue #71's entry point. A single row, not a card: it sits between the result count
 	   and the results themselves, and #139's lesson is that anything with a box around it
@@ -1435,6 +1576,76 @@
 	   64rem, so three columns share this row, and stretching only the middle one would leave
 	   a stay list and a filter rail at their phone widths beside a very wide card. Both side
 	   columns take a share at the widest breakpoint below. */
+
+	/* Issue #324's entry point, deliberately the same row shape as the flexible-dates link
+	   above it. They are two answers to the same kind of question, asked before any card is
+	   read, and giving one of them a card of its own would push the first result further
+	   down the page for no reason (#139). */
+	.connections-map-link {
+		display: flex;
+		align-items: center;
+		gap: var(--space-3);
+		width: 100%;
+		min-height: 2.75rem;
+		padding: var(--space-2) var(--space-3);
+		border: 1px dashed var(--color-border-strong);
+		border-radius: var(--radius-md);
+		background: none;
+		color: var(--color-text);
+		font: inherit;
+		font-size: var(--font-size-sm);
+		line-height: var(--line-height-sm);
+		text-align: left;
+		cursor: pointer;
+		touch-action: manipulation;
+	}
+
+	.connections-map-link:hover:not(:disabled) {
+		border-color: var(--color-accent);
+		background: var(--color-accent-muted);
+	}
+
+	/* Disabled while the two endpoint airports resolve out of the dataset, which is a few
+	   milliseconds. Present and dimmed rather than absent, because a control that appears
+	   late is one the traveller has already decided is not there. */
+	.connections-map-link:disabled {
+		color: var(--color-text-muted);
+		cursor: default;
+	}
+
+	.connections-map-link:focus-visible {
+		outline: 2px solid var(--color-focus-ring);
+		outline-offset: 2px;
+	}
+
+	.connections-map-link-icon {
+		flex: none;
+		display: inline-flex;
+		width: 1.25rem;
+		height: 1.25rem;
+		color: var(--color-stopover);
+	}
+
+	.connections-map-link:disabled .connections-map-link-icon {
+		color: var(--color-text-faint);
+	}
+
+	.connections-map-link-icon svg {
+		width: 100%;
+		height: 100%;
+	}
+
+	.connections-map-link-text {
+		min-width: 0;
+	}
+
+	.connections-map-link-note {
+		display: block;
+		color: var(--color-text-muted);
+		font-size: var(--font-size-xs);
+		line-height: var(--line-height-xs);
+	}
+
 	.results-page {
 		display: flex;
 		flex-direction: column;
