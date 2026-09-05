@@ -78,6 +78,27 @@ async function openStays(page: Page): Promise<string[]> {
 	await openTimeline(page);
 	await pickStripSegment(page, 'stopover');
 	await expect(customiser(page).locator('.stay-alternatives')).toBeVisible({ timeout: 20_000 });
+
+	// And then wait for the photographs it asked for, which is a separate event (issue
+	// #331). Every one of these is `loading="lazy"` and every one of them is below the
+	// fold, so Chromium starts them after layout: instrumented on a quiet machine, the
+	// list became visible at 2264ms and its six requests landed between 2163 and 2235.
+	// A count taken on the line above is a number still moving, and one test here
+	// compares such a count against itself 200ms later while another reads a thumbnail's
+	// `naturalWidth`. Both are asking the same thing, so it is asked once, here: after
+	// this line the page has fetched what it wants, and a request recorded later came
+	// from something the test did.
+	const settled = page.locator('img[src*="photos.fixture.invalid"]');
+	await expect
+		.poll(
+			() =>
+				settled.evaluateAll(
+					(images) => images.length > 0 && images.every((image) => (image as HTMLImageElement).complete)
+				),
+			{ timeout: 20_000 }
+		)
+		.toBe(true);
+
 	return requested;
 }
 
@@ -207,7 +228,11 @@ test.describe('the stay map (issues #319 and #280)', () => {
 
 	test('a point opens that property in the sidebar, and Back returns to the list', async ({ page }) => {
 		const requested = await openStays(page);
-		const before = requested.length;
+		// Emptied rather than measured. `openStays` has waited for every photograph the
+		// results page wanted, so the log is finished, and starting from nothing makes the
+		// assertion below say "the dialog fetched none" instead of "a count did not move"
+		// against a page it is not asking about (issue #331).
+		requested.length = 0;
 
 		await page.locator('.stay-map-open').click();
 		const dialog = page.locator('dialog.stays-dialog');
@@ -219,10 +244,12 @@ test.describe('the stay map (issues #319 and #280)', () => {
 		const rows = await page.locator('.alt-card').count();
 		await expect(points).toHaveCount(rows + 1);
 
-		// Nothing has been fetched yet: the sidebar list is text, on purpose.
-		expect(requested.length, 'the map dialog fetched a photograph before anything was picked').toBe(
-			before
-		);
+		// Nothing has been fetched yet: the sidebar list is text, on purpose. Said twice
+		// because the two say different things. The first is what a traveller's connection
+		// pays and cannot be read off the screen; the second is a shape no timing can
+		// blur, and it still holds the line if the wait in `openStays` ever stops working.
+		expect(requested, 'the map dialog fetched a photograph before anything was picked').toEqual([]);
+		await expect(dialog.locator('img')).toHaveCount(0);
 
 		const sidebar = dialog.getByTestId('stays-sidebar');
 		const name = await points.nth(1).getAttribute('aria-label');
