@@ -89,14 +89,7 @@
 				{#if expanded}
 					<Icon name="x" />
 				{:else}
-					<svg viewBox="0 0 24 24" fill="none">
-						<path
-							d="M4 20h4l10-10a2.8 2.8 0 0 0-4-4L4 16v4Z"
-							stroke="currentColor"
-							stroke-width="1.8"
-							stroke-linejoin="round"
-						/>
-					</svg>
+					<Icon name="pencil" />
 				{/if}
 			</span>
 			{expanded ? 'Close' : 'Edit search'}
@@ -239,7 +232,7 @@
 		transform: scale(0.98);
 	}
 
-	.edit-icon svg {
+	.edit-icon :global(svg) {
 		width: 1.125rem;
 		height: 1.125rem;
 		display: block;

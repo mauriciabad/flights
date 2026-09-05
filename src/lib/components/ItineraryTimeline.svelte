@@ -90,6 +90,7 @@
 	import { freeTimeDays } from './free-time-days';
 	import { technicalStopDetail } from './technical-stop-note';
 	import AirlineLogo from './AirlineLogo.svelte';
+	import Icon from './Icon.svelte';
 	import ModeIcon from './ModeIcon.svelte';
 	import { transferIconKind, type ModeIconKind } from './mode-icon';
 	import TimeCell from './TimeCell.svelte';
@@ -331,16 +332,7 @@
 	{#if mark}
 		<span class="tl-options">
 			{mark}
-			<svg class="tl-options-chevron" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
-				<path
-					d="M4 6l4 4 4-4"
-					fill="none"
-					stroke="currentColor"
-					stroke-width="1.5"
-					stroke-linecap="round"
-					stroke-linejoin="round"
-				/>
-			</svg>
+			<Icon name="chevron-down" />
 		</span>
 	{/if}
 {/snippet}
@@ -1043,13 +1035,16 @@
 		white-space: nowrap;
 	}
 
-	.tl-options-chevron {
+	/* `:global(svg)` behind a scoped ancestor, never a bare one-class `:global`. Svelte
+	   scopes `Icon.svelte`'s own `.icon` rule, so a single class from out here loses the
+	   specificity fight to it and the chevron falls back to 1em. */
+	.tl-options :global(svg) {
 		width: 0.75rem;
 		height: 0.75rem;
 		transition: transform var(--transition-fast);
 	}
 
-	.tl-row.is-selected .tl-options-chevron {
+	.tl-row.is-selected .tl-options :global(svg) {
 		transform: rotate(180deg);
 	}
 

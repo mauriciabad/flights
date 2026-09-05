@@ -25,7 +25,7 @@
 	import { base } from '$app/paths';
 	import { page } from '$app/state';
 	import { onRevalidationSettled } from '$lib/cache';
-	import { Button, Card, EmptyState, ErrorState, Skeleton } from '$lib/components';
+	import { Button, Card, EmptyState, ErrorState, Icon, Skeleton } from '$lib/components';
 	import { getAirport } from '$lib/data/airports';
 	import { knownAirportCodes } from '$lib/data/known-airports.svelte';
 	import { DEFAULT_SEARCH_CURRENCY } from '$lib/domain';
@@ -1155,11 +1155,7 @@
 			     like everything else. -->
 			<a class="when-link" href={flexibleDatesHref}>
 				<span class="when-link-icon" aria-hidden="true">
-					<svg viewBox="0 0 24 24" fill="none">
-						<rect x="3" y="5" width="18" height="16" rx="2" stroke="currentColor" stroke-width="1.7" />
-						<path d="M3 10h18M8 3v4M16 3v4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" />
-						<path d="M7.5 14h2M12 14h2M16.5 17h1" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
-					</svg>
+					<Icon name="calendar-month" />
 				</span>
 				<span class="when-link-text">
 					Flexible dates? See which week is cheapest
@@ -1186,14 +1182,7 @@
 						onclick={() => (filtersOpenOnPhone = !filtersOpenOnPhone)}
 					>
 						<span class="filters-toggle-icon" aria-hidden="true">
-							<svg viewBox="0 0 24 24" fill="none">
-								<path
-									d="M4 6h16M7 12h10M10 18h4"
-									stroke="currentColor"
-									stroke-width="2"
-									stroke-linecap="round"
-								/>
-							</svg>
+							<Icon name="adjustments-horizontal" />
 						</span>
 						Filter and sort
 						{#if activeFilterCount > 0}
@@ -1421,7 +1410,7 @@
 		color: var(--color-accent);
 	}
 
-	.when-link-icon svg {
+	.when-link-icon :global(svg) {
 		width: 100%;
 		height: 100%;
 	}
@@ -1531,7 +1520,7 @@
 		outline-offset: 2px;
 	}
 
-	.filters-toggle-icon svg {
+	.filters-toggle-icon :global(svg) {
 		width: 1.125rem;
 		height: 1.125rem;
 		display: block;
