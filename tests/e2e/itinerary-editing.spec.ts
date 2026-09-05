@@ -85,7 +85,15 @@ test.describe('editing a stopover keeps one trip on the screen', () => {
 		// Issue #250. 1530 minutes at the connection eats a night off the far end of the
 		// stopover. The block used to keep printing the saved trip's window, bed and rate
 		// while the rail below it charged for one night fewer.
-		const connectionWait = detail.locator('[data-segment="connection-waiting"] input');
+		//
+		// Driven from the customise panel since issue #313, which removed the stepper that
+		// used to sit inline in this row. That is the whole of #313: the number had two
+		// controls, and #278's argument was that the card and the panel must never hold two
+		// copies of one trip. Editing from the panel is now the only way, and the block above
+		// the timeline still has to follow it, which is the agreement #250 is about.
+		await detail.locator('[data-segment="connection-waiting"]').click({ position: { x: 6, y: 6 } });
+		await expect(customiser(page)).toHaveAttribute('data-segment', 'connection-waiting');
+		const connectionWait = customiser(page).locator('.waiting-stepper-input');
 		await connectionWait.fill('1530');
 		await connectionWait.dispatchEvent('input');
 

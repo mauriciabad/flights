@@ -13,41 +13,27 @@
 	 * hands the timeline a probe snippet and one option mark, so a test can check where
 	 * the expansion lands and that a click inside it leaves the selection alone.
 	 *
-	 * `bind:itinerary` is the third (issue #250). The waiting-time stepper edits the trip
-	 * the caller holds, which is what stops `ResultDetail`'s stopover block from going on
-	 * describing the trip from before the edit, and `currentItinerary` is how a `.ts` test
-	 * reads what the caller ended up with.
-	 *
-	 * The totals rail below the timeline is this harness's, not the timeline's. Issue #309
-	 * removed the one the timeline used to render, because the results card prints the same
-	 * four figures a few centimetres above it. What the rail is here for is unchanged and is
-	 * the whole point of `bind:itinerary`: it reads the itinerary the CALLER holds, so a
-	 * figure that moves here proves the edit left the timeline, which is exactly what the
-	 * card's own rail does on the real screen.
+	 * There is no `bind:itinerary` any more. It existed because the waiting-time steppers
+	 * inline in the wait rows edited the caller's trip (issue #250); issue #313 removed
+	 * those, the customise panel keeps the one stepper that remains, and this timeline only
+	 * reads. `WaitingTimeStepper.test.ts` owns the control's own behaviour now, and
+	 * `algorithm/build.test.ts` owns what a caller does with the value it emits.
 	 */
 	import type { Itinerary } from '../domain';
 	import type { ItinerarySegmentId } from '../itinerary-map/segment-id';
-	import { ALL_METRIC_IDS } from './itinerary-metrics';
 	import ItineraryTimeline from './ItineraryTimeline.svelte';
-	import MetricRail from './MetricRail.svelte';
 
 	interface Props {
 		itinerary: Itinerary;
 		withExpansion?: boolean;
 	}
 
-	let { itinerary: initialItinerary, withExpansion = false }: Props = $props();
+	let { itinerary, withExpansion = false }: Props = $props();
 
-	// svelte-ignore state_referenced_locally
-	let itinerary = $state(initialItinerary);
 	let selectedSegmentId = $state<ItinerarySegmentId | null>(null);
 
 	export function currentSelection() {
 		return selectedSegmentId;
-	}
-
-	export function currentItinerary() {
-		return itinerary;
 	}
 
 	export function externalSelect(segment: ItinerarySegmentId | null) {
@@ -60,10 +46,8 @@
 {/snippet}
 
 <ItineraryTimeline
-	bind:itinerary
+	{itinerary}
 	bind:selectedSegmentId
 	expansion={withExpansion ? probe : undefined}
 	optionMarks={withExpansion ? { 'outbound-flight': '2 flights' } : undefined}
 />
-
-<MetricRail {itinerary} ids={ALL_METRIC_IDS} class="harness-totals" />

@@ -139,146 +139,6 @@ function renderSelectionHarness(itinerary: Itinerary, options: { withExpansion?:
 	return { root: target, harness };
 }
 
-/** Reads one figure from the harness's totals rail by its label, rather than searching the
- * whole section's text: `formatDuration` can render the same string (e.g. "4h") for two
- * different totals that happen to share a value, so matching by the `<dt>` is the only way
- * to be sure which total actually moved.
- *
- * The rail belongs to the harness since issue #309 took the timeline's own copy away, and
- * that makes these assertions stronger rather than weaker: it renders from the itinerary
- * the CALLER holds, so a figure moving here proves the stepper's edit reached the binding
- * instead of staying inside the component. Labels are `itinerary-metrics.ts`'s and a `<dd>`
- * can carry a caveat span alongside its figure; hence the trim. */
-function getTotal(root: HTMLElement, label: string): string {
-	const dt = Array.from(root.querySelectorAll('.harness-totals dt')).find(
-		(el) => el.textContent === label
-	);
-	const dd = dt?.nextElementSibling;
-	if (!dd) throw new Error(`No total found for label "${label}"`);
-	return dd.textContent?.trim() ?? '';
-}
-
-describe('ItineraryTimeline, editable waiting time recomputes totals', () => {
-	it('raising the origin waiting-time input grows the airport-waiting and total-time totals shown on the page', () => {
-		const itinerary = makeItinerary();
-		// Through the harness, because the rail these read moved there with issue #309. The
-		// figures are rendered from the caller's own itinerary, which is the binding under
-		// test rather than an incidental detail of where the rail lives.
-		const { root } = renderSelectionHarness(itinerary);
-
-		const originInput = root.querySelector<HTMLInputElement>('[data-segment="origin-waiting"] input');
-		expect(originInput).not.toBeNull();
-		expect(originInput?.value).toBe('120');
-
-		expect(getTotal(root, 'Airport wait')).toBe('4h'); // 2h origin + 2h connection
-		const totalTimeBefore = getTotal(root, 'Door to door');
-		const freeTotalBefore = getTotal(root, 'Free time');
-
-		originInput!.value = '180';
-		originInput!.dispatchEvent(new Event('input', { bubbles: true }));
-		flushSync();
-
-		// The input itself now reads back the edited value...
-		expect(originInput?.value).toBe('180');
-		// ...and the totals section, a separate part of the page, picked up the same change:
-		// airport waiting grows by the same 60 minutes the origin buffer grew by, and total
-		// time grows by the same 60 minutes since the origin buffer isn't borrowed from
-		// anywhere else on the itinerary.
-		expect(getTotal(root, 'Airport wait')).toBe('5h');
-		expect(getTotal(root, 'Door to door')).not.toBe(totalTimeBefore);
-		// Free time is untouched: only the connection buffer borrows from it.
-		expect(getTotal(root, 'Free time')).toBe(freeTotalBefore);
-	});
-
-	it('raising the connection waiting-time input shrinks free time and can add a night, without moving total time', () => {
-		// A departure just after midnight so trimming or growing the connection buffer can
-		// cross a calendar date and change nightsInConnection, not only the duration.
-		const itinerary = makeItinerary({
-			onwardDeparture: localDateTime('2026-06-03T00:45:00', 'Europe/Vienna', 120)
-		});
-		const { root } = renderSelectionHarness(itinerary);
-
-		const nightsBefore = getTotal(root, 'Nights');
-		const freeTotalBefore = getTotal(root, 'Free time');
-		const totalTimeBefore = getTotal(root, 'Door to door');
-		const totalPriceBefore = getTotal(root, 'Total price');
-
-		const connectionInput = root.querySelector<HTMLInputElement>('[data-segment="connection-waiting"] input');
-		expect(connectionInput).not.toBeNull();
-
-		// Shrink the connection buffer to nothing: free time's end moves later, and on this
-		// fixture that crosses into the next calendar day, adding a night.
-		connectionInput!.value = '0';
-		connectionInput!.dispatchEvent(new Event('input', { bubbles: true }));
-		flushSync();
-
-		expect(getTotal(root, 'Nights')).not.toBe(nightsBefore);
-		expect(Number(getTotal(root, 'Nights'))).toBeGreaterThan(Number(nightsBefore));
-		expect(getTotal(root, 'Free time')).not.toBe(freeTotalBefore);
-		// Door-to-door time does not move: the connection buffer only trades against free
-		// time, it never changes the total journey length.
-		expect(getTotal(root, 'Door to door')).toBe(totalTimeBefore);
-		// The total price grew, since an extra night was added to the stay.
-		expect(getTotal(root, 'Total price')).not.toBe(totalPriceBefore);
-	});
-
-	/**
-	 * Issue #250. The edit used to live in two override fields inside this component, and a
-	 * derived copy nobody outside could read. `ResultDetail` renders `StopoverBlock` eight
-	 * lines above this timeline off the same itinerary, so pushing the connection buffer
-	 * dropped the bed out of the total here while the block above went on naming that bed
-	 * and a checkout time the trip no longer had.
-	 *
-	 * Asserting on the caller's own itinerary rather than on the rendered totals is the
-	 * point: rendering right while the caller holds something else is exactly the state
-	 * that produced two trips on one screen.
-	 */
-	it('hands the edited itinerary back to the caller, not only to its own rows (issue #250)', () => {
-		const itinerary = makeItinerary({
-			onwardDeparture: localDateTime('2026-06-03T00:45:00', 'Europe/Vienna', 120)
-		});
-		const { root, harness } = renderSelectionHarness(itinerary);
-
-		expect(harness.currentItinerary().connectionWaitingTime).toBe(120);
-		const nightsBefore = harness.currentItinerary().nightsInConnection;
-		const priceBefore = harness.currentItinerary().totalPrice.minorUnits;
-
-		const connectionInput = root.querySelector<HTMLInputElement>('[data-segment="connection-waiting"] input')!;
-		connectionInput.value = '0';
-		connectionInput.dispatchEvent(new Event('input', { bubbles: true }));
-		flushSync();
-
-		const edited = harness.currentItinerary();
-		expect(edited.connectionWaitingTime).toBe(0);
-		// Free time, the nights it buys and the price of those nights all followed, so a
-		// sibling component reading this itinerary cannot describe the trip from before.
-		expect(edited.freeTime.end).not.toEqual(itinerary.freeTime.end);
-		expect(edited.nightsInConnection).toBeGreaterThan(nightsBefore);
-		expect(edited.totalPrice.minorUnits).toBeGreaterThan(priceBefore);
-		// And what the rail prints is that same object, never a second reading of it.
-		expect(getTotal(root, 'Nights')).toBe(String(edited.nightsInConnection));
-	});
-
-	it('the stepper buttons move the value by 15 minutes and stay in sync with the number input', () => {
-		const itinerary = makeItinerary();
-		const root = renderTimeline(itinerary);
-
-		const row = root.querySelector('[data-segment="origin-waiting"]');
-		const input = row?.querySelector<HTMLInputElement>('input');
-		const [decrementBtn, incrementBtn] = Array.from(row?.querySelectorAll('button') ?? []);
-
-		expect(input?.value).toBe('120');
-		incrementBtn.click();
-		flushSync();
-		expect(input?.value).toBe('135');
-
-		decrementBtn.click();
-		decrementBtn.click();
-		flushSync();
-		expect(input?.value).toBe('105');
-	});
-});
-
 describe('ItineraryTimeline, overnight local-time correctness', () => {
 	it('renders the departure date and the next-calendar-day arrival date correctly at both ends', () => {
 		// Departs late evening in Vienna, arrives after midnight local time in Istanbul: an
@@ -469,23 +329,29 @@ describe('ItineraryTimeline, selection binding for the map (issue #73)', () => {
 		expect(harness.currentSelection()).toBe('onward-flight');
 	});
 
-	it('a Space press on the nested waiting-time stepper button does not hijack that button', () => {
+	it('a Space press on a control inside a row does not hijack that control', () => {
 		// Regression guard for the row's own onkeydown: without checking that the row itself
 		// (not a descendant) is the event's target, this handler's preventDefault() on a
 		// bubbled Space press would suppress the native button's own space-triggered click
 		// before the browser gets to fire it.
+		//
+		// Driven through the `expansion` snippet's probe button since issue #313, which
+		// removed the waiting-time stepper this used to press. That is now the only kind of
+		// control a row can contain, so it is the only thing left for the guard to protect.
 		const itinerary = makeItinerary();
-		const { root, harness } = renderSelectionHarness(itinerary);
+		const { root, harness } = renderSelectionHarness(itinerary, { withExpansion: true });
 
-		const row = root.querySelector<HTMLLIElement>('[data-segment="origin-waiting"]')!;
-		const stepperButton = row.querySelector('button')!;
-		stepperButton.focus();
-		stepperButton.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }));
+		root.querySelector<HTMLLIElement>('[data-segment="outbound-flight"]')!.click();
+		flushSync();
+		const probe = root.querySelector<HTMLButtonElement>('[data-segment="outbound-flight"] .tl-expansion .probe')!;
+		probe.focus();
+		probe.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }));
 		flushSync();
 
 		// The row's handler saw a bubbled event whose target was the button, not the row, so
-		// it left selection untouched instead of claiming the segment on the button's behalf.
-		expect(harness.currentSelection()).toBeNull();
+		// it left the selection alone instead of toggling the row shut under the control the
+		// reader was pressing.
+		expect(harness.currentSelection()).toBe('outbound-flight');
 	});
 
 	it('clicking the selected row again clears the selection and drops aria-current', () => {
@@ -577,17 +443,6 @@ describe('ItineraryTimeline, selection binding for the map (issue #73)', () => {
 		expect(root.querySelector('[data-segment="outbound-flight"] .tl-expansion')).not.toBeNull();
 	});
 
-	it('a click on the nested waiting-time stepper neither selects nor toggles the row', () => {
-		const itinerary = makeItinerary();
-		const { root, harness } = renderSelectionHarness(itinerary);
-
-		const row = root.querySelector<HTMLLIElement>('[data-segment="origin-waiting"]')!;
-		row.querySelector('button')!.click();
-		flushSync();
-
-		expect(harness.currentSelection()).toBeNull();
-	});
-
 	it('an option mark prints on that row\'s content line and nowhere else', () => {
 		const itinerary = makeItinerary();
 		const { root } = renderSelectionHarness(itinerary, { withExpansion: true });
@@ -599,53 +454,19 @@ describe('ItineraryTimeline, selection binding for the map (issue #73)', () => {
 		expect(root.querySelector('[data-segment="onward-flight"] .tl-content')?.textContent).not.toContain('flights');
 	});
 
-	it('adjusting a waiting time never selects the row, so the map keeps the view the traveller set', () => {
-		// Issue #141's third defect. Pressing minus or plus bubbled to the row, selected the
-		// segment, and flew the map to that airport; four nudges of a buffer meant four
-		// flights of the map. The number itself still changes, which is the whole point of
-		// the control, so both halves are asserted here.
+	it('a wait row still selects from its own label, which is all a wait row does now', () => {
+		// Issue #313 removed the stepper, so a wait row has nothing inside it to guard against
+		// and nothing to do but select. What #141's guard used to protect here is covered
+		// above, against the one kind of control a row can still contain.
 		const itinerary = makeItinerary();
 		const { root, harness } = renderSelectionHarness(itinerary);
 
 		const row = root.querySelector<HTMLLIElement>('[data-segment="origin-waiting"]')!;
-		const input = row.querySelector<HTMLInputElement>('.waiting-stepper-input')!;
-		const [decrease, increase] = Array.from(row.querySelectorAll<HTMLButtonElement>('.waiting-stepper-btn'));
-		const before = Number(input.value);
+		expect(row.querySelector('input'), 'the inline stepper is gone (issue #313)').toBeNull();
 
-		increase.click();
-		flushSync();
-		expect(Number(input.value)).toBe(before + 15);
-		expect(harness.currentSelection()).toBeNull();
-
-		decrease.click();
-		flushSync();
-		expect(Number(input.value)).toBe(before);
-		expect(harness.currentSelection()).toBeNull();
-
-		// Clicking into the field to type a number is the same intent as pressing a stepper.
-		input.click();
-		flushSync();
-		expect(harness.currentSelection()).toBeNull();
-
-		// The rest of the row still selects: the guard is scoped to the editor, not the row.
 		row.querySelector<HTMLElement>('.tl-label')!.click();
 		flushSync();
 		expect(harness.currentSelection()).toBe('origin-waiting');
-	});
-
-	it('keeps a selection that was already on the row while its waiting time is adjusted', () => {
-		const itinerary = makeItinerary();
-		const { root, harness } = renderSelectionHarness(itinerary);
-
-		harness.externalSelect('connection-waiting');
-		flushSync();
-
-		const row = root.querySelector<HTMLLIElement>('[data-segment="connection-waiting"]')!;
-		row.querySelectorAll<HTMLButtonElement>('.waiting-stepper-btn')[1].click();
-		flushSync();
-
-		expect(harness.currentSelection()).toBe('connection-waiting');
-		expect(row.getAttribute('aria-current')).toBe('true');
 	});
 
 	it('the ol root and flat li row structure are unchanged by the added interactivity', () => {

@@ -13,10 +13,11 @@
 	 * else. Its `stepOptions` snippet, `optionMarks`' picker gating, the stay list, the
 	 * routing machinery and the frozen local itinerary all left with them.
 	 *
-	 * What remains is a reader. It renders the trip, it reports which row was picked, and
-	 * it edits exactly one thing: the waiting-time steppers inside the two wait rows, which
-	 * write through `ItineraryTimeline`'s own `bind:itinerary` (issue #250, and the reason
-	 * that binding exists).
+	 * What remains is a reader, and since issue #313 it is only a reader. It renders the
+	 * trip and reports which row was picked. The waiting-time steppers that used to sit
+	 * inline in the two wait rows are gone: they edited the same number the customise
+	 * panel's own stepper edits, and two controls for one figure is worse than either
+	 * alone. `ItineraryTimeline`'s `bind:itinerary` went with them.
 	 *
 	 * ## One trip on this screen, and `draft.itinerary` is it
 	 *
@@ -199,12 +200,13 @@
 		{/if}
 	</p>
 
-	<!-- `bind:itinerary`, not a plain prop: the waiting-time stepper inside the rows edits
-	     the trip, and issue #250 is what happened while that edit lived in a copy only the
-	     timeline could see. Bound straight to the draft's own field, which is the one copy
-	     the card and the rail read too. -->
+	<!-- A plain prop since issue #313. The timeline used to edit one thing, the waiting-time
+	     steppers inside its two wait rows, and `bind:` was what stopped that edit living in a
+	     copy only the timeline could see (issue #250). The steppers are gone, the panel keeps
+	     the one that remains, and this component now only reads the draft the card and the
+	     rail read too. -->
 	<ItineraryTimeline
-		bind:itinerary={draft.itinerary}
+		itinerary={draft.itinerary}
 		{connectionAirport}
 		bind:selectedSegmentId={() => selectedSegmentId, onSelectSegment}
 		{optionMarks}
