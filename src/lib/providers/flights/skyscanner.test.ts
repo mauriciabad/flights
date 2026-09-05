@@ -499,8 +499,11 @@ describe('createSkyscannerFlightProvider', () => {
 			});
 
 			// Acceptance criterion (issue #75): "A test proves a lookup failure with no cache
-			// does not produce a mistimed offer."
-			it('drops every offer through a non-seeded airport, never mistiming it, when the live lookup finds nothing and nothing is cached', async () => {
+			// does not produce a mistimed offer." Issue #370 keeps that half and fixes the
+			// other one. Dropping the fare is right; reporting `ok` with an empty list is
+			// not, because every caller reads that as "this route has nothing" while
+			// Skyscanner had just priced a real nonstop on the day.
+			it('reports a recordable failure, never a mistimed offer, when the live lookup finds nothing and nothing is cached', async () => {
 				const cacheStore = new MemoryCacheStore();
 				await setCachedAirportEntity('BCN', { skyId: 'BCN', entityId: '95565085' }, cacheStore);
 				await setCachedAirportEntity('AHO', { skyId: 'AHO', entityId: '999999' }, cacheStore);
@@ -514,11 +517,22 @@ describe('createSkyscannerFlightProvider', () => {
 
 				const result = await provider.searchOffers({ ...baseQuery, destination: 'AHO' }, contextWithKey());
 
-				expect(result.ok).toBe(true);
-				if (result.ok) expect(result.data).toEqual([]); // dropped, not defaulted to UTC or any other guess
+				// Issue #93's half, kept: the AHO fare is dropped, never defaulted to UTC or
+				// any other guess. A failing result carries no `data` at all, so no offer
+				// with an invented zone can have reached a caller.
+				expect('data' in result).toBe(false);
+				expect(result.ok).toBe(false);
+				if (!result.ok) {
+					// Issue #370: whose gap this is. Skyscanner's response parsed fine, so
+					// `malformed-response` would blame the provider for this app's own missing
+					// zone, and `ok: true` would blame the route for having no flights.
+					expect(result.error.code).toBe('no-time-zone');
+					expect(result.error.message).toContain('AHO');
+					if (result.error.code === 'no-time-zone') expect(result.error.airports).toEqual(['AHO']);
+				}
 			});
 
-			it('drops every offer through a non-seeded airport when the live lookup itself fails outright', async () => {
+			it('reports a recordable failure, never a mistimed offer, when the live lookup itself fails outright', async () => {
 				const cacheStore = new MemoryCacheStore();
 				await setCachedAirportEntity('BCN', { skyId: 'BCN', entityId: '95565085' }, cacheStore);
 				await setCachedAirportEntity('AHO', { skyId: 'AHO', entityId: '999999' }, cacheStore);
@@ -530,8 +544,12 @@ describe('createSkyscannerFlightProvider', () => {
 
 				const result = await provider.searchOffers({ ...baseQuery, destination: 'AHO' }, contextWithKey());
 
-				expect(result.ok).toBe(true);
-				if (result.ok) expect(result.data).toEqual([]);
+				expect('data' in result).toBe(false);
+				expect(result.ok).toBe(false);
+				if (!result.ok) {
+					expect(result.error.code).toBe('no-time-zone');
+					if (result.error.code === 'no-time-zone') expect(result.error.airports).toEqual(['AHO']);
+				}
 			});
 		});
 	});

@@ -1,7 +1,7 @@
 import { test, expect, type Page } from './support/fixtures';
 import { FIXTURE_FLIGHT_NUMBERS, FIXTURE_PRICES } from './support/fixture-markers';
-import { mockAllKeylessProviders, routeRyanairFlights } from './support/providers';
-import { openTimeline } from './support/results-ui';
+import { mockAllKeylessProviders, mockHostelworld, routeRyanairFlights } from './support/providers';
+import { customiser, openTimeline, pickTimelineSegment } from './support/results-ui';
 import { waitForSearchToSettle } from '../shared/search-wait';
 
 /**
@@ -45,8 +45,23 @@ const BCN_VIE_TLL = [
 /** The two ends are opt-in: `search/pipeline.ts` only asks a transfer provider about them
  *  when the query names a location, and an itinerary with no origin location is exactly
  *  the "then show two, slightly wider" case the owner asked for. */
-async function search(page: Page, ends: { fromLoc?: string; toLoc?: string }): Promise<void> {
+async function search(
+	page: Page,
+	ends: { fromLoc?: string; toLoc?: string },
+	{ beds = false }: { beds?: boolean } = {}
+): Promise<void> {
 	await mockAllKeylessProviders(page.context());
+	// `mockAllKeylessProviders` answers Hostelworld with an empty city, which is what every
+	// other test in this file wants. The transport-press test needs a second bed to swap to,
+	// because that is the only state the press is offered in. Registered after, so it wins:
+	// Playwright matches route handlers in reverse registration order.
+	if (beds) {
+		await mockHostelworld(
+			page.context(),
+			'hostelworld/continents-vienna.json',
+			'hostelworld/properties-vienna-both-far.json'
+		);
+	}
 	await routeRyanairFlights(page.context(), BCN_VIE_TLL);
 	await page.context().route('https://basemaps.cartocdn.com/**', (route) =>
 		route.fulfill({ status: 200, contentType: 'application/json', body: EMPTY_MAP_STYLE })
@@ -133,20 +148,51 @@ test.describe('frozen route previews (issue #280)', () => {
 		// after a press. These previews derive from the same `Itinerary`, so they follow it,
 		// and the concern is whether following it can leave the row wrong: a leg vanishing,
 		// or a second copy of one appearing.
-		await search(page, BOTH_ENDS);
+		//
+		// Issue #372: this looked for the button inside `.result-detail` and skipped the press
+		// when it found none, and #278 had moved every picker out of that card into
+		// `SegmentCustomiser`. The count was zero on every run since, so the gesture this test
+		// is named after had never once happened. The press is unconditional now, and the two
+		// things it genuinely depends on are asserted ahead of it rather than silently
+		// skipped, which is #337's rule: a wait satisfied by absence proves nothing.
+		await search(page, BOTH_ENDS, { beds: true });
 		await openTimeline(page);
 
 		const detail = page.locator('.result-detail');
 		const items = detail.locator('.ground-legs-item');
 		await expect(items).toHaveCount(3);
 
-		const check = detail.getByRole('button', { name: 'Check public transport' }).first();
-		// The control is conditional on the itinerary having something to ask about, so this
-		// test asserts the invariant only when the press is actually available.
-		if ((await check.count()) > 0) {
-			await check.click();
-			await expect(check).toBeEnabled({ timeout: 20_000 });
-		}
+		// First condition. `canCheckTransit` (SegmentCustomiser.svelte) offers the press only
+		// for a bed the search never routed to, since the search's own bed already has its
+		// timetable and a second lookup would spend two requests to learn what is on screen.
+		await pickTimelineSegment(page, 'free-time');
+		const otherBed = customiser(page).locator('.alt-card', { hasText: 'FIXTURE Far Lodge' });
+		await expect(otherBed).toBeVisible();
+		await otherBed.click();
+		await expect(detail.locator('.stopover')).toContainText('FIXTURE Far Lodge');
+
+		// Second condition. The button sits under the notice that says why there is anything
+		// to ask about, and `not-asked` is the answer that makes the offer real.
+		await pickTimelineSegment(page, 'transfer-to-hotel');
+		const notice = customiser(page).getByTestId('transit-notice');
+		await expect(notice).toHaveAttribute('data-transit-answer', 'not-asked');
+
+		const check = customiser(page).getByRole('button', { name: 'Check public transport' });
+		await expect(check).toBeVisible();
+		await check.click();
+
+		// What the press bought, asserted on the picker rather than on the button or the
+		// notice. Both of those are gone by design once the answer lands: pressing writes
+		// `draft.transitChecks`, `canCheckTransit` goes false and the control unmounts, and
+		// the notice exists only to say nobody asked about the bus. A row offering the bus is
+		// the durable evidence, and it is what the traveller pressed for.
+		//
+		// Measured on this fixture: the press sends exactly the two `/plan` requests
+		// `TRANSIT_LEGS_TO_A_PROPERTY` names, both answered 200 by `transitous/plan.json`.
+		await expect(customiser(page).locator('.picker-row', { hasText: 'Public transport' })).toBeVisible({
+			timeout: 20_000
+		});
+		await expect(notice).toHaveCount(0);
 
 		await expect(items).toHaveCount(3);
 		// Keyed on a fixed set of three preview ids, so a duplicate is not representable;

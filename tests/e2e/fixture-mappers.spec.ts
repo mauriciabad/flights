@@ -259,7 +259,7 @@ const CHECKS: Record<string, FixtureCheck> = {
 					['STN', 'Europe/London'],
 					['VIE', 'Europe/Vienna']
 				])
-			}).length
+			}).offers.length
 	},
 	'transitous/plan.json': {
 		readBy: 'providers/transfers/transitous-mapper.ts mapPlanResponseToTransfer',
