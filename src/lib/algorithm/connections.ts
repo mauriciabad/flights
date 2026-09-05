@@ -103,6 +103,9 @@ export interface ConnectionScoreBreakdown {
 	connectivity: number;
 	sizeClass: number;
 	detour: number | null;
+	/** How evenly this candidate splits the journey, `null` when geography for A, B or C is
+	 * unknown. Issue #340 — see `CandidateGeographyScore.balance`. */
+	balance: number | null;
 }
 
 export interface ConnectionCandidate {
@@ -141,6 +144,7 @@ export interface ConnectionWeights {
 	connectivity: number;
 	sizeClass: number;
 	detour: number;
+	balance: number;
 }
 
 export interface ConnectionGraphOptions {
@@ -271,7 +275,8 @@ export const DEFAULT_MAX_DETOUR_RATIO = 2.5;
 export const DEFAULT_WEIGHTS: ConnectionWeights = {
 	connectivity: 0.4,
 	sizeClass: 0.15,
-	detour: 0.45
+	detour: 0.25,
+	balance: 0.2
 };
 
 /** Onward route counts saturate here: a candidate with 20+ known onward destinations is
@@ -554,6 +559,26 @@ interface ScoredCandidate {
 interface CandidateGeographyScore {
 	sizeClass: number;
 	detour: number | null;
+	/**
+	 * How evenly the candidate splits the journey: 1 for a stopover halfway, falling to 0 at
+	 * either end. `null` exactly when `detour` is, since both need all three positions.
+	 *
+	 * Issue #340, and it exists because `detour` has a degenerate maximum. An airport forty
+	 * minutes from the origin adds nothing to the total distance, so it scores a perfect
+	 * ratio of about 1.0 — not because it is a good stopover but because it is barely a
+	 * journey. Ranking on detour alone therefore fills its own top with airports that have
+	 * not gone anywhere, and leaves the whole trip to a second leg nothing there flies.
+	 *
+	 * Measured on BCN to BVC, the owner's own search. The eighteen best-ranked candidates
+	 * were Rabat, Málaga, Tangier, Fuerteventura, Lanzarote, Marrakesh, Alicante, Las
+	 * Palmas, Fez, Seville, Nador, Ouarzazate, Tenerife North, Faro, Ibiza, Oujda, Madrid
+	 * and Palma. Every one of them is close to the line to Cape Verde and not one of them
+	 * flies there. Lisbon, which does, ranked **nineteenth** — one place past the probe
+	 * ceiling — and Porto, Milan, Rome, Bergamo and Birmingham sat behind it.
+	 *
+	 * A connection is a journey cut in two. This says so, and it costs nothing to know.
+	 */
+	balance: number | null;
 }
 
 /**
@@ -577,17 +602,28 @@ function scoreGeography({
 }): CandidateGeographyScore | null {
 	const sizeClass = candidateGeo ? SIZE_CLASS_SCORES[candidateGeo.sizeClass] : 0.5;
 
-	if (!candidateGeo || !originGeo || !destinationGeo) return { sizeClass, detour: null };
+	if (!candidateGeo || !originGeo || !destinationGeo) {
+		return { sizeClass, detour: null, balance: null };
+	}
 
 	const direct = haversineDistanceKm(originGeo.coordinates, destinationGeo.coordinates);
-	if (direct <= 0) return { sizeClass, detour: null };
+	if (direct <= 0) return { sizeClass, detour: null, balance: null };
 
-	const viaCandidate =
-		haversineDistanceKm(originGeo.coordinates, candidateGeo.coordinates) +
-		haversineDistanceKm(candidateGeo.coordinates, destinationGeo.coordinates);
+	const outboundLeg = haversineDistanceKm(originGeo.coordinates, candidateGeo.coordinates);
+	const onwardLeg = haversineDistanceKm(candidateGeo.coordinates, destinationGeo.coordinates);
+	const viaCandidate = outboundLeg + onwardLeg;
 	const ratio = viaCandidate / direct;
 	if (ratio > maxDetourRatio) return null;
-	return { sizeClass, detour: Math.max(0, 1 - (ratio - 1) / (maxDetourRatio - 1)) };
+
+	// 1 when the two legs are equal, 0 when the candidate sits on top of the origin or the
+	// destination. See `CandidateGeographyScore.balance` for the eighteen dead ends this
+	// exists to rank below Lisbon.
+	const outboundShare = viaCandidate > 0 ? outboundLeg / viaCandidate : 0;
+	return {
+		sizeClass,
+		detour: Math.max(0, 1 - (ratio - 1) / (maxDetourRatio - 1)),
+		balance: 1 - Math.abs(2 * outboundShare - 1)
+	};
 }
 
 /**
@@ -629,20 +665,29 @@ function combineScore(
 	weights: ConnectionWeights
 ): ScoredCandidate {
 	const connectivity = Math.min(1, outDegree / CONNECTIVITY_SATURATION);
-	const { sizeClass, detour } = geography;
+	const { sizeClass, detour, balance } = geography;
 
-	// Redistribute the detour weight across the remaining components when it's
+	// Redistribute the geography weights across the remaining components when they're
 	// unavailable, so a candidate with no known geography isn't penalised twice over
-	// (once for scoring 0 on detour, again for that weight being spent on nothing).
-	const usableWeight = weights.connectivity + weights.sizeClass + (detour === null ? 0 : weights.detour);
+	// (once for scoring 0 on them, again for that weight being spent on nothing).
+	const usableWeight =
+		weights.connectivity +
+		weights.sizeClass +
+		(detour === null ? 0 : weights.detour) +
+		(balance === null ? 0 : weights.balance);
 	const w = {
 		connectivity: weights.connectivity / usableWeight,
 		sizeClass: weights.sizeClass / usableWeight,
-		detour: detour === null ? 0 : weights.detour / usableWeight
+		detour: detour === null ? 0 : weights.detour / usableWeight,
+		balance: balance === null ? 0 : weights.balance / usableWeight
 	};
 
-	const score = connectivity * w.connectivity + sizeClass * w.sizeClass + (detour ?? 0) * w.detour;
-	return { score, breakdown: { connectivity, sizeClass, detour } };
+	const score =
+		connectivity * w.connectivity +
+		sizeClass * w.sizeClass +
+		(detour ?? 0) * w.detour +
+		(balance ?? 0) * w.balance;
+	return { score, breakdown: { connectivity, sizeClass, detour, balance } };
 }
 
 /**
@@ -847,6 +892,14 @@ export async function findConnectionCandidates(
 		// docs/ACCEPTANCE.md is about: 21 candidates ranked, Birmingham 20th and
 		// Manchester 21st, and both of them in Ryanair's bundled snapshot as flying to
 		// Pafos. They were the two the ceiling threw away.
+		// Stopping here once `maxCandidates` have confirmed was tried and reverted. It saves
+		// real requests and it silently changes what the cap means: the loop walks in rank
+		// order but the survivors are chosen by score, so stopping early keeps the first six
+		// confirmed rather than the best six, and "respects the configurable cap, keeping
+		// only the highest-scoring candidates" in connections.test.ts fails on exactly that.
+		// The burst is a timing problem and belongs where the timing is, which is
+		// `MIN_GAP_BETWEEN_ROUTE_REQUESTS_MS` in kiwi-public.ts. Bounding the wrong thing
+		// because it happens to reduce the number is how issue #255 lost two cities.
 		const withinRequestBudget = index < Math.max(0, maxRouteProbes);
 
 		// Bundled first, always, because it costs nothing and it is complete for what it

@@ -154,6 +154,62 @@ const DESTINATIONS_WINDOW_LENGTH_DAYS = 30;
  */
 export const MAX_ROUTE_LOOKUPS_PER_SESSION = 20;
 
+/**
+ * Milliseconds this adapter leaves between two route-graph requests. Issue #340.
+ *
+ * The ceiling above bounds how MANY requests a session makes and says nothing about how
+ * fast. Both halves matter, and we already learned that on this project: issue #262 had
+ * OSRM apparently down, `curl` returning nothing at all while the host was plainly up, and
+ * the cause was twelve lookups arriving on one tick. The signature there is the signature
+ * here — `BCN -> BVC` sent one `OnePerCityItinerariesQuery` and then nineteen
+ * `DirectRouteCheckQuery` back to back, and **zero** responses came back for any of them.
+ * Not a 429, not a 500: nothing, which the browser reports as "Failed to fetch". The same
+ * endpoint answers a single call from a quiet client without complaint.
+ *
+ * I want to be honest that this is not a confirmed diagnosis. Kiwi publishes no rate limit
+ * for an endpoint it does not document at all, two agents were probing it from this machine
+ * at the time, and a sixteen-request search succeeded twenty minutes after the
+ * nineteen-request one failed. What is certain is that this app should not be the client
+ * that finds out where the limit is, and 250ms is slow enough to be unremarkable while
+ * costing a six-candidate search under two seconds.
+ *
+ * Skipped when a caller supplies its own `fetchImpl`, since that is never the real network.
+ */
+export const MIN_GAP_BETWEEN_ROUTE_REQUESTS_MS = 250;
+
+/**
+ * The gap is a promise to one shared endpoint, so it has to hold across every caller at
+ * once, and subtracting timestamps does not do that on its own: `connections.ts` is
+ * sequential today, but a caller that fans out with `Promise.all` would have every request
+ * read the same `lastRequestAt`, sleep the same delay and fire together — a burst one gap
+ * late, which is exactly what #262 measured for OSRM.
+ *
+ * Chaining gives the property actually wanted: each request waits for the one before it to
+ * take its slot. `takeRouteRequestSlot` is deliberately not `async`, so the link joins the
+ * chain synchronously on the caller's own tick rather than after a microtask, where two
+ * callers would both extend the same predecessor.
+ *
+ * Module-level rather than per-instance, like `osrm.ts`'s, because the endpoint is shared
+ * whether or not two provider instances are.
+ */
+let lastRouteRequestAt = 0;
+let routeRequestChain: Promise<void> = Promise.resolve();
+
+function takeRouteRequestSlot(minGapMs: number): Promise<void> {
+	if (minGapMs <= 0) return Promise.resolve();
+	const slot = routeRequestChain.then(async () => {
+		const elapsed = Date.now() - lastRouteRequestAt;
+		if (elapsed < minGapMs) {
+			await new Promise((resolve) => setTimeout(resolve, minGapMs - elapsed));
+		}
+		lastRouteRequestAt = Date.now();
+	});
+	// Swallowed on the chain only, never on `slot`: one caller's failure must not strand
+	// everything queued behind it, and must still reach that caller.
+	routeRequestChain = slot.catch(() => undefined);
+	return slot;
+}
+
 export interface KiwiPublicProviderOptions {
 	/** Overrides the shared IndexedDB-or-memory store. Tests inject a `MemoryCacheStore`. */
 	store?: CacheStore;
@@ -165,6 +221,10 @@ export interface KiwiPublicProviderOptions {
 	/** Overrides `MAX_ROUTE_LOOKUPS_PER_SESSION`. Tests set it low enough to reach without
 	 * stubbing forty responses. */
 	maxRouteLookups?: number;
+	/** Milliseconds between two route-graph requests, across every caller. Defaults to
+	 * `MIN_GAP_BETWEEN_ROUTE_REQUESTS_MS`, or to 0 when `fetchImpl` is set, so tests stay
+	 * instant. A test that wants to observe the spacing sets a small number here. */
+	minGapBetweenRouteRequestsMs?: number;
 }
 
 /**
@@ -251,6 +311,8 @@ async function writeCache<T>(store: CacheStore, key: CacheKey, value: T): Promis
 function createKiwiPublicFlightProvider(options: KiwiPublicProviderOptions = {}): FlightProvider {
 	const now = options.now ?? Date.now;
 	const maxRouteLookups = options.maxRouteLookups ?? MAX_ROUTE_LOOKUPS_PER_SESSION;
+	const minGapBetweenRouteRequestsMs =
+		options.minGapBetweenRouteRequestsMs ?? (options.fetchImpl ? 0 : MIN_GAP_BETWEEN_ROUTE_REQUESTS_MS);
 	/** Real route requests spent by this instance. See `MAX_ROUTE_LOOKUPS_PER_SESSION`. */
 	let routeLookupsSpent = 0;
 	/** Cache keys with a background refresh already running, so two callers a second apart
@@ -446,7 +508,9 @@ function createKiwiPublicFlightProvider(options: KiwiPublicProviderOptions = {})
 			const canRevalidate =
 				(ctx.maxRequests === undefined || ctx.maxRequests >= 1) &&
 				routeLookupsSpent < maxRouteLookups;
-			const revalidated = !cached.fresh && canRevalidate;
+			// `=== undefined`, not `!cached.fresh`: this entry is a boolean, and a fresh
+			// `false` is the common answer here. See `CachedEntry.fresh`.
+			const revalidated = cached.fresh === undefined && canRevalidate;
 			if (revalidated) {
 				routeLookupsSpent += 1;
 				void revalidateDirectRoute(origin, destination, earliestDeparture, latestDeparture, ctx, store, cacheKey);
@@ -495,6 +559,7 @@ function createKiwiPublicFlightProvider(options: KiwiPublicProviderOptions = {})
 		latestDeparture: IsoCalendarDate,
 		ctx: ProviderContext
 	): Promise<{ exists: boolean; error?: ProviderError }> {
+		await takeRouteRequestSlot(minGapBetweenRouteRequestsMs);
 		const response = await fetchDirectRouteCheck(
 			ONE_WAY_DIRECT_QUERY,
 			buildOneWayVariables({
@@ -630,6 +695,7 @@ function createKiwiPublicFlightProvider(options: KiwiPublicProviderOptions = {})
 		latestDeparture: IsoCalendarDate,
 		ctx: ProviderContext
 	): Promise<{ destinations: IataAirportCode[]; error?: ProviderError }> {
+		await takeRouteRequestSlot(minGapBetweenRouteRequestsMs);
 		const response = await fetchOnePerCityDirect(
 			ONE_PER_CITY_DIRECT_QUERY,
 			buildOnePerCityVariables({

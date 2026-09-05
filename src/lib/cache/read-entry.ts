@@ -27,7 +27,15 @@ export interface CachedEntry<T> {
 	/** Epoch millis the value came off the wire — `ProviderSource.fetchedAt`'s input, so a
 	 * card can say how old this answer is instead of claiming it just arrived. */
 	storedAt: number;
-	/** The same value while it is within its TTL, `undefined` once it is not. */
+	/**
+	 * The same value while it is within its TTL, `undefined` once it is not.
+	 *
+	 * Test it with `=== undefined`, never with `!fresh`. Every caller wrote `!fresh` while
+	 * `T` was an array or a list of offers, where the two agree because the value is always
+	 * truthy. Issue #340 cached a boolean here, and a fresh `false` read as expired on every
+	 * load: the acceptance route spent twelve route lookups on a reload that should have
+	 * spent none, and `route-graph-fanout.qa.ts` is what caught it.
+	 */
 	fresh: T | undefined;
 }
 

@@ -328,7 +328,7 @@ export async function discoverCandidateViaCalendar(
 					// competes with a real-discovery candidate because this path only ever
 					// runs when there are none.
 					score: 0,
-					breakdown: { connectivity: 0, sizeClass: 0, detour: null },
+					breakdown: { connectivity: 0, sizeClass: 0, detour: null, balance: null },
 					confirmedBy: { outbound: provider.id, inbound: provider.id },
 					meteredRequestSpent: true
 				},

@@ -673,5 +673,21 @@ describe('expired entries are served, not discarded (#165)', () => {
 			expect(second).toMatchObject({ ok: true, data: true, requestsUsed: 0 });
 			expect(requests).toHaveLength(1);
 		});
+
+		it('serves a cached NO without a second request', async () => {
+			// The one that shipped broken. `CachedEntry.fresh` is `T | undefined`, so the
+			// `!cached.fresh` every other read here uses reports a fresh `false` as expired,
+			// and "no route" is the common answer on this path. A reload then re-asked every
+			// candidate that had come back negative — twelve lookups on the acceptance route,
+			// caught by `route-graph-fanout.qa.ts`'s reload check and by nothing else.
+			const empty = { data: { onewayItineraries: { __typename: 'Itineraries', itineraries: [] } } };
+			const store = new MemoryCacheStore();
+			const fetchImpl = fixtureFetch(() => new Response(JSON.stringify(empty), { status: 200 }));
+			await makeProvider(fetchImpl, store).hasDirectRoute!('BVC', 'PFO', ctx());
+			const second = await makeProvider(fetchImpl, store).hasDirectRoute!('BVC', 'PFO', ctx());
+
+			expect(second).toMatchObject({ ok: true, data: false, requestsUsed: 0 });
+			expect(requests).toHaveLength(1);
+		});
 	});
 });
