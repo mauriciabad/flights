@@ -757,11 +757,13 @@ export function recomputeItineraryWaitingTimes(
 
 	// RULE: free time's start never moves on this edit. Only originWaitingTime or
 	// connectionWaitingTime changed, and neither touches the outbound arrival or the
-	// hotel-bound transfer that anchors it. `deriveTrip` is the same arithmetic
+	// hotel-bound transfer that anchors it. `deriveItinerary` is the same arithmetic
 	// `buildItineraries` ran, so an edit here cannot disagree with the value it recomputes.
-	// Issue #365: that includes the bed. Lengthening the connection buffer far enough turns
-	// a night into a terminal wait, and the ride to a hotel has to go with it, or the edit
-	// leaves a journey to an address this trip no longer books.
+	//
+	// Issue #365 stops at `deriveTrip`, deliberately: this edit applies a number the
+	// traveller typed, and an edit that answered by deleting one of their transfer legs
+	// would be the app taking a decision back. Planning no ride to a bed is the planner's
+	// job, and `pairConnections` is where it happens.
 	const parts: ItineraryParts = { ...itinerary, originWaitingTime, connectionWaitingTime };
-	return { ...itinerary, ...deriveTrip(parts, itinerary.transferAnchor) };
+	return { ...itinerary, ...parts, ...deriveItinerary(parts) };
 }

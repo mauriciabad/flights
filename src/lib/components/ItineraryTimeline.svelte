@@ -88,7 +88,7 @@
 	} from './itinerary-timeline-format';
 	import type { UnroutedLeg } from './itinerary-timeline-format';
 	import type { WithheldTransfers } from '../search/types';
-	import { freeTimeDays } from './free-time-days';
+	import { freeTimeCount } from './free-time-days';
 	import { technicalStopDetail } from './technical-stop-note';
 	import AirlineLogo from './AirlineLogo.svelte';
 	import Icon from './Icon.svelte';
@@ -670,7 +670,7 @@
 			     really two evenings and a morning. The count is the honest headline, and
 			     `StopoverBlock` above the timeline carries the two edge times with it. -->
 			<span class="tl-duration tl-duration-free font-mono tabular-nums"
-				>{freeTimeDays(itinerary.freeTime.start, itinerary.freeTime.end)?.count ?? 'No full days'}</span
+				>{freeTimeCount(itinerary)}</span
 			>
 			{#if staySubtotal && itinerary.nightsInConnection > 0}
 				<span class="tl-price font-mono tabular-nums">{formatMoney(staySubtotal)}</span>

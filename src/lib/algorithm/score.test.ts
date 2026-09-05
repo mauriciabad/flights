@@ -10,7 +10,14 @@ import type {
 	Stay,
 	Transfer
 } from '../domain';
-import { DEFAULT_SCORING_WEIGHTS, nightBonus, rankItineraries, scoreItinerary, usableFreeHours } from './score';
+import {
+	DEFAULT_SCORING_WEIGHTS,
+	moneyCostOf,
+	nightBonus,
+	rankItineraries,
+	scoreItinerary,
+	usableFreeHours
+} from './score';
 
 // ---------------------------------------------------------------------------
 // Fixture builders — enough of each domain type to be a valid Itinerary, no more.
@@ -547,5 +554,35 @@ describe('scoreItinerary / rankItineraries', () => {
 			expect(Number.isFinite(value), `${key} should be finite`).toBe(true);
 			expect(value, `${key} should be positive`).toBeGreaterThan(0);
 		}
+	});
+});
+
+describe('moneyCostOf (issue #364)', () => {
+	it('is the quoted total when every night has a priced bed', () => {
+		// 20000 minor units of flights plus two nights at 3000, in major units.
+		expect(moneyCostOf(scoreItinerary(nightsStopover(2, 3000)))).toBeCloseTo(260, 6);
+	});
+
+	it('charges the nights no provider priced, so an unknown bed is not a free one', () => {
+		// The same two nights with nothing quoted for them: the total says 200 and the
+		// comparison says 200 + 2 x `assumedNightCostWithoutPricedBed`. Without this a
+		// three-night pairing would beat a same-day one purely because the app never
+		// learned what three beds cost, which is the app being paid for its own ignorance.
+		const unpriced = moneyCostOf(scoreItinerary(nightsStopover(2)));
+		expect(unpriced).toBeCloseTo(200 + 2 * DEFAULT_SCORING_WEIGHTS.assumedNightCostWithoutPricedBed, 6);
+	});
+
+	it('ignores everything the app merely has an opinion about', () => {
+		// Two trips of the same length and price, one of them scoring far better on free
+		// time. Choosing a stopover length is about money; issue #230 took the app's opinion
+		// about how good a trip is out of that choice and this keeps it out.
+		const trip = nightsStopover(2, 3000);
+		const sameMoneyWorseHours = {
+			...trip,
+			freeTime: freeTime('2026-09-10T23:00:00', '2026-09-12T03:00:00', 2 * 24 * 60)
+		};
+
+		expect(scoreItinerary(sameMoneyWorseHours).total).toBeLessThan(scoreItinerary(trip).total);
+		expect(moneyCostOf(scoreItinerary(sameMoneyWorseHours))).toBe(moneyCostOf(scoreItinerary(trip)));
 	});
 });

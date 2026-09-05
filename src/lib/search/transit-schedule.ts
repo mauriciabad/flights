@@ -188,7 +188,11 @@ export function planTransitLegs(input: PlanTransitLegsInput): TransitLegPlan[] {
 		});
 	}
 
-	if (itinerary.stay && input.connectionCoordinates) {
+	// Issue #365: a stopover that books no night books no bed, so there is no address here
+	// to plan a journey to, and `pairConnections` has already taken the two legs off the
+	// trip. Without this gate the refinement puts them straight back, since it reads the bed
+	// rather than the legs, and it spends one of a volunteer-run service's requests doing it.
+	if (itinerary.stay && itinerary.nightsInConnection > 0 && input.connectionCoordinates) {
 		// Only the runway leg needs the buffer. The ride back to the airport is a deadline
 		// and derives its own moment, so it is still planned when nobody supplied one.
 		if (input.connectionLandingBuffer !== undefined) {

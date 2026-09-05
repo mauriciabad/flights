@@ -113,7 +113,12 @@ function tripItinerary(options: { withStay?: boolean } = {}): Itinerary {
  * The bed sits 11km out so a two-and-a-half-hour ride to it stays plausible for the
  * distance (#220's own rule), leaving the layover as the only thing it fails.
  */
-function shortStopoverItinerary(): Itinerary {
+/** A stopover with a night in it, so `planTransitLegs` has a bed to route to at all. Issue
+ * #365 stopped it routing to one on a pairing that books no night, which this fixture used
+ * to be: BGY 10pm to 3am is a terminal wait, and the two legs come off the trip. What both
+ * cases below are about is what happens to a leg that IS planned, so the onward flight is a
+ * morning one and the traveller really does sleep here. */
+function overnightStopoverItinerary(): Itinerary {
 	const origin = airport('BCN', 41.2971, 2.07846);
 	const connection = airport('BGY', 45.6689, 9.7);
 	const destination = airport('OTP', 44.5718, 26.1033);
@@ -121,8 +126,8 @@ function shortStopoverItinerary(): Itinerary {
 	const [itinerary] = buildItineraries({
 		originAirport: origin,
 		destinationAirport: destination,
-		outboundOffers: [flight(at('2026-10-04T20:00:00'), at('2026-10-04T22:00:00'), 'BCN', 'BGY')],
-		onwardOffers: [flight(at('2026-10-05T03:00:00'), at('2026-10-05T05:00:00'), 'BGY', 'OTP')],
+		outboundOffers: [flight(at('2026-10-04T18:00:00'), at('2026-10-04T20:00:00'), 'BCN', 'BGY')],
+		onwardOffers: [flight(at('2026-10-05T10:00:00'), at('2026-10-05T12:00:00'), 'BGY', 'OTP')],
 		connectionAirports: { BGY: connection },
 		connectionResources: {
 			BGY: {
@@ -240,7 +245,7 @@ describe('planTransitLegs', () => {
 	it('asks about only the legs a caller names, so a bed swap costs two lookups not four', () => {
 		// Issue #267. The detail panel's on-demand check is about the two legs the swap
 		// moved; the outer two keep the timetables the search already fetched for them.
-		const itinerary = shortStopoverItinerary();
+		const itinerary = overnightStopoverItinerary();
 		const everyLeg = planTransitLegs({
 			itinerary,
 			connectionCoordinates: CONNECTION_COORDINATES,
@@ -384,7 +389,7 @@ describe('fetchTransitSchedules', () => {
 		// Distinct from #220's plausibility rule, which refuses a route that is absurd for
 		// its distance. A 2h30m ride to a bed 11km out is a perfectly ordinary answer, and
 		// it is still more than a five-hour layover can pay for.
-		const slowPlan = (): Transfer => ({ ...transitTransfer(), duration: 150 as Duration });
+		const slowPlan = (): Transfer => ({ ...transitTransfer(), duration: 400 as Duration });
 		const { provider } = fakeTransitProvider({
 			answer: () => ({
 				ok: true,
@@ -393,7 +398,7 @@ describe('fetchTransitSchedules', () => {
 				requestsUsed: 1
 			})
 		});
-		const before = shortStopoverItinerary();
+		const before = overnightStopoverItinerary();
 
 		const { itinerary, answers } = await run([provider], { itinerary: before });
 

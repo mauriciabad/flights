@@ -22,7 +22,7 @@
  * used; it does not silently re-open how long the traveller waits at the gate.
  */
 
-import { deriveTrip, minutesBetween, type ItineraryParts } from './build';
+import { deriveItinerary, minutesBetween, type ItineraryParts } from './build';
 import type { Duration, FlightOffer, Itinerary, Stay, Transfer, TransferAnchor } from '../domain';
 import { DEFAULT_MIN_LAYOVER_TIME_MINUTES } from '../domain';
 
@@ -206,17 +206,19 @@ export function recomputeItinerarySelection(
 		transferToConnectionAirport,
 		transferToDestinationLocation
 	};
-	// Issue #365: `deriveTrip` rather than `deriveItinerary`, so a flight swap that turns a
-	// night into a terminal wait takes the ride to the bed with it instead of leaving a
-	// journey to an address this trip no longer books.
-	const trip = deriveTrip(parts, transferAnchor);
+	// Issue #365's rule that a nightless stopover plans no ride to a bed lives in
+	// `pairConnections`, not here. Every leg on this path is one the traveller picked, and
+	// `recomputeItinerarySelection` answering a pick by deleting it is the thing the
+	// `insufficient-connection-time` warning below exists to avoid: the app says what the
+	// choice costs and leaves the choice standing.
+	const derived = deriveItinerary(parts);
 
 	// Not reported alongside `flights-out-of-order`, because there it is the consequence
 	// rather than the cause and it names the wrong culprit. Two flights in the wrong order
 	// leave negative free time whatever the transfers and the buffer are, and production
 	// stacked both sentences on one row: the second blamed the transfers for a trip that
 	// had no connection in it at all.
-	if (trip.freeTime.duration < 0 && !flightsOutOfOrder) {
+	if (derived.freeTime.duration < 0 && !flightsOutOfOrder) {
 		warnings.push({
 			code: 'insufficient-connection-time',
 			message:
@@ -226,7 +228,7 @@ export function recomputeItinerarySelection(
 	}
 
 	return {
-		itinerary: { ...itinerary, ...trip },
+		itinerary: { ...itinerary, ...parts, ...derived, transferAnchor },
 		warnings
 	};
 }

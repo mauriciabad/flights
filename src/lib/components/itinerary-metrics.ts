@@ -25,7 +25,7 @@ import { scaleFareForParty, sumMoney } from '$lib/algorithm/build';
 import { formatDuration, formatLongDuration, formatMoney, formatMoneyRange } from '$lib/format';
 import { bedNightlyRate } from '$lib/stays/pricing';
 import { fareAudience } from './itinerary-timeline-format';
-import { freeTimeDays } from './free-time-days';
+import { freeTimeCount } from './free-time-days';
 
 export type ItineraryMetricId =
 	| 'in-flight'
@@ -126,7 +126,9 @@ function buildMetric(itinerary: Itinerary, id: ItineraryMetricId): ItineraryMetr
 				// long"; what a person asks about a stopover is how many whole days they
 				// get. `StopoverBlock` in the expanded panel is the long form of this cell:
 				// the same count, with its two edge times and the stay they bracket.
-				value: freeTimeDays(itinerary.freeTime.start, itinerary.freeTime.end)?.count ?? 'No full days',
+				// Issue #365 added the case where the honest answer is that there are none:
+				// a layover spent in a terminal is in `times.airportWaiting`, not here.
+				value: freeTimeCount(itinerary),
 				tone: 'stopover'
 			};
 		case 'nights':
