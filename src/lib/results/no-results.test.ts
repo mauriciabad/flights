@@ -147,13 +147,28 @@ describe('explainNoResults', () => {
 		const explanation = explainNoResults(input());
 
 		expect(explanation.cause).toBe('no-route-known');
-		expect(explanation.title).toBe('No route out of BVC');
-		expect(explanation.detail).toContain('Ryanair answered');
-		expect(explanation.detail).toContain('no route out of Boa Vista (BVC)');
-		expect(explanation.detail).toContain('Later dates will not change that.');
+		expect(explanation.title).toBe('No route out of BVC from these sources');
+		expect(explanation.detail).toContain('Ryanair');
+		expect(explanation.detail).toContain('no route out of Boa Vista (BVC) in what it covers');
 		// The two sentences the old copy asserted without evidence.
 		expect(explanation.detail).not.toContain('workable connection');
 		expect(explanation.detail).not.toContain('different destination');
+	});
+
+	it('never tells a traveller that no such trip exists (issue #340)', () => {
+		// The owner was shown "No stopover from GRO reaches BVC. Later dates will not change
+		// that." on a route this app finds three stopovers for once it asks the right
+		// question. Every phrasing below states a fact about the world from evidence that
+		// only covers what these sources happened to be asked.
+		for (const explanation of [
+			explainNoResults(input()),
+			explainNoResults(input({ providers: [ryanairEmpty, cheapRoutesAnswered] }))
+		]) {
+			expect(explanation.title).not.toContain('reaches');
+			expect(explanation.detail).not.toContain('Later dates will not change that.');
+			expect(explanation.detail).not.toContain('none of them continues');
+			expect(explanation.detail).toContain('not a finding that no such trip exists');
+		}
 	});
 
 	it('offers the key that would let this search ask another source', () => {
@@ -170,16 +185,18 @@ describe('explainNoResults', () => {
 			})
 		);
 
-		expect(explanation.detail).toContain('Ryanair and Kiwi.com answered');
-		expect(explanation.detail).toContain('they have no route');
+		expect(explanation.detail).toContain('Ryanair and Kiwi.com');
+		expect(explanation.detail).toContain('have no route out of Boa Vista (BVC) in what they cover');
 	});
 
 	it('drops the "nothing flies from here" claim when a source did know routes', () => {
 		const explanation = explainNoResults(input({ providers: [ryanairEmpty, cheapRoutesAnswered] }));
 
-		expect(explanation.title).toBe('No stopover from BVC reaches PFO');
-		expect(explanation.detail).toContain('Ryanair answered with no route out of Boa Vista (BVC)');
-		expect(explanation.detail).toContain('knows routes from BVC, and none of them continues to Pafos (PFO)');
+		expect(explanation.title).toBe('No stopover found from BVC to PFO');
+		expect(explanation.detail).toContain('Ryanair has no route out of Boa Vista (BVC) in what it covers');
+		expect(explanation.detail).toContain(
+			'knows routes from BVC, and the ones this search checked did not continue to Pafos (PFO)'
+		);
 	});
 
 	it('reports a priced search that found stopovers but no pairing', () => {
@@ -203,7 +220,7 @@ describe('explainNoResults', () => {
 	it('falls back to the bare IATA code when the airport dataset has no name yet', () => {
 		const explanation = explainNoResults(input({ origin: { code: 'BVC' } }));
 
-		expect(explanation.detail).toContain('no route out of BVC at all');
+		expect(explanation.detail).toContain('no route out of BVC in what it covers');
 	});
 
 	it('still explains itself when no flight provider was recorded at all', () => {
