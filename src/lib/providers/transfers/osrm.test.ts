@@ -707,3 +707,106 @@ describe('fetchedAt on a cache hit (issue #151)', () => {
 		expect(result.source.fetchedAt).toBe(new Date(storedAt).toISOString());
 	});
 });
+
+/**
+ * Issue #213. Both of these are about what one search costs the shared, volunteer-run
+ * `routing.openstreetmap.de` instance, which had already refused this project's traffic
+ * for a stretch before the issue was opened.
+ *
+ * Measured against a build of 57fa876 with `tools/probe-osrm-requests.mjs`: one cold search
+ * made twelve requests, every one of them a distinct coordinate pair, and OSRM refused
+ * five. So the issue's "every pair is requested twice" is not what the app does — those
+ * twelve URLs are all different. What it did do is send them all at once.
+ */
+describe('what one search costs the shared demo server (issue #213)', () => {
+	/** Six destinations spread around the airport: far enough apart to be six distinct cache
+	 * keys, close enough that each is an ordinary airport-to-hotel hop. */
+	const SIX_DESTINATIONS: Coordinates[] = [
+		{ latitude: 41.3128, longitude: 2.0925 },
+		{ latitude: 41.3129, longitude: 2.0926 },
+		{ latitude: 41.313, longitude: 2.0927 },
+		{ latitude: 41.3131, longitude: 2.0928 },
+		{ latitude: 41.3132, longitude: 2.0929 },
+		{ latitude: 41.3133, longitude: 2.093 }
+	];
+
+	it('spaces concurrent lookups apart instead of firing them all on one tick', async () => {
+		const sentAt: number[] = [];
+		const fetchImpl = vi.fn(async () => {
+			sentAt.push(Date.now());
+			return jsonResponse(routeBody(600, 5000));
+		});
+		const provider = createOsrmTransferProvider({
+			store: new MemoryCacheStore(),
+			fetchImpl,
+			// A real 1100 ms gap would make this test take seven seconds. What is under test
+			// is that the gap holds between EVERY pair of concurrent callers, not its size.
+			minGapBetweenRequestsMs: 40
+		});
+
+		await Promise.all(
+			SIX_DESTINATIONS.map((to) =>
+				provider.searchTransfers({ from: AIRPORT, to, modes: ['drive'] }, ctxFor())
+			)
+		);
+
+		expect(sentAt).toHaveLength(6);
+		const gaps = sentAt.slice(1).map((at, index) => at - sentAt[index]);
+		// 30 rather than 40: a timer fires no earlier than its delay, but the timestamps are
+		// taken inside the fetch and clock granularity shows over gaps this short.
+		expect(
+			Math.min(...gaps),
+			`every gap should be at least the requested spacing, saw ${gaps.join('ms, ')}ms`
+		).toBeGreaterThanOrEqual(30);
+	});
+
+	it('sends one request when two callers in the same search ask for the same route at once', async () => {
+		const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(routeBody(600, 5000)));
+		const provider = createOsrmTransferProvider({ store: new MemoryCacheStore(), fetchImpl });
+		const ctx = ctxFor();
+
+		const [first, second] = await Promise.all([
+			provider.searchTransfers({ from: AIRPORT, to: HOTEL, modes: ['drive'] }, ctx),
+			provider.searchTransfers({ from: AIRPORT, to: HOTEL, modes: ['drive'] }, ctx)
+		]);
+
+		expect(fetchImpl).toHaveBeenCalledTimes(1);
+		expect(first.ok && second.ok).toBe(true);
+		if (!first.ok || !second.ok) return;
+		expect(first.data[0]?.duration).toBe(10);
+		expect(second.data[0]?.duration).toBe(10);
+		// The caller that shared somebody else's request did not make one, and says so: this
+		// number is what `search/resources.ts` reports as the provider's cost on screen.
+		expect(first.requestsUsed + second.requestsUsed).toBe(1);
+	});
+
+	it("never hands one search's in-flight request to a different search", async () => {
+		let resolveFirst: ((value: Response) => void) | undefined;
+		const fetchImpl = vi
+			.fn()
+			.mockImplementationOnce(() => new Promise<Response>((resolve) => (resolveFirst = resolve)))
+			.mockResolvedValue(jsonResponse(routeBody(900, 7000)));
+		const provider = createOsrmTransferProvider({ store: new MemoryCacheStore(), fetchImpl });
+
+		const abandoned = new AbortController();
+		const pending = provider.searchTransfers(
+			{ from: AIRPORT, to: HOTEL, modes: ['drive'] },
+			ctxFor(abandoned.signal)
+		);
+		// Let the first lookup reach `fetchImpl` before the second search starts, so the
+		// second would find the first's promise if the two were pooled together.
+		await vi.waitFor(() => expect(fetchImpl).toHaveBeenCalledTimes(1));
+
+		const fresh = await provider.searchTransfers(
+			{ from: AIRPORT, to: HOTEL, modes: ['drive'] },
+			ctxFor()
+		);
+		expect(fetchImpl).toHaveBeenCalledTimes(2);
+		expect(fresh.ok).toBe(true);
+		if (!fresh.ok) return;
+		expect(fresh.data[0]?.duration).toBe(15);
+
+		resolveFirst?.(jsonResponse(routeBody(600, 5000)));
+		await pending;
+	});
+});

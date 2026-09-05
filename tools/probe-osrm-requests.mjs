@@ -117,6 +117,9 @@ async function search(label) {
 	console.log(`  reversed pairs:     ${reversed} of ${pairs.size} distinct pairs also asked backwards`);
 	console.log(`  non-200:            ${failures}`);
 	console.log(`  biggest burst:      ${biggestBurst} requests left the browser <300ms apart`);
+	console.log(
+		`  first to last send: ${starts.length > 1 ? `${((starts[starts.length - 1] - starts[0]) / 1000).toFixed(1)}s` : 'n/a'}`
+	);
 	console.log(`  gaps between sends: ${gaps.length === 0 ? '(none)' : gaps.join('ms, ') + 'ms'}`);
 	if (repeats > 0) {
 		console.log('  the repeats:');

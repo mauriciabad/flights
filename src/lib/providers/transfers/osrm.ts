@@ -87,8 +87,32 @@ const ROUTE_CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 // quota to enforce that from the server side, so the client keeps to it voluntarily.
 // Skipped when a caller supplies their own fetchImpl (tests), since that is never the
 // real network.
-const MIN_GAP_BETWEEN_REQUESTS_MS = 1100;
+export const MIN_GAP_BETWEEN_REQUESTS_MS = 1100;
 let lastRequestAt = 0;
+
+/**
+ * Issue #213. The gap above is a promise to one shared server, so it has to hold across
+ * every caller at once, and the arithmetic alone did not do that.
+ *
+ * `search/resources.ts` fetches both directions of a stopover's ground legs with
+ * `Promise.all`, and every candidate stopover does the same, so a search reaches this
+ * module with a dozen lookups already in flight. Each read `lastRequestAt`, found the same
+ * stale value, computed the same delay and slept it — then all of them fired on the same
+ * tick, one second late. A burst of twelve, not a trickle of one per second.
+ *
+ * Measured against a build of 57fa876 with tools/probe-osrm-requests.mjs: twelve requests,
+ * all twelve distinct, and `routing.openstreetmap.de` refused five of them. Two minutes
+ * later the same five returned 200. That is the signature of a shared instance pushing
+ * back on a burst, and it is the same host that had refused this machine's traffic
+ * entirely half an hour before (issue #213, third comment).
+ *
+ * Chaining the waits fixes the actual property wanted: each caller waits for the caller
+ * before it to take its slot, so N concurrent lookups leave N gaps apart instead of
+ * together. `waitForRateLimit` is deliberately not `async` — the link must be added to the
+ * chain synchronously, on the caller's own tick, or two callers arriving on the same tick
+ * both extend the same predecessor and share a slot.
+ */
+let requestChain: Promise<void> = Promise.resolve();
 
 // A point deep inside a real city's road network (Barcelona, Plaça de Catalunya)
 // rather than an arbitrary lat/lon — OSRM's nearest-node snap can fail far from any
@@ -103,6 +127,11 @@ export interface OsrmProviderOptions {
 	 * rate limit, since a caller supplying their own fetch is never hitting the real
 	 * shared server. */
 	fetchImpl?: typeof fetch;
+	/** Milliseconds this module leaves between two requests, across every concurrent
+	 * caller. Defaults to `MIN_GAP_BETWEEN_REQUESTS_MS`, or to 0 when `fetchImpl` is set,
+	 * so the existing tests stay instant. A test that wants to observe the spacing itself
+	 * sets a small number here rather than waiting out the real one. */
+	minGapBetweenRequestsMs?: number;
 	/** Overrides the demo server's base URL. Mainly for tests, or a future self-hosted
 	 * instance reachable at one origin (see the file header for why profile selection
 	 * assumes the `routed-{profile}` path-prefix convention specifically). */
@@ -168,6 +197,15 @@ class OsrmMalformedResponseError extends Error {}
 
 function isAbortError(error: unknown): boolean {
 	return error instanceof Error && error.name === 'AbortError';
+}
+
+/** A plain `Error` rather than a `DOMException`, so `isAbortError` above recognises it in
+ * every runtime this code runs in (browser, jsdom, node) without depending on whether
+ * `DOMException` extends `Error` there. */
+function abortError(message: string): Error {
+	const error = new Error(message);
+	error.name = 'AbortError';
+	return error;
 }
 
 /** Issue #68: OSRM's own numeric fields (`routes[].duration`/`.distance`,
@@ -296,12 +334,22 @@ interface OsrmResponseBase {
 	message?: string;
 }
 
-async function waitForRateLimit(): Promise<void> {
-	const elapsed = Date.now() - lastRequestAt;
-	if (elapsed < MIN_GAP_BETWEEN_REQUESTS_MS) {
-		await new Promise((resolve) => setTimeout(resolve, MIN_GAP_BETWEEN_REQUESTS_MS - elapsed));
-	}
-	lastRequestAt = Date.now();
+function waitForRateLimit(minGapMs: number): Promise<void> {
+	const slot = requestChain.then(async () => {
+		const elapsed = Date.now() - lastRequestAt;
+		if (elapsed < minGapMs) {
+			await new Promise((resolve) => setTimeout(resolve, minGapMs - elapsed));
+		}
+		lastRequestAt = Date.now();
+	});
+	// Swallowed on the chain only, never on `slot`: one caller's failure must not strand
+	// every request queued behind it, and must still reach that caller.
+	requestChain = slot.catch(() => undefined);
+	return slot;
+}
+
+function gapFor(options: OsrmProviderOptions): number {
+	return options.minGapBetweenRequestsMs ?? (options.fetchImpl ? 0 : MIN_GAP_BETWEEN_REQUESTS_MS);
 }
 
 async function requestOsrm<T extends OsrmResponseBase>(
@@ -318,7 +366,12 @@ async function requestOsrm<T extends OsrmResponseBase>(
 	for (const [key, value] of Object.entries(params)) url.searchParams.set(key, value);
 
 	const fetchImpl = options.fetchImpl ?? fetch;
-	if (!options.fetchImpl) await waitForRateLimit();
+	const minGapMs = gapFor(options);
+	// Checked before joining the queue as well as after leaving it: a cancelled search that
+	// still took its slot would delay the search that replaced it by a second per lookup.
+	if (signal.aborted) throw abortError('aborted before asking for a request slot');
+	if (minGapMs > 0) await waitForRateLimit(minGapMs);
+	if (signal.aborted) throw abortError('aborted while waiting for a request slot');
 
 	let response: Response;
 	try {
@@ -545,6 +598,31 @@ type CachedRouteOutcome =
 	| { kind: 'skipped-over-budget' }
 	| { kind: 'no-route' };
 
+/**
+ * Routes currently being fetched, so several callers asking the same question at the same
+ * moment share one answer. Issue #213: the cache is only consulted before a fetch starts,
+ * so two lookups of the same pair that begin together both miss it and both fetch — and
+ * since #213's queue above, the second one also costs a whole extra second of everyone
+ * else's waiting. `search/resources.ts` fans out per candidate stopover, and candidates
+ * routinely share a connection airport, which is the same collision `transitous.ts` keeps
+ * its `revalidating` set for.
+ *
+ * Scoped to one search's `AbortSignal`, not to the module, because that is exactly the
+ * scope where sharing is safe: everything under one signal is cancelled together, so a
+ * sharer can never inherit an abort meant for somebody else's search. Weak, so a finished
+ * search's entries go away with its signal.
+ */
+type InFlightRoute = Promise<{ value: RouteData; storedAt: number }>;
+const inFlightRoutes = new WeakMap<AbortSignal, Map<string, InFlightRoute>>();
+
+function inFlightFor(signal: AbortSignal): Map<string, InFlightRoute> {
+	const existing = inFlightRoutes.get(signal);
+	if (existing) return existing;
+	const created = new Map<string, InFlightRoute>();
+	inFlightRoutes.set(signal, created);
+	return created;
+}
+
 /** Cache-first single-pair lookup shared by searchTransfers and getTaxiFareEstimate.
  * `requireDistance` upgrades a duration-only cache hit (written by the batched table
  * lookup, which never asks for distance) into a fresh fetch, since a taxi estimate
@@ -569,13 +647,34 @@ async function getCachedRoute(
 		return { kind: 'skipped-over-budget' };
 	}
 
-	try {
+	// `requireDistance` needs no second thought here: everything this map ever holds came
+	// from `fetchRoute`, which always asks for distance. Only the batched table lookup
+	// writes a duration-only entry, and it does not go through this function.
+	const pending = inFlightFor(ctx.signal);
+	const shared = pending.get(key.raw);
+	if (shared) {
+		try {
+			const { value, storedAt } = await shared;
+			return { kind: 'value', value, requestMade: false, storedAt };
+		} catch (error) {
+			if (error instanceof OsrmNoRouteError) return { kind: 'no-route' };
+			throw error;
+		}
+	}
+
+	const started = (async () => {
 		const fresh = await fetchRoute(profile, origin, destination, options, ctx.signal);
-		const storedAt = await writeEntry(store, key, fresh);
-		return { kind: 'value', value: fresh, requestMade: true, storedAt };
+		return { value: fresh, storedAt: await writeEntry(store, key, fresh) };
+	})();
+	pending.set(key.raw, started);
+	try {
+		const { value, storedAt } = await started;
+		return { kind: 'value', value, requestMade: true, storedAt };
 	} catch (error) {
 		if (error instanceof OsrmNoRouteError) return { kind: 'no-route' };
 		throw error;
+	} finally {
+		pending.delete(key.raw);
 	}
 }
 
