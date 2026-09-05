@@ -21,7 +21,7 @@
 	 * where the currency changes what every provider is asked for.
 	 */
 	import { keyStore } from '$lib/keys';
-	import { Skeleton } from '$lib/components';
+	import { Icon, Skeleton } from '$lib/components';
 	import { SETTINGS_PROVIDERS } from '$lib/settings/provider-catalog';
 	import CurrencyPicker from './CurrencyPicker.svelte';
 	import ProviderKeyCard from './ProviderKeyCard.svelte';
@@ -51,15 +51,7 @@
 		<h2 class="settings-section-heading" id="api-keys">API keys</h2>
 
 		<div class="privacy-banner">
-			<svg viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
-				<path
-					d="M12 3l7 3v5c0 4.5-3 8.3-7 9.7-4-1.4-7-5.2-7-9.7V6l7-3z"
-					stroke="currentColor"
-					stroke-width="1.6"
-					stroke-linejoin="round"
-				/>
-				<path d="M9 12.2l2 2 4-4.4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
-			</svg>
+			<Icon name="shield-check" />
 			<p>
 				Every key you paste in below is stored only in this browser's <code>localStorage</code>. It is
 				sent only in requests to the provider that issued it, over HTTPS, straight from your device
@@ -132,7 +124,7 @@
 		color: var(--color-text);
 	}
 
-	.privacy-banner svg {
+	.privacy-banner :global(svg) {
 		flex-shrink: 0;
 		width: 1.5rem;
 		height: 1.5rem;

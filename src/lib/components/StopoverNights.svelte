@@ -46,6 +46,7 @@
 	 * Every string comes from `results/stopover-nights.ts`, pure and tested. This file
 	 * arranges markup and picks classes.
 	 */
+	import Icon from './Icon.svelte';
 	import type { Itinerary } from '$lib/domain';
 	import type { StopoverLengthOption } from '$lib/results/types';
 	import {
@@ -122,16 +123,7 @@
 						{#if rung.isCurrent}
 							<!-- A punched ticket. Third channel on the chosen stub after the fill and
 							     the words, and the only one that survives being read at arm's length. -->
-							<svg class="rung-punch" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
-								<path
-									d="M3.5 8.5l3 3 6-7"
-									fill="none"
-									stroke="currentColor"
-									stroke-width="2"
-									stroke-linecap="round"
-									stroke-linejoin="round"
-								/>
-							</svg>
+							<Icon name="check" class="rung-punch" />
 						{/if}{rung.label}
 					</span>
 					<span class="rung-price font-mono tabular-nums">{rung.delta ?? 'this trip'}</span>
@@ -239,7 +231,7 @@
 		white-space: nowrap;
 	}
 
-	.rung-punch {
+	.rung-length :global(.rung-punch) {
 		width: 0.8rem;
 		height: 0.8rem;
 		flex-shrink: 0;

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
+	import Icon from './Icon.svelte';
 
 	type Variant = 'default' | 'accent' | 'success' | 'warning' | 'danger';
 
@@ -90,14 +91,7 @@
 			aria-label={`Remove ${label ?? 'item'}`}
 			onclick={handleRemove}
 		>
-			<svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
-				<path
-					d="M4 4l8 8M12 4l-8 8"
-					stroke="currentColor"
-					stroke-width="1.6"
-					stroke-linecap="round"
-				/>
-			</svg>
+			<Icon name="x" />
 		</button>
 	{/if}
 </span>
@@ -240,7 +234,7 @@
 		background: var(--color-surface-hover);
 	}
 
-	.chip-remove svg {
+	.chip-remove :global(svg) {
 		width: 0.75rem;
 		height: 0.75rem;
 	}

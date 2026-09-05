@@ -20,7 +20,7 @@
 	 * when its module first runs in the browser, so a saved 24-hour choice is already right
 	 * on the first paint.
 	 */
-	import { Card } from '$lib/components';
+	import { Card, Icon } from '$lib/components';
 	import { timeFormat, type TimeFormat } from '$lib/settings/time-format.svelte';
 
 	const uid = $props.id();
@@ -60,16 +60,7 @@
 					<span class="time-format-body">
 						<span class="time-format-sample font-mono tabular-nums">{option.sample}</span>
 						<span class="time-format-name">{option.name}</span>
-						<svg class="time-format-check" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
-							<path
-								d="M3 8.4l3.2 3.2L13 5"
-								fill="none"
-								stroke="currentColor"
-								stroke-width="2"
-								stroke-linecap="round"
-								stroke-linejoin="round"
-							/>
-						</svg>
+						<Icon name="check" class="time-format-check" />
 					</span>
 				</label>
 			{/each}
@@ -198,7 +189,7 @@
 	}
 
 	/* The redundant, non-colour signal for the chosen tile. */
-	.time-format-check {
+	.time-format-body :global(.time-format-check) {
 		position: absolute;
 		top: var(--space-2);
 		right: var(--space-2);
@@ -208,7 +199,7 @@
 		color: var(--color-accent);
 	}
 
-	.time-format-input:checked + .time-format-body .time-format-check {
+	.time-format-input:checked + .time-format-body :global(.time-format-check) {
 		opacity: 1;
 	}
 

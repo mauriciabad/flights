@@ -1,4 +1,6 @@
 <script lang="ts">
+	import Icon from './Icon.svelte';
+
 	interface Option {
 		value: string;
 		label: string;
@@ -63,16 +65,7 @@
 				<option value={option.value} disabled={option.disabled}>{option.label}</option>
 			{/each}
 		</select>
-		<svg class="select-chevron" viewBox="0 0 20 20" aria-hidden="true" focusable="false">
-			<path
-				d="M5 7l5 6 5-6"
-				fill="none"
-				stroke="currentColor"
-				stroke-width="1.6"
-				stroke-linecap="round"
-				stroke-linejoin="round"
-			/>
-		</svg>
+		<Icon name="chevron-down" class="select-chevron" />
 	</div>
 	{#if hint && !error}
 		<p id={hintId} class="field-hint">{hint}</p>
@@ -138,7 +131,9 @@
 		border-color: var(--color-danger);
 	}
 
-	.select-chevron {
+	/* `:global`, here and wherever else this file's stylesheet reaches an icon: the
+	   `<svg>` belongs to `Icon.svelte` now, so Svelte's scoping class is not on it. */
+	.select-wrap :global(.select-chevron) {
 		position: absolute;
 		top: 50%;
 		right: var(--space-3);

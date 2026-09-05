@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
+	import Icon from './Icon.svelte';
 
 	interface Props {
 		title: string;
@@ -26,20 +27,7 @@
 			{@render icon()}
 		{:else}
 			<!-- A boarding-pass stub: nothing has been issued yet. -->
-			<svg viewBox="0 0 24 24" fill="none">
-				<path
-					d="M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2Z"
-					stroke="currentColor"
-					stroke-width="1.6"
-					stroke-linejoin="round"
-				/>
-				<path
-					d="M13 5v2M13 17v2M13 11v2"
-					stroke="currentColor"
-					stroke-width="1.6"
-					stroke-linecap="round"
-				/>
-			</svg>
+			<Icon name="ticket" />
 		{/if}
 	</div>
 	<p class="empty-state-title">{title}</p>
@@ -72,7 +60,9 @@
 		color: var(--color-text-faint);
 	}
 
-	.empty-state-icon svg {
+	/* `:global` because the `<svg>` is `Icon.svelte`'s, or a caller's own `icon` snippet;
+	   either way it is not an element this file's scoping class lands on. */
+	.empty-state-icon :global(svg) {
 		width: 100%;
 		height: 100%;
 	}

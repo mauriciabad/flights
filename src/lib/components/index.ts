@@ -6,6 +6,8 @@ export { default as Input } from './Input.svelte';
 export { default as Select } from './Select.svelte';
 export { default as Chip } from './Chip.svelte';
 export { default as Flag } from './Flag.svelte';
+export { default as Icon } from './Icon.svelte';
+export type { IconName } from '$lib/data/tabler-icons.generated';
 export { default as Card } from './Card.svelte';
 export { default as AirlineLogo } from './AirlineLogo.svelte';
 export { default as ModeIcon } from './ModeIcon.svelte';

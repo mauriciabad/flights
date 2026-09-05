@@ -43,6 +43,7 @@
 	// Shared with ResultDetail's "is there anything to swap" check (issue #140), so the
 	// hint above the pickers can never claim a choice this list collapses into one row.
 	import { flightKey } from './picker-alternatives';
+	import Icon from './Icon.svelte';
 
 	type FlightLeg = 'outbound' | 'onward';
 
@@ -158,16 +159,7 @@
 				/>
 				<span class="row-schedule">
 					<span class="font-mono tabular-nums row-time">{formatClockTime(row.flight.departure)}</span>
-					<svg class="row-arrow" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
-						<path
-							d="M2 8h11M9 4l4 4-4 4"
-							fill="none"
-							stroke="currentColor"
-							stroke-width="1.5"
-							stroke-linecap="round"
-							stroke-linejoin="round"
-						/>
-					</svg>
+					<Icon name="arrow-right" class="row-arrow" />
 					<span class="font-mono tabular-nums row-time">{formatClockTime(row.flight.arrival)}</span>
 				</span>
 				<span class="row-meta">
@@ -302,7 +294,7 @@
 		font-size: var(--font-size-sm);
 	}
 
-	.row-arrow {
+	.row-schedule :global(.row-arrow) {
 		width: 1rem;
 		height: 1rem;
 		color: var(--color-text-faint);
