@@ -253,6 +253,24 @@ export interface Transfer {
 	 * as a schematic hop rather than a real road.
 	 */
 	path?: Coordinates[];
+	/**
+	 * Issue #266: the walk-out time `applyLandingBuffer` added to `duration`, kept rather
+	 * than only spent.
+	 *
+	 * Set on the two legs that begin at a runway, and on nothing else — a leg ending at a
+	 * departure gate is covered by the pre-boarding waiting time and never gets this
+	 * padding at all. `undefined` therefore means either "this leg does not start at a
+	 * runway" or "nobody applied the rule", and both of those are silence rather than a
+	 * zero-minute buffer.
+	 *
+	 * It exists because folding a number into a total destroys it. The moment such a leg
+	 * happens at is the flight's arrival plus exactly this, and once a flight swap moves
+	 * the arrival, `algorithm/transit-schedule.ts` has to be able to work out the new
+	 * moment to say that the timetable on this transfer was planned for the old one. It
+	 * could not, so the row went on listing departures for a landing that no longer
+	 * happens.
+	 */
+	landingBuffer?: Duration;
 }
 
 /**

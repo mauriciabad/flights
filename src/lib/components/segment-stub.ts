@@ -57,7 +57,7 @@ import {
 	formatUtcOffset
 } from '$lib/format';
 import { formatDistanceKm, haversineDistanceKm } from '$lib/stays/distance';
-import { transferDetailLine, unpricedTransferNote } from './itinerary-timeline-format';
+import { staleScheduleFact, transferDetailLine, unpricedTransferNote } from './itinerary-timeline-format';
 import { technicalStopDetail } from './technical-stop-note';
 import type { TripStripSegment, TripStripTransferSegment } from './trip-strip';
 
@@ -393,14 +393,15 @@ function missedFact(segment: TripStripTransferSegment, context: StubContext): St
 	const schedule = transfer.transitSchedule;
 	if (transfer.mode !== 'transit' || !schedule) return undefined;
 
-	// Issue #266: a waiting-time edit moves the moment this leg happens at and cannot
-	// refetch the timetable, so every sentence below would be about a trip that is no longer
-	// on screen. Say which moment it was planned for instead of answering with its times.
+	// Issue #266: a waiting-time edit or a flight swap moves the moment this leg happens at,
+	// and neither can refetch the timetable, so every sentence below would be about a trip
+	// that is no longer on screen. Say which moment it was planned for instead of answering
+	// with its times.
 	const staleAt = readStaleSchedule(context.itinerary, transitLegField(segment.leg));
 	if (staleAt) {
 		return {
 			label: 'If you miss it',
-			value: `Planned for ${formatClockTime(schedule.plannedFor.time)}, and you now need to be there by ${formatClockTime(staleAt)}`,
+			value: staleScheduleFact(schedule.plannedFor, staleAt),
 			unknown: true
 		};
 	}

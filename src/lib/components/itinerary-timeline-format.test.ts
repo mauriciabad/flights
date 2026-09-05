@@ -11,6 +11,8 @@ import {
 	formatTimeDelta,
 	formatUtcOffset,
 	isDifferentCalendarDate,
+	staleScheduleFact,
+	staleScheduleNote,
 	summariseTransferLegs,
 	transferDetailLine,
 	unpricedTransferNote,
@@ -391,5 +393,38 @@ describe('formatKilometres', () => {
 
 	it('keeps a decimal under a kilometre, where rounding to zero would read as nonsense', () => {
 		expect(formatKilometres(0.42)).toBe('0.4\u00a0km');
+	});
+});
+
+describe('staleScheduleNote and staleScheduleFact, issue #266', () => {
+	const madrid = (local: string) => localDateTime(local, 'Europe/Madrid', 120);
+
+	it('names the new deadline on a leg that ends at a departure gate', () => {
+		expect(
+			staleScheduleNote({ time: madrid('2026-10-06T13:20:00'), arriveBy: true }, madrid('2026-10-06T03:40:00'))
+		).toBe(
+			'Timetable planned for 1:20pm, and you now need to be there by 3:40am, ' +
+				'so these departures are not the ones to catch.'
+		);
+	});
+
+	it('names the new landing on a leg that starts at a runway, never a deadline', () => {
+		// The wording has to flip with the leg. Telling somebody who has just landed that
+		// they need to "be there by" 1:30pm describes a bus they were never catching.
+		expect(
+			staleScheduleNote({ time: madrid('2026-10-06T11:30:00'), arriveBy: false }, madrid('2026-10-06T13:30:00'))
+		).toBe(
+			'Timetable planned for 11:30am, and you now leave the airport at 1:30pm, ' +
+				'so these departures are not the ones to catch.'
+		);
+	});
+
+	it('drops the consequence for a stub, where the label already asks the question', () => {
+		expect(
+			staleScheduleFact({ time: madrid('2026-10-06T11:30:00'), arriveBy: false }, madrid('2026-10-06T13:30:00'))
+		).toBe('Planned for 11:30am, and you now leave the airport at 1:30pm');
+		expect(
+			staleScheduleFact({ time: madrid('2026-10-06T13:20:00'), arriveBy: true }, madrid('2026-10-06T03:40:00'))
+		).toBe('Planned for 1:20pm, and you now need to be there by 3:40am');
 	});
 });
