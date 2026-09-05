@@ -1,5 +1,5 @@
 import { test, expect } from './support/fixtures';
-import type { Page } from '@playwright/test';
+import type { Page } from './support/fixtures';
 import { FIXTURE_FLIGHT_NUMBERS, FIXTURE_PRICES } from './support/fixture-markers';
 import { mockAllKeylessProviders, mockHostelworld, routeRyanairFlights } from './support/providers';
 

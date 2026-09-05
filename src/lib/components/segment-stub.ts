@@ -15,7 +15,7 @@
  *
  * The owner settled that himself on the issue: **"so the sefments that are the free time
  * days they are just visual, they count as a larger segment free time, and they share the
- * same tooltip? and it includes the acoomodation info as dynamic info"** — yes. The bed is
+ * same tooltip? and it includes the acoomodation info as dynamic info"**. Yes. The bed is
  * one booking across the whole stopover, and eleven copies of it is not information. So
  * `stripTargets` folds a run of free-time cells into one target, and its panel renders
  * `StopoverBlock`, the component issue #228 already built for exactly that content.
@@ -109,7 +109,7 @@ export interface StubFact {
 	label: string;
 	value: string;
 	/** A number nobody gave us: muted, so it does not read as a value. A free walk is not
-	 * this — that walking costs nothing is a fact this app knows. */
+	 * this, because walking costing nothing is a fact this app knows. */
 	unknown?: boolean;
 }
 
