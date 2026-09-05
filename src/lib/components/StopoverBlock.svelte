@@ -24,7 +24,10 @@
 	 *   not when the plane leaves, which is exactly what #228 asks these lines to name.
 	 * - The night count is `itinerary.nightsInConnection`, off the flight schedule alone
 	 *   (issue #105), never off whether a bed was priced.
-	 * - The rate is `stay.pricePerNight` through `formatMoney`, the app's one money edge.
+	 * - The rate, and who it covers, is `bedNightlyRate` through `formatMoney`, the app's one
+	 *   money edge. The card's price breakdown composes the same two pieces into its own
+	 *   "Bed, 2 nights × €13.00 each", so the panel and the card cannot quote two different
+	 *   figures for one bed (issue #206).
 	 * - The room kind is `ROOM_KIND_LABELS`, the same table the stay picker's tiles use.
 	 * - The transfer's duration, mode and fare are `itinerary.transferToHotel` through
 	 *   `formatDuration`, `transferModeLabel` and `unpricedTransferNote`, and when nothing
