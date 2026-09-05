@@ -121,6 +121,48 @@ describe('recomputeItinerarySelection: minimum layover', () => {
 		expect(result.warnings).toHaveLength(0);
 		expect(result.itinerary.freeTime.duration).toBeGreaterThan(itinerary.freeTime.duration);
 	});
+
+	/**
+	 * Issue #247. Production, 2026-09-05, the BVC to PFO reference search: the second
+	 * outbound alternative was refused with "Only -3230 minutes between the flights, below
+	 * the 30-minute minimum layover."
+	 *
+	 * The number is right and the sentence is not. Both flights land at LGW, both times are
+	 * LGW's own, and `minutesBetween` converts each `LocalDateTime` through its own offset
+	 * before subtracting, so this was never a timezone fault. BY625 lands 9 Oct 9:10pm and
+	 * the onward flight left 7 Oct 3:20pm — 3230 minutes earlier. There is no layover here
+	 * at all, short or otherwise, and a negative one is not a duration to print.
+	 */
+	it('says the flights are out of order rather than quoting a negative layover', () => {
+		const itinerary = baseItinerary();
+		// Onward departs 10:40 on 1 June. This outbound lands two days after it.
+		const landsAfterOnwardLeft = localDateTime('2026-06-03T21:10:00');
+		const tooLate = makeFlight('LGW', 'VIE', landsAfterOnwardLeft, landsAfterOnwardLeft, 175);
+
+		const result = recomputeItinerarySelection(itinerary, { outboundFlight: tooLate });
+
+		expect(result.warnings).toHaveLength(1);
+		expect(result.warnings[0]?.code).toBe('flights-out-of-order');
+		expect(result.warnings[0]?.message).toBe(
+			'The onward flight leaves before this one lands, so there is no connection to make.'
+		);
+		// The one thing this must never do again, whatever the wording ends up being.
+		expect(result.warnings[0]?.message).not.toMatch(/-\d/);
+		expect(result.itinerary.outboundFlight).toBe(tooLate);
+	});
+
+	it('keeps the minute figure for the case the sentence was written for', () => {
+		// A gap that is positive and under the minimum still reads as a layover, because
+		// that is what it is. Only the sign changes which fact is being reported.
+		const itinerary = baseItinerary();
+		const laterArrival = localDateTime('2026-06-01T10:39:00');
+		const oneMinuteShort = makeFlight('LGW', 'VIE', laterArrival, laterArrival, 175);
+
+		const result = recomputeItinerarySelection(itinerary, { outboundFlight: oneMinuteShort });
+
+		expect(result.warnings[0]?.code).toBe('layover-too-short');
+		expect(result.warnings[0]?.message).toContain('Only 1 minute between the flights');
+	});
 });
 
 describe('recomputeItinerarySelection: connection time', () => {

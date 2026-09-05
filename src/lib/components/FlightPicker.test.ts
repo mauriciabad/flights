@@ -155,6 +155,22 @@ describe('FlightPicker', () => {
 		expect(root.textContent).toMatch(/below the 30-minute minimum layover/);
 	});
 
+	it('never prints a negative duration on a row whose flights are in the wrong order', () => {
+		// Issue #247, off production: "Only -3230 minutes between the flights, below the
+		// 30-minute minimum layover." Onward departs 11:30 on 1 June; this alternative lands
+		// two days later, so there is no layover to be short.
+		const itinerary = baseItinerary();
+		const daysLate = localDateTime('2026-06-03T11:15:00');
+		const alternative = makeFlight('FR103', daysLate, daysLate, 175, 5000);
+
+		const root = mountPicker({ itinerary, alternatives: [alternative], onselect: () => {} });
+
+		const text = root.textContent ?? '';
+		expect(text).toContain('The onward flight leaves before this one lands');
+		expect(text).not.toMatch(/minimum layover/);
+		expect(text).not.toMatch(/-\d+ minute/);
+	});
+
 	it('recomputes the whole itinerary and reports the warning when that alternative is picked', () => {
 		const itinerary = baseItinerary();
 		const tooLate = localDateTime('2026-06-01T11:15:00');
