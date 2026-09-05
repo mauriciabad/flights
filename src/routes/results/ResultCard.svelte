@@ -49,16 +49,25 @@
 	import { CARD_METRIC_IDS } from '$lib/components/itinerary-metrics';
 	import type { Airport } from '$lib/domain';
 	import { formatAge } from '$lib/format';
+	import { oneAdultFlightsTotal, placeInBand } from '$lib/results/price-band';
+	import type { PriceHistory } from '$lib/results/price-band';
 	import { connectionAirportCode } from '$lib/results/types';
 	import type { ScoredResult } from '$lib/results/types';
 	import { describePriceFreshness, describeVariants } from '$lib/results/view-model';
 	import { technicalStopDetail, technicalStopLabel } from '$lib/components/technical-stop-note';
+	import PriceBand from './PriceBand.svelte';
 
 	interface Props {
 		result: ScoredResult;
 		/** Resolved lazily by the page (getAirport is async); undefined until then, in
 		 * which case the card falls back to the bare IATA code rather than blocking. */
 		connectionAirport?: Airport;
+		/** Issue #232: the price history the whole search shares, when there is enough of it
+		 * to draw. One band per results page rather than one per card, so every card is
+		 * marked against the same distribution and the same denominator. Absent means the
+		 * browser has not seen enough of this route to say anything, which is the default
+		 * for a first-time visitor and is why nothing renders. */
+		priceBand?: PriceHistory;
 		/** Issue #104: whether the full timeline/map/pickers are open below this card. */
 		expanded?: boolean;
 		onToggleExpand?: () => void;
@@ -69,7 +78,14 @@
 		onNightsChange?: (nights: number) => void;
 	}
 
-	let { result, connectionAirport, expanded = false, onToggleExpand, onNightsChange }: Props = $props();
+	let {
+		result,
+		connectionAirport,
+		priceBand,
+		expanded = false,
+		onToggleExpand,
+		onNightsChange
+	}: Props = $props();
 
 	const itinerary = $derived(result.itinerary);
 	const connectionCode = $derived(connectionAirportCode(itinerary));
@@ -78,6 +94,24 @@
 	// A neutral badge repeats the footer's "fetched 3m ago" one line down, so only a tone
 	// with something to warn about earns the header row (see the file header).
 	const showFreshness = $derived(freshness.tone !== 'neutral');
+
+	/**
+	 * Issue #232: the figure the band is drawn against, and where it lands.
+	 *
+	 * One adult and flights only, which is not the headline above it. The headline is the
+	 * whole door-to-door cost for the party; the ledger holds one-adult fares and nothing
+	 * else, so this is the only like-for-like comparison available and `PriceBand`'s own
+	 * caption says which figure it is marking. `oneAdultFlightsTotal` returns nothing for a
+	 * party-total fare or two currencies, and the band then does not render for this card
+	 * while still rendering for its neighbours, which is correct: the fact is missing for
+	 * this itinerary, not for the route.
+	 */
+	const comparableFlights = $derived(oneAdultFlightsTotal(itinerary));
+	const bandPosition = $derived(
+		priceBand && comparableFlights && comparableFlights.currency === priceBand.currency
+			? placeInBand(priceBand, comparableFlights.minorUnits)
+			: undefined
+	);
 
 	const connectionLabel = $derived(connectionAirport?.city.name ?? connectionCode);
 	// The owner, on a trip connecting through Gatwick: "london has multiple airports so the
@@ -208,6 +242,20 @@
 
 	<div class="card-main">
 		<PriceLine {itinerary} cityCentre={connectionAirport?.city.coordinates} />
+
+		<!-- Issue #232: directly under the receipt, because the band is about the figure in
+		     it and a comparison printed anywhere else is a rank with no anchor on screen.
+		     Above "Staying longer" so the card reads in order: what this costs, whether that
+		     is a good price, what a longer stay would cost. -->
+		{#if priceBand && bandPosition && comparableFlights}
+			<PriceBand
+				band={priceBand}
+				position={bandPosition}
+				comparable={comparableFlights}
+				route={{ origin: itinerary.originAirport.iataCode, destination: itinerary.destinationAirport.iataCode }}
+				deprioritized={isDeprioritized}
+			/>
+		{/if}
 
 		<!-- Issue #225: "Staying longer", directly under the number it is measured against,
 		     because a delta printed anywhere else is a figure with no anchor on screen. It

@@ -47,6 +47,8 @@
 	import { applyFilters, deriveFilterOptions, emptyFilters } from '$lib/results/filters';
 	import type { ResultFilters } from '$lib/results/filters';
 	import { explainNoResults } from '$lib/results/no-results';
+	import type { PriceBand } from '$lib/results/price-band';
+	import { collectPriceBand } from '$lib/results/price-band-source';
 	import { getProviderRegistry, stayProviderOutcomes } from '$lib/results/provider-setup';
 	import { createSearchDependencies } from '$lib/results/search-dependencies';
 	import { compareResults, sortResults } from '$lib/results/sort';
@@ -482,6 +484,49 @@
 		}
 	});
 
+	/**
+	 * Issue #232: one price band for the whole search, read out of #200's ledger.
+	 *
+	 * One rather than one per card, because the band answers "is this a good price for
+	 * getting from here to there" and the stopover is the variable that question holds
+	 * still. Every card is then marked against the same distribution with the same
+	 * denominator, so the page makes its comparison claim once.
+	 *
+	 * Only once the search has settled. A band built while stopovers are still arriving
+	 * would be recomputed on every snapshot, and each recomputation is a few dozen
+	 * IndexedDB reads against the store the search itself is using.
+	 *
+	 * `priceBandKey` is a plain `let`, not `$state`: it is this effect's memo of what it
+	 * has already asked for, and making it reactive would have the effect depend on its own
+	 * write. `collectPriceBand` makes no request in any path (`price-band-source.ts`), so a
+	 * results page cannot spend anything on this.
+	 */
+	let priceBand = $state<PriceBand | undefined>(undefined);
+	let priceBandKey = '';
+
+	$effect(() => {
+		const activeQuery = query;
+		if (!activeQuery || !primarySearchDone || stillSearching) return;
+
+		const stopovers = [...new Set(results.map((result) => connectionAirportCode(result.itinerary)))].sort();
+		if (stopovers.length === 0) return;
+
+		const currency = keyStore.currency ?? DEFAULT_SEARCH_CURRENCY;
+		const key = [activeQuery.originAirport, activeQuery.destinationAirport, currency, ...stopovers].join('|');
+		if (key === priceBandKey) return;
+		priceBandKey = key;
+
+		collectPriceBand({ query: activeQuery, stopovers, currency }).then((band) => {
+			// A second search can settle while this read is in flight. Only the answer to the
+			// question still being asked is allowed to land.
+			if (priceBandKey === key) priceBand = band;
+		});
+	});
+
+	/** The band as a card can use it: present only when there is genuinely enough history,
+	 * so `ResultCard` never has to know what "not enough" looks like. */
+	const shownPriceBand = $derived(priceBand?.kind === 'band' ? priceBand : undefined);
+
 	/** The narrowest possible confirm-tier target: the exact date this candidate's
 	 * itinerary already found, never the query's whole range, PROVIDERS.md's own
 	 * warning ("a pipeline that loops over dates... is broken by construction") is
@@ -735,6 +780,7 @@
 								<ResultCard
 									{result}
 									connectionAirport={connectionAirports[code]}
+									priceBand={shownPriceBand}
 									expanded={expandedId === result.id}
 									onToggleExpand={() => toggleExpanded(result.id)}
 									onNightsChange={(nights) => chooseNights(result.id, nights)}
