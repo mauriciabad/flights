@@ -208,6 +208,31 @@ describe('TransportPicker: no-service transit', () => {
 		expect(text).toContain('French national per-km ceiling');
 	});
 
+	it('says how long the ride is and that nobody priced it, when the rate card will not reach', () => {
+		// Issue #246: production showed "Taxi 1h 17m £274.06-£439.44 ESTIMATE" for a 95 km
+		// airport run, more than twice the €173.00 flight it connects to. The duration is
+		// real and stays; the fare is a number this app has no basis for and goes.
+		const walkTransfer: Transfer = { mode: 'walk', duration: 40 as Duration, legs: [] };
+		const itinerary = baseItinerary(walkTransfer);
+		const taxi: Transfer = { mode: 'taxi', duration: 76 as Duration, legs: [] };
+		const taxiFareEstimate: TaxiFareEstimate = {
+			kind: 'out-of-range',
+			distanceKm: 94.9,
+			ratedUpToKm: 30,
+			countryCode: 'GB',
+			citation: 'Back-calculated from a London 5km fare comparison of roughly $23.'
+		};
+
+		const root = mountPicker({ itinerary, alternatives: [taxi], taxiFareEstimate });
+
+		const text = normalizedText(root);
+		expect(text).toContain('1h 16m');
+		expect(text).toContain('No fare estimate');
+		expect(text).toContain('95 km');
+		expect(text).not.toMatch(/[£€$]\d/);
+		expect(text).not.toContain('ESTIMATE');
+	});
+
 	it('does not use the dramatic gap framing for a normal, imminent departure', () => {
 		const walkTransfer: Transfer = { mode: 'walk', duration: 5 as Duration, legs: [] };
 		const itinerary = baseItinerary(walkTransfer);
