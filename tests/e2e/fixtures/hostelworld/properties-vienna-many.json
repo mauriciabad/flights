@@ -1,0 +1,570 @@
+{
+	"properties": [
+		{
+			"id": 992000,
+			"isPromoted": false,
+			"hbid": 0,
+			"name": "FIXTURE Lodge",
+			"starRating": 0,
+			"overallRating": {
+				"overall": 88,
+				"numberOfRatings": "1000"
+			},
+			"latitude": 48.110298,
+			"longitude": 16.5697,
+			"isFeatured": false,
+			"type": "HOSTEL",
+			"address1": "1 FIXTURE Street",
+			"freeCancellationAvailable": true,
+			"lowestPricePerNight": {
+				"value": "9111.11",
+				"currency": "EUR"
+			},
+			"lowestPrivatePricePerNight": {
+				"value": "9333.33",
+				"currency": "EUR"
+			},
+			"lowestDormPricePerNight": {
+				"value": "9111.11",
+				"currency": "EUR"
+			},
+			"lowestAveragePricePerNight": {
+				"value": "9111.11",
+				"currency": "EUR"
+			},
+			"lowestAverageDormPricePerNight": {
+				"value": "9111.11",
+				"currency": "EUR"
+			},
+			"lowestAveragePrivatePricePerNight": {
+				"value": "9333.33",
+				"currency": "EUR"
+			},
+			"distance": {
+				"value": 1,
+				"units": "km"
+			},
+			"city": {
+				"id": "991001",
+				"name": "FIXTURELAND",
+				"hrpRating": "80"
+			},
+			"country": {
+				"id": "15",
+				"name": "FIXTURELAND"
+			},
+			"rooms": {
+				"dorms": [
+					{
+						"id": 992001,
+						"name": "FIXTURE 6 Bed Mixed Dorm",
+						"capacity": "6",
+						"basicType": "Mixed Dorm",
+						"ensuite": false,
+						"averagePrice": {
+							"value": "9111.11",
+							"currency": "EUR"
+						}
+					}
+				],
+				"privates": [
+					{
+						"id": 992002,
+						"name": "FIXTURE Twin Private",
+						"capacity": "2",
+						"basicType": "Private",
+						"ensuite": false,
+						"averagePrice": {
+							"value": "9333.33",
+							"currency": "EUR"
+						}
+					}
+				]
+			},
+			"images": [
+				{
+					"prefix": "photos.fixture.invalid/property/FIXTURE-0-one",
+					"suffix": ".svg"
+				},
+				{
+					"prefix": "photos.fixture.invalid/property/FIXTURE-0-two",
+					"suffix": ".svg"
+				}
+			]
+		},
+		{
+			"id": 992010,
+			"isPromoted": false,
+			"hbid": 0,
+			"name": "FIXTURE Canal House",
+			"starRating": 0,
+			"overallRating": {
+				"overall": 91,
+				"numberOfRatings": "1137"
+			},
+			"latitude": 48.21,
+			"longitude": 16.37,
+			"isFeatured": false,
+			"type": "HOSTEL",
+			"address1": "2 FIXTURE Street",
+			"freeCancellationAvailable": true,
+			"lowestPricePerNight": {
+				"value": "9222.22",
+				"currency": "EUR"
+			},
+			"lowestPrivatePricePerNight": {
+				"value": "9444.44",
+				"currency": "EUR"
+			},
+			"lowestDormPricePerNight": {
+				"value": "9222.22",
+				"currency": "EUR"
+			},
+			"lowestAveragePricePerNight": {
+				"value": "9222.22",
+				"currency": "EUR"
+			},
+			"lowestAverageDormPricePerNight": {
+				"value": "9222.22",
+				"currency": "EUR"
+			},
+			"lowestAveragePrivatePricePerNight": {
+				"value": "9444.44",
+				"currency": "EUR"
+			},
+			"distance": {
+				"value": 2,
+				"units": "km"
+			},
+			"city": {
+				"id": "991001",
+				"name": "FIXTURELAND",
+				"hrpRating": "80"
+			},
+			"country": {
+				"id": "15",
+				"name": "FIXTURELAND"
+			},
+			"rooms": {
+				"dorms": [
+					{
+						"id": 992011,
+						"name": "FIXTURE 7 Bed Mixed Dorm",
+						"capacity": "7",
+						"basicType": "Mixed Dorm",
+						"ensuite": false,
+						"averagePrice": {
+							"value": "9222.22",
+							"currency": "EUR"
+						}
+					}
+				],
+				"privates": [
+					{
+						"id": 992012,
+						"name": "FIXTURE Twin Private",
+						"capacity": "2",
+						"basicType": "Private",
+						"ensuite": false,
+						"averagePrice": {
+							"value": "9444.44",
+							"currency": "EUR"
+						}
+					}
+				]
+			},
+			"images": [
+				{
+					"prefix": "photos.fixture.invalid/property/FIXTURE-1-one",
+					"suffix": ".svg"
+				},
+				{
+					"prefix": "photos.fixture.invalid/property/FIXTURE-1-two",
+					"suffix": ".svg"
+				}
+			]
+		},
+		{
+			"id": 992020,
+			"isPromoted": false,
+			"hbid": 0,
+			"name": "FIXTURE Ringside Inn",
+			"starRating": 0,
+			"overallRating": {
+				"overall": 84,
+				"numberOfRatings": "1274"
+			},
+			"latitude": 48.205,
+			"longitude": 16.36,
+			"isFeatured": false,
+			"type": "HOSTEL",
+			"address1": "3 FIXTURE Street",
+			"freeCancellationAvailable": true,
+			"lowestPricePerNight": {
+				"value": "9055.55",
+				"currency": "EUR"
+			},
+			"lowestPrivatePricePerNight": {
+				"value": "9277.77",
+				"currency": "EUR"
+			},
+			"lowestDormPricePerNight": {
+				"value": "9055.55",
+				"currency": "EUR"
+			},
+			"lowestAveragePricePerNight": {
+				"value": "9055.55",
+				"currency": "EUR"
+			},
+			"lowestAverageDormPricePerNight": {
+				"value": "9055.55",
+				"currency": "EUR"
+			},
+			"lowestAveragePrivatePricePerNight": {
+				"value": "9277.77",
+				"currency": "EUR"
+			},
+			"distance": {
+				"value": 3,
+				"units": "km"
+			},
+			"city": {
+				"id": "991001",
+				"name": "FIXTURELAND",
+				"hrpRating": "80"
+			},
+			"country": {
+				"id": "15",
+				"name": "FIXTURELAND"
+			},
+			"rooms": {
+				"dorms": [
+					{
+						"id": 992021,
+						"name": "FIXTURE 8 Bed Mixed Dorm",
+						"capacity": "8",
+						"basicType": "Mixed Dorm",
+						"ensuite": false,
+						"averagePrice": {
+							"value": "9055.55",
+							"currency": "EUR"
+						}
+					}
+				],
+				"privates": [
+					{
+						"id": 992022,
+						"name": "FIXTURE Twin Private",
+						"capacity": "2",
+						"basicType": "Private",
+						"ensuite": false,
+						"averagePrice": {
+							"value": "9277.77",
+							"currency": "EUR"
+						}
+					}
+				]
+			},
+			"images": [
+				{
+					"prefix": "photos.fixture.invalid/property/FIXTURE-2-one",
+					"suffix": ".svg"
+				},
+				{
+					"prefix": "photos.fixture.invalid/property/FIXTURE-2-two",
+					"suffix": ".svg"
+				}
+			]
+		},
+		{
+			"id": 992030,
+			"isPromoted": false,
+			"hbid": 0,
+			"name": "FIXTURE Prater Rooms",
+			"starRating": 0,
+			"overallRating": {
+				"overall": 79,
+				"numberOfRatings": "1411"
+			},
+			"latitude": 48.216,
+			"longitude": 16.399,
+			"isFeatured": false,
+			"type": "HOSTEL",
+			"address1": "4 FIXTURE Street",
+			"freeCancellationAvailable": true,
+			"lowestPricePerNight": {
+				"value": "9188.88",
+				"currency": "EUR"
+			},
+			"lowestPrivatePricePerNight": {
+				"value": "9411.11",
+				"currency": "EUR"
+			},
+			"lowestDormPricePerNight": {
+				"value": "9188.88",
+				"currency": "EUR"
+			},
+			"lowestAveragePricePerNight": {
+				"value": "9188.88",
+				"currency": "EUR"
+			},
+			"lowestAverageDormPricePerNight": {
+				"value": "9188.88",
+				"currency": "EUR"
+			},
+			"lowestAveragePrivatePricePerNight": {
+				"value": "9411.11",
+				"currency": "EUR"
+			},
+			"distance": {
+				"value": 4,
+				"units": "km"
+			},
+			"city": {
+				"id": "991001",
+				"name": "FIXTURELAND",
+				"hrpRating": "80"
+			},
+			"country": {
+				"id": "15",
+				"name": "FIXTURELAND"
+			},
+			"rooms": {
+				"dorms": [
+					{
+						"id": 992031,
+						"name": "FIXTURE 9 Bed Mixed Dorm",
+						"capacity": "9",
+						"basicType": "Mixed Dorm",
+						"ensuite": false,
+						"averagePrice": {
+							"value": "9188.88",
+							"currency": "EUR"
+						}
+					}
+				],
+				"privates": [
+					{
+						"id": 992032,
+						"name": "FIXTURE Twin Private",
+						"capacity": "2",
+						"basicType": "Private",
+						"ensuite": false,
+						"averagePrice": {
+							"value": "9411.11",
+							"currency": "EUR"
+						}
+					}
+				]
+			},
+			"images": [
+				{
+					"prefix": "photos.fixture.invalid/property/FIXTURE-3-one",
+					"suffix": ".svg"
+				},
+				{
+					"prefix": "photos.fixture.invalid/property/FIXTURE-3-two",
+					"suffix": ".svg"
+				}
+			]
+		},
+		{
+			"id": 992040,
+			"isPromoted": false,
+			"hbid": 0,
+			"name": "FIXTURE Westside Bunk",
+			"starRating": 0,
+			"overallRating": {
+				"overall": 72,
+				"numberOfRatings": "1548"
+			},
+			"latitude": 48.195,
+			"longitude": 16.335,
+			"isFeatured": false,
+			"type": "HOSTEL",
+			"address1": "5 FIXTURE Street",
+			"freeCancellationAvailable": true,
+			"lowestPricePerNight": {
+				"value": "9033.33",
+				"currency": "EUR"
+			},
+			"lowestPrivatePricePerNight": {
+				"value": "9255.55",
+				"currency": "EUR"
+			},
+			"lowestDormPricePerNight": {
+				"value": "9033.33",
+				"currency": "EUR"
+			},
+			"lowestAveragePricePerNight": {
+				"value": "9033.33",
+				"currency": "EUR"
+			},
+			"lowestAverageDormPricePerNight": {
+				"value": "9033.33",
+				"currency": "EUR"
+			},
+			"lowestAveragePrivatePricePerNight": {
+				"value": "9255.55",
+				"currency": "EUR"
+			},
+			"distance": {
+				"value": 5,
+				"units": "km"
+			},
+			"city": {
+				"id": "991001",
+				"name": "FIXTURELAND",
+				"hrpRating": "80"
+			},
+			"country": {
+				"id": "15",
+				"name": "FIXTURELAND"
+			},
+			"rooms": {
+				"dorms": [
+					{
+						"id": 992041,
+						"name": "FIXTURE 10 Bed Mixed Dorm",
+						"capacity": "10",
+						"basicType": "Mixed Dorm",
+						"ensuite": false,
+						"averagePrice": {
+							"value": "9033.33",
+							"currency": "EUR"
+						}
+					}
+				],
+				"privates": [
+					{
+						"id": 992042,
+						"name": "FIXTURE Twin Private",
+						"capacity": "2",
+						"basicType": "Private",
+						"ensuite": false,
+						"averagePrice": {
+							"value": "9255.55",
+							"currency": "EUR"
+						}
+					}
+				]
+			},
+			"images": [
+				{
+					"prefix": "photos.fixture.invalid/property/FIXTURE-4-one",
+					"suffix": ".svg"
+				},
+				{
+					"prefix": "photos.fixture.invalid/property/FIXTURE-4-two",
+					"suffix": ".svg"
+				}
+			]
+		},
+		{
+			"id": 992050,
+			"isPromoted": false,
+			"hbid": 0,
+			"name": "FIXTURE Far Lodge",
+			"starRating": 0,
+			"overallRating": {
+				"overall": 95,
+				"numberOfRatings": "1685"
+			},
+			"latitude": 48.4,
+			"longitude": 16.5697,
+			"isFeatured": false,
+			"type": "HOSTEL",
+			"address1": "6 FIXTURE Street",
+			"freeCancellationAvailable": true,
+			"lowestPricePerNight": {
+				"value": "9022.22",
+				"currency": "EUR"
+			},
+			"lowestPrivatePricePerNight": {
+				"value": "9244.44",
+				"currency": "EUR"
+			},
+			"lowestDormPricePerNight": {
+				"value": "9022.22",
+				"currency": "EUR"
+			},
+			"lowestAveragePricePerNight": {
+				"value": "9022.22",
+				"currency": "EUR"
+			},
+			"lowestAverageDormPricePerNight": {
+				"value": "9022.22",
+				"currency": "EUR"
+			},
+			"lowestAveragePrivatePricePerNight": {
+				"value": "9244.44",
+				"currency": "EUR"
+			},
+			"distance": {
+				"value": 6,
+				"units": "km"
+			},
+			"city": {
+				"id": "991001",
+				"name": "FIXTURELAND",
+				"hrpRating": "80"
+			},
+			"country": {
+				"id": "15",
+				"name": "FIXTURELAND"
+			},
+			"rooms": {
+				"dorms": [
+					{
+						"id": 992051,
+						"name": "FIXTURE 11 Bed Mixed Dorm",
+						"capacity": "11",
+						"basicType": "Mixed Dorm",
+						"ensuite": false,
+						"averagePrice": {
+							"value": "9022.22",
+							"currency": "EUR"
+						}
+					}
+				],
+				"privates": [
+					{
+						"id": 992052,
+						"name": "FIXTURE Twin Private",
+						"capacity": "2",
+						"basicType": "Private",
+						"ensuite": false,
+						"averagePrice": {
+							"value": "9244.44",
+							"currency": "EUR"
+						}
+					}
+				]
+			},
+			"images": [
+				{
+					"prefix": "photos.fixture.invalid/property/FIXTURE-5-one",
+					"suffix": ".svg"
+				},
+				{
+					"prefix": "photos.fixture.invalid/property/FIXTURE-5-two",
+					"suffix": ".svg"
+				}
+			]
+		}
+	],
+	"location": {
+		"city": {
+			"id": 991001,
+			"name": "FIXTURELAND",
+			"idCountry": 15,
+			"country": "FIXTURELAND"
+		}
+	},
+	"pagination": {
+		"next": "",
+		"prev": "",
+		"numberOfPages": 1,
+		"totalNumberOfItems": 6
+	}
+}

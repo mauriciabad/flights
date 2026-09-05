@@ -2,6 +2,7 @@ import { flushSync, mount, unmount } from 'svelte';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { Airport, Property } from '$lib/domain';
 import StayAlternativeCard from './StayAlternativeCard.svelte';
+import { describeStayChoices } from './choice';
 import type { PropertyStayOptions } from './types';
 
 /**
@@ -34,11 +35,17 @@ function renderImage(images: string[]): HTMLImageElement {
 	const group: PropertyStayOptions = {
 		options: [{ stay: { property, roomKind: 'dorm', pricePerNight: { minorUnits: 2946, currency: 'EUR' } } }]
 	};
+	const [choice] = describeStayChoices([group], {
+		picked: group.options[0].stay,
+		connectionAirport: AIRPORT.coordinates,
+		cityCentre: AIRPORT.city.coordinates,
+		nights: 1
+	});
 	target = document.createElement('div');
 	document.body.appendChild(target);
 	component = mount(StayAlternativeCard, {
 		target,
-		props: { group, connectionAirport: AIRPORT, nights: 1, onselect: () => {} }
+		props: { choice, nights: 1, onselect: () => {} }
 	});
 	flushSync();
 	return target.querySelector('img')!;

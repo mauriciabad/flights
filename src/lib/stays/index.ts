@@ -6,6 +6,8 @@
 
 export { default as StayPicker } from './StayPicker.svelte';
 export { default as PickedBed } from './PickedBed.svelte';
+export { default as PhotoCarousel } from './PhotoCarousel.svelte';
+export { default as StaysMapDialog } from './StaysMapDialog.svelte';
 export {
 	genderFit,
 	genderFitMessage,
@@ -22,6 +24,8 @@ export { formatDistanceKm, haversineDistanceKm } from './distance';
 export { ROOM_KIND_LABELS } from './room-kind';
 export { cheapestSelectableOption, isOptionSelectable, rankProperties, selectableOptions } from './rank';
 export { groupByProperty, isSameProperty, propertyKey, propertyOf } from './types';
+export { describePriceComparison, describeStayChoices, stayDistances } from './choice';
+export type { StayChoice, StayChoiceContext, StayDistance, StayPriceComparison } from './choice';
 export { describeNoStays } from './no-stays-reason';
 export type { NoStaysContext, NoStaysNotice, StayProviderOutcome } from './no-stays-reason';
 export type { PropertyStayOptions, StayOption } from './types';
