@@ -427,3 +427,18 @@ canonical value. Convert at the edges, compare in minor units.
 This app talks to a dozen providers, several of which will be out of quota, unsubscribed or
 simply down. Partial results are the normal case. Say what you do not know rather than
 guessing, and never present an estimate as a fact.
+
+## A rebase can delete a file nobody conflicted over
+
+Check `git diff --diff-filter=D --name-only origin/main...HEAD` before you push a branch that
+adds a feature. It should be empty.
+
+On 5 September 2026 the connections-map branch, cut before #329 merged, came out of a rebase
+deleting `tests/e2e/flight-picker-dates.spec.ts` and `tools/probe-flight-picker-dates.mjs`.
+Neither file has anything to do with maps. Git reported one conflict, in an unrelated
+stylesheet, and none on those two. CI was green. Nothing in the diff would have made a
+reviewer ask, because a deletion of a file you never mention does not read as a change you
+made.
+
+Main moved eight times that afternoon. Any branch older than the last merge can carry this,
+and the cost is a green test and its instrument quietly ceasing to exist.
