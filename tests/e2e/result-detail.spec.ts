@@ -1,7 +1,7 @@
 import { test, expect } from './support/fixtures';
 import { FIXTURE_FLIGHT_NUMBERS, FIXTURE_PRICES } from './support/fixture-markers';
 import { mockAllKeylessProviders, routeRyanairFlights } from './support/providers';
-import { customiser, openTimeline } from './support/results-ui';
+import { customiser, openTimeline, pickStripSegment } from './support/results-ui';
 
 /**
  * Issue #104: the regression guard for the gap that issue describes. Before it, a real
@@ -171,9 +171,15 @@ test.describe('result detail (issue #104)', () => {
 		await expect(page.getByText('still searching')).toHaveCount(0, { timeout: 20_000 });
 
 		const card = page.locator('.result-card').first();
-		const ladder = card.locator('.staying-longer');
-		const rungs = ladder.locator('.rung');
 		const stripCaption = card.locator('.trip-strip-caption-mid');
+
+		// Issue #278 moved the ladder off the card and into the stopover's own panel, on the
+		// reasoning that how long you stay is a property of the stopover and the bed you
+		// book is the other one. Everything below is #225's guard unchanged, read from where
+		// the control now lives: the card is what it prices, and it is still on screen.
+		await pickStripSegment(page, 'stopover');
+		const ladder = customiser(page).locator('.staying-longer');
+		const rungs = ladder.locator('.rung');
 
 		// The 8 March outbound would give two nights and a cheaper total. The card opens on
 		// the 9 March one anyway, because one night is the fewest these flights allow.

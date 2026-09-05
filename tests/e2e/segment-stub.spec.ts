@@ -206,11 +206,19 @@ test.describe('tapping a segment on a phone', () => {
 		// Geometry, not semantics. A reader who taps a 3px transfer seam and gets a panel
 		// sitting on top of it has lost the context that made the tap mean something, and a
 		// panel that is merely present in the DOM proves nothing about that.
-		const stripBox = (await strip.boundingBox())!;
-		expect(
-			stripBox.y + stripBox.height,
-			'the trip strip is behind the sheet, so the segment that was tapped is not on screen'
-		).toBeLessThanOrEqual(sheetBox.y);
+		//
+		// Polled because the card scrolls the strip clear of the sheet, and that scroll is
+		// smooth: the assertion is about where this comes to rest, not about the frame the
+		// sheet appeared in.
+		await expect
+			.poll(
+				async () => {
+					const box = (await strip.boundingBox())!;
+					return box.y + box.height;
+				},
+				{ message: 'the trip strip is behind the sheet, so the segment that was tapped is not on screen' }
+			)
+			.toBeLessThanOrEqual(sheetBox.y);
 	});
 
 	test('the sheet closes on Escape, on its close button, and on a tap outside it', async ({ page }) => {
