@@ -378,6 +378,25 @@ describe('the stopover stub', () => {
 		expect(stub.title).toBe('Day stopover in London');
 		expect(stub.duration).toBe('2h 30m free');
 	});
+
+	it('calls a stopover nobody leaves the airport for a wait, and none of it free', () => {
+		// Issue #365, measured on production: 10:37pm to 3:03am at Porto with no bed booked,
+		// and this panel read "Day stopover in Porto, 4h 26m free". `build.ts` puts a layover
+		// with no way out of the terminal into `times.airportWaiting`, and `times.free` at
+		// zero is how every surface knows.
+		const base = itineraryFor({
+			nightsInConnection: 0,
+			freeTime: { start: at('2026-10-06T22:17:00', 60), end: at('2026-10-07T04:10:00', 60), duration: 353 as Duration }
+		});
+		const airside = { ...base, times: { ...base.times, free: 0 as Duration } };
+		const stub = stubOf(airside, 'stopover');
+
+		expect(stub.title).toBe('Waiting at LGW');
+		expect(stub.duration).toBe('5h 53m');
+		// The bed is a quote this trip does not book, so how far it is from the runway is not
+		// a fact about the trip on screen.
+		expect(stub.facts).toEqual([]);
+	});
 });
 
 describe('the transport stub and the landing buffer (issue #290)', () => {

@@ -552,7 +552,16 @@ describe('absentSegmentNotes (issue #141: a selected step the map cannot draw)',
 
 	it('blames the providers, not the missing bed, when a stay was priced but a leg was not routed', () => {
 		const model = buildItineraryMapModel(
-			fullItinerary({ transferToHotel: undefined, transferToDestinationLocation: undefined }),
+			// Two nights, because that is what issue #211's case actually is: a bed this trip
+			// BOOKS, which no transfer provider could find a route to. Issue #365 gave the
+			// nightless version of the same shape its own sentence, and a trip with no night
+			// gets that one whether or not a bed was quoted, so a fixture at zero nights can
+			// no longer stand in for this.
+			fullItinerary({
+				transferToHotel: undefined,
+				transferToDestinationLocation: undefined,
+				nightsInConnection: 2
+			}),
 			connectionAirport
 		);
 

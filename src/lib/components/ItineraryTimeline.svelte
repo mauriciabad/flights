@@ -70,7 +70,7 @@
 	import type { Snippet } from 'svelte';
 	import type { Airport, Duration, FlightOffer, Itinerary, LocalDateTime, Location, TransitLegField } from '../domain';
 	import { transferRideDuration } from '../domain';
-	import { isOvernightWait } from '../algorithm/nights';
+	import { waitsOvernight } from '../algorithm/nights';
 	import { readMissedService, readStaleSchedule, transitDepartureWait } from '../algorithm/transit-schedule';
 	import type { ItinerarySegmentId } from '../itinerary-map/segment-id';
 	import {
@@ -460,7 +460,7 @@
 						>&nbsp;&middot; {unroutedLegNote(leg, {
 							hasStay: itinerary.stay !== undefined,
 							nightsInConnection: itinerary.nightsInConnection,
-							overnightWait: isOvernightWait(itinerary.freeTime.start, itinerary.freeTime.end),
+							overnightWait: waitsOvernight(itinerary),
 							transferAnchor: itinerary.transferAnchor,
 							withheld: withheld?.[leg]
 						})}</span
@@ -608,7 +608,12 @@
 
 	{@render transferRow(
 		'transferToHotel',
-		itinerary.stay ? `To ${itinerary.stay.property.name}` : 'To the stopover',
+		// Issue #365: named only where a bed is booked. A nightless stopover carries the
+		// quote the search found, and titling an absent leg with a hostel's name is the same
+		// wtf as drawing the ride to it.
+		itinerary.stay && itinerary.nightsInConnection > 0
+			? `To ${itinerary.stay.property.name}`
+			: 'To the stopover',
 		'transfer-to-hotel',
 		'to-hotel'
 	)}
@@ -640,6 +645,12 @@
 				{#if itinerary.nightsInConnection > 0}
 					<strong class="font-mono tabular-nums">{itinerary.nightsInConnection}</strong>
 					{itinerary.nightsInConnection === 1 ? 'night' : 'nights'} in {connectionLabel}
+				{:else if waitsOvernight(itinerary)}
+					<!-- Issue #365: 9:20pm to 4:10am at Porto is not a day and it is not a
+					     stopover. `waitsOvernight` is the same reading the block above this
+					     timeline and the strip's own hover panel take, so all three say one
+					     thing about one trip. -->
+					Overnight wait in {connectionLabel}
 				{:else}
 					Day stopover in {connectionLabel}
 				{/if}
@@ -653,7 +664,11 @@
 			     is where the reason and the fix live (`stays/no-stays-reason.ts`). The
 			     zero-night line went with it, because "Day stopover in London" one line up
 			     already says no night is spent here. -->
-			{#if itinerary.stay}
+			<!-- Issue #365: `nightsInConnection > 0` as well, matching `StopoverBlock`'s own
+			     rule. A nightless stopover carries the bed the search quoted, and naming a
+			     hostel under a trip that books no night is the same wtf as drawing the ride
+			     to it. -->
+			{#if itinerary.stay && itinerary.nightsInConnection > 0}
 				<!-- Issue #245: `&nbsp;&middot;` rather than a newline before the separator.
 				     Svelte trims the whitespace at the start of an `{#if}` block, so the
 				     indented version rendered as "dorm· rated" on production. Same

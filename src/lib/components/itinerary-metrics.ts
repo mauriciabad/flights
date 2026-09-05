@@ -594,9 +594,10 @@ export function walkCount(walks: number): string {
 /** What the hotel group can say beyond its own amounts, when the caller knows it. */
 export interface PriceBreakdownContext {
 	/**
-	 * `ScoredResult.stopover.minimum`: the fewest nights this connection's own flight
-	 * pairings allow. Issue #305 splits the bed rows into the nights the schedule forces
-	 * and the nights the traveller added on top, and this is the line between them.
+	 * `ScoredResult.stopover.minimum`: the nights the card opened on, which is the cheapest
+	 * length this connection's own flight pairings allow (issue #364). Issue #305 splits the
+	 * bed rows into the nights the traveller did not choose and the nights they added on top,
+	 * and this is the line between them.
 	 *
 	 * Absent, every night reads as required. That is the honest default: without the
 	 * group behind the card there is no way to know that any night was chosen, and calling

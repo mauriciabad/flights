@@ -96,15 +96,15 @@ test.describe('result detail (issue #104)', () => {
 		// which is the duplication that issue removed, so this reads the surface that owns
 		// the figure rather than the copy that no longer exists.
 		const totalPriceRow = card.locator('.price-total');
-		// 9,222.22 (the 9 March outbound) + 9,333.33 onward. Absurd figures on purpose, see
+		// 9,111.11 (the 8 March outbound) + 9,333.33 onward. Absurd figures on purpose, see
 		// support/fixture-markers.ts, but the sum is still the real arithmetic under test.
 		//
-		// Issue #224 changed which pairing this is. Both outbounds reach the same 10 March
-		// onward flight, so the 8 March one is a two-night stopover and the 9 March one is a
-		// single night, and the card now opens on the shorter trip even though the longer
-		// one is 111.11 cheaper and scores better for its extra night. That is the fix: the
-		// nights a traveller is shown are the fewest the flights force on them.
-		await expect(totalPriceRow).toContainText('€18,555.55');
+		// Both outbounds reach the same 10 March onward flight, so the 8 March one is a
+		// two-night stopover and the 9 March one is a single night. Issue #224 made the card
+		// open on the shorter trip, and issue #364 corrected that to the cheaper one: the
+		// two-night pairing is 111.11 less, and choosing against it was the app spending the
+		// traveller's money to shorten a trip they never asked to shorten.
+		await expect(totalPriceRow).toContainText('€18,444.44');
 
 		// Switch to the pricier outbound option through the flight picker and confirm the
 		// total follows it exactly — brief line 67's "selecting updates ui", proven against
@@ -117,9 +117,9 @@ test.describe('result detail (issue #104)', () => {
 		// Issue #278: the picker is in the customise rail beside the list, not folded
 		// into the row. The row is still what selects it.
 		const outboundPicker = customiser(page).getByRole('radiogroup', { name: /Outbound/ });
-		// The 8 March outbound, which is the one the card is NOT on since issue #224 made the
-		// shorter stopover the default.
-		const alternativeRow = outboundPicker.locator('.picker-row', { hasText: '€9,111.11' });
+		// The 9 March outbound, which is the one the card is NOT on since issue #364 made the
+		// cheaper stopover the default.
+		const alternativeRow = outboundPicker.locator('.picker-row', { hasText: '€9,222.22' });
 		await expect(alternativeRow).toBeVisible();
 		// Click the row, which is what a traveller clicks: FlightPicker.svelte styles the
 		// whole `<label>` as the control and the `<input>` inside it is `visually-hidden`,
@@ -131,19 +131,21 @@ test.describe('result detail (issue #104)', () => {
 		await alternativeRow.click();
 
 		await expect(alternativeRow).toContainText('Current pick');
-		await expect(totalPriceRow).toContainText('€18,444.44'); // 9,111.11 + 9,333.33
+		await expect(totalPriceRow).toContainText('€18,555.55'); // 9,222.22 + 9,333.33
 	});
 
 	/**
-	 * Issues #224 and #225. The same two-pairing fixture, read from the card instead of the
-	 * panel: one night by default, every longer length priced on the card before anything
-	 * is pressed, and the number that headline delta is measured against printed right
-	 * above it.
+	 * Issues #224, #225 and #364. The same two-pairing fixture, read from the card instead of
+	 * the panel: the cheapest length by default, every other length priced on the card before
+	 * anything is pressed, and the number that headline delta is measured against printed
+	 * right above it.
 	 *
 	 * The owner: "the nights should be kept to a minimum by default", "and i can decide to
-	 * add more nights if the city is interesting and the hotel in the center".
+	 * add more nights if the city is interesting and the hotel in the center". And then, on
+	 * the card that made him file #364: "it should pick 1 night if is cheaper". The minimum
+	 * he is refusing is nights he PAYS for; a longer stay that costs less is not that.
 	 */
-	test('the card opens at the fewest nights and prices every longer stay', async ({ page }) => {
+	test('the card opens at the cheapest length and prices every other stay', async ({ page }) => {
 		await mockAllKeylessProviders(page.context());
 		await routeRyanairFlights(page.context(), [
 			{
@@ -186,33 +188,35 @@ test.describe('result detail (issue #104)', () => {
 		const ladder = customiser(page).locator('.staying-longer');
 		const rungs = ladder.locator('.rung');
 
-		// The 8 March outbound would give two nights and a cheaper total. The card opens on
-		// the 9 March one anyway, because one night is the fewest these flights allow.
-		await expect(stripCaption).toContainText('1 night');
+		// Issue #364 turned this case over, and this fixture is where issue #230 wrote down
+		// that it was choosing the more expensive trip on purpose: "the fixture's 8 March
+		// outbound is two nights and 111.11 cheaper, and the card now opens on the 9 March
+		// one anyway." That is the owner's Porto card in miniature, and it opens on the
+		// cheaper trip now.
+		await expect(stripCaption).toContainText('2 nights');
 		await expect(card.locator('.price-headline')).toContainText('Getting there');
-		await expect(card.locator('.price-total')).toContainText('€18,555.55');
+		await expect(card.locator('.price-total')).toContainText('€18,444.44');
 		await expect(rungs).toHaveText([/1 night/, /2 nights/]);
 
-		// Issue #225: the price of the longer stay is on the card before anything is
-		// pressed, and it is a real pairing's real total rather than a nightly rate. The
-		// second night here is CHEAPER, which is the whole reason this card names the
-		// number instead of adding one up.
-		await expect(rungs.nth(0)).toHaveAttribute('aria-pressed', 'true');
-		await expect(rungs.nth(0)).toContainText('this trip');
-		await expect(rungs.nth(1)).toHaveAttribute('aria-pressed', 'false');
-		await expect(rungs.nth(1)).toContainText('-€111.11');
-		await expect(rungs.nth(1)).toHaveAttribute('aria-label', /2 nights in .*-€111\.11/);
-		// The second night is only available on the earlier outbound, so both flights move.
+		// Issue #225: the price of every other length is on the card before anything is
+		// pressed, and it is a real pairing's real total rather than a nightly rate. What
+		// the ladder buys here is a shorter trip, and it says what that costs.
+		await expect(rungs.nth(1)).toHaveAttribute('aria-pressed', 'true');
+		await expect(rungs.nth(1)).toContainText('this trip');
+		await expect(rungs.nth(0)).toHaveAttribute('aria-pressed', 'false');
+		await expect(rungs.nth(0)).toContainText('+€111.11');
+		await expect(rungs.nth(0)).toHaveAttribute('aria-label', /1 night in .*\+€111\.11/);
+		// The shorter stay is only available on the later outbound, so both flights move.
 		await expect(ladder.locator('.ladder-note')).toHaveText('different flights');
 
-		await rungs.nth(1).click();
+		await rungs.nth(0).click();
 
-		await expect(stripCaption).toContainText('2 nights');
-		await expect(card.locator('.price-total')).toContainText('€18,444.44');
+		await expect(stripCaption).toContainText('1 night');
+		await expect(card.locator('.price-total')).toContainText('€18,555.55');
 		// The deltas re-anchor on the trip now showing, so the headline plus any rung is
 		// still exactly what that rung costs.
-		await expect(rungs.nth(1)).toHaveAttribute('aria-pressed', 'true');
-		await expect(rungs.nth(0)).toContainText('+€111.11');
+		await expect(rungs.nth(0)).toHaveAttribute('aria-pressed', 'true');
+		await expect(rungs.nth(1)).toContainText('-€111.11');
 
 		// And back, with no trace left of the detour.
 		await rungs.nth(0).click();

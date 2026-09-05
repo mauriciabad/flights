@@ -22,7 +22,7 @@
  *   minus three euros.
  */
 
-import { isOvernightWait } from '$lib/algorithm/nights';
+import { waitsOvernight } from '$lib/algorithm/nights';
 import type { FlightOffer, Itinerary } from '$lib/domain';
 import { formatDuration, formatMoneyDelta } from '$lib/format';
 
@@ -64,7 +64,7 @@ export function stopoverLadderLengthLabel(nights: number): string {
  */
 export function stopoverLengthLabelFor(itinerary: Itinerary): string {
 	if (itinerary.nightsInConnection > 0) return stopoverLengthLabel(itinerary.nightsInConnection);
-	return isOvernightWait(itinerary.freeTime.start, itinerary.freeTime.end) ? 'Overnight wait' : 'Flight change';
+	return waitsOvernight(itinerary) ? 'Overnight wait' : 'Flight change';
 }
 
 /**
@@ -74,7 +74,7 @@ export function stopoverLengthLabelFor(itinerary: Itinerary): string {
  */
 export function overnightWaitNote(itinerary: Itinerary): string | undefined {
 	if (itinerary.nightsInConnection > 0) return undefined;
-	if (!isOvernightWait(itinerary.freeTime.start, itinerary.freeTime.end)) return undefined;
+	if (!waitsOvernight(itinerary)) return undefined;
 	return `Overnight wait, ${formatDuration(itinerary.freeTime.duration)}, too short to be worth a bed`;
 }
 

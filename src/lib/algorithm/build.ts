@@ -336,9 +336,9 @@ function deriveFromNights(parts: ItineraryParts, nightsInConnection: number): De
  * from them, and the anchor those parts' two connection-side legs still describe. */
 export type DerivedTrip = ItineraryParts &
 	DerivedItinerary & {
-		/** `undefined` once the bed and its two rides come off, for the same reason
-		 * `pairConnections` drops it alongside a bed discarded for its currency: an anchor
-		 * for legs this trip no longer has would outlive the only thing it describes. */
+		/** `undefined` once the two rides come off, for the same reason `pairConnections`
+		 * drops it alongside legs discarded for a bed's currency: an anchor for legs this
+		 * trip no longer has would outlive the only thing it describes. */
 		transferAnchor?: TransferAnchor;
 	};
 
@@ -356,10 +356,9 @@ export type DerivedTrip = ItineraryParts &
  * had already worked out there was no bed here, printing "Overnight wait, 4h 26m, too short
  * to be worth a bed" on the same card, and then planned the journey to it anyway.
  *
- * So: a stopover that books no night books no bed, and the rides to and from a bed are not
- * part of a trip that has none. `pairConnections` already drops those two legs alongside a
- * bed discarded for its currency (issue #152); this is the same rule for the other reason a
- * bed goes.
+ * So: a stopover that books no night books no bed, and a trip that books no bed makes no
+ * journey to one. `pairConnections` already drops those two legs when a bed is discarded for
+ * its currency (issue #152). This is the same rule for the other reason a bed is not booked.
  *
  * ## The rides go and the bed stays, which is not a hedge
  *

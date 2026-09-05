@@ -23,7 +23,7 @@
  * about whether it has a night in it.
  */
 
-import type { LocalDateTime } from '../domain';
+import type { Itinerary, LocalDateTime } from '../domain';
 
 const MS_PER_MINUTE = 60_000;
 const MS_PER_DAY = 86_400_000;
@@ -158,4 +158,28 @@ export function isOvernightWait(start: LocalDateTime, end: LocalDateTime): boole
  */
 export function nightsToPayFor(start: LocalDateTime, end: LocalDateTime): number {
 	return isOvernightWait(start, end) ? 0 : nightsBetween(start, end);
+}
+
+/**
+ * Whether a trip that books no night keeps the traveller up past midnight. The wording
+ * question, as against `isOvernightWait`'s pricing one.
+ *
+ * The two used to be the same call, and issue #365 pulled them apart. `isOvernightWait`
+ * asks whether the hours at the property are worth a room, so it measures against
+ * `MIN_SLEEPABLE_MINUTES` on the window that had both transfers taken out of it. Once that
+ * answers no, `build.ts` takes the ride to the bed off the trip and the window widens to the
+ * whole layover. Measured on the owner's Porto card: 10:07pm to 3:03am becomes 9:20pm to
+ * 4:10am, six hours fifty. Asking the pricing question again on the wider window gets the
+ * opposite answer, and the card read "Same-day connection" over a trip that lands at 9:20pm
+ * and boards at 6:10am the next morning.
+ *
+ * So the wording reads the calendar and the night count instead. No night booked and a
+ * midnight crossed is a traveller awake in a terminal, whatever the threshold that decided
+ * they were not buying a bed for it.
+ */
+export function waitsOvernight(
+	itinerary: Pick<Itinerary, 'nightsInConnection' | 'freeTime'>
+): boolean {
+	if (itinerary.nightsInConnection > 0) return false;
+	return nightsBetween(itinerary.freeTime.start, itinerary.freeTime.end) >= 1;
 }
