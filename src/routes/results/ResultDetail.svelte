@@ -54,7 +54,7 @@
 	 * way replacing `itinerary` would.
 	 */
 	import { base } from '$app/paths';
-	import type { Airport, Duration, Itinerary, Stay } from '$lib/domain';
+	import type { Airport, Duration, Itinerary, Stay, Transfer } from '$lib/domain';
 	import type { ConnectionTransferOptions, ItineraryGroup, OuterTransferOptions, TransferLegOptions } from '$lib/search';
 	import type { ItinerarySegmentId } from '$lib/itinerary-map/segment-id';
 	import { recomputeItinerarySelection } from '$lib/algorithm/recompute-selection';
@@ -206,14 +206,22 @@
 		applyStayWithJourney(
 			stay,
 			routed
-				? {
-						kind: 'routed',
-						transferToHotel: initialItinerary.transferToHotel,
-						transferToConnectionAirport: initialItinerary.transferToConnectionAirport
-					}
+				? // Both legs or none. `transferAnchor === 'stay'` should mean the pipeline
+					// routed to this bed, but #211 is the case where a bed is priced and a
+					// transfer provider was unreachable, so the pair is not guaranteed and
+					// half of it would rebuild half the stopover.
+					journeyOf(initialItinerary.transferToHotel, initialItinerary.transferToConnectionAirport)
 				: (propertyRouting.get(propertyKey(stay.property)) ?? { kind: 'unrouted' })
 		);
 		void routePickedProperty(stay);
+	}
+
+	function journeyOf(
+		transferToHotel: Transfer | undefined,
+		transferToConnectionAirport: Transfer | undefined
+	): PropertyRouteState {
+		if (!transferToHotel || !transferToConnectionAirport) return { kind: 'unrouted' };
+		return { kind: 'routed', transferToHotel, transferToConnectionAirport };
 	}
 
 	/** Writes one bed and the journey known for it, whatever that journey is. Every branch
