@@ -222,7 +222,7 @@
 			{onNightsChange}
 		/>
 
-		<TripStrip {itinerary} {connectionCode} {connectionLabel} deprioritized={isDeprioritized} />
+		<TripStrip {itinerary} {connectionCode} {connectionLabel} {connectionAirport} deprioritized={isDeprioritized} />
 
 		<MetricRail {itinerary} ids={CARD_METRIC_IDS} />
 

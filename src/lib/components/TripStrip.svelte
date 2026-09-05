@@ -10,11 +10,10 @@
 	 * are (hatched), and that the ground legs exist at all (the thin solid seams), which
 	 * the old three-span strip dropped.
 	 *
-	 * It is a picture, not a control. The captions carry the two flight times and the
-	 * nights as real text, the metric rail under it carries the totals, and the whole
-	 * thing is announced to a screen reader as one sentence through `aria-label` on a
-	 * `role="img"` wrapper, since a bar read cell by cell is worse than useless. Each
-	 * cell's `title` names its part and its duration for a pointer.
+	 * The captions carry the two flight times and the nights as real text, the metric rail
+	 * under it carries the totals, and the whole thing is announced to a screen reader as
+	 * one sentence through `aria-label`, since a bar read cell by cell is worse than
+	 * useless.
 	 *
 	 * The scale is printed on the strip, "√ scale", because a bar that looks proportional
 	 * and is not would be the app asserting something untrue about the one quantity this
@@ -27,20 +26,40 @@
 	 * scale, and the 3px keeps a zero-length part (a wait edited down to nothing) a visible
 	 * seam. Stamps inside cells are gated on the cell's own width with container queries,
 	 * so a narrow cell shows nothing rather than a clipped word.
+	 *
+	 * ## Issue #227: it stopped being only a picture
+	 *
+	 * A row of transparent buttons now sits over the cells on the same grid row, one per
+	 * flight, wait and ground leg, and one spanning the whole run of free-time cells. Each
+	 * opens `SegmentStub`, which says what that part is, when it runs and what it costs.
+	 *
+	 * They are siblings of the cells rather than the cells themselves, so a cell keeps its
+	 * entire visual and a button carries only the hit area, the ring and the semantics. The
+	 * hit area is 44px tall against a 28px cell and never narrower than 24px, centred on
+	 * the cell it stands for; the cell's own width never changes, because the strip's one
+	 * contract is that width is time. A 3px transfer seam therefore has a target smaller
+	 * than the 44x44 guideline, which this design accepts rather than hides: widening the
+	 * cell would lie about the schedule, and a mis-tap opens a neighbour whose panel names
+	 * itself in its first line, so the correction costs one more tap.
+	 *
+	 * The strip is a `role="group"` rather than a `role="img"` now that it contains
+	 * controls, keeping the same one-sentence label. One tab stop per strip, with roving
+	 * `tabindex` and arrow keys inside it: without that, a page of twenty cards would be
+	 * two hundred tab stops.
+	 *
+	 * Hover is not the only input, and this app is read on a phone. Hover opens after
+	 * 100ms so the strip does not flicker as a pointer crosses it and closes after a 150ms
+	 * grace; focus opens with no delay and blur closes; a tap opens and pins, and a second
+	 * tap on the same target closes. Escape and a click outside come free from
+	 * `popover="auto"`, as does closing card one's panel when card two's opens.
 	 */
-	import type { Itinerary } from '$lib/domain';
-	import {
-		formatCalendarDate,
-		formatClockTime,
-		formatDuration,
-		formatLongDuration,
-		formatWeekday,
-		formatWeekdayLong
-	} from '$lib/format';
-	import { transferModeLabel } from './itinerary-timeline-format';
+	import type { Airport, Itinerary } from '$lib/domain';
+	import { formatClockTime, formatDuration, formatLongDuration, formatWeekday, formatWeekdayLong } from '$lib/format';
+	import { segmentStub, stripTargets } from './segment-stub';
 	import { tripStrip } from './trip-strip';
-	import type { TripStripFreeSegment, TripStripSegment, TripStripTransferSegment } from './trip-strip';
+	import type { TripStripFreeSegment, TripStripTransferSegment } from './trip-strip';
 	import AirlineLogo from './AirlineLogo.svelte';
+	import SegmentStub from './SegmentStub.svelte';
 
 	interface Props {
 		itinerary: Itinerary;
@@ -50,11 +69,15 @@
 		/** The stopover's IATA code, when the caller already has it. Defaults to the one
 		 * fact the itinerary always carries: where the outbound flight lands. */
 		connectionCode?: string;
+		/** The whole stopover airport record, when the page has resolved it. Its name is
+		 * what lets the wait panel say "London Gatwick" instead of "LGW", and its
+		 * coordinates are what put a distance on the bed (issue #219). */
+		connectionAirport?: Airport;
 		/** Colour-only quieting for an itinerary on an avoided airline. */
 		deprioritized?: boolean;
 	}
 
-	let { itinerary, connectionLabel, connectionCode, deprioritized = false }: Props = $props();
+	let { itinerary, connectionLabel, connectionCode, connectionAirport, deprioritized = false }: Props = $props();
 
 	const strip = $derived(tripStrip(itinerary));
 	const stopoverCode = $derived(connectionCode ?? itinerary.outboundFlight.arrivalAirport);
@@ -72,16 +95,6 @@
 	const scaleNote =
 		'Widths follow the square root of each part’s time, so a short transfer stays visible beside a multi-day stopover. A part four times as long is drawn twice as wide. The printed durations are exact.';
 
-	/** A free-time piece as a wall-clock reading: the date it falls on, plus the clock
-	 * readings at whichever ends are not midnight. */
-	function freeTitle(segment: TripStripFreeSegment): string {
-		const day = formatCalendarDate(segment.start);
-		if (segment.wholeDay) return `All of ${day} free in ${stopoverName}`;
-		const from = segment.startsAtMidnight ? '' : ` from ${formatClockTime(segment.start)}`;
-		const until = segment.endsAtMidnight ? ' until midnight' : ` until ${formatClockTime(segment.end)}`;
-		return `${day}${from}${until}: ${formatDuration(segment.minutes)} free in ${stopoverName}`;
-	}
-
 	function transferWhere(segment: TripStripTransferSegment): string {
 		switch (segment.leg) {
 			case 'to-origin-airport':
@@ -95,29 +108,14 @@
 		}
 	}
 
-	/** The pointer tooltip for one cell. The waits say what they are: the traveller's
-	 * own buffer setting, not a measured queue (AGENTS.md, never an estimate as a fact). */
-	function cellTitle(segment: TripStripSegment): string {
-		switch (segment.kind) {
-			case 'wait':
-				return `${formatDuration(segment.minutes)} waiting at ${segment.airport}, your buffer before the flight`;
-			case 'flight':
-				return `${segment.carrier.name} ${segment.from} to ${segment.to}, ${formatDuration(segment.minutes)}`;
-			case 'transfer':
-				return `${transferModeLabel(segment.mode)} ${transferWhere(segment)}, ${formatDuration(segment.minutes)}`;
-			case 'free':
-				return freeTitle(segment);
-		}
-	}
-
 	function weekdayStamp(segment: TripStripFreeSegment): string {
 		return formatWeekday(segment.start);
 	}
 
 	const TRANSFER_MODE_PHRASES = { walk: 'on foot', transit: 'by public transport', taxi: 'by taxi', drive: 'by car' } as const;
 
-	/** One spoken clause per free piece: "Monday from 09:40", "all Tuesday", "Thursday
-	 * until 13:15". The shape the owner asked for by name: nights, not a duration. */
+	/** One spoken clause per free piece: "Monday from 9:40am", "all Tuesday", "Thursday
+	 * until 1:15pm". The shape the owner asked for by name: nights, not a duration. */
 	function freeClause(segment: TripStripFreeSegment): string {
 		const weekday = formatWeekdayLong(segment.start);
 		if (segment.wholeDay) return `all ${weekday}`;
@@ -150,9 +148,171 @@
 		flushFree();
 		return `${clauses.join(', then ')}. Drawn on a square-root time scale.`;
 	});
+
+	const targets = $derived(stripTargets(strip.segments));
+	const stubContext = $derived({
+		itinerary,
+		connectionLabel: stopoverName,
+		connectionCode: stopoverCode,
+		connectionAirport,
+		deprioritized
+	});
+	const stubs = $derived(targets.map((target) => segmentStub(strip.segments, target, stubContext)));
+
+	const panelId = $props.id();
+
+	/** How the panel that is up got there. A hover must not close a panel a tap pinned,
+	 * and a blur must not close one a hover is still over, so the opening gesture is state
+	 * rather than three booleans that can disagree. */
+	type OpenedBy = 'hover' | 'focus' | 'tap';
+
+	/** Long enough that a pointer crossing the strip does not flash four panels. */
+	const OPEN_DELAY = 100;
+	/** The gap between a cell and its panel is real, so leaving one has to forgive the
+	 * moment before entering the other. */
+	const CLOSE_GRACE = 150;
+
+	let activeIndex = $state<number | null>(null);
+	/** What the panel holds while it fades out, so an exit is not a blank rectangle. */
+	let shownIndex = $state(0);
+	let openedBy = $state<OpenedBy | null>(null);
+	let focusIndex = $state(0);
+	let hits = $state<(HTMLButtonElement | undefined)[]>([]);
+
+	let openTimer: ReturnType<typeof setTimeout> | undefined;
+	let closeTimer: ReturnType<typeof setTimeout> | undefined;
+	// The browser light-dismisses an auto popover on pointerup, before our own click
+	// handler runs. A pointer that went down on a hit target is a toggle, and the click
+	// handler is what decides whether it opens or closes; treating that pointerup as a
+	// dismissal would close and immediately reopen, which reads as a flash.
+	let gestureOnHit = false;
+	let pointerSnapshot: { index: number | null; by: OpenedBy | null } | null = null;
+
+	const panelIndex = $derived(Math.min(activeIndex ?? shownIndex, Math.max(0, targets.length - 1)));
+	const anchor = $derived(activeIndex === null ? undefined : hits[activeIndex]);
+
+	function stopTimers() {
+		clearTimeout(openTimer);
+		clearTimeout(closeTimer);
+		openTimer = undefined;
+		closeTimer = undefined;
+	}
+
+	function open(index: number, by: OpenedBy) {
+		stopTimers();
+		activeIndex = index;
+		shownIndex = index;
+		openedBy = by;
+	}
+
+	function close() {
+		stopTimers();
+		activeIndex = null;
+		openedBy = null;
+	}
+
+	function onHitEnter(index: number, event: PointerEvent) {
+		// A touch fires pointerenter too, right before the click that pins the panel.
+		// Letting it also open by hover would make the click read as a second tap.
+		if (event.pointerType !== 'mouse') return;
+		clearTimeout(closeTimer);
+		if (openedBy === 'tap') return;
+		if (activeIndex !== null) {
+			open(index, 'hover');
+			return;
+		}
+		clearTimeout(openTimer);
+		openTimer = setTimeout(() => open(index, 'hover'), OPEN_DELAY);
+	}
+
+	function onHitLeave(event: PointerEvent) {
+		if (event.pointerType !== 'mouse') return;
+		clearTimeout(openTimer);
+		startGrace();
+	}
+
+	function startGrace() {
+		if (openedBy !== 'hover') return;
+		clearTimeout(closeTimer);
+		closeTimer = setTimeout(() => {
+			if (openedBy === 'hover') close();
+		}, CLOSE_GRACE);
+	}
+
+	function onHitPointerDown() {
+		gestureOnHit = true;
+		pointerSnapshot = { index: activeIndex, by: openedBy };
+	}
+
+	/** A pointer that went down on a hit and never produced a click, a drag off the strip,
+	 * must not leave the dismissal suppressed. The click, when there is one, is dispatched
+	 * in the same task as the pointerup, so a zero-delay timeout lands after it. */
+	function onHitPointerUp() {
+		setTimeout(() => {
+			gestureOnHit = false;
+		}, 0);
+	}
+
+	function onHitActivate(index: number, event: MouseEvent) {
+		// `detail === 0` is Enter or Space on the focused button, which has no pointerdown
+		// before it and so no snapshot; the live state is the right thing to compare.
+		const before = event.detail === 0 ? { index: activeIndex, by: openedBy } : (pointerSnapshot ?? { index: activeIndex, by: openedBy });
+		pointerSnapshot = null;
+		gestureOnHit = false;
+		if (before.index === index && before.by === 'tap') {
+			close();
+			return;
+		}
+		open(index, 'tap');
+	}
+
+	function onHitFocus(index: number) {
+		focusIndex = index;
+		if (openedBy === 'tap') return;
+		open(index, 'focus');
+	}
+
+	function onHitBlur() {
+		if (openedBy === 'focus') close();
+	}
+
+	function onHitKeydown(event: KeyboardEvent, index: number) {
+		const last = targets.length - 1;
+		let next: number;
+		if (event.key === 'ArrowRight') next = Math.min(index + 1, last);
+		else if (event.key === 'ArrowLeft') next = Math.max(index - 1, 0);
+		else if (event.key === 'Home') next = 0;
+		else if (event.key === 'End') next = last;
+		else return;
+		event.preventDefault();
+		focusIndex = next;
+		hits[next]?.focus();
+	}
+
+	function onDismiss() {
+		if (gestureOnHit) return;
+		close();
+	}
+
+	// A panel in the top layer does not travel with the card it describes, so a scroll or a
+	// resize closes it rather than leaving it pointing at nothing. Both listeners are
+	// attached only while one is up. `close` runs from an event rather than from inside
+	// this effect, so it cannot retrigger it (AGENTS.md, the `$effect` trap).
+	$effect(() => {
+		if (activeIndex === null) return;
+		const dismiss = () => close();
+		window.addEventListener('scroll', dismiss, { capture: true, passive: true });
+		window.addEventListener('resize', dismiss, { passive: true });
+		return () => {
+			window.removeEventListener('scroll', dismiss, true);
+			window.removeEventListener('resize', dismiss);
+		};
+	});
+
+	$effect(() => () => stopTimers());
 </script>
 
-<div class={['trip-strip', { 'is-quiet': deprioritized }]} role="img" aria-label={summary}>
+<div class={['trip-strip', { 'is-quiet': deprioritized }]} role="group" aria-label={summary}>
 	<div class="trip-strip-track" style:grid-template-columns={template}>
 		<span class="trip-strip-code trip-strip-code-start font-mono" style:grid-column={originColumn}
 			>{itinerary.originAirport.iataCode}</span
@@ -163,7 +323,7 @@
 		>
 
 		{#each strip.segments as segment, index (index)}
-			<div class={['trip-strip-cell', `trip-strip-cell-${segment.kind}`]} title={cellTitle(segment)}>
+			<div class={['trip-strip-cell', `trip-strip-cell-${segment.kind}`]} aria-hidden="true">
 				{#if segment.kind === 'flight'}
 					<span class="trip-strip-stamp trip-strip-stamp-logo">
 						<AirlineLogo iataCode={segment.carrier.iataCode} name={segment.carrier.name} {deprioritized} />
@@ -173,7 +333,44 @@
 				{/if}
 			</div>
 		{/each}
+
+		{#each targets as target, index (index)}
+			<button
+				bind:this={hits[index]}
+				type="button"
+				class={['trip-strip-hit', `trip-strip-hit-${target.kind}`, { 'is-active': activeIndex === index }]}
+				style:grid-column={`${target.from + 1} / ${target.to + 2}`}
+				tabindex={index === focusIndex ? 0 : -1}
+				aria-label={stubs[index]?.label}
+				aria-expanded={activeIndex === index}
+				aria-describedby={activeIndex === index ? panelId : undefined}
+				onpointerenter={(event) => onHitEnter(index, event)}
+				onpointerleave={onHitLeave}
+				onpointerdown={onHitPointerDown}
+				onpointerup={onHitPointerUp}
+				onpointercancel={onHitPointerUp}
+				onclick={(event) => onHitActivate(index, event)}
+				onfocus={() => onHitFocus(index)}
+				onblur={onHitBlur}
+				onkeydown={(event) => onHitKeydown(event, index)}
+			></button>
+		{/each}
 	</div>
+
+	{#if stubs[panelIndex]}
+		<SegmentStub
+			stub={stubs[panelIndex]}
+			id={panelId}
+			{anchor}
+			open={activeIndex !== null}
+			{itinerary}
+			connectionLabel={stopoverName}
+			{deprioritized}
+			{onDismiss}
+			onPointerEnter={() => clearTimeout(closeTimer)}
+			onPointerLeave={startGrace}
+		/>
+	{/if}
 
 	<p class="trip-strip-captions">
 		<span class="trip-strip-caption font-mono tabular-nums">{formatDuration(itinerary.outboundFlight.duration)}</span>
@@ -274,6 +471,51 @@
 	   wide, which is honest about a 25-minute bus beside a day. */
 	.trip-strip-cell-transfer {
 		background: var(--color-border-strong);
+	}
+
+	/* The hit target for one part of the trip. Transparent and on the cells' own row, so
+	   the picture is untouched and this carries only the tap area, the ring and the name. */
+	.trip-strip-hit {
+		grid-row: 2;
+		position: relative;
+		min-width: 0;
+		padding: 0;
+		border: 0;
+		border-radius: var(--radius-sm);
+		background: none;
+		cursor: pointer;
+		touch-action: manipulation;
+		-webkit-tap-highlight-color: transparent;
+	}
+
+	/* 44px tall out of a 28px cell, never narrower than 24px, centred on the cell it
+	   stands for. The cell keeps its true width: widening it would lie about time, which
+	   is the one thing this strip exists to tell the truth about. */
+	.trip-strip-hit::before {
+		content: '';
+		position: absolute;
+		top: -8px;
+		bottom: -8px;
+		left: 50%;
+		width: max(100%, 24px);
+		translate: -50% 0;
+	}
+
+	/* A 3px seam beside a 35px day: the thin one wins the overlap, or it could never be
+	   hit at all. */
+	.trip-strip-hit-transport,
+	.trip-strip-hit-wait {
+		z-index: 1;
+	}
+
+	/* One ring for hover, focus and tap, so there is one thing to learn. Accent gold on
+	   every card including an avoided-airline one: it is an interaction colour, not a
+	   content colour. Nothing else on the strip changes, because dimming the neighbours
+	   would remove the comparison the strip exists for. */
+	.trip-strip-hit.is-active,
+	.trip-strip-hit:focus-visible {
+		outline: 2px solid var(--color-focus-ring);
+		outline-offset: 1px;
 	}
 
 	/* Hidden until the cell is wide enough to hold it; a clipped mark or a clipped
