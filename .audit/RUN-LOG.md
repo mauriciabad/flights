@@ -110,7 +110,6 @@ room will need to select and pay for 4 persons".
 So both prior readings were half right. Dorm rates are quoted per person; private rooms are
 priced per room. `Stay.pricePerPersonPerNight` is populated only where a provider actually
 quoted per person, and nothing is ever divided by heads.
-<<<<<<< HEAD
 
 ### Iterations 6 to 9, 04:00 to 04:40. Four PRs merged, tracker halved.
 
@@ -194,8 +193,6 @@ failing to establish the state.
 deep: expand the card, then open the free-time row. The strip shows FAILED at the top level so
 nothing is concealed, but someone wondering "why is there no bed?" has to go looking. #191's
 rule is satisfied either way; whether that is the right depth is his call.
-=======
->>>>>>> aa09e1d (Verify #235 on production, and record that the probe was wrong first)
 
 ### 05:50. A regression I merged, and how it was found
 
