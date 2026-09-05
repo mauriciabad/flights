@@ -452,12 +452,18 @@
 	/* Set apart from our own sentence above it, the same separation `ErrorState` puts
 	   between a headline and its evidence: monospaced, quieter, and its own line, so a
 	   provider's words are never mistaken for the app's. */
+	/* `--color-text-muted`, not `--color-text-faint`, which `ErrorState` uses for the same
+	   job on a plain surface. This note sits inside the stopover row's own tint
+	   (`--color-stopover-bg`), where faint measures 3.55:1 and fails AA. Muted measures
+	   6.49:1 dark and 6.93:1 light against that tint. It is quieter than the sentence above
+	   it by size and by family, which is the separation this needs; a quote the reader
+	   cannot read is not evidence of anything. */
 	.stay-notice-evidence {
 		margin-top: var(--space-2);
 		padding-top: var(--space-2);
 		border-top: 1px dashed var(--color-border);
 		font-size: var(--font-size-xs);
-		color: var(--color-text-faint);
+		color: var(--color-text-muted);
 		overflow-wrap: anywhere;
 	}
 </style>

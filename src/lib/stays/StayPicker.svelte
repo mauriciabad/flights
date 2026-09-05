@@ -263,10 +263,12 @@
 		gap: var(--space-6);
 	}
 
+	/* Muted rather than faint, for the reason `ResultDetail`'s copy of this note gives:
+	   the provider's own words are the evidence, and they have to be readable. */
 	.stay-failure {
 		margin: 0;
 		font-size: var(--font-size-xs);
-		color: var(--color-text-faint);
+		color: var(--color-text-muted);
 		overflow-wrap: anywhere;
 	}
 

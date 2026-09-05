@@ -98,7 +98,7 @@
 		padding-top: var(--space-3);
 		border-top: 1px dashed var(--color-border);
 		font-size: var(--font-size-xs);
-		color: var(--color-text-faint);
+		color: var(--color-text-muted);
 		overflow-wrap: anywhere;
 	}
 </style>
