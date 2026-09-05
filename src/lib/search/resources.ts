@@ -65,6 +65,7 @@ import { isStayBookableByGroup } from "../stays/gendered-room-fit";
 import {
   NIGHTS_ASSUMED_BEFORE_A_PAIRING_EXISTS,
   stopoverStayCostMinorUnits,
+  VISIT_DAYS_ASSUMED_BEFORE_A_PAIRING_EXISTS,
 } from "../stays/stopover-cost";
 import {
   claimAutoWidenStaySources,
@@ -144,10 +145,17 @@ export function rankStaysForStopover(
   stays: readonly Stay[],
   connectionCoordinates: Coordinates,
 ): Stay[] {
+  // No `cityCentre`: the only location this function is given is `query.near`, a bare
+  // `Coordinates` with no `Airport` behind it and so no `City.coordinates` to read. At zero
+  // visit days the centre is never read anyway.
+  const stopover = {
+    connectionAirport: connectionCoordinates,
+    nights: NIGHTS_ASSUMED_BEFORE_A_PAIRING_EXISTS,
+    visitDays: VISIT_DAYS_ASSUMED_BEFORE_A_PAIRING_EXISTS,
+  };
   return [...stays].sort(
     (a, b) =>
-      stopoverStayCostMinorUnits(a, connectionCoordinates, NIGHTS_ASSUMED_BEFORE_A_PAIRING_EXISTS) -
-      stopoverStayCostMinorUnits(b, connectionCoordinates, NIGHTS_ASSUMED_BEFORE_A_PAIRING_EXISTS),
+      stopoverStayCostMinorUnits(a, stopover) - stopoverStayCostMinorUnits(b, stopover),
   );
 }
 

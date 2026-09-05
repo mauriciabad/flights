@@ -49,7 +49,7 @@
 	import type { ItinerarySegmentId } from '$lib/itinerary-map/segment-id';
 	import { recomputeItineraryWaitingTimes } from '$lib/algorithm/build';
 	import { recomputeItinerarySelection } from '$lib/algorithm/recompute-selection';
-	import { FlightPicker, Skeleton, StopoverNights, TransportPicker, WaitingTimeStepper } from '$lib/components';
+	import { FlightPicker, Skeleton, StopoverNights, TransportPicker, WaitingTimeStepper, freeTimeDays } from '$lib/components';
 	import { segmentStubFor } from '$lib/components/segment-stub';
 	import { unroutedLegNote } from '$lib/components/itinerary-timeline-format';
 	import { waitsOvernight } from '$lib/algorithm/nights';
@@ -248,6 +248,14 @@
 	// invites a purchase the trip cannot use. An already-picked stay keeps its picker
 	// regardless, so a traveller is never shown a total they cannot inspect.
 	const stayIsRelevant = $derived(itinerary.nightsInConnection > 0 || itinerary.stay !== undefined);
+
+	// Days rather than nights, because this is what the stay ranking weighs a walk into
+	// town against: a bed near the centre only earns its keep on a day you can go into
+	// town, and a night asleep is not one of those.
+	const visitDays = $derived.by(() => {
+		const days = freeTimeDays(itinerary.freeTime.start, itinerary.freeTime.end);
+		return days ? days.fullDayCount + days.usablePartDayCount : 0;
+	});
 
 	// The ceiling on the connection buffer is real arithmetic: every minute it takes is a
 	// minute free time gives up, both carved from one fixed layover.
@@ -647,6 +655,7 @@
 							properties={stayProperties}
 							{connectionAirport}
 							nights={itinerary.nightsInConnection}
+							{visitDays}
 							{travellers}
 							{females}
 							selected={itinerary.stay}

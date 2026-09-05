@@ -6,8 +6,9 @@
  * Issue #219 changed what "cheapest" means here, and the reason is in
  * `stopover-cost.ts`: ordering on the nightly rate alone put the walkable beds last of 33
  * and left a dorm 48.3 km out as the app's own pick. "Cheapest" is now the room for this
- * stopover's nights plus getting there and back. Within one property nothing moved -
- * every option there shares an address, so the cheapest room is still the cheapest room.
+ * stopover's nights, plus the journeys the stopover makes out of it. Within one property
+ * nothing moved - every option there shares an address, so the cheapest room is still the
+ * cheapest room.
  */
 
 import type { Coordinates } from "$lib/domain";
@@ -61,9 +62,13 @@ export function cheapestSelectableOption(
 }
 
 /** Properties ranked cheapest-first by what this group can actually book there, where
- * cheapest is the whole cost of the stopover's stay: the nights, plus the round trip out
- * to the property (`stopover-cost.ts`). A
- * property with no selectable option (every room is a restricted dorm this group can't
+ * cheapest is the whole cost of the stopover's stay: the nights, the round trip out to the
+ * property, and a round trip into the city centre for each day the traveller can spend
+ * there (`stopover-cost.ts`). The ordering weighs the nights and the days out at once, and
+ * those two pull opposite ways, so extending a stopover moves the list toward the centre as
+ * well as toward the cheap bed across town.
+ *
+ * A property with no selectable option (every room is a restricted dorm this group can't
  * use) sorts last rather than being dropped outright, so it stays visible with an
  * explanation instead of quietly disappearing. Stable for ties and for two ineligible
  * properties (both keep their input order), since `Array.prototype.sort` in every
@@ -71,12 +76,20 @@ export function cheapestSelectableOption(
 export interface StopoverForRanking {
   travellers: number | undefined;
   females: number | undefined;
-  /** Where both ground legs begin and end, so a property's distance can be priced. */
+  /** Where both airport legs begin and end, so a property's distance can be priced. */
   connectionAirport: Coordinates;
+  /** The stopover city's own centre, and `undefined` when the airport has no city point
+   * to offer. Absent costs the day trips nothing rather than standing the runway in for
+   * the city, which `stopover-cost.ts` and `domain/airport.ts` both refuse to do. */
+  cityCentre?: Coordinates;
   /** `Itinerary.nightsInConnection` for the trip on screen. The picker always knows it,
    * and it is what decides whether a cheap bed across town has enough nights to pay for
    * the journey out to it. */
   nights: number;
+  /** Days of that trip the traveller can actually spend in the city. Each one is a round
+   * trip into the centre, which is what decides whether a bed near the cathedral has
+   * enough days to pay for its nightly premium. */
+  visitDays: number;
 }
 
 export function rankProperties<T extends PropertyStayOptions>(
@@ -91,8 +104,8 @@ export function rankProperties<T extends PropertyStayOptions>(
     if (!cheapestA) return 1;
     if (!cheapestB) return -1;
     return (
-      stopoverStayCostMinorUnits(cheapestA.stay, stopover.connectionAirport, stopover.nights) -
-      stopoverStayCostMinorUnits(cheapestB.stay, stopover.connectionAirport, stopover.nights)
+      stopoverStayCostMinorUnits(cheapestA.stay, stopover) -
+      stopoverStayCostMinorUnits(cheapestB.stay, stopover)
     );
   });
 }

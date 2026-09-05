@@ -35,6 +35,9 @@
 		/** Nights the itinerary spends in the connection city (domain/itinerary.ts
 		 * `nightsInConnection`) - what a nightly price is multiplied by for "the stay". */
 		nights: number;
+		/** Days the traveller can actually use the city (`components/free-time-days.ts`
+		 * `fullDayCount + usablePartDayCount`). */
+		visitDays?: number;
 		/** Mirrors domain/search-query.ts `SearchQuery.travellers`/`.females` exactly,
 		 * defaults included - see gendered-room-fit.ts for how these decide women-only and
 		 * men-only room eligibility. */
@@ -66,6 +69,7 @@
 		properties,
 		connectionAirport,
 		nights,
+		visitDays = 0,
 		travellers,
 		females,
 		selected = $bindable(),
@@ -92,12 +96,18 @@
 	// the nights on screen, so extending the stopover reorders this list under the
 	// traveller. That is the point: a dorm across town is the wrong bed for one night and
 	// the right one for four, and the list should say so rather than hold still.
+	// The centre is the other half of that argument. Getting to the terminal happens twice
+	// whatever the length, while going into town happens once per day there is a day to
+	// spend there, so days in the city pull this list toward the centre rather than only
+	// toward the cheap bed across town.
 	const ranked = $derived(
 		rankProperties(properties, {
 			travellers,
 			females,
 			connectionAirport: connectionAirport.coordinates,
-			nights
+			cityCentre: connectionAirport.city.coordinates,
+			nights,
+			visitDays
 		})
 	);
 

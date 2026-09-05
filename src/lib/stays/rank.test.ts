@@ -1,5 +1,6 @@
 import type { Coordinates, Property, RoomKind, Stay } from '$lib/domain';
 import { describe, expect, it } from 'vitest';
+import type { StopoverForRanking } from './rank';
 import { cheapestSelectableOption, isOptionSelectable, rankProperties, selectableOptions } from './rank';
 import type { PropertyStayOptions, StayOption } from './types';
 
@@ -17,8 +18,20 @@ function kmFromAirport(km: number): Coordinates {
 	return { latitude: AIRPORT.latitude + km / 111.19, longitude: AIRPORT.longitude };
 }
 
-function stopover(nights: number, travellers?: number, females?: number) {
-	return { travellers, females, connectionAirport: AIRPORT, nights };
+/** The stopover city's centre, 40.1 km out, which is `search/resources.ts`' measured
+ * Gatwick-to-central-London figure and the geometry the Gatwick cases below stand on. */
+const CITY_CENTRE = kmFromAirport(40.1);
+
+/** No days out and no city point, which is the stopover a traveller only sleeps in, and
+ * what every case in this file assumed before the days-out rule existed. */
+function stopover(nights: number, travellers?: number, females?: number): StopoverForRanking {
+	return { travellers, females, connectionAirport: AIRPORT, nights, visitDays: 0 };
+}
+
+/** The same stopover with free time in it: `visitDays` days the traveller spends in a city
+ * that has a centre to go to. */
+function stopoverWithDaysOut(nights: number, visitDays: number): StopoverForRanking {
+	return { ...stopover(nights), cityCentre: CITY_CENTRE, visitDays };
 }
 
 function makeStay(property: Property, roomKind: RoomKind, minorUnits: number): Stay {
@@ -175,6 +188,28 @@ describe('rankProperties — how far the bed is (issue #219)', () => {
 			'Cheaper',
 			'Dearer'
 		]);
+	});
+
+	it('leaves the order alone when the stopover has no day to spend in the city', () => {
+		// Every ordering this file asserted before the days-out rule existed is this case,
+		// and the centre term has to be worth exactly nothing in it.
+		const ranked = rankProperties(gatwickList(), stopoverWithDaysOut(1, 0));
+		expect(ranked.map((p) => p.options[0].stay.property.name)).toEqual([
+			'The Gatwick White House Hotel',
+			'London Backpackers'
+		]);
+	});
+
+	it('pulls the list toward the centre as the days out add up', () => {
+		// One day in London costs the Horley room EUR 110.44 of taxis to the centre and the
+		// dorm EUR 28.96, against a EUR 87.59 head start the room has after one night. The
+		// second day is what pays that off, so the crossover sits between one day and two.
+		expect(rankProperties(gatwickList(), stopoverWithDaysOut(1, 1))[0].options[0].stay.property.name).toBe(
+			'The Gatwick White House Hotel'
+		);
+		expect(rankProperties(gatwickList(), stopoverWithDaysOut(1, 2))[0].options[0].stay.property.name).toBe(
+			'London Backpackers'
+		);
 	});
 
 	it('never lets distance rescue a bed the group cannot book', () => {
