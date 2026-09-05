@@ -219,6 +219,32 @@
 			<li><span class="swatch swatch-arrive" aria-hidden="true"></span>Could arrive</li>
 			<li><span class="swatch swatch-span" aria-hidden="true"></span>Away</li>
 		</ul>
+		<div class="paging">
+			<button type="button" class="page-months" onclick={() => scrollMonths(-1)}>
+				<span class="visually-hidden">Show earlier months</span>
+				<svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+					<path
+						d="M15 5l-7 7 7 7"
+						stroke="currentColor"
+						stroke-width="2"
+						stroke-linecap="round"
+						stroke-linejoin="round"
+					/>
+				</svg>
+			</button>
+			<button type="button" class="page-months" onclick={() => scrollMonths(1)}>
+				<span class="visually-hidden">Show later months</span>
+				<svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+					<path
+						d="M9 5l7 7-7 7"
+						stroke="currentColor"
+						stroke-width="2"
+						stroke-linecap="round"
+						stroke-linejoin="round"
+					/>
+				</svg>
+			</button>
+		</div>
 	</div>
 
 	<div class="targets" role="group" aria-label="What a tap on the calendar sets">
@@ -241,11 +267,6 @@
 	<p class="instruction" aria-live="polite">{instruction}</p>
 
 	<div class="strip">
-		<button type="button" class="page-months" onclick={() => scrollMonths(-1)}>
-			<span class="visually-hidden">Show earlier months</span>
-			<span aria-hidden="true">‹</span>
-		</button>
-
 		<div bind:this={gridEl} class="months scroll-x">
 			{#each calendar as month (month.monthStart)}
 				<!-- The keyboard belongs to the grid, not to the box that scrolls it. The
@@ -301,11 +322,6 @@
 				</table>
 			{/each}
 		</div>
-
-		<button type="button" class="page-months" onclick={() => scrollMonths(1)}>
-			<span class="visually-hidden">Show later months</span>
-			<span aria-hidden="true">›</span>
-		</button>
 	</div>
 
 	<div class="typed">
@@ -421,9 +437,20 @@
 	.dates-head {
 		display: flex;
 		flex-wrap: wrap;
-		align-items: baseline;
-		justify-content: space-between;
+		align-items: center;
 		gap: var(--space-2) var(--space-4);
+	}
+
+	/* Narrow: the heading and the two arrows share the top line and the legend takes its own
+	   row under them. Letting the legend sit first pushed the arrows onto a line of their
+	   own, hard left, under a right-aligned legend. */
+	.legend {
+		flex: 1 1 100%;
+		order: 3;
+	}
+
+	.paging {
+		margin-inline-start: auto;
 	}
 
 	h3 {
@@ -541,9 +568,14 @@
 	}
 
 	.strip {
-		display: grid;
-		grid-template-columns: auto minmax(0, 1fr) auto;
-		align-items: center;
+		min-width: 0;
+	}
+
+	/* Above the months rather than either side of them. Flanking arrows cost about 64px of
+	   the 375px screen, which is two days of calendar, and they are the one place this
+	   layout could not spare them. */
+	.paging {
+		display: flex;
 		gap: var(--space-1);
 	}
 
@@ -551,16 +583,26 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		width: 1.75rem;
-		min-height: 2.75rem;
+		width: var(--control-height);
+		min-height: var(--control-height);
+		border: 1px solid var(--color-border);
 		border-radius: var(--radius-md);
 		color: var(--color-text-muted);
-		font-size: var(--font-size-lg);
 		cursor: pointer;
+		transition:
+			color var(--transition-fast),
+			border-color var(--transition-fast),
+			background-color var(--transition-fast);
+	}
+
+	.page-months svg {
+		width: 1rem;
+		height: 1rem;
 	}
 
 	.page-months:hover {
 		background: var(--color-surface-hover);
+		border-color: var(--color-border-strong);
 		color: var(--color-text);
 	}
 
@@ -580,7 +622,12 @@
 	   two pixels while every test still passed. */
 	.month {
 		flex: 0 0 auto;
-		width: min(100%, 17.5rem);
+		/* A phone gets exactly one month per screen, which both makes the snap land cleanly
+		   and buys the day cells the width to be 44px targets. A sliver of the next month
+		   showing is a worse affordance than the arrows above, and it costs four pixels a
+		   day across the row. */
+		width: 100%;
+		max-width: 21rem;
 		table-layout: fixed;
 		border-collapse: collapse;
 		scroll-snap-align: start;
@@ -706,9 +753,12 @@
 		border-radius: 3px;
 	}
 
+	/* One column until there is genuinely room for two. A `dd/mm/yyyy` box plus the browser's
+	   own calendar button needs about 160px before it starts truncating the year, and at 375
+	   two columns give it 145. The date read "10/(" on a phone until this was one column. */
 	.typed {
 		display: grid;
-		grid-template-columns: repeat(2, minmax(0, 1fr));
+		grid-template-columns: minmax(0, 1fr);
 		gap: var(--space-3);
 		padding-top: var(--space-3);
 		border-top: 1px dashed var(--color-border);
@@ -787,11 +837,33 @@
 		color: var(--color-danger);
 	}
 
+	@container (min-width: 26rem) {
+		.typed {
+			grid-template-columns: repeat(2, minmax(0, 1fr));
+		}
+	}
+
 	@container (min-width: 34rem) {
+		.month {
+			width: 17.5rem;
+		}
+
 		.targets {
 			grid-template-columns: 1.4fr 1fr 1fr;
 		}
 
+		.legend {
+			flex: 0 1 auto;
+			order: 2;
+			margin-inline-start: auto;
+		}
+
+		.paging {
+			margin-inline-start: 0;
+		}
+	}
+
+	@container (min-width: 56rem) {
 		.typed {
 			grid-template-columns: repeat(4, minmax(0, 1fr));
 		}

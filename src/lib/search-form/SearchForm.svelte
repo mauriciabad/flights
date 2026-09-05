@@ -289,13 +289,18 @@
 					onblur={() => markTouched('destinationAirport')}
 					class="route-to"
 				/>
+				<!-- One short hint each. The component's default is a sentence about naming a
+				     place or using your device position, and printing it twice, two lines
+				     each, spent four lines of the panel saying one thing. -->
 				<LocationField
 					label="Start point"
+					hint="Where the trip starts, if not the airport."
 					bind:value={fields.originLocation}
 					class="route-from-place"
 				/>
 				<LocationField
 					label="End point"
+					hint="Where it ends, if not the airport."
 					bind:value={fields.destinationLocation}
 					class="route-to-place"
 				/>
