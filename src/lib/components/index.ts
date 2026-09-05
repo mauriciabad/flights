@@ -34,6 +34,9 @@ export { default as ItineraryMap } from './ItineraryMap.svelte';
 export { default as RoutePreview } from './RoutePreview.svelte';
 export { default as FlightDetour } from './FlightDetour.svelte';
 export { default as GroundLegPreviews } from './GroundLegPreviews.svelte';
+// Issue #324: the shell every real map opens into. Exported because three dialogs use it
+// now; the maps themselves are not, for the reason the `RouteMapDialog` note above gives.
+export { default as MapDialog } from './MapDialog.svelte';
 export { default as Skeleton } from './Skeleton.svelte';
 export { default as EmptyState } from './EmptyState.svelte';
 export { default as ErrorState, PROVIDER_ISSUE_COPY } from './ErrorState.svelte';

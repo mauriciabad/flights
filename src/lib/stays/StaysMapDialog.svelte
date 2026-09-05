@@ -15,17 +15,20 @@
 	 * to get wrong and both are handled below. Leaving a detail restores the extent the
 	 * reader came from, so they do not lose their place on the map. And the detail needs
 	 * more horizontal room than the list, so below 52rem the panel stops being a side and
-	 * becomes the lower half.
+	 * becomes the lower half, which `MapDialog` now applies to every map dialog in the app.
 	 *
-	 * ## Existing is being open
+	 * ## The surface itself is `MapDialog`
 	 *
-	 * No `open` prop and no effect syncing one to `showModal()`. The parent renders this to
-	 * open it and stops rendering it to close it, which is `RouteMapDialog`'s arrangement
-	 * and it is load-bearing rather than stylistic: `StaysMap` holds the only MapLibre
-	 * instance on the page, so mounting is creation and unmounting is `map.remove()`, with
-	 * no second source of truth that could leave one behind. Issue #280 measured what
-	 * happens when they accumulate; Chromium evicts the oldest past sixteen live WebGL
-	 * contexts and the map simply goes blank, an hour after the dialogs that caused it.
+	 * Issue #324 extracted the near-fullscreen shell this file shipped with, which was a
+	 * verbatim copy of `RouteMapDialog`'s and was about to be copied a third time. The margin
+	 * token, the safe-area insets, the scrim tint, the focus restore, the body scroll lock,
+	 * the 52rem split worked out below, and the "existing is being open" lifecycle all live
+	 * there now, with the argument for each. That lifecycle is load-bearing rather than
+	 * stylistic: `StaysMap` holds the only MapLibre instance on the page, so mounting is
+	 * creation and unmounting is `map.remove()`, with no second source of truth that could
+	 * leave one behind. Issue #280 measured what happens when they accumulate; Chromium
+	 * evicts the oldest past sixteen live WebGL contexts and the map simply goes blank, an
+	 * hour after the dialogs that caused it.
 	 *
 	 * ## The sidebar list carries no photographs, on purpose
 	 *
@@ -36,7 +39,7 @@
 	 * one at a time, behind a click that already says the traveller is interested. Nothing
 	 * is fetched here until a point is chosen.
 	 */
-	import { Button, Icon } from '$lib/components';
+	import { Button, Icon, MapDialog } from '$lib/components';
 	import type { Airport, Stay } from '$lib/domain';
 	import { formatPropertyRating } from '$lib/format';
 	import { describePriceComparison, stayDistances, type StayChoice } from './choice';
@@ -60,8 +63,6 @@
 
 	let { choices, connectionAirport, nights, onchoose, onclose }: Props = $props();
 
-	const headingId = $props.id();
-
 	/** The property whose detail the sidebar shows, or `null` for the list. Starts at the
 	 * list: the dialog is "all the locations" first, which is what the owner asked to be
 	 * able to expand, and one click from there is any of them. */
@@ -70,306 +71,150 @@
 	const open = $derived(choices.find((choice) => choice.key === selectedKey));
 	const openDelta = $derived(open ? describePriceComparison(open.comparison, nights) : undefined);
 
-	function openAsModal(element: HTMLDialogElement) {
-		const trigger = document.activeElement instanceof HTMLElement ? document.activeElement : undefined;
-		const previousOverflow = document.body.style.overflow;
-
-		element.showModal();
-		document.body.style.overflow = 'hidden';
-
-		return () => {
-			document.body.style.overflow = previousOverflow;
-			// `isConnected` because a trigger inside a panel the results stream replaced while
-			// the dialog was open is gone, and focusing a detached node silently sends focus
-			// to the document body instead of leaving it where the browser put it.
-			if (trigger?.isConnected) trigger.focus();
-		};
-	}
 </script>
 
-<dialog {@attach openAsModal} class="stays-dialog" aria-labelledby={headingId} {onclose}>
-	<div class="stays-dialog-shell">
-		<div class="stays-dialog-head">
-			<h2 id={headingId} class="stays-dialog-title">
-				Stays near {connectionAirport.city.name}
-			</h2>
-			<button
-				type="button"
-				class="stays-dialog-close"
-				onclick={(event) => event.currentTarget.closest('dialog')?.close()}
-			>
-				<Icon name="x" />
-				Close
-			</button>
-		</div>
+<MapDialog title="Stays near {connectionAirport.city.name}" {onclose} class="stays-dialog">
+	{#snippet panel()}
+		<div class="stays-sidebar" data-testid="stays-sidebar">
+			{#if open}
+				<button type="button" class="stays-back" onclick={() => (selectedKey = null)}>
+					<Icon name="chevron-left" />
+					All {choices.length} stays
+				</button>
 
-		<div class="stays-dialog-body">
-			<div class="stays-sidebar" data-testid="stays-sidebar">
-				{#if open}
-					<button type="button" class="stays-back" onclick={() => (selectedKey = null)}>
-						<Icon name="chevron-left" />
-						All {choices.length} stays
-					</button>
+				<!-- Keyed on the property, for the reason `StopoverBlock` keys its own copy:
+				     `PhotoCarousel` counts which photograph the reader has reached, and
+				     carrying that count from one hostel to the next opens the new one on its
+				     second picture and fetches it unasked. Two clicks around this sidebar is
+				     exactly the journey that would do it. -->
+				{#key open.key}
+					<PhotoCarousel images={open.property.images} name={open.property.name} />
+				{/key}
 
-					<!-- Keyed on the property, for the reason `StopoverBlock` keys its own copy:
-					     `PhotoCarousel` counts which photograph the reader has reached, and
-					     carrying that count from one hostel to the next opens the new one on its
-					     second picture and fetches it unasked. Two clicks around this sidebar is
-					     exactly the journey that would do it. -->
-					{#key open.key}
-						<PhotoCarousel images={open.property.images} name={open.property.name} />
-					{/key}
-
-					<h3 class="stays-detail-name">
-						{open.property.name}
-						{#if open.property.rating !== undefined}
-							<span class="stays-detail-rating font-mono tabular-nums"
-								>{formatPropertyRating(open.property.rating)}</span
-							>
-						{/if}
-					</h3>
-
-					{#if open.isPicked || open.property.womenOnly}
-						<p class="stays-detail-tags">
-							{#if open.isPicked}<span class="stays-tag is-picked">Current pick</span>{/if}
-							{#if open.property.womenOnly}<span class="stays-tag">Women only</span>{/if}
-						</p>
+				<h3 class="stays-detail-name">
+					{open.property.name}
+					{#if open.property.rating !== undefined}
+						<span class="stays-detail-rating font-mono tabular-nums"
+							>{formatPropertyRating(open.property.rating)}</span
+						>
 					{/if}
+				</h3>
 
-					<dl class="stays-detail-rail">
-						{#each stayDistances(open) as line (line.from)}
-							<div class="stays-figure">
-								<dt class="stays-figure-label font-mono">From {line.from}</dt>
-								<dd class="stays-figure-value font-mono tabular-nums">{line.distance}</dd>
-							</div>
-						{/each}
-						{#if open.cheapest}
-							<div class="stays-figure">
-								<dt class="stays-figure-label font-mono">Per night</dt>
-								<dd class="stays-figure-value font-mono tabular-nums">
-									{formatMoney(open.cheapest.stay.pricePerNight)}
-								</dd>
-							</div>
-						{/if}
-						{#if open.total && nights > 0}
-							<div class="stays-figure">
-								<dt class="stays-figure-label font-mono">{nights} {nights === 1 ? 'night' : 'nights'}</dt>
-								<dd class="stays-figure-value font-mono tabular-nums">{formatMoney(open.total)}</dd>
-							</div>
-						{/if}
-					</dl>
-
-					{#if openDelta}
-						<p class={['stays-detail-delta', { 'is-cheaper': openDelta.cheaper }]}>
-							{openDelta.headline}{#if openDelta.overStay}<span class="stays-detail-delta-stay"
-									>{openDelta.overStay}</span
-								>{/if}
-						</p>
-					{/if}
-
-					{#if open.unavailableReason}
-						<p class="stays-detail-note">{open.unavailableReason}</p>
-					{:else if open.cheapest && !open.isPicked}
-						{@const room = open.cheapest.stay}
-						<Button fullWidth onclick={() => onchoose(room)}>Use this stay</Button>
-					{/if}
-				{:else}
-					<p class="stays-sidebar-lead">
-						Pick a point on the map, or a row here, to see that property. Prices compare against the
-						stay this trip books now.
+				{#if open.isPicked || open.property.womenOnly}
+					<p class="stays-detail-tags">
+						{#if open.isPicked}<span class="stays-tag is-picked">Current pick</span>{/if}
+						{#if open.property.womenOnly}<span class="stays-tag">Women only</span>{/if}
 					</p>
-					<ul class="stays-list">
-						{#each choices as choice (choice.key)}
-							{@const delta = describePriceComparison(choice.comparison, nights)}
-							<li>
-								<button
-									type="button"
-									class={['stays-row', { 'is-picked': choice.isPicked }]}
-									onclick={() => (selectedKey = choice.key)}
-								>
-									<span class="stays-row-name">{choice.property.name}</span>
-									<span class="stays-row-meta">{stayDistances(choice)[0].distance} from airport</span>
-									{#if choice.cheapest}
-										<span class="stays-row-price font-mono tabular-nums">
-											{formatMoney(choice.cheapest.stay.pricePerNight)}<span class="stays-row-unit"
-												>/night</span
-											>
-										</span>
-									{/if}
-									{#if choice.isPicked}
-										<span class="stays-row-delta is-current">Current pick</span>
-									{:else if delta}
-										<span class={['stays-row-delta', { 'is-cheaper': delta.cheaper }]}>{delta.headline}</span>
-									{:else if choice.unavailableReason}
-										<!-- `rank.ts` sorts a property nobody in this group can book last rather
-										     than dropping it, so the map shows its point and this row has to say
-										     why there is no price beside it. -->
-										<span class="stays-row-delta is-unavailable">Can't book</span>
-									{/if}
-								</button>
-							</li>
-						{/each}
-					</ul>
 				{/if}
-			</div>
 
-			<div class="stays-dialog-map">
-				<StaysMap {choices} airport={connectionAirport} bind:selectedKey />
-			</div>
+				<dl class="stays-detail-rail">
+					{#each stayDistances(open) as line (line.from)}
+						<div class="stays-figure">
+							<dt class="stays-figure-label font-mono">From {line.from}</dt>
+							<dd class="stays-figure-value font-mono tabular-nums">{line.distance}</dd>
+						</div>
+					{/each}
+					{#if open.cheapest}
+						<div class="stays-figure">
+							<dt class="stays-figure-label font-mono">Per night</dt>
+							<dd class="stays-figure-value font-mono tabular-nums">
+								{formatMoney(open.cheapest.stay.pricePerNight)}
+							</dd>
+						</div>
+					{/if}
+					{#if open.total && nights > 0}
+						<div class="stays-figure">
+							<dt class="stays-figure-label font-mono">{nights} {nights === 1 ? 'night' : 'nights'}</dt>
+							<dd class="stays-figure-value font-mono tabular-nums">{formatMoney(open.total)}</dd>
+						</div>
+					{/if}
+				</dl>
+
+				{#if openDelta}
+					<p class={['stays-detail-delta', { 'is-cheaper': openDelta.cheaper }]}>
+						{openDelta.headline}{#if openDelta.overStay}<span class="stays-detail-delta-stay"
+								>{openDelta.overStay}</span
+							>{/if}
+					</p>
+				{/if}
+
+				{#if open.unavailableReason}
+					<p class="stays-detail-note">{open.unavailableReason}</p>
+				{:else if open.cheapest && !open.isPicked}
+					{@const room = open.cheapest.stay}
+					<Button fullWidth onclick={() => onchoose(room)}>Use this stay</Button>
+				{/if}
+			{:else}
+				<p class="stays-sidebar-lead">
+					Pick a point on the map, or a row here, to see that property. Prices compare against the
+					stay this trip books now.
+				</p>
+				<ul class="stays-list">
+					{#each choices as choice (choice.key)}
+						{@const delta = describePriceComparison(choice.comparison, nights)}
+						<li>
+							<button
+								type="button"
+								class={['stays-row', { 'is-picked': choice.isPicked }]}
+								onclick={() => (selectedKey = choice.key)}
+							>
+								<span class="stays-row-name">{choice.property.name}</span>
+								<span class="stays-row-meta">{stayDistances(choice)[0].distance} from airport</span>
+								{#if choice.cheapest}
+									<span class="stays-row-price font-mono tabular-nums">
+										{formatMoney(choice.cheapest.stay.pricePerNight)}<span class="stays-row-unit"
+											>/night</span
+										>
+									</span>
+								{/if}
+								{#if choice.isPicked}
+									<span class="stays-row-delta is-current">Current pick</span>
+								{:else if delta}
+									<span class={['stays-row-delta', { 'is-cheaper': delta.cheaper }]}>{delta.headline}</span>
+								{:else if choice.unavailableReason}
+									<!-- `rank.ts` sorts a property nobody in this group can book last rather
+									     than dropping it, so the map shows its point and this row has to say
+									     why there is no price beside it. -->
+									<span class="stays-row-delta is-unavailable">Can't book</span>
+								{/if}
+							</button>
+						</li>
+					{/each}
+				</ul>
+			{/if}
 		</div>
-	</div>
-</dialog>
+
+	{/snippet}
+	{#snippet map()}
+		<div class="stays-dialog-map">
+			<StaysMap {choices} airport={connectionAirport} bind:selectedKey />
+		</div>
+	{/snippet}
+</MapDialog>
 
 <style>
-	/* "almost fullscreen, it just has a fixed margin arround based on screen size", the
-	   owner's words on issue #280's dialog, and the same token here so the two read as one
-	   kind of surface. The notch insets are added on top rather than folded in, because
-	   they are the device's measurement and not a design decision. */
-	.stays-dialog {
-		--stays-dialog-margin: clamp(0.5rem, 3vw, 2.5rem);
-
-		width: calc(
-			100dvw - var(--stays-dialog-margin) * 2 - env(safe-area-inset-left, 0px) -
-				env(safe-area-inset-right, 0px)
-		);
-		height: calc(
-			100dvh - var(--stays-dialog-margin) * 2 - env(safe-area-inset-top, 0px) -
-				env(safe-area-inset-bottom, 0px)
-		);
-		max-width: none;
-		max-height: none;
-		margin: calc(var(--stays-dialog-margin) + env(safe-area-inset-top, 0px))
-			calc(var(--stays-dialog-margin) + env(safe-area-inset-right, 0px))
-			calc(var(--stays-dialog-margin) + env(safe-area-inset-bottom, 0px))
-			calc(var(--stays-dialog-margin) + env(safe-area-inset-left, 0px));
-		padding: 0;
-		overflow: hidden;
-		/* A pinch-zoom that runs out of map must not scroll the results behind the scrim,
-		   which reads as the dialog sliding. */
-		overscroll-behavior: contain;
-		border: 1px solid var(--color-border-strong);
-		border-radius: var(--radius-lg);
-		background: var(--color-bg-elevated);
-		color: var(--color-text);
-		box-shadow: var(--shadow-lg);
-	}
-
-	.stays-dialog::backdrop {
-		background: rgb(3 5 14 / 72%);
-	}
-
-	.stays-dialog-shell {
-		display: flex;
-		flex-direction: column;
-		height: 100%;
-	}
-
-	.stays-dialog-head {
-		display: flex;
-		flex: none;
-		align-items: center;
-		justify-content: space-between;
-		gap: var(--space-3);
-		padding: var(--space-3) var(--space-3) var(--space-3) var(--space-4);
-		border-bottom: 1px solid var(--color-border);
-	}
-
-	.stays-dialog-title {
-		margin: 0;
-		font-size: var(--font-size-sm);
-		font-weight: var(--font-weight-semibold);
-		line-height: 1.35;
-		text-wrap: balance;
-	}
-
-	.stays-dialog-close {
-		display: inline-flex;
-		flex: none;
-		gap: var(--space-2);
-		align-items: center;
-		/* 44px, the touch target this app guarantees everywhere it controls the markup. */
-		min-height: 2.75rem;
-		padding: 0 var(--space-3);
-		border: 1px solid var(--color-border-strong);
-		border-radius: var(--radius-full);
-		background: var(--color-bg);
-		color: var(--color-text);
-		font: inherit;
-		font-size: var(--font-size-sm);
-		cursor: pointer;
-		touch-action: manipulation;
-		-webkit-tap-highlight-color: transparent;
-	}
-
-	.stays-dialog-close :global(svg) {
-		width: 0.875rem;
-		height: 0.875rem;
-	}
-
-	.stays-dialog-close:hover {
-		border-color: var(--color-accent);
-		color: var(--color-accent);
-	}
-
-	.stays-dialog-close:focus-visible,
-	.stays-back:focus-visible,
-	.stays-row:focus-visible {
-		outline: 2px solid var(--color-focus-ring);
-		outline-offset: 2px;
-	}
-
-	/* Stacked below 52rem: a detail panel needs more horizontal room than a list of names,
-	   and a phone has none to give sideways. The map keeps the top half, which is the half
-	   that answers "where", and the panel scrolls under it.
-
-	   52rem is arithmetic rather than a habit, and worth writing down because #324 is about
-	   to make this split the app-wide rule for map dialogs. The panel is 22rem, so the map
-	   is only the wider of the two once the body clears 44rem plus the gap. The body is the
-	   viewport less two 3vw margins and two 12px paddings, which puts the crossover at
-	   about 787px; 52rem is the next round number above it. Below that the map would be
-	   narrower than the list beside it, and the map is what the surface is for. */
-	.stays-dialog-body {
-		display: grid;
-		grid-template-rows: minmax(12rem, 45%) minmax(0, 1fr);
-		flex: 1;
-		min-height: 0;
-		gap: var(--space-3);
-		padding: var(--space-3);
-	}
-
-	.stays-dialog-map {
-		grid-area: 1 / 1;
-		min-height: 0;
-	}
-
+	/* The sidebar's own scroll and rhythm. Everything about the surface it sits in, the
+	   near-fullscreen margin, the head, the close button and the 52rem split, is
+	   `MapDialog`'s (issue #324). This file used to carry a copy of all of it. */
 	.stays-sidebar {
-		grid-area: 2 / 1;
 		display: flex;
 		flex-direction: column;
 		gap: var(--space-3);
 		min-height: 0;
+		height: 100%;
 		overflow-y: auto;
 		overscroll-behavior: contain;
 		padding-right: var(--space-1);
 	}
 
-	/* After the two rules above, not before them: at equal specificity the later rule wins,
-	   and an earlier media query lost the row assignment to the base one. The sidebar sat
-	   under a half-height map on a 1280px screen, which a screenshot caught and no
-	   assertion about words would have. */
-	@media (min-width: 52rem) {
-		.stays-dialog-body {
-			grid-template-rows: minmax(0, 1fr);
-			grid-template-columns: 22rem minmax(0, 1fr);
-		}
+	.stays-dialog-map {
+		height: 100%;
+	}
 
-		.stays-sidebar {
-			grid-area: 1 / 1;
-		}
-
-		.stays-dialog-map {
-			grid-area: 1 / 2;
-		}
+	.stays-back:focus-visible,
+	.stays-row:focus-visible {
+		outline: 2px solid var(--color-focus-ring);
+		outline-offset: 2px;
 	}
 
 	.stays-sidebar-lead {
