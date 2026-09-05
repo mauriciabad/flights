@@ -242,6 +242,45 @@ describe('TransportPicker: no-service transit', () => {
 		expect(priceCell).not.toMatch(/\d/);
 	});
 
+	it('offers the taxi against a dead timetable without pretending to know the fare', () => {
+		// The other surface the estimate reaches, and the one the issue quoted: "A taxi now
+		// takes about 1h 46m and costs roughly £268.75-£430.90." The taxi is still the answer
+		// to "there is no bus for four hours"; what it costs is the half nobody measured.
+		const walkTransfer: Transfer = { mode: 'walk', duration: 40 as Duration, legs: [] };
+		const itinerary = baseItinerary(walkTransfer);
+		const transit: Transfer = {
+			mode: 'transit',
+			duration: 25 as Duration,
+			legs: [],
+			transitSchedule: {
+				intended: localDateTime('2026-06-01T05:20:00'),
+				following: [],
+				plannedFor: departAfter('2026-06-01T01:00:00')
+			}
+		};
+		const taxi: Transfer = { mode: 'taxi', duration: 76 as Duration, legs: [] };
+		const taxiFareEstimate: TaxiFareEstimate = {
+			kind: 'out-of-range',
+			distanceKm: 94.9,
+			ratedUpToKm: 30,
+			countryCode: 'GB',
+			citation: 'Back-calculated from a London 5km fare comparison of roughly $23.'
+		};
+
+		const root = mountPicker({
+			itinerary,
+			alternatives: [transit, taxi],
+			taxiFareEstimate,
+			referenceMoment: localDateTime('2026-06-01T01:00:00')
+		});
+
+		const gapLine = root.querySelector('.schedule-gap-alternative')?.textContent ?? '';
+		expect(gapLine.replace(/\s+/g, ' ').trim()).toBe(
+			'A taxi now takes about 1h 16m over 95 km. No rate card here reaches that far, so the fare is unknown.'
+		);
+		expect(gapLine).not.toContain('costs roughly');
+	});
+
 	it('does not use the dramatic gap framing for a normal, imminent departure', () => {
 		const walkTransfer: Transfer = { mode: 'walk', duration: 5 as Duration, legs: [] };
 		const itinerary = baseItinerary(walkTransfer);

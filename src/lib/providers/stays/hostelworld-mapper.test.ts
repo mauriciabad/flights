@@ -186,7 +186,7 @@ describe('mapPropertyToStays', () => {
 		expect(stays[0].property.rating).toEqual({ value: 88, outOf: 100 });
 	});
 
-	it('treats Hostelworld’s zero as "nobody has rated this", not as the worst score there is', () => {
+	it('treats a Hostelworld zero as "nobody has rated this", not as the worst score there is', () => {
 		// #245. Measured live on 2026-09-05, city 3671 (Gatwick), the same property the issue
 		// reported showing "0.0 rating" in the picker:
 		//   The Gatwick White House Hotel

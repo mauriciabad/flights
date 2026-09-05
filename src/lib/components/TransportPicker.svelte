@@ -344,9 +344,9 @@
 								<!-- Issue #246: the duration is measured and stays. The fare is the half
 								     nothing here knows, and "roughly £268-£431" was the app inventing it. -->
 								<p class="schedule-gap-alternative">
-									A taxi now takes about {formatDuration(taxiRow.duration)}, over
-									{formatKilometres(taxiFareEstimate.distanceKm)} that no rate card here covers, so what it
-									costs is anyone's guess.
+									A taxi now takes about {formatDuration(taxiRow.duration)} over
+									{formatKilometres(taxiFareEstimate.distanceKm)}. No rate card here reaches that far, so
+									the fare is unknown.
 								</p>
 							{/if}
 						{:else}
