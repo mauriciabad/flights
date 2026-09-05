@@ -116,7 +116,11 @@
 		font-size: var(--font-size-lg);
 		line-height: 1;
 		cursor: pointer;
-		transition: color var(--transition-fast), background-color var(--transition-fast);
+		/* Held down or tapped twice to get to 3, so it must not wait for a double-tap zoom. */
+		touch-action: manipulation;
+		transition:
+			color var(--transition-fast),
+			background-color var(--transition-fast);
 	}
 
 	.step:first-of-type {

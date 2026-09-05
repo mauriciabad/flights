@@ -197,6 +197,47 @@ await run(375, 812, 'light', 'light-375', true);
 await run(1280, 900, 'dark', 'dark-1280');
 await run(1280, 900, 'light', 'light-1280');
 
+/**
+ * The same form in its other home: the editor above the results, which is a narrower box
+ * than the search screen and therefore a different branch of every container query.
+ *
+ * The search is deliberately impossible (BCN to BCN), because that is the one results URL
+ * that reaches the page without asking a provider anything. Nothing here costs a request.
+ */
+async function runResultsEditor(width, height, colorScheme, tag) {
+	const context = await browser.newContext({ viewport: { width, height }, colorScheme, deviceScaleFactor: 2 });
+	const page = await context.newPage();
+	await page.goto(`${origin}/results/?dep=2027-03-08&arr=2027-03-27&from=BCN&to=BCN`, {
+		waitUntil: 'networkidle'
+	});
+	console.log(`\n--- results editor ${tag} ---`);
+
+	// A blocking-invalid search opens the form by itself, on the fields that need changing,
+	// so there is no "Edit search" to press here.
+	await page.waitForSelector('.month');
+
+	const cells = await page.evaluate(() => {
+		const month = document.querySelector('.month');
+		return [...month.querySelectorAll('button[data-date]')].map((el) => {
+			const b = el.getBoundingClientRect();
+			return { w: b.width, h: b.height };
+		});
+	});
+	const smallest = cells.reduce((min, c) => Math.min(min, c.w, c.h), Infinity);
+	note(smallest >= 20, `results editor day cell smallest side is ${smallest.toFixed(1)}px`);
+
+	const sideways = await page.evaluate(
+		() => document.documentElement.scrollWidth > document.documentElement.clientWidth
+	);
+	note(!sideways, 'the results page does not scroll sideways with the editor open');
+
+	await page.screenshot({ path: `${outDir}/277-results-editor-${tag}.png` });
+	await context.close();
+}
+
+await runResultsEditor(1280, 900, 'dark', 'dark-1280');
+await runResultsEditor(375, 812, 'dark', 'dark-375');
+
 await browser.close();
 
 console.log(`\n${problems.length === 0 ? 'ALL CHECKS PASSED' : `${problems.length} PROBLEMS`}`);

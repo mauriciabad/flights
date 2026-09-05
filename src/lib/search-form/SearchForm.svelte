@@ -573,15 +573,20 @@
 
 	/* Two across as soon as there is room for two 44px fields side by side. */
 	@container (min-width: 30rem) {
+		/* Top-aligned, not bottom-aligned. Bottom alignment looked identical until one of the
+		   two airports had an error under it, at which point that field grew downwards and
+		   shoved its own input above the other one. Errors now grow into the space below,
+		   where they belong, and the two inputs stay on one line. */
 		.route {
 			grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
-			align-items: end;
+			align-items: start;
 		}
 
 		.swap {
-			/* Sits on the field line, not on the label above it. */
-			margin-bottom: 0.125rem;
-			align-self: end;
+			/* Drops past the label above the inputs so it lands on the field line. The two
+			   values are `AirportField`'s own label line box and the gap under it. */
+			margin-block-start: calc(var(--line-height-sm) + var(--space-2));
+			align-self: start;
 		}
 
 		.swap-label {

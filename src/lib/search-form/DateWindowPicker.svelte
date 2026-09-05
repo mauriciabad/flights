@@ -159,6 +159,12 @@
 		onchange(next.fields);
 	}
 
+	/** A scroll is motion too. `prefers-reduced-motion` is not only about CSS transitions, and
+	 * a smooth scroll is the one bit of motion here that CSS cannot turn off for us. */
+	function scrollBehavior(): ScrollBehavior {
+		return window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth';
+	}
+
 	async function moveFocus(to: IsoCalendarDate) {
 		// Never before today (a past date is a search the form refuses to spend) and never
 		// past the last month drawn, so an arrow key cannot land focus on nothing.
@@ -203,7 +209,7 @@
 		const panel = strip.querySelector<HTMLElement>('.month');
 		const gap = Number.parseFloat(getComputedStyle(strip).columnGap) || 0;
 		const step = panel ? panel.offsetWidth + gap : strip.clientWidth;
-		strip.scrollBy({ left: direction * step, behavior: 'smooth' });
+		strip.scrollBy({ left: direction * step, behavior: scrollBehavior() });
 	}
 
 	function setOverride(field: 'latestDepartureOverride' | 'soonestArrivalOverride', value: string) {
@@ -330,6 +336,7 @@
 			<input
 				id={FIELD_INPUT_ID.soonestDeparture}
 				type="date"
+				autocomplete="off"
 				required
 				min={today}
 				value={fields.soonestDeparture}
@@ -338,6 +345,9 @@
 				oninput={(event) => onchange({ ...fields, soonestDeparture: event.currentTarget.value })}
 				onblur={() => ontouch('soonestDeparture')}
 			/>
+			{#if errors.soonestDeparture}
+				<p class="date-error" role="alert">{errors.soonestDeparture}</p>
+			{/if}
 		</div>
 
 		<div class="typed-field">
@@ -346,6 +356,7 @@
 				<input
 					id={FIELD_INPUT_ID.latestDepartureOverride}
 					type="date"
+					autocomplete="off"
 					min={fields.soonestDeparture || today}
 					max={fields.latestArrival || undefined}
 					value={fields.latestDepartureOverride}
@@ -361,13 +372,17 @@
 					</button>
 				{/if}
 			</div>
-			<p id="latest-departure-note" class="note">
-				{#if fields.latestDepartureOverride.trim()}
-					You would set off on this day at the latest.
-				{:else}
-					Any day up to your latest arrival.
-				{/if}
-			</p>
+			{#if errors.latestDepartureOverride}
+				<p class="date-error" role="alert">{errors.latestDepartureOverride}</p>
+			{:else}
+				<p id="latest-departure-note" class="note">
+					{#if fields.latestDepartureOverride.trim()}
+						You would set off on this day at the latest.
+					{:else}
+						Any day up to your latest arrival.
+					{/if}
+				</p>
+			{/if}
 		</div>
 
 		<div class="typed-field">
@@ -376,6 +391,7 @@
 				<input
 					id={FIELD_INPUT_ID.soonestArrivalOverride}
 					type="date"
+					autocomplete="off"
 					min={fields.soonestDeparture || today}
 					max={fields.latestArrival || undefined}
 					value={fields.soonestArrivalOverride}
@@ -391,13 +407,17 @@
 					</button>
 				{/if}
 			</div>
-			<p id="soonest-arrival-note" class="note">
-				{#if fields.soonestArrivalOverride.trim()}
-					You would not land before this day.
-				{:else}
-					Any day from your soonest departure.
-				{/if}
-			</p>
+			{#if errors.soonestArrivalOverride}
+				<p class="date-error" role="alert">{errors.soonestArrivalOverride}</p>
+			{:else}
+				<p id="soonest-arrival-note" class="note">
+					{#if fields.soonestArrivalOverride.trim()}
+						You would not land before this day.
+					{:else}
+						Any day from your soonest departure.
+					{/if}
+				</p>
+			{/if}
 		</div>
 
 		<div class="typed-field">
@@ -405,6 +425,7 @@
 			<input
 				id={FIELD_INPUT_ID.latestArrival}
 				type="date"
+				autocomplete="off"
 				required
 				min={fields.soonestDeparture || today}
 				value={fields.latestArrival}
@@ -413,14 +434,11 @@
 				oninput={(event) => onchange({ ...fields, latestArrival: event.currentTarget.value })}
 				onblur={() => ontouch('latestArrival')}
 			/>
+			{#if errors.latestArrival}
+				<p class="date-error" role="alert">{errors.latestArrival}</p>
+			{/if}
 		</div>
 	</div>
-
-	{#each ['soonestDeparture', 'latestArrival', 'latestDepartureOverride', 'soonestArrivalOverride'] as const as field (field)}
-		{#if errors[field]}
-			<p class="date-error" role="alert">{errors[field]}</p>
-		{/if}
-	{/each}
 </div>
 
 <style>
@@ -441,18 +459,6 @@
 		gap: var(--space-2) var(--space-4);
 	}
 
-	/* Narrow: the heading and the two arrows share the top line and the legend takes its own
-	   row under them. Letting the legend sit first pushed the arrows onto a line of their
-	   own, hard left, under a right-aligned legend. */
-	.legend {
-		flex: 1 1 100%;
-		order: 3;
-	}
-
-	.paging {
-		margin-inline-start: auto;
-	}
-
 	h3 {
 		margin: 0;
 		font-size: var(--font-size-lg);
@@ -461,10 +467,15 @@
 		letter-spacing: var(--tracking-tight);
 	}
 
-	/* The two rails are the same colour on purpose, so the legend carries the difference
-	   in the same shapes the cells use rather than in two words about gold. */
+	/* The two rails are the same colour on purpose, so the legend carries the difference in
+	   the same shapes the cells use rather than in two words about gold.
+	   Narrow: it takes a row of its own under the heading, leaving the heading and the two
+	   arrows on the top line. Letting it sit inline pushed the arrows onto a line of their
+	   own, hard left, under a right-aligned legend. */
 	.legend {
 		display: flex;
+		flex: 1 1 100%;
+		order: 3;
 		flex-wrap: wrap;
 		gap: var(--space-2) var(--space-4);
 		margin: 0;
@@ -523,6 +534,7 @@
 		border-radius: var(--radius-md);
 		text-align: left;
 		cursor: pointer;
+		touch-action: manipulation;
 		transition:
 			border-color var(--transition-fast),
 			background-color var(--transition-fast);
@@ -577,6 +589,7 @@
 	.paging {
 		display: flex;
 		gap: var(--space-1);
+		margin-inline-start: auto;
 	}
 
 	.page-months {
@@ -589,6 +602,7 @@
 		border-radius: var(--radius-md);
 		color: var(--color-text-muted);
 		cursor: pointer;
+		touch-action: manipulation;
 		transition:
 			color var(--transition-fast),
 			border-color var(--transition-fast),
@@ -607,11 +621,14 @@
 	}
 
 	/* A filmstrip of months, one per phone screen and four across a desktop, rather than a
-	   year stacked vertically. Wide content scrolls inside its own box, never the page. */
+	   year stacked vertically. Wide content scrolls inside its own box, never the page, and
+	   `overscroll-behavior` keeps a flick that runs off the end of December from turning into
+	   a page scroll under the traveller's thumb. */
 	.months {
 		display: flex;
 		gap: var(--space-4);
 		scroll-snap-type: x mandatory;
+		overscroll-behavior-x: contain;
 		padding-bottom: var(--space-2);
 	}
 
@@ -676,6 +693,11 @@
 		background: transparent;
 		color: var(--color-text-muted);
 		cursor: pointer;
+		/* Days get tapped several times in a row. Without this the browser waits to see
+		   whether each one was a double-tap zoom, and the calendar feels a beat behind. The
+		   tap flash goes too: the default blue has nothing to do with this palette. */
+		touch-action: manipulation;
+		-webkit-tap-highlight-color: transparent;
 		transition: background-color var(--transition-fast);
 	}
 
@@ -696,6 +718,13 @@
 	.day.in-span {
 		background: var(--color-accent-muted);
 		color: var(--color-text);
+	}
+
+	/* A day already in the window still has to answer the pointer. `.day:hover` alone lost to
+	   `.day.in-span` on source order, so every selected day was the one part of the calendar
+	   that did not react to being hovered. */
+	.day.in-span:hover {
+		box-shadow: inset 0 0 0 1px var(--color-accent);
 	}
 
 	.day-number {

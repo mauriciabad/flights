@@ -114,6 +114,7 @@
 		font-family: var(--font-mono);
 		font-size: var(--font-size-xs);
 		cursor: pointer;
+		touch-action: manipulation;
 		transition:
 			color var(--transition-fast),
 			border-color var(--transition-fast),
