@@ -51,6 +51,9 @@
 	import { recomputeItinerarySelection } from '$lib/algorithm/recompute-selection';
 	import { FlightPicker, Skeleton, StopoverNights, TransportPicker, WaitingTimeStepper } from '$lib/components';
 	import { segmentStubFor } from '$lib/components/segment-stub';
+	import { unroutedLegNote } from '$lib/components/itinerary-timeline-format';
+	import { isOvernightWait } from '$lib/algorithm/nights';
+	import type { UnroutedLeg } from '$lib/components/itinerary-timeline-format';
 	import type {
 		ConnectionTransferOptions,
 		ItineraryGroup,
@@ -443,6 +446,46 @@
 		return /[.!?…]$/.test(title) ? title : `${title}.`;
 	}
 
+	/**
+	 * Why a leg has no picker, in the words the timeline row beside it already uses.
+	 *
+	 * `unroutedLegNote` is the one place that decides this. It knows the five things this
+	 * panel would otherwise have to restate and would restate worse: a road route that came
+	 * back and was refused (#119), a bed the search never routed to (#243), a bed priced
+	 * with no route to it (#211), a stopover with no night to sleep through (#231), and a
+	 * plain "nobody answered". A hand-written sentence here would be a sixth version of a
+	 * fact with one source, and `absenceNote`'s own comment records that exact pair drifting
+	 * apart inside a day the last time somebody wrote one.
+	 */
+	function absenceNote(leg: UnroutedLeg): string {
+		return unroutedLegNote(leg, {
+			hasStay: itinerary.stay !== undefined,
+			nightsInConnection: itinerary.nightsInConnection,
+			overnightWait: isOvernightWait(itinerary.freeTime.start, itinerary.freeTime.end),
+			transferAnchor: itinerary.transferAnchor,
+			withheldRoad: withheldRoadByLeg[leg]
+		});
+	}
+
+	/**
+	 * The one thing `unroutedLegNote` cannot say, because it is not about routing at all.
+	 *
+	 * A search with no origin or destination location has no outer ground leg to route: the
+	 * trip starts and ends at an airport because that is what was asked for. Every sentence
+	 * in the shared note claims somebody was asked and did not answer, which would be the
+	 * app blaming a provider for a question it never put to one.
+	 */
+	const startsAtOriginAirport = $derived(!itinerary.originLocation);
+	const endsAtDestinationAirport = $derived(!itinerary.destinationLocation);
+
+	/** The four legs keyed the way `unroutedLegNote` names them. */
+	const withheldRoadByLeg = $derived<Partial<Record<UnroutedLeg, (typeof originAirportTransferOptions)['withheldRoad']>>>({
+		'to-origin-airport': originAirportTransferOptions.withheldRoad,
+		'to-hotel': hotelTransferOptions.withheldRoad,
+		'from-hotel': connectionAirportTransferOptions.withheldRoad,
+		'to-destination-location': destinationLocationTransferOptions.withheldRoad
+	});
+
 	/** The heading for a segment the strip draws no cell for. Both are places rather than
 	 * stretches of time, and neither has anything to change. */
 	const PLACELESS_TITLES: Partial<Record<ItinerarySegmentId, string>> = {
@@ -509,8 +552,10 @@
 						originAirportTransferOptions,
 						transitAnswers?.transferToOriginAirport
 					)}
+				{:else if startsAtOriginAirport}
+					<p class="customiser-note">This trip starts at the airport, so there is no ride here.</p>
 				{:else}
-					<p class="customiser-note">This trip starts at the airport, so there is no ride to change.</p>
+					<p class="customiser-note">{absenceNote('to-origin-airport')}</p>
 				{/if}
 			{:else if segment === 'origin-waiting'}
 				{@render waitPanel(
@@ -540,7 +585,7 @@
 						canCheckTransit ? checkTransitForPickedProperty : undefined
 					)}
 				{:else}
-					<p class="customiser-note">Nothing was routed into the city, so there is no ride to change.</p>
+					<p class="customiser-note">{absenceNote('to-hotel')}</p>
 				{/if}
 			{:else if segment === 'free-time'}
 				<!-- How long you stay and where you sleep are the two things you can change
@@ -604,7 +649,7 @@
 						canCheckTransit ? checkTransitForPickedProperty : undefined
 					)}
 				{:else}
-					<p class="customiser-note">Nothing was routed back to the airport, so there is no ride to change.</p>
+					<p class="customiser-note">{absenceNote('from-hotel')}</p>
 				{/if}
 			{:else if segment === 'connection-waiting'}
 				{@render waitPanel(
@@ -632,8 +677,10 @@
 						itinerary.onwardFlight.arrival,
 						'you land'
 					)}
+				{:else if endsAtDestinationAirport}
+					<p class="customiser-note">This trip ends at the airport, so there is no ride here.</p>
 				{:else}
-					<p class="customiser-note">This trip ends at the airport, so there is no ride to change.</p>
+					<p class="customiser-note">{absenceNote('to-destination-location')}</p>
 				{/if}
 			{:else}
 				<p class="customiser-note">
