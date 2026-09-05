@@ -67,6 +67,20 @@ export interface BenchOptions {
 	headers?: Partial<Record<ProviderId, Record<string, string>>>;
 	/** Answer these providers with a network failure instead of a body. */
 	failing?: ProviderId[];
+	/**
+	 * Answer a provider with a real HTTP failure: its own status, its own body, its own
+	 * words.
+	 *
+	 * `failing` above severs the connection, and that is a different fact about the world.
+	 * A browser-level abort carries no status and no sentence, so a check built on it can
+	 * only ever ask whether the app copes. It cannot ask whether the app repeats what the
+	 * provider SAID, which is the thing AGENTS.md ("show the error you got, never the one
+	 * you assumed") actually requires and the thing issue #240 found untested.
+	 *
+	 * The body is served verbatim and recorded on `bench.bodies`, so a check can assert
+	 * that the exact bytes a provider sent reached the screen rather than matching prose.
+	 */
+	failWith?: Partial<Record<ProviderId, { status: number; body: string; contentType?: string }>>;
 }
 
 export class Bench {
@@ -177,6 +191,19 @@ export class Bench {
 
 		if (providerId !== undefined && this.#options.failing?.includes(providerId)) {
 			return route.abort('connectionfailed');
+		}
+
+		const forcedFailure = providerId === undefined ? undefined : this.#options.failWith?.[providerId];
+		if (forcedFailure) {
+			// Before the live branch on purpose: a forced failure is the check's own premise,
+			// and letting `QA_LIVE=1` hand back a healthy 200 instead would turn the check
+			// green while proving nothing.
+			this.bodies.push({ providerId, url, text: forcedFailure.body, recorded: true });
+			return route.fulfill({
+				status: forcedFailure.status,
+				contentType: forcedFailure.contentType ?? 'application/json',
+				body: forcedFailure.body
+			});
 		}
 
 		if (LIVE_MODE && !METERED_HOSTS.has(parsed.host)) {
