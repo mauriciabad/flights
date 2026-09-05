@@ -60,11 +60,11 @@
 	 * would fold away the picker that offered it.
 	 */
 	import type { Snippet } from 'svelte';
-	import type { Airport, Duration, FlightOffer, Itinerary, LocalDateTime, Location, Transfer } from '../domain';
+	import type { Airport, Duration, FlightOffer, Itinerary, LocalDateTime, Location, TransitLegField } from '../domain';
 	import { recomputeItineraryWaitingTimes } from '../algorithm/build';
 	import type { WaitingTimeOverrides } from '../algorithm/build';
 	import { isOvernightWait } from '../algorithm/nights';
-	import { readMissedService } from '../algorithm/transit-schedule';
+	import { readMissedService, readStaleSchedule } from '../algorithm/transit-schedule';
 	import type { ItinerarySegmentId } from '../itinerary-map/segment-id';
 	import {
 		formatClockTime,
@@ -440,7 +440,13 @@
 	</li>
 {/snippet}
 
-{#snippet transferRow(transfer: Transfer | undefined, label: string, segment: ItinerarySegmentId, leg: UnroutedLeg)}
+{#snippet transferRow(field: TransitLegField, label: string, segment: ItinerarySegmentId, leg: UnroutedLeg)}
+	{@const transfer = itinerary[field]}
+	<!-- Issue #266: the timetable on this leg was fetched for one moment, and a waiting-time
+	     edit moves that moment without being able to refetch. `readStaleSchedule` returns the
+	     moment the leg happens at NOW when the two have parted company, and the row then says
+	     what it was planned for instead of printing departures for a trip nobody is taking. -->
+	{@const staleAt = readStaleSchedule(itinerary, field)}
 	<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 	<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 	<li
@@ -455,7 +461,7 @@
 		onkeydown={(event) => handleRowKeydown(event, segment)}
 	>
 		<span class="tl-when">
-			{#if transfer?.transitSchedule}
+			{#if transfer?.transitSchedule && !staleAt}
 				<span class="tl-when-clock font-mono tabular-nums">
 					{formatClockTime(transfer.transitSchedule.intended)}
 				</span>
@@ -476,19 +482,26 @@
 				</p>
 				{#if transfer.mode === 'transit' && transfer.transitSchedule}
 					{@const schedule = transfer.transitSchedule}
-					{@const missed = readMissedService(schedule)}
-					{#if missed.outcome === 'last-in-time'}
+					{#if staleAt}
 						<p class="tl-note tl-note-warning">
-							Last departure that still gets you there by {formatClockTime(schedule.plannedFor.time)}.
-						</p>
-					{:else if missed.outcome === 'last-known'}
-						<p class="tl-note tl-note-warning">No later service runs for the rest of the timetable.</p>
-					{:else if missed.outcome === 'long-gap' && missed.next && missed.gap !== undefined}
-						<p class="tl-note tl-note-warning">
-							Miss it and the next is {formatClockTime(missed.next)}, {formatDuration(missed.gap)} later.
+							Timetable planned for {formatClockTime(schedule.plannedFor.time)}. You now need to be there by
+							{formatClockTime(staleAt)}, so these departures are not the ones to catch.
 						</p>
 					{:else}
-						<p class="tl-note">Next: {schedule.following.map((time) => formatClockTime(time)).join(', ')}</p>
+						{@const missed = readMissedService(schedule)}
+						{#if missed.outcome === 'last-in-time'}
+							<p class="tl-note tl-note-warning">
+								Last departure that still gets you there by {formatClockTime(schedule.plannedFor.time)}.
+							</p>
+						{:else if missed.outcome === 'last-known'}
+							<p class="tl-note tl-note-warning">No later service runs for the rest of the timetable.</p>
+						{:else if missed.outcome === 'long-gap' && missed.next && missed.gap !== undefined}
+							<p class="tl-note tl-note-warning">
+								Miss it and the next is {formatClockTime(missed.next)}, {formatDuration(missed.gap)} later.
+							</p>
+						{:else}
+							<p class="tl-note">Next: {schedule.following.map((time) => formatClockTime(time)).join(', ')}</p>
+						{/if}
 					{/if}
 				{/if}
 			{:else}
@@ -663,7 +676,7 @@
 	{#if itinerary.originLocation}
 		{@render locationRow(itinerary.originLocation, 'Start', 'origin-location')}
 		{@render transferRow(
-			itinerary.transferToOriginAirport,
+			'transferToOriginAirport',
 			'To the airport',
 			'transfer-to-origin-airport',
 			'to-origin-airport'
@@ -689,7 +702,7 @@
 	)}
 
 	{@render transferRow(
-		itinerary.transferToHotel,
+		'transferToHotel',
 		itinerary.stay ? `To ${itinerary.stay.property.name}` : 'To the stopover',
 		'transfer-to-hotel',
 		'to-hotel'
@@ -762,7 +775,7 @@
 	</li>
 
 	{@render transferRow(
-		itinerary.transferToConnectionAirport,
+		'transferToConnectionAirport',
 		'To the connection airport',
 		'transfer-to-connection-airport',
 		'from-hotel'
@@ -791,7 +804,7 @@
 
 	{#if itinerary.destinationLocation}
 		{@render transferRow(
-			itinerary.transferToDestinationLocation,
+			'transferToDestinationLocation',
 			'To the destination',
 			'transfer-to-destination-location',
 			'to-destination-location'

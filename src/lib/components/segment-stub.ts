@@ -37,14 +37,15 @@
  */
 
 import { scaleFareForParty } from '$lib/algorithm/build';
-import { readMissedService } from '$lib/algorithm/transit-schedule';
+import { readMissedService, readStaleSchedule } from '$lib/algorithm/transit-schedule';
 import type {
 	Airport,
 	BaggageAllowance,
 	Coordinates,
 	Itinerary,
 	LocalDateTime,
-	Transfer
+	Transfer,
+	TransitLegField
 } from '$lib/domain';
 import {
 	calendarDayOffset,
@@ -369,12 +370,41 @@ function distanceFact(segment: TripStripTransferSegment, context: StubContext): 
 	return { label: 'Distance', value: `${formatDistanceKm(haversineDistanceKm(ends[0], ends[1]))} straight line` };
 }
 
+/** The strip names its legs after where they go, the itinerary after the field that holds
+ * them, and issue #266's staleness check keys on the second. */
+function transitLegField(leg: TripStripTransferSegment['leg']): TransitLegField {
+	switch (leg) {
+		case 'to-origin-airport':
+			return 'transferToOriginAirport';
+		case 'to-city':
+			return 'transferToHotel';
+		case 'to-connection-airport':
+			return 'transferToConnectionAirport';
+		case 'to-destination':
+			return 'transferToDestinationLocation';
+	}
+}
+
 /** Brief line 84 and issue #135: missing the last bus is a first-class outcome, and the
  * strip is where somebody notices the gap. Never "there is no later bus", which is a claim
  * nobody observed; "nothing later was found" is the one that was. */
-function missedFact(transfer: Transfer): StubFact | undefined {
+function missedFact(segment: TripStripTransferSegment, context: StubContext): StubFact | undefined {
+	const { transfer } = segment;
 	const schedule = transfer.transitSchedule;
 	if (transfer.mode !== 'transit' || !schedule) return undefined;
+
+	// Issue #266: a waiting-time edit moves the moment this leg happens at and cannot
+	// refetch the timetable, so every sentence below would be about a trip that is no longer
+	// on screen. Say which moment it was planned for instead of answering with its times.
+	const staleAt = readStaleSchedule(context.itinerary, transitLegField(segment.leg));
+	if (staleAt) {
+		return {
+			label: 'If you miss it',
+			value: `Planned for ${formatClockTime(schedule.plannedFor.time)}, and you now need to be there by ${formatClockTime(staleAt)}`,
+			unknown: true
+		};
+	}
+
 	const missed = readMissedService(schedule);
 	if (missed.outcome === 'last-in-time') {
 		return { label: 'If you miss it', value: `Nothing later arrives by ${formatClockTime(schedule.plannedFor.time)}` };
@@ -406,7 +436,7 @@ function transportStub(segment: TripStripTransferSegment, context: StubContext):
 	);
 	const distance = distanceFact(segment, context);
 	if (distance) facts.push(distance);
-	const missed = missedFact(transfer);
+	const missed = missedFact(segment, context);
 	if (missed) facts.push(missed);
 
 	const start = clockAt(segment.start, stamped === 'start' ? code : undefined, stamped === 'start' ? place : undefined);

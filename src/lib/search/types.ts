@@ -44,6 +44,7 @@ import type {
 	SearchQuery,
 	Stay,
 	Transfer,
+	TransitLegField,
 	TransitPlanMoment
 } from '../domain';
 import type { ProviderRegistry } from '../providers/registry';
@@ -154,13 +155,9 @@ export interface ItinerarySources {
 	transferToDestinationLocation?: ProviderSource;
 }
 
-/** The four transfer legs of an itinerary, named the way `Itinerary` names them so a leg
- * identifier can be used as a key into either. */
-export type TransitLegField =
-	| 'transferToOriginAirport'
-	| 'transferToHotel'
-	| 'transferToConnectionAirport'
-	| 'transferToDestinationLocation';
+/** Moved to `domain/transit-schedule.ts` for issue #266, and re-exported here so every
+ * existing reader keeps its import. */
+export type { TransitLegField };
 
 /**
  * Issue #135's honest-gap half: what the transit lookup for ONE leg of ONE itinerary
