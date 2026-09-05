@@ -64,7 +64,22 @@ async function backdateCache(page: Page, olderProviderId: string, olderAgeHours:
 	);
 }
 
-/** The part of the footer that is about one provider. The line is a list of
+/**
+ * The whole provenance sentence, read off the control that reveals it.
+ *
+ * Issue #312 took this off the footer as prose, because at 375px the row showed about a
+ * tenth of its text whatever it said. The sentence is unchanged and is now the accessible
+ * name of the disclosure button, so a reader who never opens the panel still hears it, and
+ * so this spec still measures what #289 built. `card-provenance.spec.ts` owns the panel.
+ */
+async function sourceSentence(page: Page): Promise<string> {
+	const label =
+		(await page.locator('.result-card').first().locator('.source-note-trigger').getAttribute('aria-label')) ??
+		'';
+	return label.replace(/^Sources and when each was fetched: /, '');
+}
+
+/** The part of the sentence that is about one provider. It is a list of
  *  `<labels>, fetched <age>` groups joined by `; `, and which group a provider lands in is
  *  the whole subject of this spec, so an assertion may not assume an order. */
 function clause(line: string | null, provider: string): string {
@@ -108,16 +123,16 @@ test.describe('issue #289: the footer ages each source separately', () => {
 
 		const source = page.locator('.result-card').first().locator('.provenance-source');
 		await expect(source).toBeVisible();
-		// Both have to be on the card or there is no split to measure and the rest of this
-		// spec would pass against any implementation at all.
-		await expect(source).toContainText('Hostelworld');
-		await expect(source).toContainText('Ryanair');
+		// Both have to be named or there is no split to measure and the rest of this spec
+		// would pass against any implementation at all.
+		const cold = await sourceSentence(page);
+		expect(cold).toContain('Hostelworld');
+		expect(cold).toContain('Ryanair');
 		// A search that fetched everything at once still names it all in one clause, which is
 		// the sentence this page had before #289 and the one it keeps. Asserted as "these two
 		// share a clause" rather than "there is no semicolon", so a search that happens to
 		// straddle a minute boundary moves both of them together instead of failing. The exact
 		// one-age wording is pinned in `view-model.test.ts`.
-		const cold = (await source.textContent()) ?? '';
 		expect(clause(cold, 'Ryanair')).toBe(clause(cold, 'Hostelworld'));
 
 		expect(await backdateCache(page, 'hostelworld', BED_AGE_HOURS)).toBeGreaterThan(0);
@@ -133,7 +148,7 @@ test.describe('issue #289: the footer ages each source separately', () => {
 		await page.reload();
 		await expect(page.getByText('still searching')).toHaveCount(0, { timeout: 20_000 });
 		await expect(source).toBeVisible();
-		const line = (await source.textContent()) ?? '';
+		const line = await sourceSentence(page);
 
 		// Naming the old source is what tells a traveller which number on the card is the old
 		// one. The single-age line could not say it at all.

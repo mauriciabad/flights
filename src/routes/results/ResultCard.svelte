@@ -77,7 +77,16 @@
 	 * never recomputes a duration or a price.
 	 */
 	import type { Snippet } from 'svelte';
-	import { AirlineLogo, Card, Flag, FlightDetour, MetricRail, PriceLine, TripStrip } from '$lib/components';
+	import {
+		AirlineLogo,
+		Card,
+		Flag,
+		FlightDetour,
+		MetricRail,
+		PriceLine,
+		SourceNote,
+		TripStrip
+	} from '$lib/components';
 	import { CARD_METRIC_IDS } from '$lib/components/itinerary-metrics';
 	import { buildItineraryMapModel } from '$lib/itinerary-map/segments';
 	import { buildFlightShape } from '$lib/itinerary-map/previews';
@@ -88,7 +97,12 @@
 	import { connectionAirportCode } from '$lib/results/types';
 	import type { ScoredResult } from '$lib/results/types';
 	import { revealMinimally } from '$lib/results/reveal-scroll';
-	import { describePriceFreshness, describeSources } from '$lib/results/view-model';
+	import {
+		describePriceFreshness,
+		describeSourceGroups,
+		describeSources,
+		describeStaleSources
+	} from '$lib/results/view-model';
 	import { technicalStopDetail, technicalStopLabel } from '$lib/components/technical-stop-note';
 	import PriceBand from './PriceBand.svelte';
 
@@ -224,11 +238,21 @@
 
 	// Provenance, issue #289: every source behind this price, each at its own age. They do
 	// not share a TTL, so one "fetched N ago" over all of them printed the age of whatever
-	// had the longest one. `describeSources` owns the wording and is tested against it.
+	// had the longest one. `view-model.ts` owns the wording and is tested against it.
 	//
-	// One string for both the footer text and its `title`: the footer is a single line
-	// and this end of it ellipsises on a phone, so the full sentence is one hover away.
+	// Issue #312 took this off the footer as prose. It was one ellipsised line showing about
+	// a tenth of its text at 375px, and `title` was carrying the rest, which is no fallback
+	// at all on a touch screen. `SourceNote` is the control that reveals it; `staleNote` is
+	// what stays on the card, because the brief asks for stale results to be marked visibly
+	// and a fact behind a deliberate tap is not marked.
+	//
+	// `Date.now()` is read on every re-render rather than snapshotted. Since #293 a card
+	// follows the refetch it started, and these ages move while the traveller watches:
+	// measured, "fetched 1 hour ago" becomes "fetched this minute" inside 1.5 seconds. A
+	// cached reading here would put that defect straight back.
+	const sourceGroups = $derived(describeSourceGroups(result.price.parts, Date.now()));
 	const sourceText = $derived(describeSources(result.price.parts, Date.now()));
+	const staleNote = $derived(describeStaleSources(result.price.parts, Date.now()));
 
 	// Both carriers, deduped: a single-airline itinerary should say the airline once. The
 	// strip already shows each leg's mark, so this row is the names, in the footer where
@@ -395,10 +419,23 @@
 					<span class="technical-stop" title={note.detail}>{note.label}</span>
 				{/each}
 			</span>
-			<!-- Absent, not empty, when no part of this itinerary carries a tracked source:
-			     the row used to render a bare "via" with nothing after it. -->
+			<!-- Issue #312. Absent, not empty, when no part of this itinerary carries a tracked
+			     source: the row used to render a bare "via" with nothing after it, and now it
+			     renders no control at all rather than one that opens onto nothing.
+
+			     The age beside the icon is the staleness signal, and it is deliberately not
+			     inside the panel. The brief asks that stale cached results be marked visibly,
+			     and hiding the last trace of it behind a tap would trade an unreadable row for
+			     a worse defect. It says "oldest" because that is what it is: #289 exists
+			     because one age printed over sources whose TTLs range from 5 minutes to 30 days
+			     read as a claim about all of them. -->
 			{#if sourceText}
-				<span class="provenance-source" title={sourceText}>{sourceText}</span>
+				<span class="provenance-source">
+					{#if staleNote}
+						<span class="provenance-stale">{staleNote}</span>
+					{/if}
+					<SourceNote groups={sourceGroups} summary={sourceText} />
+				</span>
 			{/if}
 		</p>
 	{/snippet}
@@ -562,9 +599,11 @@
 		gap: var(--space-4);
 	}
 
-	/* One line, always. On a phone this footer spent three on "ZZ" and "via Ryanair (no
-	   key required) & OSRM (walking & driving), fetched this minute"; the carriers keep
-	   their full width and the source text gives way, its full sentence on `title`. */
+	/* One line, always, and since issue #312 a short one. The provenance used to be a
+	   sentence competing with the carriers for the row and losing, ellipsised to about a
+	   tenth of itself at 375px. What sits here now is an age when there is one worth showing
+	   and a 24px control, so the carriers get the width they need without anything having to
+	   give way. */
 	.provenance {
 		display: flex;
 		flex-wrap: nowrap;
@@ -585,9 +624,17 @@
 	}
 
 	.provenance-source {
-		min-width: 0;
-		overflow: hidden;
-		text-overflow: ellipsis;
+		display: inline-flex;
+		align-items: center;
+		flex-shrink: 0;
+		gap: var(--space-2);
+	}
+
+	/* Visible, and quiet. An hour-old card is not an error, so this is not warning-tinted:
+	   the tone that means "the total is short by something nobody has measured" belongs to
+	   the receipt's own chips, and wearing it here would make a cached road route read as a
+	   missing price. */
+	.provenance-stale {
 		white-space: nowrap;
 	}
 

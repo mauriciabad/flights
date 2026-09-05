@@ -19,6 +19,7 @@ export { default as StopoverBlock } from './StopoverBlock.svelte';
 export { freeTimeDays } from './free-time-days';
 export type { FreeTimeDays } from './free-time-days';
 export { default as MetricRail } from './MetricRail.svelte';
+export { default as SourceNote } from './SourceNote.svelte';
 export { default as PriceLine } from './PriceLine.svelte';
 export { default as StopoverNights } from './StopoverNights.svelte';
 export { ALL_METRIC_IDS, CARD_METRIC_IDS, itineraryMetrics, priceBreakdown } from './itinerary-metrics';

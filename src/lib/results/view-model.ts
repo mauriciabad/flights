@@ -103,7 +103,75 @@ export function describePriceFreshness(freshness: PriceFreshness): PriceFreshnes
  * where nothing could reach it.
  */
 export function describeSources(parts: readonly ProvenancePart[], now: number): string | undefined {
-	if (parts.length === 0) return undefined;
+	const groups = describeSourceGroups(parts, now);
+	if (groups.length === 0) return undefined;
+	return groups
+		.map((group, index) => `${index === 0 ? 'via ' : ''}${group.sources.join(' & ')}, fetched ${group.age}`)
+		.join('; ');
+}
+
+/**
+ * One printable group of sources that share an age, freshest first. Issue #312.
+ *
+ * The sentence above is still the accessible name of the control that reveals this, and it
+ * is still what a `title` would have carried, but a row of ellipsised prose is not a way to
+ * read it: at 375px the footer showed about a tenth of its own text whatever it said. This
+ * is the same grouping as a list, so a panel can lay it out as one.
+ */
+export interface SourceGroup {
+	/** "5 minutes ago", "21 hours ago". */
+	age: string;
+	ageMs: number;
+	/** Provider labels sharing that age, in the order their parts were recorded. */
+	sources: string[];
+}
+
+/**
+ * Past this, a priced source on the card is outside its own cache window.
+ *
+ * Not a number anybody liked. One hour is the longest TTL any adapter in this app gives an
+ * answer carrying money: Ryanair fares, Agoda searches and prices, Hostelworld properties
+ * and Booking searches are all 60 minutes, and Kiwi and Flights Sky are 15. So past an hour
+ * every figure on this card that came from a provider is stale by that provider's own rule,
+ * whichever provider it was.
+ *
+ * Under it, calling the card old would mean calling a road route old, and OSRM caches those
+ * for 30 days on purpose because a road does not move. That is exactly the conflation issue
+ * #289 removed, and re-introducing it as a badge would be worse than the ellipsised line
+ * this replaces.
+ *
+ * A per-provider TTL would beat one threshold, and there is no registry to read it from:
+ * each adapter defines its own at its own call site. Building that registry is worth doing
+ * and is not this issue.
+ */
+const STALE_AFTER_MS = 60 * 60_000;
+
+/** How old the oldest source behind this card is, in milliseconds. Zero when nothing here
+ * carries a tracked source, which is the same honest answer `oldestPartAgeMs` gives. */
+export function oldestSourceAgeMs(parts: readonly ProvenancePart[], now: number): number {
+	let oldest = 0;
+	for (const part of parts) {
+		oldest = Math.max(oldest, Math.max(0, now - new Date(part.fetchedAt).getTime()));
+	}
+	return oldest;
+}
+
+/**
+ * The visible staleness mark, or nothing when every source is inside the hour.
+ *
+ * The brief asks that stale cached results be visibly marked, and issue #312 moves the
+ * provenance behind a tap. A fact reachable only by a deliberate tap is not marked, so this
+ * is what stays on the card: the age of the oldest thing behind it, in the fewest words that
+ * are still true.
+ */
+export function describeStaleSources(parts: readonly ProvenancePart[], now: number): string | undefined {
+	const oldest = oldestSourceAgeMs(parts, now);
+	if (oldest < STALE_AFTER_MS) return undefined;
+	return `oldest ${formatAge(oldest)}`;
+}
+
+export function describeSourceGroups(parts: readonly ProvenancePart[], now: number): SourceGroup[] {
+	if (parts.length === 0) return [];
 
 	const oldestByLabel = new Map<string, number>();
 	for (const part of parts) {
@@ -112,19 +180,18 @@ export function describeSources(parts: readonly ProvenancePart[], now: number): 
 		if (seen === undefined || fetchedAt < seen) oldestByLabel.set(part.providerLabel, fetchedAt);
 	}
 
-	const byAge = new Map<string, { labels: string[]; fetchedAt: number }>();
+	const byAge = new Map<string, { sources: string[]; fetchedAt: number }>();
 	for (const [label, fetchedAt] of oldestByLabel) {
 		const age = formatAge(Math.max(0, now - fetchedAt));
 		const group = byAge.get(age);
-		if (group === undefined) byAge.set(age, { labels: [label], fetchedAt });
+		if (group === undefined) byAge.set(age, { sources: [label], fetchedAt });
 		else {
-			group.labels.push(label);
+			group.sources.push(label);
 			group.fetchedAt = Math.min(group.fetchedAt, fetchedAt);
 		}
 	}
 
 	return [...byAge]
 		.sort(([, a], [, b]) => b.fetchedAt - a.fetchedAt)
-		.map(([age, group], index) => `${index === 0 ? 'via ' : ''}${group.labels.join(' & ')}, fetched ${age}`)
-		.join('; ');
+		.map(([age, group]) => ({ age, ageMs: Math.max(0, now - group.fetchedAt), sources: group.sources }));
 }

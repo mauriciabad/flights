@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { describePriceFreshness, describeSources } from './view-model';
+import {
+	describePriceFreshness,
+	describeSourceGroups,
+	describeSources,
+	describeStaleSources,
+	oldestSourceAgeMs
+} from './view-model';
 import { makeScoredResult } from './test-support';
 import type { ProvenancePart } from './types';
 
@@ -129,5 +135,84 @@ describe('describeSources', () => {
 			NOW
 		);
 		expect(text).toBe('via Kiwi.com (no key required), fetched 2 hours ago');
+	});
+});
+
+// Issue #312 -----------------------------------------------------------------
+
+describe('the sources, as a list rather than a sentence', () => {
+	const NOW = Date.parse('2026-10-14T12:00:00.000Z');
+	const minutesAgo = (minutes: number) => new Date(NOW - minutes * 60_000).toISOString();
+	const part = (
+		overrides: Partial<ProvenancePart> & Pick<ProvenancePart, 'providerLabel' | 'fetchedAt'>
+	): ProvenancePart => ({ part: 'outboundFlight', providerId: 'ryanair', ...overrides });
+
+	const owners = [
+		part({ providerLabel: 'Transitous', fetchedAt: minutesAgo(5) }),
+		part({ providerLabel: 'Kiwi.com (no key required)', fetchedAt: minutesAgo(6) }),
+		part({ providerLabel: 'Hostelworld (no key required)', fetchedAt: minutesAgo(6) }),
+		part({ providerLabel: 'OSRM (walking & driving)', fetchedAt: minutesAgo(21 * 60) })
+	];
+
+	it('groups by age, freshest first, exactly as the sentence did', () => {
+		// The owner's own footer, the one he could not read. Same grouping, laid out as rows.
+		expect(describeSourceGroups(owners, NOW)).toEqual([
+			{ age: '5 minutes ago', ageMs: 5 * 60_000, sources: ['Transitous'] },
+			{
+				age: '6 minutes ago',
+				ageMs: 6 * 60_000,
+				sources: ['Kiwi.com (no key required)', 'Hostelworld (no key required)']
+			},
+			{ age: '21 hours ago', ageMs: 21 * 60 * 60_000, sources: ['OSRM (walking & driving)'] }
+		]);
+	});
+
+	it('still builds the sentence from those same groups', () => {
+		// The sentence is the control's accessible name now, so a reader who never opens the
+		// panel hears what it would have said. It must not drift from the rows.
+		expect(describeSources(owners, NOW)).toBe(
+			'via Transitous, fetched 5 minutes ago; Kiwi.com (no key required) & Hostelworld (no key required), fetched 6 minutes ago; OSRM (walking & driving), fetched 21 hours ago'
+		);
+	});
+
+	it('has no groups when nothing carries a tracked source', () => {
+		expect(describeSourceGroups([], NOW)).toEqual([]);
+	});
+
+	it('ages a card by its oldest source', () => {
+		expect(oldestSourceAgeMs(owners, NOW)).toBe(21 * 60 * 60_000);
+		expect(oldestSourceAgeMs([], NOW)).toBe(0);
+	});
+});
+
+describe('the staleness mark that stays on the card', () => {
+	const NOW = Date.parse('2026-10-14T12:00:00.000Z');
+	const minutesAgo = (minutes: number) => new Date(NOW - minutes * 60_000).toISOString();
+	const part = (minutes: number): ProvenancePart => ({
+		part: 'outboundFlight',
+		providerId: 'ryanair',
+		providerLabel: 'Ryanair (no key required)',
+		fetchedAt: minutesAgo(minutes)
+	});
+
+	it('says nothing while every source is inside the hour', () => {
+		// One hour is the longest TTL any adapter gives an answer carrying money. Under it,
+		// marking the card old would be marking a 30-day road route old, which is the exact
+		// conflation issue #289 removed.
+		expect(describeStaleSources([part(5), part(59)], NOW)).toBeUndefined();
+	});
+
+	it('marks the card once a source is past the longest priced TTL in the app', () => {
+		expect(describeStaleSources([part(5), part(21 * 60)], NOW)).toBe('oldest 21 hours ago');
+	});
+
+	it('names it as the oldest, not as the card', () => {
+		// The whole of #289: one age printed over sources whose TTLs range from 5 minutes to
+		// 30 days reads as a claim about all of them.
+		expect(describeStaleSources([part(90)], NOW)).toContain('oldest');
+	});
+
+	it('says nothing when there is nothing to age', () => {
+		expect(describeStaleSources([], NOW)).toBeUndefined();
 	});
 });

@@ -163,10 +163,23 @@ test.describe('no fabricated flights', () => {
 
 			// Issue #56: every value carries which provider produced it. A card with no
 			// provenance footer is an offer nobody can be held to.
-			const provenance = await card
+			//
+			// Issue #312 moved the sentence off the footer as prose, because at 375px that row
+			// showed about a tenth of its own text. It is still on every card and still exactly
+			// the same sentence: it is the accessible name of the control that reveals it, which
+			// is what a reader who never opens the panel hears. So this reads it there, and the
+			// invariant is unchanged. The footer text is still checked first, so a card that
+			// went back to printing it in full would satisfy this too.
+			const footer = await card
 				.locator('.provenance')
 				.innerText()
 				.catch(() => '');
+			const named =
+				(await card
+					.locator('.source-note-trigger')
+					.getAttribute('aria-label')
+					.catch(() => null)) ?? '';
+			const provenance = /via\s+\S/.test(footer) ? footer : named;
 			if (!/via\s+\S/.test(provenance)) {
 				unsourced.push(text.split('\n').slice(0, 4).join(' '));
 				continue;
