@@ -210,13 +210,16 @@ test.describe('itinerary map defects (issue #141)', () => {
 		// `unroutedLegNote`'s own sentence, prefixed. Vienna is not one of the eleven
 		// airports issue #162 keeps a hand-checked city centre for, so nothing routed into
 		// town either and there is genuinely no line to draw.
-		await expect(status).toHaveText(
-			'Nothing to draw. No bed priced for this stopover, and nothing routed into the city either.'
-		);
+		//
+		// Issue #185 took the bed out of these two sentences. It was true and it was also
+		// the third and sixth of eight places on one screen saying it; the row's own fact is
+		// the missing route, and the reason a bed is missing now lives once, in the stopover
+		// row's fold.
+		await expect(status).toHaveText('Nothing to draw. Nothing routed into the city for this stopover.');
 
 		await detail.locator('[data-segment="transfer-to-connection-airport"]').click();
 		await expect(status).toHaveText(
-			'Nothing to draw. No bed priced for this stopover, and nothing routed back from the city either.'
+			'Nothing to draw. Nothing routed back from the city for this stopover.'
 		);
 
 		// And the way back out of a selection, which did not exist before either.
