@@ -12,6 +12,7 @@ import type { HostelworldContinentCountriesResponse, HostelworldProperty } from 
 import continentEurope from './fixtures/hostelworld-continent-europe.json';
 import continentNorthAmerica from './fixtures/hostelworld-continent-north-america.json';
 import propertiesLondon from './fixtures/hostelworld-properties-london.json';
+import propertiesRomeRestricted from './fixtures/hostelworld-properties-rome-restricted-dorms.json';
 
 /**
  * Every fixture is a real response captured on 2026-09-04. The properties one is the
@@ -114,6 +115,25 @@ describe('classifyRoomKind', () => {
 		);
 	});
 
+	it('reads Male Dorm as its own kind, not as an ordinary one (issue #288)', () => {
+		expect(classifyRoomKind({ basicType: 'Male Dorm' })).toBe('male-dorm');
+		expect(classifyRoomKind({ basicType: '', name: 'Basic 2 Bed Male Dorm' })).toBe('male-dorm');
+	});
+
+	it('tests female before male, since "Female Dorm" contains "male"', () => {
+		// The substring trap this ordering exists for. Getting it wrong hands a women-only
+		// room to a party of men and calls the mistake a match.
+		expect(classifyRoomKind({ basicType: 'Female Dorm' })).toBe('female-dorm');
+	});
+
+	it('trusts basicType alone when it is there, rather than the prose beside it', () => {
+		// Hostelworld's taxonomy is structured and the display name is marketing. Matching
+		// both together lets the prose overrule the field that knows the answer.
+		expect(classifyRoomKind({ basicType: 'Mixed Dorm', name: 'Female-friendly 8 Bed' })).toBe(
+			'dorm'
+		);
+	});
+
 	it('falls back to the display name when basicType is missing', () => {
 		expect(classifyRoomKind({ name: '8 Bed Mixed Dorm Ensuite' })).toBe('dorm');
 		expect(classifyRoomKind({ name: 'Twin Room' })).toBe('private');
@@ -122,6 +142,69 @@ describe('classifyRoomKind', () => {
 	it('classifies nothing it does not recognise', () => {
 		expect(classifyRoomKind({})).toBeUndefined();
 		expect(classifyRoomKind({ basicType: 'Camping Pitch' })).toBeUndefined();
+	});
+});
+
+/**
+ * Issue #288: what `lowestAverageDormPricePerNight` is allowed to become.
+ *
+ * The fixture is a real Rome page for 2026-10-06, three nights, one guest, EUR,
+ * price-sorted, cut to the three properties that make the distinction. Every number below
+ * is Hostelworld's, not this repo's. `tools/probe-female-dorms.mjs` re-reads it.
+ *
+ * Before this fix all three sold a mixed "Dorm bed" from the property-level figure. Two of
+ * them list no mixed dorm at all, so the app was pricing a bed the payload says is not
+ * there, and that bed was eligible for every party whatever `females` said, which is why
+ * the female count changed nothing a traveller could see.
+ */
+describe('mapPropertyToStays on a property whose dorms are gender-restricted', () => {
+	const properties = propertiesRomeRestricted.properties as HostelworldProperty[];
+	const named = (name: string) =>
+		properties.find((property) => property.name === name) as HostelworldProperty;
+	const kinds = (property: HostelworldProperty) =>
+		mapPropertyToStays(property, 1)
+			.map((stay) => stay.roomKind)
+			.sort();
+	const priceOf = (property: HostelworldProperty, roomKind: string) =>
+		mapPropertyToStays(property, 1).find((stay) => stay.roomKind === roomKind)?.pricePerNight;
+
+	it('sells no mixed dorm at a property whose every listed dorm is female', () => {
+		// Sandy Hostel lists three Female Dorms and nothing else, yet carries
+		// `lowestAverageDormPricePerNight: "50.00"`. Passing that through as a `dorm`
+		// invented a bed any party could book, at a property where none exists.
+		const sandy = named('Sandy Hostel');
+		expect(sandy.lowestAverageDormPricePerNight?.value).toBe('50.00');
+		expect(kinds(sandy)).toEqual(['female-dorm', 'private']);
+	});
+
+	it('sells no mixed dorm at a property whose every listed dorm is male either', () => {
+		const borgoRipa = named('Borgo Ripa Urban Travel');
+		expect(borgoRipa.lowestAverageDormPricePerNight?.value).toBe('53.35');
+		expect(kinds(borgoRipa)).toEqual(['male-dorm', 'private']);
+		// Priced from its own cheapest room, 62.40, not from the property-level 53.35.
+		expect(priceOf(borgoRipa, 'male-dorm')).toEqual({ minorUnits: 6240, currency: 'EUR' });
+	});
+
+	it('keeps the property-level dorm price where a mixed dorm really is listed', () => {
+		// Il Plancton lists one of each. The property-level 52.01 prices BELOW its cheapest
+		// listed mixed room (61.19), which is the evidence that the room array is not the
+		// property's full inventory, so dropping that figure here would lose a real bed.
+		const ilPlancton = named('Il Plancton');
+		expect(kinds(ilPlancton)).toEqual(['dorm', 'female-dorm', 'male-dorm']);
+		expect(priceOf(ilPlancton, 'dorm')).toEqual({ minorUnits: 5201, currency: 'EUR' });
+		expect(priceOf(ilPlancton, 'female-dorm')).toEqual({ minorUnits: 6779, currency: 'EUR' });
+		expect(priceOf(ilPlancton, 'male-dorm')).toEqual({ minorUnits: 6779, currency: 'EUR' });
+	});
+
+	it('leaves the figure alone when Hostelworld sent no room breakdown at all', () => {
+		// Never observed live. `show-rooms=1` is mandatory and all 91 properties measured
+		// across four cities carried a room list. With no list there is no evidence in
+		// either direction, so the unqualified field stays what it always was.
+		const noRooms: HostelworldProperty = {
+			...named('Sandy Hostel'),
+			rooms: undefined
+		};
+		expect(kinds(noRooms)).toEqual(['dorm', 'private']);
 	});
 });
 

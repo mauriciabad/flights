@@ -11,16 +11,12 @@
  */
 
 import type { Coordinates } from "$lib/domain";
-import {
-  femaleDormFit,
-  isFemaleDormSelectable,
-  isWomenOnlyStay,
-} from "./female-dorm-fit";
+import { isStayBookableByGroup } from "./gendered-room-fit";
 import { stopoverStayCostMinorUnits } from "./stopover-cost";
 import type { PropertyStayOptions, StayOption } from "./types";
 
-/** Whether one option can be THIS group's whole itinerary stay. Every non-female-only
- * room kind is always fine; a female-only dorm goes through `female-dorm-fit.ts`'s rule.
+/** Whether one option can be THIS group's whole itinerary stay. An unrestricted room kind
+ * is always fine; a women-only or men-only one goes through `gendered-room-fit.ts`'s rule.
  * Note this asks "can the group book this at all," not "is this row's classification
  * confirmed" - `StayOption.notStated` is a display concern (the picker still offers a
  * `not-stated` row, just without asserting a fact the source didn't give it), not an
@@ -30,12 +26,11 @@ export function isOptionSelectable(
   travellers: number | undefined,
   females: number | undefined,
 ): boolean {
-  if (!isWomenOnlyStay(option.stay)) return true;
-  return isFemaleDormSelectable(femaleDormFit(travellers, females));
+  return isStayBookableByGroup(option.stay, travellers, females);
 }
 
 /** Every option at a property this group can actually book as their one stay - excludes
- * a female-only dorm the group cannot fully use (issue #27's hard rule when `females`
+ * a women-only or men-only room the group cannot fully use (issue #27's hard rule when `females`
  * is 0, and the mixed-group case besides). */
 export function selectableOptions(
   property: PropertyStayOptions,
@@ -49,7 +44,7 @@ export function selectableOptions(
 
 /** The cheapest option a group can actually book at a property, or `undefined` when
  * every option there is ineligible (e.g. the only room on offer is a female-only dorm
- * and the group has no female travellers) - never a female-only dorm price standing in
+ * and the group has no female travellers) - never a restricted room's price standing in
  * as "cheapest" for a group that cannot book it. */
 export function cheapestSelectableOption(
   property: PropertyStayOptions,
@@ -72,7 +67,7 @@ export function cheapestSelectableOption(
 /** Properties ranked cheapest-first by what this group can actually book there, where
  * cheapest is the whole cost of the stopover's stay: the nights, plus the round trip out
  * to the property (`stopover-cost.ts`). A
- * property with no selectable option (every room is a female-only dorm this group can't
+ * property with no selectable option (every room is a restricted dorm this group can't
  * use) sorts last rather than being dropped outright, so it stays visible with an
  * explanation instead of quietly disappearing. Stable for ties and for two ineligible
  * properties (both keep their input order), since `Array.prototype.sort` in every

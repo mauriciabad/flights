@@ -117,6 +117,10 @@ export function classifyAgodaRoomKind(name: string): RoomKind {
   const isDormLike = /dorm|dormitory|\bbed in\b|shared\s+room/i.test(name);
   if (isDormLike && /\bfemale\b|\bwomen'?s?\b|\bladies\b/i.test(name))
     return "female-dorm";
+  // Issue #288. Female is tested first because "female" contains "male". `\bmale\b`
+  // would not match inside it, but "Female & Male Dorm" would reach both tests and the
+  // wrong answer is the one that admits a man to a women-only room.
+  if (isDormLike && /\bmale\b|\bmen'?s?\b|\bgents\b/i.test(name)) return "male-dorm";
   if (isDormLike) return "dorm";
   return "private";
 }

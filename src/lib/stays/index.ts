@@ -6,8 +6,16 @@
 
 export { default as StayPicker } from './StayPicker.svelte';
 export { default as PickedBed } from './PickedBed.svelte';
-export { femaleDormFit, femaleDormFitMessage, isFemaleDormSelectable } from './female-dorm-fit';
-export type { FemaleDormFit } from './female-dorm-fit';
+export {
+	genderFit,
+	genderFitMessage,
+	isGenderFitSelectable,
+	isStayBookableByGroup,
+	stayGenderFit,
+	stayGenderFitMessage,
+	stayRestrictedTo
+} from './gendered-room-fit';
+export type { GenderFit, RoomGenderRestriction } from './gendered-room-fit';
 export { bedNightlyRate, moneyDifference, stayTotalDelta, stayTotalForNights, formatMoney } from './pricing';
 export type { NightlyRate } from './pricing';
 export { formatDistanceKm, haversineDistanceKm } from './distance';

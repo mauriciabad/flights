@@ -12,7 +12,7 @@
  * `probe-cors.mjs` exists: what curl can reach and what a browser document can reach are
  * different questions, and this app only ever gets the second one.
  *
- * Keyless. `api.m.hostelworld.com` answers an anonymous, header-free request — see
+ * Keyless. `api.m.hostelworld.com` answers an anonymous, header-free request. See
  * `src/lib/providers/stays/hostelworld-client.ts`. Nothing here spends anybody's quota.
  *
  * Usage: node tools/probe-female-dorms.mjs [city] [YYYY-MM-DD] [nights]

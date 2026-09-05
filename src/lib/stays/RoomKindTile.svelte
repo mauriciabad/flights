@@ -15,11 +15,11 @@
 		nights: number;
 		selected: boolean;
 		/** False when this group cannot book this option at all (a female-only dorm that
-		 * does not fit their gender mix - see female-dorm-fit.ts). The tile still shows
+		 * does not fit their gender mix - see gendered-room-fit.ts). The tile still shows
 		 * its price for context, but cannot be picked. */
 		selectable: boolean;
 		/** Why it isn't selectable, or why it was included despite an assumption -
-		 * femaleDormFitMessage's output, passed in rather than recomputed here so this
+		 * stayGenderFitMessage's output, passed in rather than recomputed here so this
 		 * component stays a pure renderer of whatever the caller decided. */
 		caveat?: string;
 		onselect: () => void;

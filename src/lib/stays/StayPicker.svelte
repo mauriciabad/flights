@@ -14,7 +14,7 @@
 	import { Button, Card, EmptyState } from '$lib/components';
 	import RoomKindTile from './RoomKindTile.svelte';
 	import StayAlternativeCard from './StayAlternativeCard.svelte';
-	import { femaleDormFit, femaleDormFitMessage, isWomenOnlyStay } from './female-dorm-fit';
+	import { stayGenderFitMessage } from './gendered-room-fit';
 	import { formatDistanceKm, haversineDistanceKm } from './distance';
 	import { stayTotalDelta, stayTotalForNights } from './pricing';
 	import { cheapestSelectableOption, isOptionSelectable, rankProperties } from './rank';
@@ -34,8 +34,8 @@
 		 * `nightsInConnection`) - what a nightly price is multiplied by for "the stay". */
 		nights: number;
 		/** Mirrors domain/search-query.ts `SearchQuery.travellers`/`.females` exactly,
-		 * defaults included - see female-dorm-fit.ts for how these decide female-only
-		 * dorm eligibility. */
+		 * defaults included - see gendered-room-fit.ts for how these decide women-only and
+		 * men-only room eligibility. */
 		travellers?: number;
 		females?: number;
 		/** Bindable: the Stay currently counted toward the itinerary. Unset picks the
@@ -121,8 +121,8 @@
 	});
 
 	/** Whether anything in the whole candidate list is bookable by this group at all -
-	 * false only when every property's only rooms are a female-only dorm this group
-	 * can't (fully) use, the one case with nothing safe to fall back to. */
+	 * false only when every property's only rooms are a women-only or men-only dorm this
+	 * group can't (fully) use, the one case with nothing safe to fall back to. */
 	const nothingBookable = $derived(properties.length > 0 && ranked.every((g) => !cheapestSelectableOption(g, travellers, females)));
 
 	const distanceToAirportKm = $derived(
@@ -187,7 +187,7 @@
 {:else if nothingBookable}
 	<EmptyState
 		title="No stay this group can book"
-		description="Every property found here only offers a female-only dorm that doesn't fit this group's travellers. Try adding a stopover with more room types, or adjust who's travelling."
+		description="Every property found here only offers a women-only or men-only dorm that doesn't fit this group's travellers. Try adding a stopover with more room types, or adjust who's travelling."
 	/>
 {:else if openGroup && openProperty}
 	<div class="stay-picker">
@@ -233,14 +233,12 @@
 
 				<div class="stay-room-kinds" role="group" aria-label="Room type for this stay">
 					{#each openGroup.options as option (option.stay.roomKind)}
-						{@const fit = isWomenOnlyStay(option.stay) ? femaleDormFit(travellers, females) : 'all'}
 						{@const selectable = isOptionSelectable(option, travellers, females)}
 						{@const caveat =
-							option.stay.roomKind === 'female-dorm'
-								? femaleDormFitMessage(fit, travellers, females)
-								: option.notStated === 'female-only'
-									? "Female-only status not confirmed for this room - it may not fit your whole group."
-									: undefined}
+							stayGenderFitMessage(option.stay, travellers, females) ??
+							(option.notStated === 'female-only'
+								? "Female-only status not confirmed for this room - it may not fit your whole group."
+								: undefined)}
 						<RoomKindTile
 							{option}
 							{nights}
@@ -253,9 +251,13 @@
 				</div>
 
 				{#if hasDormOptions}
+					<!-- Issue #288: this used to point at a "not stated" marker no adapter could ever
+					     set, so it described a distinction the page never drew. What it says now is
+					     checkable on the tiles above it. -->
 					<p class="stay-data-note">
-						Room type and female-only status come from the provider's own listing, which does not always confirm
-						either - treat anything marked "not stated" as unconfirmed rather than settled.
+						A dorm is shown as women-only or men-only when the provider's own room listing says so, and as a
+						plain dorm bed only when that listing holds a mixed room. It is the listing's word, not a guess
+						from the property's name.
 					</p>
 				{/if}
 			</div>
