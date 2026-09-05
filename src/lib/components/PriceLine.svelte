@@ -39,9 +39,28 @@
 	 * total is still a total, so the loudest element on the card is the one that has to
 	 * stop overstating. `from €238.00` is a floor, which is what this number has always
 	 * actually been whenever a part of the trip went unpriced.
+	 *
+	 * ## The estimated ground line, and why it is outside the number above it
+	 *
+	 * Issue #249. The app has held a rate-card range for a short taxi since issue #9 and
+	 * showed it only inside `TransportPicker`, so this receipt said "not priced" about a
+	 * ride the same screen priced one tap deeper. That line now carries the range.
+	 *
+	 * It is a receipt line and not a part of the total, and the three reasons are worth
+	 * stating here because this is the file where somebody will be tempted to add it in.
+	 * The estimate is a range by construction, and collapsing it to a point to fit a
+	 * `Money` invents the precision the range exists to refuse. Its currency is the ride's
+	 * country's, not the search's, so a GBP taxi against a EUR trip is the mix `sumMoney`
+	 * throws on and issue #152 was about. And `totalPrice` is read by
+	 * `results/sort.ts`'s cheapest-first and `results/filters.ts`'s max-price filter, so a
+	 * guess in there quietly decides which trips a traveller never sees.
+	 *
+	 * So the line reads as its own row with an ESTIMATE tag, in the same words and the same
+	 * type as the picker's, and `from` stays on the headline. The traveller gets the size of
+	 * the gap without the total pretending to have closed it.
 	 */
 	import type { Coordinates, Itinerary } from '$lib/domain';
-	import { formatMoney } from '$lib/format';
+	import { formatMoney, formatMoneyRange } from '$lib/format';
 	import { priceBreakdown, rideCount, walkCount } from './itinerary-metrics';
 
 	interface Props {
@@ -61,11 +80,15 @@
 	const breakdown = $derived(priceBreakdown(itinerary, { cityCentre }));
 	const missingGround = $derived(breakdown.unpricedTransferCount > 0);
 	const walkedGround = $derived(breakdown.walkedTransferCount > 0);
-	const isFloor = $derived(breakdown.missingStay || missingGround);
+	const estimatedGround = $derived(breakdown.estimatedGround);
+	/** An estimated ride keeps the headline a floor. The estimate is not inside the total,
+	 * so `€238.00` would still be understating the trip by whatever the taxi costs. */
+	const isFloor = $derived(breakdown.missingStay || missingGround || estimatedGround.length > 0);
 	/** A one-part breakdown is not shown: "Flights €229.00" directly under "€229.00" is a
-	 * row that carries nothing. The two unpriced chips are independent of that, because
-	 * they are the one thing the total genuinely does not say. */
+	 * row that carries nothing. The ground chips are independent of that, because they are
+	 * the one thing the total genuinely does not say. */
 	const showParts = $derived(breakdown.parts.length > 1);
+	const showGroundRows = $derived(walkedGround || estimatedGround.length > 0 || missingGround);
 </script>
 
 <div class={['price-line', `price-line-${size}`]}>
@@ -77,7 +100,7 @@
 			{#if isFloor}<span class="price-from">from</span>{/if}{formatMoney(breakdown.total)}
 		</span>
 	</p>
-	{#if showParts || breakdown.missingStay || walkedGround || missingGround}
+	{#if showParts || breakdown.missingStay || showGroundRows}
 		<ul class="price-parts">
 			{#if showParts}
 				{#each breakdown.parts as part (part.id)}
@@ -109,13 +132,29 @@
 					<span class="price-part-amount">free</span>
 				</li>
 			{/if}
+			{#each estimatedGround as estimate (estimate.currency)}
+				<!-- Issue #249. One row per currency, because a trip with an origin location in
+				     Spain and a stopover in Britain has one leg rated in EUR and another in GBP,
+				     and there is no converter in this app by design. Untinted like the walked
+				     row: this states an amount rather than admitting a gap. The tag is the same
+				     word and the same treatment `TransportPicker` uses for the same range, so a
+				     traveller who opens the picker meets a figure they have already seen. -->
+				<li class="price-part">
+					<span class="price-part-label">Ground, {rideCount(estimate.rides)}</span>
+					<span class="price-part-amount font-mono tabular-nums">
+						{formatMoneyRange(estimate.lowMinorUnits, estimate.highMinorUnits, estimate.currency)}
+						<span class="estimate-tag">estimate</span>
+					</span>
+				</li>
+			{/each}
 			{#if missingGround}
 				<!-- Issue #204, and deliberately the same chip as the bed above rather than a
 				     second treatment: both say "the total is short by this much of the trip",
 				     and two visual languages for one fact would read as two problems. The ride
 				     count is the size of the hole. One leg of four is not the airport run in
-				     both directions. Walked legs are never counted, because walking is free
-				     and this app knows it (`domain/transfer.ts`). -->
+				     both directions. Walked and estimated legs are never counted here: walking
+				     is free and this app knows it, and a rated ride has its own row above
+				     (`domain/transfer.ts`'s `groundFare`). -->
 				<li class="price-part price-part-missing">
 					<span class="price-part-label">Ground, {rideCount(breakdown.unpricedTransferCount)}</span>
 					<span class="price-part-amount">not priced</span>
@@ -213,6 +252,22 @@
 		flex-shrink: 0;
 		font-weight: var(--font-weight-medium);
 		color: var(--color-text-muted);
+	}
+
+	/* Quiet, small caps, sitting under its own amount: the word qualifies the figure
+	   without competing with the two real ones above it. Deliberately the same treatment
+	   `TransportPicker` gives the identical range, so the two screens read as one claim
+	   rather than two. Not warning-tinted — an estimate is a number this app has, not a
+	   hole it is confessing to, and the chip below is the one that means the second thing. */
+	.estimate-tag {
+		display: block;
+		font-family: var(--font-sans);
+		font-size: var(--font-size-xs);
+		font-weight: var(--font-weight-regular);
+		letter-spacing: var(--tracking-wide);
+		line-height: 1.2;
+		text-transform: uppercase;
+		color: var(--color-text-faint);
 	}
 
 	/* Tinted for the same reason `MetricRail`'s caveat is: `--color-warning` measures
