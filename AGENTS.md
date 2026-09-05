@@ -259,6 +259,16 @@ So before you read a surprising failure, read `uptime`. With several agents work
 the load average sits near 17 even when nothing is testing, and a timing-sensitive spec is the
 first thing to break. A failure you cannot reproduce on a quiet machine is not a failure.
 
+Better than disbelieving a failure is not causing one. **Read `uptime` before you start
+`pnpm test:e2e` or `pnpm qa`, and if the one-minute load average is above 40, wait and read it
+again.** Five agents each driving their own headless Chromium took this machine to 89.6 on the
+morning of 5 September 2026, and at that load the suites fail specs that have nothing wrong
+with them. Unit tests and `pnpm check` are cheap enough to run whenever.
+
+When you do report a failure you decided was the machine, name the load average you saw. That
+is the difference between a judgement a reviewer can check and a suite you re-ran until it went
+green.
+
 ## Scratch files are shared, so name yours after yourself
 
 A dozen agents run at once and the scratchpad directory is one directory. An agent drafting
