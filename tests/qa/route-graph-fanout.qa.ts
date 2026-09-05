@@ -32,6 +32,13 @@ import { resultCards, waitForSearchToFinish } from './support/page';
  *
  * Deliberately the arithmetic rather than the 12 this scenario measures today. A number
  * copied from current behaviour can only ratify it, and the point is the shape.
+ *
+ * What this cannot see is the defect issue #255 was about. The bench's candidate set comes
+ * from a fixture and is shorter than the ceiling, so a ceiling that cuts live cities looks
+ * identical here to one that cuts nothing, and #248 could report "itineraries unchanged at
+ * 4" in good faith. The check that does see it is a unit test in
+ * `algorithm/connections.test.ts`, "still asks the bundled route graph about a candidate it
+ * has no request budget left for".
  */
 const MAX_ROUTE_LOOKUPS = 6 * 3 + 1;
 

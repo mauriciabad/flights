@@ -1,11 +1,13 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
 	DEFAULT_MAX_CANDIDATES,
+	ROUTE_PROBES_PER_KEPT_CANDIDATE,
 	findConnectionCandidates,
 	hasKnownDirectRoute,
 	type ConnectionAirportInfo,
 	type ConnectionQuery
 } from './connections';
+import { MAX_ROUTE_LOOKUPS_PER_SESSION } from '../providers/flights/kiwi-public';
 import type { IataAirportCode } from '../domain';
 import { MemoryCacheStore } from '../cache';
 import type { FlightProvider, ProviderId, ProviderResult } from '../providers/types';
@@ -129,6 +131,19 @@ const QUERY: ConnectionQuery = {
 	destinationAirport: ZSF,
 	soonestDeparture: SOONEST_DEPARTURE
 };
+
+describe('the route-probe ceiling', () => {
+	it('leaves the free sources a lookup for the origin', () => {
+		// The ceiling counts candidate probes; a search also spends one on the origin. Both
+		// come out of `kiwi-public.ts`'s per-session budget, and a search that runs past it
+		// makes the reload ask about airports the first load never reached, which is issue
+		// #194 and what `route-graph-fanout.qa.ts` fails on. Raising either number without
+		// the other is the mistake this guards.
+		expect(DEFAULT_MAX_CANDIDATES * ROUTE_PROBES_PER_KEPT_CANDIDATE).toBeLessThan(
+			MAX_ROUTE_LOOKUPS_PER_SESSION
+		);
+	});
+});
 
 describe('findConnectionCandidates', () => {
 	it('never makes a network call: the fake provider is the only thing invoked', async () => {
@@ -368,6 +383,39 @@ describe('findConnectionCandidates', () => {
 			meteredRequestBudget: 10
 		});
 		expect(metered.listDirectDestinations).not.toHaveBeenCalled();
+	});
+
+	it('still asks the bundled route graph about a candidate it has no request budget left for (issue #255)', async () => {
+		// The regression that lost half of docs/ACCEPTANCE.md's route, in miniature. Real
+		// codes and real geography, because both are the point: for BVC to PFO the two
+		// airports that actually fly on to Pafos are the two the geographic ranking puts
+		// last, so a ceiling applied to that ranking cuts exactly them.
+		//
+		// `maxRouteProbes: 1` rather than the shipped default. A test pinned to the default
+		// can only fail when someone lowers it, and the defect was never about the value:
+		// Birmingham and Manchester came 20th and 21st, and no value a hub can live with is
+		// that generous. What has to hold at every ceiling is that running out of request
+		// budget stops the search spending, not the search looking.
+		//
+		// The provider is the only thing that can answer for Amsterdam. Birmingham and
+		// Manchester are in the bundled Ryanair snapshot as flying to Pafos, so they are
+		// answerable without it, and that is the whole difference between them.
+		const provider = createFakeFlightProvider('beyond-budget', {
+			routes: { BVC: ['FCO', 'AMS', 'BHX', 'MAN'], FCO: ['PFO'], AMS: ['PFO'] }
+		});
+
+		const candidates = await findConnectionCandidates(
+			{ originAirport: 'BVC', destinationAirport: 'PFO', soonestDeparture: SOONEST_DEPARTURE },
+			{ flightProviders: [provider], maxRouteProbes: 1 }
+		);
+		const found = candidates.map((c) => c.airportCode);
+
+		expect(found).toContain('BHX');
+		expect(found).toContain('MAN');
+		expect(found).not.toContain('AMS');
+		// Four candidates, one of them inside the budget, so the provider is asked about
+		// the origin and that one and nothing else. Past the ceiling nothing is spent.
+		expect(provider.listDirectDestinations).toHaveBeenCalledTimes(2);
 	});
 
 	it('falls back to the bundled route table when no flightProviders are supplied at all', async () => {
