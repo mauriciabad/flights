@@ -63,6 +63,8 @@
 	import { ItineraryDraft } from '$lib/results/itinerary-draft.svelte';
 	import { getProviderRegistry, stayProviderOutcomes } from '$lib/results/provider-setup';
 	import { createSearchDependencies } from '$lib/results/search-dependencies';
+	import { recordChoice } from '$lib/results/traveller-choices';
+	import type { TravellerChoicesByResult } from '$lib/results/traveller-choices';
 	import {
 		buildConnectionsMapModel,
 		ConnectionsMapDialog,
@@ -337,18 +339,19 @@
 	 */
 	let transitLookupBudget = $state(createTransitLookupBudget());
 	/**
-	 * Issue #224: how many nights the traveller has chosen for a given stopover, for the
-	 * ones they have touched. Absent means "whatever the card opens on", which is the
-	 * shortest length that connection can do.
+	 * Issues #224 and #367: everything the traveller has decided about a stopover, for the
+	 * ones they have touched. An absent field means "whatever the app recommends", so an
+	 * absent record is a card nobody has edited.
 	 *
 	 * It lives here rather than inside `ResultCard` because a card's price, trip strip and
 	 * metric rail all derive from one itinerary, and the pipeline replaces every group on
-	 * every snapshot: a length held inside the card would be overwritten the moment an
-	 * unrelated provider answered. Kept per connection code, the same key `order` and
-	 * `sequenceByConnection` already use, so a card's chosen length survives the group
-	 * behind it being rebuilt.
+	 * every snapshot: a decision held inside the card would be overwritten the moment an
+	 * unrelated provider answered. `chooseNights` below destroys and rebuilds the whole
+	 * `ItineraryDraft` as well, so the draft cannot hold them either. Kept per connection
+	 * code, the same key `order` and `sequenceByConnection` already use, so a card's
+	 * decisions survive the group behind it being rebuilt.
 	 */
-	let chosenNightsByConnection = $state<Record<string, number>>({});
+	let choicesByResult = $state<TravellerChoicesByResult>({});
 
 	// Plain mutable bookkeeping, not `$state`: neither needs to trigger a render on its
 	// own, only the `$state` fields written from inside the functions below do that.
@@ -404,7 +407,7 @@
 	 * `deriveScoredResult`, rather than being rounded to the nearest. See its doc comment.
 	 */
 	function requestedNightsFor(code: string): number | undefined {
-		return chosenNightsByConnection[code] ?? filters.minNights;
+		return choicesByResult[code]?.nights ?? filters.minNights;
 	}
 
 	/**
@@ -419,7 +422,7 @@
 	 * `buildItineraries` multiplied it out per pairing when the search ran.
 	 */
 	function chooseNights(result: ScoredResult, nights: number) {
-		chosenNightsByConnection = { ...chosenNightsByConnection, [result.id]: nights };
+		choicesByResult = recordChoice(choicesByResult, result.id, { nights });
 		// A different length is a different onward flight, so any flight, transfer or bed
 		// picked against the old one was for a trip that no longer exists. The draft starts
 		// again from the trip at the new length, taken off the very option the ladder just
@@ -848,10 +851,10 @@
 		openTimelineId = null;
 		customising = null;
 		drafts.clear();
-		// Issue #224: a new query is a new set of stopovers, so a length chosen for
+		// Issue #224: a new query is a new set of stopovers, so a length or a bed chosen for
 		// yesterday's London card has no business applying to whatever LGW turns out to be
 		// this time.
-		chosenNightsByConnection = {};
+		choicesByResult = {};
 		groupsByConnection = {};
 		candidateCodes = [];
 		confirmedBeyondCap = [];
