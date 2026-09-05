@@ -24,7 +24,7 @@ export { formatDistanceKm, haversineDistanceKm } from './distance';
 export { ROOM_KIND_LABELS } from './room-kind';
 export { cheapestSelectableOption, isOptionSelectable, rankProperties, selectableOptions } from './rank';
 export type { StopoverForRanking } from './rank';
-export { firstBookableStay, recommendedStay } from './recommended-bed';
+export { firstBookableStay, recommendedStay, stopoverForRanking } from './recommended-bed';
 export { groupByProperty, isSameProperty, propertyKey, propertyOf } from './types';
 export { describePriceComparison, describeStayChoices, stayDistances } from './choice';
 export type { StayChoice, StayChoiceContext, StayDistance, StayPriceComparison } from './choice';

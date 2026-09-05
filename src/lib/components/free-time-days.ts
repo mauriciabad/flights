@@ -251,3 +251,18 @@ export function freeTimeCount(itinerary: Pick<Itinerary, 'freeTime' | 'times'>):
 	if (itinerary.times.free <= 0) return 'None';
 	return freeTimeDays(itinerary.freeTime.start, itinerary.freeTime.end)?.count ?? 'No full days';
 }
+
+/**
+ * Days of a stopover the traveller can actually spend in the city: the whole ones, plus
+ * the edge days that keep a usable morning or afternoon.
+ *
+ * Not the same count as the nights, and `stays/stopover-cost.ts` weighs the two
+ * differently: a bed near the centre earns its premium on a day you can go into town, and
+ * a night asleep is not one of those. One definition, because the picker's list, the
+ * panel's recommendation and the page's re-rank on a nights change all have to be
+ * answering the same question about the same trip.
+ */
+export function visitDaysOf(itinerary: Itinerary): number {
+	const days = freeTimeDays(itinerary.freeTime.start, itinerary.freeTime.end);
+	return days ? days.fullDayCount + days.usablePartDayCount : 0;
+}

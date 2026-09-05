@@ -1,8 +1,9 @@
-import type { Coordinates, Property, RoomKind, Stay } from '$lib/domain';
+import type { Airport, Coordinates, Property, RoomKind, Stay } from '$lib/domain';
+import { makeItinerary } from '$lib/results/test-support';
 import { describe, expect, it } from 'vitest';
 import type { StopoverForRanking } from './rank';
 import { rankProperties } from './rank';
-import { firstBookableStay, recommendedStay } from './recommended-bed';
+import { firstBookableStay, recommendedStay, stopoverForRanking } from './recommended-bed';
 import { groupByProperty } from './types';
 
 const AIRPORT: Coordinates = { latitude: 48.11, longitude: 16.57 };
@@ -88,5 +89,48 @@ describe('firstBookableStay', () => {
 				recommendedStay(candidates, stay)
 			);
 		}
+	});
+});
+
+describe('stopoverForRanking', () => {
+	const airport: Airport = {
+		iataCode: 'VIE',
+		name: 'Vienna Airport',
+		coordinates: AIRPORT,
+		city: { name: 'Vienna', coordinates: CITY_CENTRE, country: { isoCode: 'AT', name: 'Austria' } },
+		country: { isoCode: 'AT', name: 'Austria' },
+		sizeClass: 'large'
+	};
+
+	it('measures from the runway and names the city centre separately', () => {
+		const stopover = stopoverForRanking(makeItinerary({ nightsInConnection: 2 }), airport, 3, 1);
+		expect(stopover.connectionAirport).toBe(AIRPORT);
+		expect(stopover.cityCentre).toBe(CITY_CENTRE);
+		expect(stopover.nights).toBe(2);
+		expect(stopover.travellers).toBe(3);
+		expect(stopover.females).toBe(1);
+	});
+
+	it('counts no day out for a stopover whose free time is a night between two flights', () => {
+		const overnight = makeItinerary({
+			nightsInConnection: 1,
+			freeTimeStart: '2026-10-14T22:00:00',
+			freeTimeEnd: '2026-10-15T06:00:00'
+		});
+		expect(stopoverForRanking(overnight, airport).visitDays).toBe(0);
+	});
+
+	it('counts the days a longer stopover actually gives the traveller', () => {
+		const twoDays = makeItinerary({
+			nightsInConnection: 2,
+			freeTimeStart: '2026-10-14T09:00:00',
+			freeTimeEnd: '2026-10-16T20:00:00'
+		});
+		expect(stopoverForRanking(twoDays, airport).visitDays).toBeGreaterThan(1);
+	});
+
+	it('leaves the centre out for an airport with no city point to offer', () => {
+		const noCentre: Airport = { ...airport, city: { ...airport.city, coordinates: undefined } };
+		expect(stopoverForRanking(makeItinerary({}), noCentre).cityCentre).toBeUndefined();
 	});
 });

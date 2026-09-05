@@ -23,7 +23,8 @@
  * on it is theirs, and the panel says which of those two is true.
  */
 
-import type { Duration, Stay } from '$lib/domain';
+import type { Duration, Itinerary, Stay } from '$lib/domain';
+import { recomputeItineraryWaitingTimes } from '$lib/algorithm/build';
 import { isSameProperty, recommendedStay } from '$lib/stays';
 import type { StopoverForRanking } from '$lib/stays';
 
@@ -96,12 +97,56 @@ export function bedForLength(input: {
 	/** `TravellerChoices.stay`. Present means the traveller owns this one. */
 	chosen: Stay | undefined;
 	candidates: readonly Stay[];
-	stopover: StopoverForRanking;
+	/** Absent while this connection's airport has not arrived, which leaves nothing to
+	 * measure a property against. A pin is still honoured; nothing is re-ranked. */
+	stopover: StopoverForRanking | undefined;
 }): BedForLength {
 	const { previous, chosen, candidates, stopover } = input;
 	if (chosen) return { stay: chosen };
+	if (!stopover) return {};
 
 	const stay = recommendedStay(candidates, stopover);
 	if (!stay || !previous || isSameProperty(previous.property, stay.property)) return { stay };
 	return { stay, swap: { from: previous, to: stay, nights: stopover.nights } };
+}
+
+export type StaySwapsByResult = Readonly<Record<string, AutomaticStaySwap>>;
+
+/** Holds one result's unanswered swap, or forgets it when `swap` is absent. */
+export function recordStaySwap(
+	all: StaySwapsByResult,
+	id: string,
+	swap: AutomaticStaySwap | undefined
+): StaySwapsByResult {
+	const next: Record<string, AutomaticStaySwap> = { ...all };
+	if (swap) next[id] = swap;
+	else delete next[id];
+	return next;
+}
+
+/**
+ * The traveller's own airport buffers, put back on a trip that was rebuilt without them.
+ *
+ * This fixes a loss of work that predates issue #367. Changing the nights replaces the
+ * whole draft, and a waiting time edited with the stepper lived only on that draft, so
+ * anyone who set their airport buffer and then pressed the nights ladder silently got the
+ * app's number back. It was the only edit that behaved that way, because `setWaitingTime`
+ * deliberately bypasses `draft.apply` (issue #135: a longer wait does not invalidate a
+ * timetable) and so left nothing behind that a rebuild could carry.
+ *
+ * The connection buffer is clamped to what the new pairing can give it, which is the same
+ * ceiling the stepper enforces: every minute of that buffer is a minute free time gives
+ * up, both carved from one fixed layover. Without the clamp, six hours pinned on a long
+ * stopover would be re-applied to a four-hour layover and take the free time negative.
+ */
+export function reapplyWaitingTimes(itinerary: Itinerary, choices: TravellerChoices): Itinerary {
+	const ceiling = itinerary.connectionWaitingTime + itinerary.freeTime.duration;
+	const connectionWaitingTime =
+		choices.connectionWaitingTime === undefined
+			? undefined
+			: (Math.min(choices.connectionWaitingTime, ceiling) as Duration);
+	return recomputeItineraryWaitingTimes(itinerary, {
+		originWaitingTime: choices.originWaitingTime,
+		connectionWaitingTime
+	});
 }

@@ -11,7 +11,8 @@
  * callers were about to write separately.
  */
 
-import type { Stay } from '$lib/domain';
+import type { Airport, Itinerary, Stay } from '$lib/domain';
+import { visitDaysOf } from '$lib/components/free-time-days';
 import { cheapestSelectableOption, rankProperties } from './rank';
 import type { StopoverForRanking } from './rank';
 import { groupByProperty } from './types';
@@ -50,4 +51,28 @@ export function firstBookableStay(
 		if (cheapest) return cheapest.stay;
 	}
 	return undefined;
+}
+
+/**
+ * What one trip asks of a bed, in the shape `rankProperties` reads.
+ *
+ * Built in one place because the panel's list, the panel's "use the recommended bed" and
+ * the page's re-rank on a nights change have to be asking the same question. The quickest
+ * way for them to stop is for two of them to count the days out differently, or for one to
+ * measure from the runway and another from the city.
+ */
+export function stopoverForRanking(
+	itinerary: Itinerary,
+	connectionAirport: Airport,
+	travellers?: number,
+	females?: number
+): StopoverForRanking {
+	return {
+		travellers,
+		females,
+		connectionAirport: connectionAirport.coordinates,
+		cityCentre: connectionAirport.city.coordinates,
+		nights: itinerary.nightsInConnection,
+		visitDays: visitDaysOf(itinerary)
+	};
 }

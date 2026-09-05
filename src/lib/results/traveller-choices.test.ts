@@ -1,7 +1,13 @@
 import type { Coordinates, Duration, Property, RoomKind, Stay } from '$lib/domain';
 import type { StopoverForRanking } from '$lib/stays';
 import { describe, expect, it } from 'vitest';
-import { bedForLength, recordChoice } from './traveller-choices';
+import { makeItinerary } from './test-support';
+import {
+	bedForLength,
+	reapplyWaitingTimes,
+	recordChoice,
+	recordStaySwap
+} from './traveller-choices';
 
 const AIRPORT: Coordinates = { latitude: 48.11, longitude: 16.57 };
 
@@ -148,5 +154,46 @@ describe('bedForLength', () => {
 		});
 		expect(result.stay).toBeUndefined();
 		expect(result.swap).toBeUndefined();
+	});
+});
+
+describe('recordStaySwap', () => {
+	const swap = { from: TERMINAL_ROOM, to: TOWN_DORM, nights: 3 };
+
+	it('holds one swap per result, without disturbing the others', () => {
+		const held = recordStaySwap({ VIE: swap }, 'LGW', swap);
+		expect(Object.keys(held).sort()).toEqual(['LGW', 'VIE']);
+	});
+
+	it('forgets the swap when the traveller has answered it', () => {
+		expect(recordStaySwap({ LGW: swap }, 'LGW', undefined)).toEqual({});
+	});
+});
+
+describe('reapplyWaitingTimes', () => {
+	it('puts a buffer the traveller typed back on a trip that was rebuilt without it', () => {
+		const rebuilt = makeItinerary({ nightsInConnection: 2 });
+		const withBuffer = reapplyWaitingTimes(rebuilt, { connectionWaitingTime: 240 as Duration });
+		expect(withBuffer.connectionWaitingTime).toBe(240);
+	});
+
+	it('clamps the connection buffer to the free time the new pairing has to give', () => {
+		// The fixture waits 120 minutes and has 300 free, so 420 is the whole layover and a
+		// buffer pinned on a longer stopover cannot exceed it. What free time is left is
+		// `deriveItinerary`'s answer, not this function's, and this fixture's window is not
+		// the 300 minutes it declares.
+		const rebuilt = makeItinerary({ nightsInConnection: 0, freeTimeMinutes: 300 });
+		const withBuffer = reapplyWaitingTimes(rebuilt, { connectionWaitingTime: 600 as Duration });
+		expect(withBuffer.connectionWaitingTime).toBe(420);
+	});
+
+	it('leaves the origin buffer unclamped, since it never borrows from free time', () => {
+		const rebuilt = makeItinerary({});
+		expect(reapplyWaitingTimes(rebuilt, { originWaitingTime: 600 as Duration }).originWaitingTime).toBe(600);
+	});
+
+	it('hands back the same trip when the traveller has typed no buffer at all', () => {
+		const rebuilt = makeItinerary({ nightsInConnection: 1 });
+		expect(reapplyWaitingTimes(rebuilt, { nights: 1 })).toBe(rebuilt);
 	});
 });

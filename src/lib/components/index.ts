@@ -16,7 +16,7 @@ export { legIconKind, transferIconKind } from './mode-icon';
 export { default as TimeCell } from './TimeCell.svelte';
 export { default as TripStrip } from './TripStrip.svelte';
 export { default as StopoverBlock } from './StopoverBlock.svelte';
-export { freeTimeDays } from './free-time-days';
+export { freeTimeDays, visitDaysOf } from './free-time-days';
 export type { FreeTimeDays } from './free-time-days';
 export { default as MetricRail } from './MetricRail.svelte';
 export { default as SourceNote } from './SourceNote.svelte';

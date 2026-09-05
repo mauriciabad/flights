@@ -48,7 +48,7 @@
 	import { DEFAULT_LANDING_TO_TRANSPORT_RULES } from '$lib/domain';
 	import type { ItinerarySegmentId } from '$lib/itinerary-map/segment-id';
 	import { recomputeItineraryWaitingTimes } from '$lib/algorithm/build';
-	import { FlightPicker, Skeleton, StopoverNights, TransportPicker, WaitingTimeStepper, freeTimeDays } from '$lib/components';
+	import { FlightPicker, Skeleton, StopoverNights, TransportPicker, WaitingTimeStepper, visitDaysOf } from '$lib/components';
 	import { segmentStubFor } from '$lib/components/segment-stub';
 	import { unroutedLegNote } from '$lib/components/itinerary-timeline-format';
 	import { waitsOvernight } from '$lib/algorithm/nights';
@@ -72,7 +72,7 @@
 	} from '$lib/search';
 	import { keyStore } from '$lib/keys';
 	import { getProviderRegistry, hasUnconfiguredStayProvider, hasUsableStayProvider } from '$lib/results/provider-setup';
-	import { applyBedToDraft, routeBedForDraft } from '$lib/results/pick-bed';
+	import { applyBedToDraft, journeyForBed, routeBedForDraft } from '$lib/results/pick-bed';
 	import type { ItineraryDraft } from '$lib/results/itinerary-draft.svelte';
 	import type { StopoverLengthOption } from '$lib/results/types';
 	import { StayPicker, describeNoStays, groupByProperty, isSameProperty, propertyKey } from '$lib/stays';
@@ -250,10 +250,7 @@
 	// Days rather than nights, because this is what the stay ranking weighs a walk into
 	// town against: a bed near the centre only earns its keep on a day you can go into
 	// town, and a night asleep is not one of those.
-	const visitDays = $derived.by(() => {
-		const days = freeTimeDays(itinerary.freeTime.start, itinerary.freeTime.end);
-		return days ? days.fullDayCount + days.usablePartDayCount : 0;
-	});
+	const visitDays = $derived(visitDaysOf(itinerary));
 
 	// The ceiling on the connection buffer is real arithmetic: every minute it takes is a
 	// minute free time gives up, both carved from one fixed layover.
@@ -276,8 +273,7 @@
 	 * results page runs when a nights change moves the bed.
 	 */
 	function applyStaySelection(stay: Stay) {
-		const routed = isSameProperty(stay.property, draft.routedProperty);
-		applyBedToDraft(draft, stay, routed ? draft.routedJourney : draft.routingFor(stay), minLayoverTime);
+		applyBedToDraft(draft, stay, journeyForBed(draft, stay), minLayoverTime);
 		if (connectionAirport) void routeBedForDraft(draft, stay, connectionAirport, minLayoverTime);
 	}
 

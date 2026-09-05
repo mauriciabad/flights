@@ -131,3 +131,28 @@ async function routeOnce(
 		return { kind: 'failed', message: error instanceof Error ? error.message : String(error) };
 	}
 }
+
+/**
+ * The journey to hand `applyBedToDraft` for a bed just chosen: the search's own pair when
+ * this is the property the pipeline routed to, and whatever has been gathered for any
+ * other, which for a property nobody has asked about is honestly nothing.
+ */
+export function journeyForBed(draft: ItineraryDraft, stay: Stay): PropertyRouteState {
+	return isSameProperty(stay.property, draft.routedProperty)
+		? draft.routedJourney
+		: draft.routingFor(stay);
+}
+
+/**
+ * Whether two beds are the same room at the same address.
+ *
+ * Reference equality does not answer this: a stay read back out of IndexedDB has been
+ * through JSON, so the candidate list and the itinerary can hold structurally equal copies
+ * of one hostel (issue #188, the same reason `propertyKey` exists). Putting a bed on a
+ * trip that already has it would change nothing on screen and still mark the draft as
+ * edited, which takes away the timetables the search paid for.
+ */
+export function isSameBed(a: Stay | undefined, b: Stay | undefined): boolean {
+	if (!a || !b) return false;
+	return a.roomKind === b.roomKind && isSameProperty(a.property, b.property);
+}
