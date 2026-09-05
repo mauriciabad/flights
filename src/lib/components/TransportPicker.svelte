@@ -34,6 +34,7 @@
 	import type { MissedService } from '../algorithm/transit-schedule';
 	import type { TransitLegAnswer } from '../search/types';
 	import type { TaxiFareEstimate } from '../providers/transfers/taxi-rate-table';
+	import ModeIcon from './ModeIcon.svelte';
 	import {
 		formatCalendarDate,
 		formatClockTime,
@@ -260,7 +261,15 @@
 					onchange={() => handleSelect(row)}
 				/>
 				<span class="row-mode">
-					<span class="row-mode-label">{transferModeLabel(row.transfer.mode)}</span>
+					<span class="row-mode-label">
+						<!-- Issue #119: "the transport picker is text only for Walk, Public transport,
+						     Drive and Taxi". The pictogram is what a traveller reads first; the word
+						     stays because a picture of a bus does not say "public transport" to
+						     everyone, and a screen reader gets the word alone (`ModeIcon` is always
+						     aria-hidden). -->
+						<ModeIcon kind={row.transfer.mode} />
+						{transferModeLabel(row.transfer.mode)}
+					</span>
 					<span class="row-duration">
 						<span class="font-mono tabular-nums">{formatDuration(row.transfer.duration)}</span>
 						{#if summary}<span class="row-summary">&middot; {summary}</span>{/if}
@@ -320,7 +329,10 @@
 									<span class="step-time font-mono tabular-nums">
 										{legStep.departure ? formatClockTime(legStep.departure) : ''}
 									</span>
-									<span class="step-what">{legStep.description ?? transferModeLabel(legStep.mode)}</span>
+									<span class="step-what">
+										<ModeIcon kind={legStep.mode} class="step-icon" />
+										{legStep.description ?? transferModeLabel(legStep.mode)}</span
+									>
 									<span class="step-duration font-mono tabular-nums">{formatDuration(legStep.duration)}</span>
 								</li>
 							{/each}
@@ -508,8 +520,23 @@
 	}
 
 	.row-mode-label {
+		display: flex;
+		align-items: center;
+		gap: var(--space-2);
 		font-size: var(--font-size-sm);
 		font-weight: var(--font-weight-medium);
+	}
+
+	/* The pictogram carries the row's mode, so it takes the row's accent when the row is
+	   the current pick and the label's own colour otherwise. Nothing quieter: at 15px an
+	   icon at --color-text-faint is a smudge. */
+	.picker-row.is-selected .row-mode-label {
+		color: var(--color-accent);
+	}
+
+	.step-what :global(.step-icon) {
+		margin-right: var(--space-1);
+		color: var(--color-text-muted);
 	}
 
 	.row-duration {

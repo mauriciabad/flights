@@ -82,6 +82,8 @@
 	import { ALL_METRIC_IDS } from './itinerary-metrics';
 	import { technicalStopDetail } from './technical-stop-note';
 	import AirlineLogo from './AirlineLogo.svelte';
+	import ModeIcon from './ModeIcon.svelte';
+	import type { ModeIconKind } from './ModeIcon.svelte';
 	import MetricRail from './MetricRail.svelte';
 	import TimeCell from './TimeCell.svelte';
 
@@ -366,6 +368,27 @@
 	></span>
 {/snippet}
 
+<!--
+	Issue #119, the owner's own words: **"every segment is a coloured dot on a vertical line.
+	Flight, transfer, waiting and stopover look the same at a glance; only the heading text
+	tells them apart"**. So the rail draws what the step IS, not a dot in a different colour.
+
+	Colour still separates them, because the dot's colour was doing real work and losing it
+	would be a trade rather than a fix: the flight keeps the accent, the stopover keeps the
+	green block's own colour, an unpriced or unrouted step keeps the muted grey. What is new
+	is that the shape says it too, which is the half a colour cannot do for a reader who
+	cannot separate the two colours or is scanning too fast to compare them.
+
+	Only a start or end place still gets the plain dot from `dot` above. A place is not a
+	mode, and drawing something there would put a picture on the one row that is already the
+	shortest word on screen.
+-->
+{#snippet marker(kind: ModeIconKind, tone: 'accent' | 'stopover' | 'muted')}
+	<span class={['tl-mark', `tl-mark-${tone}`]} aria-hidden="true">
+		<ModeIcon {kind} size="md" />
+	</span>
+{/snippet}
+
 {#snippet optionMark(segment: ItinerarySegmentId)}
 	{@const mark = optionMarks?.[segment]}
 	{#if mark}
@@ -438,7 +461,7 @@
 				</span>
 			{/if}
 		</span>
-		<span class="tl-rail">{@render dot('point')}</span>
+		<span class="tl-rail">{@render marker(transfer?.mode ?? 'walk', 'muted')}</span>
 		<div class="tl-content">
 			{#if transfer}
 				<!-- Issue #220: one summary, not every leg's full description joined by commas.
@@ -524,7 +547,7 @@
 		onkeydown={(event) => handleRowKeydown(event, segment)}
 	>
 		<span class="tl-when"></span>
-		<span class="tl-rail">{@render dot('event')}</span>
+		<span class="tl-rail">{@render marker('wait', 'muted')}</span>
 		<div class="tl-content tl-content-waiting">
 			<!-- The code, not the airport's name: the flight row directly under this one prints
 			     the same code, and the name is one hover (or one aria-label read) away. -->
@@ -598,7 +621,7 @@
 			<TimeCell value={flight.departure} reference={departureReference} align="end" />
 			<TimeCell value={flight.arrival} reference={arrivalReference} align="end" />
 		</span>
-		<span class="tl-rail">{@render dot('event')}</span>
+		<span class="tl-rail">{@render marker('flight', 'accent')}</span>
 		<div class="tl-content">
 			<p class="tl-label tl-label-route">
 				<span class="font-mono">{flight.departureAirport}</span>
@@ -689,7 +712,7 @@
 			<TimeCell value={itinerary.freeTime.start} reference={timeReferences.freeStart} align="end" />
 			<TimeCell value={itinerary.freeTime.end} reference={timeReferences.freeEnd} align="end" />
 		</span>
-		<span class="tl-rail">{@render dot('stopover')}</span>
+		<span class="tl-rail">{@render marker('stopover', 'stopover')}</span>
 		<div class="tl-content tl-stopover">
 			<p class="tl-stopover-nights">
 				<!-- Issue #140: the night count comes off the flight schedule alone (build.ts's
@@ -794,7 +817,10 @@
 		   reading is two lines (clock, then date and offset together) rather than three.
 		   The old 5rem fitted the date alone and pushed the offset onto a line of its own,
 		   which made every flight row four lines tall. */
-		grid-template-columns: 8rem 0.875rem minmax(0, 1fr) auto;
+		/* The rail column carries a 1.5rem marker plate since issue #119, up from the
+		   0.875rem a bare dot needed. It costs the content column 10px, which is the whole
+		   price of a reader knowing what a step is without reading it. */
+		grid-template-columns: 8rem 1.5rem minmax(0, 1fr) auto;
 		column-gap: var(--space-2);
 		row-gap: 0;
 	}
@@ -921,6 +947,46 @@
 		margin-top: 0.2rem;
 		background: var(--color-stopover);
 		box-shadow: 0 0 0 3px var(--color-stopover-bg);
+	}
+
+	/* The marker plate. Opaque on the row's own ground rather than transparent, because the
+	   rail's 2px line runs behind it and a line crossing a pictogram makes it unreadable at
+	   18px. Circular, matching the dot it replaces, so a place row's dot and a flight row's
+	   plane still read as points on one line. */
+	.tl-mark {
+		position: relative;
+		z-index: 1;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 1.5rem;
+		height: 1.5rem;
+		margin-top: 0.05rem;
+		border: 1px solid var(--color-border-strong);
+		border-radius: var(--radius-full);
+		background: var(--color-surface);
+	}
+
+	.tl-mark-accent {
+		border-color: var(--color-accent);
+		background: var(--color-accent-muted);
+		color: var(--color-accent);
+	}
+
+	.tl-mark-stopover {
+		border-color: var(--color-stopover);
+		background: var(--color-stopover-bg);
+		color: var(--color-stopover);
+	}
+
+	.tl-mark-muted {
+		color: var(--color-text-muted);
+	}
+
+	/* On the selected row the plate's ground is the row's own tint, so an opaque plate in
+	   --color-surface reads as a hole punched in it. */
+	.tl-row.is-selected .tl-mark-muted {
+		background: var(--color-bg-elevated);
 	}
 
 	/* ---------------------------------------------------------------------
@@ -1245,7 +1311,7 @@
 	 * ------------------------------------------------------------------- */
 	@media (max-width: 34rem) {
 		.itinerary-timeline {
-			grid-template-columns: 0.875rem minmax(0, 1fr) auto;
+			grid-template-columns: 1.5rem minmax(0, 1fr) auto;
 		}
 
 		.tl-row {

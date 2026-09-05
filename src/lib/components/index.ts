@@ -9,6 +9,8 @@ export { default as Chip } from './Chip.svelte';
 export { default as Flag } from './Flag.svelte';
 export { default as Card } from './Card.svelte';
 export { default as AirlineLogo } from './AirlineLogo.svelte';
+export { default as ModeIcon } from './ModeIcon.svelte';
+export type { ModeIconKind } from './ModeIcon.svelte';
 export { default as TimeCell } from './TimeCell.svelte';
 export { default as TripStrip } from './TripStrip.svelte';
 export { default as StopoverBlock } from './StopoverBlock.svelte';

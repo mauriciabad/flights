@@ -415,9 +415,11 @@ describe('TransportPicker: selection', () => {
 
 		const radios = [...root.querySelectorAll<HTMLInputElement>('input[type="radio"]')];
 		const stillCheckedRadio = radios.find((radio) => radio.checked);
-		expect(stillCheckedRadio?.closest('.picker-row')?.querySelector('.row-mode-label')?.textContent).toBe(
-			'Walk'
-		);
+		// Trimmed: since issue #119 the label is a `ModeIcon` and the word, so the text node
+		// carries the whitespace between them.
+		expect(
+			stillCheckedRadio?.closest('.picker-row')?.querySelector('.row-mode-label')?.textContent?.trim()
+		).toBe('Walk');
 		expect(selectCount).toBe(0); // opening the citation must never fire onselect
 		expect(root.querySelector('.taxi-citation')?.hasAttribute('open')).toBe(true); // it did open
 	});
