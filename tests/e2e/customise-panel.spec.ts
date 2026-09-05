@@ -143,6 +143,25 @@ test.describe('the customise rail on a wide screen', () => {
 		await expect(customiser(page)).not.toHaveAttribute('data-segment', 'outbound-flight');
 	});
 
+	test('the keyboard is handed the panel, and handed back the segment', async ({ page }) => {
+		const card = await openResults(page);
+		const hits = card.locator('.trip-strip-hit');
+
+		await hits.first().focus();
+		await page.keyboard.press('ArrowRight');
+		await page.keyboard.press('Enter');
+
+		// Without this the traveller would have to tab past every remaining card, the
+		// provider strip and the widen panel to reach the control they just asked for: the
+		// rail is the last thing in the layout.
+		const rail = page.getByRole('complementary', { name: 'Customise the selected trip' });
+		await expect(rail).toBeFocused();
+
+		// And back again, rather than to the top of the document.
+		await page.keyboard.press('Escape');
+		await expect(hits.nth(1)).toBeFocused();
+	});
+
 	test('a waiting time edited in the rail changes the totals in the timeline', async ({ page }) => {
 		const card = await openResults(page);
 		await openTimeline(page);

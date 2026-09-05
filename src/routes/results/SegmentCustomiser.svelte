@@ -502,6 +502,11 @@
 		flex-direction: column;
 		gap: var(--space-4);
 		min-width: 0;
+		/* The pickers inside decide their own layout from THIS width, not the window's. In
+		   the rail that is about 300px of a 1280px screen, and a viewport query answered the
+		   wrong question: four columns of flight detail overlapped inside a column that had
+		   room for two. */
+		container-type: inline-size;
 	}
 
 	.customiser-idle {

@@ -456,7 +456,13 @@
 		white-space: nowrap;
 	}
 
-	@media (max-width: 32rem) {
+	/* A container query, not a viewport one. Issue #278 moved this picker into a 20rem rail
+	   beside the results on a wide screen, so "is there room for four columns" stopped
+	   being a question about the window: at 1280px the viewport said yes and the 300px
+	   column it was actually drawn in said no, and the four columns overlapped. The panel
+	   that hosts it declares `container-type: inline-size`, and it is the only thing that
+	   renders this component. */
+	@container (max-width: 32rem) {
 		.picker-row {
 			grid-template-columns: 1fr auto;
 			grid-template-areas:

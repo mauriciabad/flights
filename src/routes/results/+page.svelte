@@ -18,7 +18,7 @@
 	 * provider does. A link carrying `from=BCN&to=BCN` or `people=0` used to run a full
 	 * search to discover it could not answer.
 	 */
-	import { untrack } from 'svelte';
+	import { tick, untrack } from 'svelte';
 	import { SvelteMap } from 'svelte/reactivity';
 	import { browser } from '$app/environment';
 	import { goto } from '$app/navigation';
@@ -709,14 +709,56 @@
 	 * nothing picked rather than closing it: on a wide screen the rail is always there,
 	 * and on a phone the sheet then closes on its own because it only mounts with a
 	 * segment.
+	 *
+	 * ## Focus goes to the panel, and comes back
+	 *
+	 * The panel is the last thing in the layout on a wide screen and a fixed overlay on a
+	 * phone, so without this a keyboard user who pressed Enter on a strip segment would
+	 * have to tab through every remaining card, the provider strip and the widen panel to
+	 * reach the control they just asked for. Moving focus in response to a deliberate
+	 * activation is the ordinary contract for a panel a control opens; what makes it safe
+	 * is the other half, that closing it puts focus back on the segment that opened it.
+	 *
+	 * The panel is a `tabindex="-1"` region rather than a control, so a mouse user sees
+	 * nothing change: there is no focus ring on it and nothing about the pointer path
+	 * moves.
 	 */
 	function selectSegment(id: string, streamed: Itinerary, segment: ItinerarySegmentId | null) {
 		draftFor(id, streamed);
+		const opening = segment !== null;
+		if (opening && !focusReturn && document.activeElement instanceof HTMLElement) {
+			focusReturn = document.activeElement;
+		}
 		customising = { resultId: id, segment };
+		if (opening) void focusPanel();
+		else restoreFocus();
 	}
 
 	function closeCustomiser() {
 		customising = null;
+		restoreFocus();
+	}
+
+	/** The control the panel was opened from, so closing it hands the traveller back to
+	 * the segment they were on rather than to the top of the document. Plain bookkeeping:
+	 * nothing renders from it. */
+	let focusReturn: HTMLElement | null = null;
+	let panelEl = $state<HTMLElement>();
+
+	async function focusPanel() {
+		// After the render that mounts or refills it. `tick` rather than an effect: this
+		// runs from a click handler and writes no state, so there is no reactive loop to
+		// create (AGENTS.md, the `$effect` trap).
+		await tick();
+		panelEl?.focus();
+	}
+
+	function restoreFocus() {
+		const target = focusReturn;
+		focusReturn = null;
+		// A card can have been re-ordered or filtered away while the panel was open, and
+		// focusing a detached node silently drops the traveller at the top of the page.
+		if (target && document.contains(target)) target.focus();
 	}
 
 	/**
@@ -1100,7 +1142,13 @@
 				     at the foot of this file, and mounting both would put two copies of every
 				     picker on the page. -->
 				{#if sidebarIsColumn}
-					<aside class="results-customise" aria-label="Customise the selected trip">
+					<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+					<aside
+						bind:this={panelEl}
+						class="results-customise"
+						aria-label="Customise the selected trip"
+						tabindex="-1"
+					>
 						<div class="results-customise-head">
 							<h2 class="results-customise-title">Customise</h2>
 							{#if customisingResult}
@@ -1126,10 +1174,12 @@
      `<aside>` rather than `role="dialog"`: it is a complementary panel beside the page,
      not a thing to be trapped in. -->
 {#if sheetIsOpen}
+	<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 	<aside
 		bind:this={sheetEl}
 		class="customise-sheet"
 		aria-label="Customise the selected trip"
+		tabindex="-1"
 		style:translate={sheetDragY > 0 ? `0 ${sheetDragY}px` : undefined}
 		style:transition={sheetDragY > 0 ? 'none' : undefined}
 	>
@@ -1436,6 +1486,14 @@
 		font-size: var(--font-size-sm);
 		color: var(--color-text-muted);
 		text-wrap: pretty;
+	}
+
+	/* Focused on open so a keyboard reaches the controls it just asked for, which is why
+	   it must not draw a ring: it is a region, not a control, and a ring here would read as
+	   "you are on something you can press". */
+	.results-customise:focus,
+	.customise-sheet:focus {
+		outline: none;
 	}
 
 	.customise-sheet {
