@@ -2,6 +2,7 @@ import { test, expect } from './support/fixtures';
 import { FIXTURE_FLIGHT_NUMBERS, FIXTURE_PRICES } from './support/fixture-markers';
 import { mockAllKeylessProviders, mockOsrm, routeRyanairFlights } from './support/providers';
 import { customiser, openTimeline } from './support/results-ui';
+import { waitForSearchToSettle } from '../shared/search-wait';
 
 /**
  * Issue #119's second half, in a real browser against a real build.
@@ -53,7 +54,7 @@ test.describe('a road route too slow for the distance (issue #119)', () => {
 		);
 
 		await page.goto('/results/?dep=2027-03-08&arr=2027-03-27&from=BCN&to=TLL');
-		await expect(page.getByText('still searching')).toHaveCount(0, { timeout: 20_000 });
+		await waitForSearchToSettle(page, { timeout: 20_000 });
 		await openTimeline(page);
 
 		const detail = page.locator('.result-detail');

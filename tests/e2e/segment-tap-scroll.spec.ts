@@ -3,6 +3,7 @@ import type { Page } from './support/fixtures';
 import { FIXTURE_FLIGHT_NUMBERS, FIXTURE_PRICES } from './support/fixture-markers';
 import { mockAllKeylessProviders, routeRyanairFlights } from './support/providers';
 import { pickStripSegment } from './support/results-ui';
+import { waitForSearchToSettle } from '../shared/search-wait';
 
 /**
  * Where the page is after tapping a segment, in pixels. Issue #308.
@@ -51,9 +52,9 @@ async function openResults(page: Page) {
 		route.fulfill({ status: 200, contentType: 'application/json', body: EMPTY_MAP_STYLE })
 	);
 	await page.goto('/results/?dep=2027-03-08&arr=2027-03-27&from=BCN&to=TLL');
-	// A reading taken while "still searching" is on screen is a reading of a card that has
-	// not reached its real height, in a list that has not reached its real length.
-	await expect(page.getByText('still searching')).toHaveCount(0, { timeout: 20_000 });
+	// A reading taken before the search settles is a reading of a card that has not reached
+	// its real height, in a list that has not reached its real length.
+	await waitForSearchToSettle(page, { timeout: 20_000 });
 	await expect(page.locator('.result-card').first()).toBeVisible();
 }
 

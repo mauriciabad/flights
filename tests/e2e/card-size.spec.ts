@@ -3,6 +3,7 @@ import type { Page } from './support/fixtures';
 import { FIXTURE_FLIGHT_NUMBERS, FIXTURE_PRICES } from './support/fixture-markers';
 import { mockAllKeylessProviders, mockHostelworld, routeRyanairFlights } from './support/providers';
 import type { RyanairFlightSpec } from './support/providers';
+import { waitForSearchToSettle } from '../shared/search-wait';
 
 /**
  * How tall one result card is on a 375px phone, asserted rather than remembered.
@@ -112,7 +113,7 @@ test.describe('result card size', () => {
 
 		await page.setViewportSize({ width: 375, height: 812 });
 		await page.goto('/results/?dep=2027-03-08&arr=2027-03-27&from=BCN&to=TLL');
-		await expect(page.getByText('still searching')).toHaveCount(0, { timeout: 20_000 });
+		await waitForSearchToSettle(page, { timeout: 20_000 });
 
 		const card = page.locator('.result-card').first();
 		await expect(card).toBeVisible();
@@ -127,7 +128,7 @@ test.describe('result card size', () => {
 
 		await page.setViewportSize({ width: 375, height: 812 });
 		await page.goto(WORST_CASE_URL);
-		await expect(page.getByText('still searching')).toHaveCount(0, { timeout: 30_000 });
+		await waitForSearchToSettle(page, { timeout: 30_000 });
 		await expect(page.locator('.result-card').first()).toBeVisible();
 
 		// Every card, not the first one. Which itinerary the pipeline ranks top is not this

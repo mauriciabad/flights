@@ -2,6 +2,7 @@ import { test, expect, type Page } from './support/fixtures';
 import { FIXTURE_FLIGHT_NUMBERS, FIXTURE_PRICES } from './support/fixture-markers';
 import { mockAllKeylessProviders, routeRyanairFlights } from './support/providers';
 import { openTimeline } from './support/results-ui';
+import { waitForSearchToSettle } from '../shared/search-wait';
 
 /**
  * Issue #286: the way to the map's "nothing to draw, and here is why" sentence.
@@ -93,7 +94,7 @@ async function searchWithAnUnroutableStopover(page: Page): Promise<void> {
 		toLoc: 'FIXTURE end point@59.4370,24.7536'
 	});
 	await page.goto(`/results/?${params}`);
-	await expect(page.getByText('still searching')).toHaveCount(0, { timeout: 30_000 });
+	await waitForSearchToSettle(page, { timeout: 30_000 });
 	// #278 took the card-level expand away: the trip strip's own stopover caption unfolds
 	// the timeline now, and `openTimeline` is where that gesture lives for every spec.
 	await openTimeline(page);

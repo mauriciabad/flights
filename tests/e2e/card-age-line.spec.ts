@@ -2,6 +2,7 @@ import { test, expect } from './support/fixtures';
 import type { Page } from './support/fixtures';
 import { FIXTURE_FLIGHT_NUMBERS, FIXTURE_PRICES } from './support/fixture-markers';
 import { mockAllKeylessProviders, mockHostelworld, routeRyanairFlights } from './support/providers';
+import { waitForSearchToSettle } from '../shared/search-wait';
 
 /**
  * Issue #289: "a card says fetched 1 hour ago one minute after every flight price on it was
@@ -119,7 +120,7 @@ test.describe('issue #289: the footer ages each source separately', () => {
 		);
 
 		await page.goto('/results/?dep=2027-03-08&arr=2027-03-27&from=BCN&to=TLL');
-		await expect(page.getByText('still searching')).toHaveCount(0, { timeout: 20_000 });
+		await waitForSearchToSettle(page, { timeout: 20_000 });
 
 		const source = page.locator('.result-card').first().locator('.provenance-source');
 		await expect(source).toBeVisible();
@@ -146,7 +147,7 @@ test.describe('issue #289: the footer ages each source separately', () => {
 		);
 
 		await page.reload();
-		await expect(page.getByText('still searching')).toHaveCount(0, { timeout: 20_000 });
+		await waitForSearchToSettle(page, { timeout: 20_000 });
 		await expect(source).toBeVisible();
 		const line = await sourceSentence(page);
 

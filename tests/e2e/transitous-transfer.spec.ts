@@ -6,6 +6,7 @@ import {
 	routeRyanairFlights
 } from './support/providers';
 import { openTimeline } from './support/results-ui';
+import { waitForSearchToSettle } from '../shared/search-wait';
 
 /**
  * Issue #242. Until this file, nothing anywhere asserted a Transitous transfer: not that
@@ -67,7 +68,7 @@ test.describe('a Transitous timetable reaches the timeline (issue #242)', () => 
 		);
 
 		await page.goto('/results/?dep=2027-03-08&arr=2027-03-27&from=BCN&to=TLL');
-		await expect(page.getByText('still searching')).toHaveCount(0, { timeout: 20_000 });
+		await waitForSearchToSettle(page, { timeout: 20_000 });
 
 		const card = page.locator('.result-card').first();
 		await expect(card).toBeVisible();

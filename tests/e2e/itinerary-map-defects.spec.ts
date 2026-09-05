@@ -2,6 +2,7 @@ import { test, expect, type Page } from './support/fixtures';
 import { FIXTURE_FLIGHT_NUMBERS, FIXTURE_PRICES } from './support/fixture-markers';
 import { mockAllKeylessProviders, routeRyanairFlights } from './support/providers';
 import { openTimeline } from './support/results-ui';
+import { waitForSearchToSettle } from '../shared/search-wait';
 
 /**
  * Issue #141: three map defects, each with an assertion that fails on the code before the
@@ -106,7 +107,7 @@ async function openDetail(page: Page, options: { originLocation?: boolean } = {}
 		? '&fromLoc=' + encodeURIComponent('Barcelona centre@41.3870,2.1700')
 		: '';
 	await page.goto(`/results/?dep=2027-03-08&arr=2027-03-27&from=BCN&to=TLL${origin}`);
-	await expect(page.getByText('still searching')).toHaveCount(0, { timeout: 20_000 });
+	await waitForSearchToSettle(page, { timeout: 20_000 });
 	await openTimeline(page);
 
 	const detail = page.locator('.result-detail');

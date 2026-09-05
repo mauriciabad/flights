@@ -2,6 +2,7 @@ import { test, expect } from './support/fixtures';
 import { FIXTURE_FLIGHT_NUMBERS, FIXTURE_PRICES } from './support/fixture-markers';
 import { mockAllKeylessProviders, mockOsrm, routeRyanairFlights } from './support/providers';
 import { customiser, openTimeline } from './support/results-ui';
+import { waitForSearchToSettle } from '../shared/search-wait';
 
 /**
  * Issue #246, in a real browser against a real build, which is where this bug lived and
@@ -49,7 +50,7 @@ test.describe('a transfer longer than the rate cards cover (issue #246)', () => 
 		);
 
 		await page.goto('/results/?dep=2027-03-08&arr=2027-03-27&from=BCN&to=TLL');
-		await expect(page.getByText('still searching')).toHaveCount(0, { timeout: 20_000 });
+		await waitForSearchToSettle(page, { timeout: 20_000 });
 		await openTimeline(page);
 
 		const detail = page.locator('.result-detail');

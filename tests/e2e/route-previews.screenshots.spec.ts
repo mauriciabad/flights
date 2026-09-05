@@ -2,6 +2,7 @@ import { test, expect, type Page } from './support/fixtures';
 import { FIXTURE_FLIGHT_NUMBERS, FIXTURE_PRICES } from './support/fixture-markers';
 import { mockAllKeylessProviders, routeRyanairFlights } from './support/providers';
 import { openTimeline } from './support/results-ui';
+import { waitForSearchToSettle } from '../shared/search-wait';
 
 /**
  * The pictures in `docs/screenshots/`, captured rather than described (issue #280).
@@ -68,7 +69,7 @@ async function openResults(page: Page): Promise<void> {
 		toLoc: 'FIXTURE end point@59.4370,24.7536'
 	});
 	await page.goto(`/results/?${params}`);
-	await expect(page.getByText('still searching')).toHaveCount(0, { timeout: 20_000 });
+	await waitForSearchToSettle(page, { timeout: 20_000 });
 }
 
 for (const viewport of VIEWPORTS) {

@@ -34,7 +34,7 @@
 
 import { test, expect } from './support/bench';
 import { resultsUrl } from './support/scenario';
-import { provenanceLines, resultCards, waitForSearchToFinish } from './support/page';
+import { provenanceLines, resultCards, waitForSearchToSettle } from './support/page';
 
 /** Long enough that no network answer can arrive inside the window a cache hit has to paint
  * in, short enough that a genuinely cold reload still finishes before the test times out. */
@@ -59,7 +59,7 @@ test.describe('cached answers are served, not discarded', () => {
 	test('a reload inside the TTL paints from cache before the network answers', async ({ page, bench }) => {
 		await page.clock.install({ time: new Date('2026-09-20T09:00:00Z') });
 		await page.goto(resultsUrl());
-		await waitForSearchToFinish(page);
+		await waitForSearchToSettle(page);
 		expect(await resultCards(page).count(), 'the first search found nothing to cache').toBeGreaterThan(0);
 
 		bench.resetLog();
@@ -85,7 +85,7 @@ test.describe('cached answers are served, not discarded', () => {
 	test('a reload past the fare TTL still shows the previous answer, with its age', async ({ page, bench }) => {
 		await page.clock.install({ time: new Date('2026-09-20T09:00:00Z') });
 		await page.goto(resultsUrl());
-		await waitForSearchToFinish(page);
+		await waitForSearchToSettle(page);
 		const before = await resultCards(page).count();
 		expect(before, 'the first search found nothing to cache').toBeGreaterThan(0);
 

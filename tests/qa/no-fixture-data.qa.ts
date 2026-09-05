@@ -29,7 +29,7 @@ import { test, expect } from './support/bench';
 import { LIVE_MODE } from './support/bench';
 import { FIXTURE_TEXT_TOKEN, describeMarkerHits, findTestMarkers, hasTestMarker } from './support/markers';
 import { resultsUrl } from './support/scenario';
-import { waitForSearchToFinish } from './support/page';
+import { waitForSearchToSettle } from './support/page';
 
 test.describe('no fixture data in a production answer', () => {
 	test('the marker detector fires, and only on marked text', () => {
@@ -47,7 +47,7 @@ test.describe('no fixture data in a production answer', () => {
 
 		await withKeys();
 		await page.goto(resultsUrl());
-		await waitForSearchToFinish(page);
+		await waitForSearchToSettle(page);
 
 		// Only bodies that genuinely came off the network. The metered providers are answered
 		// from a recording even here, so including them would just find the bench's own marks.
@@ -75,7 +75,7 @@ test.describe('no fixture data in a production answer', () => {
 
 		await withKeys();
 		await page.goto(resultsUrl());
-		await waitForSearchToFinish(page);
+		await waitForSearchToSettle(page);
 
 		expect(bench.bodies.length, 'no provider was called, so this proves nothing').toBeGreaterThan(0);
 

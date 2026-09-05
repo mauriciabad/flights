@@ -2,6 +2,7 @@ import { test, expect } from './support/fixtures';
 import { FIXTURE_FLIGHT_NUMBERS, FIXTURE_PRICES } from './support/fixture-markers';
 import { mockAllKeylessProviders, routeRyanairFlights } from './support/providers';
 import { customiser, pickStripSegment } from './support/results-ui';
+import { waitForSearchToSettle } from '../shared/search-wait';
 
 /**
  * Issue #317, on the real page rather than on a mounted component.
@@ -77,7 +78,7 @@ test.describe('alternative flights across several dates (issue #317)', () => {
 
 		await page.setViewportSize({ width: 1280, height: 900 });
 		await page.goto(RESULTS_URL);
-		await expect(page.getByText('still searching')).toHaveCount(0, { timeout: 20_000 });
+		await waitForSearchToSettle(page, { timeout: 20_000 });
 		await expect(page.locator('.result-card').first()).toBeVisible();
 		await pickStripSegment(page, 'flight');
 		await expect(customiser(page).getByRole('radiogroup', { name: /Outbound/ })).toBeVisible();

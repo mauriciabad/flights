@@ -1,6 +1,7 @@
 import { test, expect } from './support/fixtures';
 import { FIXTURE_FLIGHT_NUMBERS, FIXTURE_NAMES, FIXTURE_PRICES } from './support/fixture-markers';
 import { mockAllKeylessProviders, OSRM_BASE_URL, routeRyanairFlights } from './support/providers';
+import { waitForSearchToSettle } from '../shared/search-wait';
 
 /**
  * Issue #132: `mockOsrm` used to intercept `router.project-osrm.org`, a host
@@ -65,7 +66,7 @@ test.describe('mockOsrm intercepts the host the adapter really calls (issue #132
 			fromLoc: 'FIXTURE start point@41.3851,2.1734'
 		});
 		await page.goto(`/results/?${params}`);
-		await expect(page.getByText('still searching')).toHaveCount(0, { timeout: 20_000 });
+		await waitForSearchToSettle(page, { timeout: 20_000 });
 
 		// The property issue #132 broke silently: a request that was meant for OSRM must
 		// actually land on the host mockOsrm intercepts, not on the host this adapter

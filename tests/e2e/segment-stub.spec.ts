@@ -2,6 +2,7 @@ import { test, expect } from './support/fixtures';
 import type { Page } from './support/fixtures';
 import { FIXTURE_FLIGHT_NUMBERS, FIXTURE_PRICES } from './support/fixture-markers';
 import { mockAllKeylessProviders, mockHostelworld, routeRyanairFlights } from './support/providers';
+import { waitForSearchToSettle } from '../shared/search-wait';
 
 /**
  * Issue #227, and specifically the half of it a unit test cannot reach.
@@ -53,7 +54,7 @@ async function openResults(page: Page) {
 		);
 
 	await page.goto(RESULTS);
-	await expect(page.getByText('still searching')).toHaveCount(0, { timeout: 20_000 });
+	await waitForSearchToSettle(page, { timeout: 20_000 });
 	const card = page.locator('.result-card').first();
 	await expect(card).toBeVisible();
 	return card;

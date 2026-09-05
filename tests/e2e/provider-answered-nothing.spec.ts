@@ -1,5 +1,6 @@
 import { test, expect } from './support/fixtures';
 import { mockAllKeylessProviders } from './support/providers';
+import { waitForSearchToSettle } from '../shared/search-wait';
 
 /**
  * Issue #130. On the owner's reference route (BVC to PFO) Ryanair answered twice, both
@@ -35,7 +36,7 @@ test.describe('providers that answer with nothing (issue #130)', () => {
 		// search having answered with data. BVC is the case where the route graph is the
 		// entire search.
 		await page.goto('/results/?dep=2026-10-06&arr=2026-10-12&from=BVC&to=PFO');
-		await expect(page.getByText('still searching')).toHaveCount(0, { timeout: 15_000 });
+		await waitForSearchToSettle(page, { timeout: 15_000 });
 
 		// The first lie: Ryanair answered, so the strip must not claim nothing was called.
 		const ryanair = page.locator('[data-testid="provider-status"][data-provider="ryanair"]');
@@ -70,7 +71,7 @@ test.describe('providers that answer with nothing (issue #130)', () => {
 		await mockAllKeylessProviders(page.context());
 
 		await page.goto('/results/?dep=2026-10-01&arr=2026-10-20&from=BCN&to=TLL');
-		await expect(page.getByText('still searching')).toHaveCount(0, { timeout: 15_000 });
+		await waitForSearchToSettle(page, { timeout: 15_000 });
 
 		// Same route, same page, only the provider's answer differs — which is the whole
 		// distinction issue #130 says a traveller must be able to see.
