@@ -122,6 +122,27 @@
 	}: Props = $props();
 
 	const timelineId = $props.id();
+
+	/**
+	 * Issue #278: on a phone the customise panel is a sheet at the foot of the screen, and
+	 * a reader who taps a 3px transfer seam and gets a panel sitting on top of it has lost
+	 * the context that made the tap mean anything.
+	 *
+	 * `scroll-margin-bottom` below inflates this block's box by the sheet's own height for
+	 * scrolling purposes only, so `block: 'nearest'` lands the strip above the sheet rather
+	 * than merely inside the viewport. On a wide screen the margin is zero and this call is
+	 * a no-op for a strip already on screen.
+	 *
+	 * An effect rather than a handler because the selection arrives as a prop: it can be
+	 * set from the timeline or the map as well as from the strip. It reads props and calls
+	 * a DOM method, and writes no state, so it cannot retrigger itself (AGENTS.md, the
+	 * `$effect` trap).
+	 */
+	let stripEl = $state<HTMLElement>();
+	$effect(() => {
+		if (!selectedSegmentId || !stripEl) return;
+		stripEl.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+	});
 	const connectionCode = $derived(connectionAirportCode(itinerary));
 
 	/**
@@ -524,9 +545,9 @@
 	}
 
 	/* A plain box around the strip, purely so there is something to scroll to and something
-	   to hang a scroll margin on. It changes no geometry: the strip is a flex column and this
-	   wrapper is a block of exactly its height. NOT `display: contents`, which would leave it
-	   with no box and make `scrollIntoView` a no-op. */
+	   to hang a scroll margin on. It changes no geometry: the strip is a flex column and
+	   this wrapper is a block of exactly its height. NOT `display: contents`, which would
+	   leave it with no box and make `scrollIntoView` a no-op. */
 	.card-strip {
 		min-width: 0;
 	}
@@ -610,6 +631,14 @@
 		.card-main {
 			padding: var(--space-3) var(--space-4);
 			gap: var(--space-3);
+		}
+
+		/* The customise sheet's own ceiling (`min(50dvh, 26rem)` on the results page) plus
+		   a little air. `scrollIntoView({ block: 'nearest' })` treats this as part of the
+		   strip's box, so a selected segment scrolls clear of the sheet instead of sitting
+		   underneath it. */
+		.card-strip {
+			scroll-margin-bottom: calc(min(50dvh, 26rem) + var(--space-4));
 		}
 
 		/* MetricRail's auto-fit grid seats three cells at this width, which leaves the

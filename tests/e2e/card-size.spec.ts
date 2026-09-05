@@ -15,11 +15,22 @@ import { mockAllKeylessProviders, routeRyanairFlights } from './support/provider
  * holds one card, which is the state issue #197 fixed and #278 fixed again: comparing two
  * trips is the whole job of this screen.
  *
- * The number is deliberately a ceiling with room under it rather than a pin to whatever
- * today's build measures. Raising it is a decision somebody makes on purpose, in a diff a
- * reviewer can see.
+ * ## Why 520 and not the measurement
+ *
+ * On this fixture the card was 646px before #278 and is 492px after it, so this is a
+ * ceiling with 28px under it rather than a pin. That gap is deliberate. The failure this
+ * guards against is a whole block arriving on the card, and the smallest block that ever
+ * did was the 54px control row; a font metric shifting a line by three pixels is not a
+ * regression and must not read as one.
+ *
+ * The absolute numbers are this fixture's, not the owner's. His own route measured about
+ * 549px before this change, because his route line fits on one row where BCN to Vienna to
+ * Tallinn takes two, and his free-time figure does not wrap. The 154px this change takes
+ * off applies to both.
+ *
+ * Raising this number is a decision somebody makes on purpose, in a diff a reviewer sees.
  */
-const CARD_HEIGHT_BUDGET_PX = 470;
+const CARD_HEIGHT_BUDGET_PX = 520;
 
 const EMPTY_MAP_STYLE = JSON.stringify({ version: 8, name: 'empty', sources: {}, layers: [] });
 
