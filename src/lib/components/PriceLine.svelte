@@ -27,6 +27,11 @@
 	 * rather than assumed (docs/PROVIDERS.md), and the difference is a factor of the party
 	 * size in what a stopover costs.
 	 *
+	 * The walk line below them is the one row carrying no money, because it is the one cost
+	 * this app knows without anybody quoting it (#249). It reads `free` rather than
+	 * `€0.00`, since a currency figure in the amounts column is a measured quote and #212
+	 * removed the last fabricated zero from this app.
+	 *
 	 * ## `from`, and the two things the total does not say
 	 *
 	 * Issue #204: "the price of transport should be considered as well and you are not
@@ -37,7 +42,7 @@
 	 */
 	import type { Coordinates, Itinerary } from '$lib/domain';
 	import { formatMoney } from '$lib/format';
-	import { priceBreakdown, rideCount } from './itinerary-metrics';
+	import { priceBreakdown, rideCount, walkCount } from './itinerary-metrics';
 
 	interface Props {
 		itinerary: Itinerary;
@@ -55,6 +60,7 @@
 
 	const breakdown = $derived(priceBreakdown(itinerary, { cityCentre }));
 	const missingGround = $derived(breakdown.unpricedTransferCount > 0);
+	const walkedGround = $derived(breakdown.walkedTransferCount > 0);
 	const isFloor = $derived(breakdown.missingStay || missingGround);
 	/** A one-part breakdown is not shown: "Flights €229.00" directly under "€229.00" is a
 	 * row that carries nothing. The two unpriced chips are independent of that, because
@@ -71,7 +77,7 @@
 			{#if isFloor}<span class="price-from">from</span>{/if}{formatMoney(breakdown.total)}
 		</span>
 	</p>
-	{#if showParts || breakdown.missingStay || missingGround}
+	{#if showParts || breakdown.missingStay || walkedGround || missingGround}
 		<ul class="price-parts">
 			{#if showParts}
 				{#each breakdown.parts as part (part.id)}
@@ -90,6 +96,17 @@
 				<li class="price-part price-part-missing">
 					<span class="price-part-label">Bed</span>
 					<span class="price-part-amount">not priced</span>
+				</li>
+			{/if}
+			{#if walkedGround}
+				<!-- Issue #249. `domain/transfer.ts` reads an absent transfer price two opposite
+				     ways: on a walk it is the fact that walking is free, on a taxi it is a number
+				     nobody measured. The receipt named only the second, so the one leg whose cost
+				     this app knows exactly was the leg missing from where the trip is added up.
+				     Untinted for that reason: this row states an amount, it does not admit a gap. -->
+				<li class="price-part">
+					<span class="price-part-label">Ground, {walkCount(breakdown.walkedTransferCount)}</span>
+					<span class="price-part-amount">free</span>
 				</li>
 			{/if}
 			{#if missingGround}

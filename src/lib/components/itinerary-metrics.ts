@@ -20,7 +20,7 @@
  */
 
 import type { Coordinates, Itinerary, Money, Stay } from '$lib/domain';
-import { greatCircleDistanceKm, unpricedTransferLegs } from '$lib/domain';
+import { greatCircleDistanceKm, unpricedTransferLegs, walkedTransferLegs } from '$lib/domain';
 import { scaleFareForParty, sumMoney } from '$lib/algorithm/build';
 import { formatDuration, formatLongDuration, formatMoney } from '$lib/format';
 import { formatDistanceKm } from '$lib/stays/distance';
@@ -221,6 +221,18 @@ export interface PriceBreakdown {
 	 * beside its leg in `TransportPicker`, not added into a figure in another currency.
 	 */
 	unpricedTransferCount: number;
+	/**
+	 * Issue #249: how many ground legs this trip walks, and therefore how much of it costs
+	 * a known nothing. The other half of `unpricedTransferCount`, and together they cover
+	 * every ground leg the trip has.
+	 *
+	 * A count rather than a `PricePart` carrying zero money, deliberately. `parts` is
+	 * money somebody really quoted, it goes through `formatMoney` and it feeds `sumMoney`,
+	 * so a zero part would print "€0.00" in the amounts column and read as a measured
+	 * quote. That is the fabricated zero issue #212 removed, coming back in a new shape.
+	 * The fact here is not an amount, it is that there is no amount to pay.
+	 */
+	walkedTransferCount: number;
 }
 
 /**
@@ -239,9 +251,14 @@ export interface PriceBreakdown {
  *
  * Issue #204: `ground` being absent used to be the end of the story, which is how a trip
  * needing two taxis came to show the same receipt as one you walk. `unpricedTransferCount`
- * below is the other half. An absent `ground` line now means either "every leg is walked,
- * and this total is complete" or "nobody quoted these rides", and the two are told apart
- * rather than blurred into one silence.
+ * named the rides nobody quoted, which told those two apart.
+ *
+ * Issue #249 closes the other silence. Naming only the unquoted rides left the walked legs
+ * off the receipt entirely: measured on production on 2026-09-05, three taxis and one walk
+ * printed as "Ground, 3 rides not priced" with the fourth leg nowhere, and a trip walked at
+ * both ends printed no ground line at all, which reads exactly like a trip with no ground
+ * legs. `walkedTransferCount` is that half. Between the two counts every ground leg the
+ * trip has is on the receipt, each under the thing this app actually knows about its cost.
  */
 /**
  * How far the booked bed is from the middle of the stopover city, straight-line, or
@@ -266,6 +283,13 @@ function bedRate(stay: Stay, travellers: number): string {
  * amount of money, which is the one thing it is not. */
 export function rideCount(rides: number): string {
 	return `${rides} ${rides === 1 ? 'ride' : 'rides'}`;
+}
+
+/** "1 walk", for the same reason, and "walk" rather than "leg on foot" because that is the
+ * mode's own noun on every other screen: `StopoverBlock` prints "Walk, 15m from the
+ * airport" and `transferModeLabel` calls it "Walk". */
+export function walkCount(walks: number): string {
+	return `${walks} ${walks === 1 ? 'walk' : 'walks'}`;
 }
 
 /** What the bed line can say beyond its own amount, when the caller knows it. */
@@ -334,6 +358,7 @@ export function priceBreakdown(itinerary: Itinerary, context: PriceBreakdownCont
 		parts,
 		total: itinerary.totalPrice,
 		missingStay: !itinerary.stay && itinerary.nightsInConnection > 0,
-		unpricedTransferCount: groundCostUnknownFor(itinerary)
+		unpricedTransferCount: groundCostUnknownFor(itinerary),
+		walkedTransferCount: walkedTransferLegs(itinerary).length
 	};
 }
