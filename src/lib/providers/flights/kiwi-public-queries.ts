@@ -252,8 +252,15 @@ export function buildOnePerCityVariables(input: OnePerCityVariablesInput) {
 			contentProviders: ['KIWI'],
 			// Same widening as the fare query, and it is what makes issue #210's route
 			// findable at all: `connections.ts` can only propose a stopover this ever
-			// listed, and Rome is absent from Boa Vista's direct-destination list precisely
-			// because the only flight there has a technical stop in Sal.
+			// listed, and Rome USED TO BE absent from Boa Vista's direct-destination list,
+			// because the only flight there has a technical stop in Sal. It is present now
+			// — re-measured live on 5 October 2026, twenty rows for BVC with FCO among
+			// them — so read this as what the widening bought, not as a defect still
+			// standing. Issue #340 mistook it for one for a while.
+			//
+			// What the widening cannot buy is an airport this query does not name. It
+			// returns one itinerary per destination CITY, so Milan is Malpensa or Bergamo
+			// and never both. `hasDirectRoute` in kiwi-public.ts is that question's home.
 			...SINGLE_FLIGHT_FILTER,
 			limit: input.limit,
 			flightsApiLimit: input.limit
