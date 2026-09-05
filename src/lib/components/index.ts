@@ -11,7 +11,7 @@ export { default as Card } from './Card.svelte';
 export { default as AirlineLogo } from './AirlineLogo.svelte';
 export { default as TimeCell } from './TimeCell.svelte';
 export { default as TripStrip } from './TripStrip.svelte';
-export { default as FreeTimeBlock } from './FreeTimeBlock.svelte';
+export { default as StopoverBlock } from './StopoverBlock.svelte';
 export { freeTimeDays } from './free-time-days';
 export type { FreeTimeDays } from './free-time-days';
 export { default as MetricRail } from './MetricRail.svelte';

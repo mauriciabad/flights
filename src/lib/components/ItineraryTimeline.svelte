@@ -74,6 +74,7 @@
 		unroutedLegNote
 	} from './itinerary-timeline-format';
 	import type { UnroutedLeg } from './itinerary-timeline-format';
+	import { freeTimeDays } from './free-time-days';
 	import { ALL_METRIC_IDS } from './itinerary-metrics';
 	import { technicalStopDetail } from './technical-stop-note';
 	import AirlineLogo from './AirlineLogo.svelte';
@@ -693,8 +694,12 @@
 			</p>
 		</div>
 		<div class="tl-meta">
+			<!-- Issue #228: this cell read "2d 15h free", the owner's own example of the
+			     thing that is "misleading and wrong". A duration flatters a stopover that is
+			     really two evenings and a morning. The count is the honest headline, and
+			     `StopoverBlock` above the timeline carries the two edge times with it. -->
 			<span class="tl-duration tl-duration-free font-mono tabular-nums"
-				>{formatLongDuration(shown.freeTime.duration)} free</span
+				>{freeTimeDays(shown.freeTime.start, shown.freeTime.end)?.count ?? 'No full days'}</span
 			>
 			{#if staySubtotal && shown.nightsInConnection > 0}
 				<span class="tl-price font-mono tabular-nums">{formatMoney(staySubtotal)}</span>
