@@ -25,11 +25,11 @@
 	 * instead of a number, and the caption was a second answer costing a row on a card that
 	 * has none to spare. The figure is still on the trip's own segments in the timeline.
 	 *
-	 * The same issue took the grey tray away. `--route-preview-bg` is the card's own
-	 * surface here, so what is left is two arcs drawn on the ticket rather than a
-	 * screenshot of a map pasted onto it: "i expect tat it shows the sea white (same as bg
-	 * in parent element)". The endpoint dots keep a ring in that same colour, because a dot
-	 * with no ring reads as a thickening of the line it sits on.
+	 * The same issue took the grey tray away, and #346 explains what the owner wanted in
+	 * its place. He was never asking for a blank ornament: "i expect tat it shows the sea
+	 * white (same as bg in parent element) and land a but gray (current gray is fine)".
+	 * `RoutePreview` now draws exactly that, so this component sets no colours at all —
+	 * the sea is the card's own surface because nothing paints over it.
 	 */
 	import RoutePreview from './RoutePreview.svelte';
 	import type { FlightShape } from '$lib/itinerary-map/previews';
@@ -53,7 +53,5 @@
 	.flight-shape {
 		flex: none;
 		width: 6.5rem;
-		--route-preview-bg: transparent;
-		--route-preview-ring: var(--color-surface);
 	}
 </style>

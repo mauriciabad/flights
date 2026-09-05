@@ -3,16 +3,26 @@
 	 * One frozen picture of a stretch of route (issue #280). No tiles, no basemap, no
 	 * controls, no labels, no WebGL. An `<svg>` and nothing else.
 	 *
-	 * ## Why this is not a map
+	 * ## Why this is not a map, and what #346 put back
 	 *
 	 * The owner asked for the flight preview "way way smaller and frozen and no controls
 	 * and no labels ... just to see how straight the itinerary is". Everything a basemap
-	 * contributes is exactly what that description removes. At the size these render, with
-	 * labels off, a 4 km airport-to-hotel hop's basemap is a grey rectangle, and under the
-	 * flight ornament it is coastline competing with the one comparison the picture exists
-	 * to make. Drawing the geometry alone is the better artifact, not the cheaper one.
+	 * contributes is exactly what that description removes: tiles, labels, controls, a
+	 * second palette.
 	 *
-	 * It is also the only one that works. `tools/probe-map-cost.mjs` renders both
+	 * Land is not one of those things, and #280 was wrong to argue it was. It reasoned that
+	 * "coastline under that competes with the only thing it exists to show", and the owner
+	 * disagreed twice, in #305 and again in #346: "in the flight map, the re's no map, it
+	 * just shwos the lines". He is right. An arc between two dots cannot say whether a
+	 * stopover is a detour north or a straight run down a coast, and that comparison is the
+	 * entire job of this drawing.
+	 *
+	 * So there is exactly one thing under the geometry: `land.ts` fills the land grey and
+	 * leaves the sea as whatever the parent element's background is. No stroke on the
+	 * coast, no second colour, nothing that could be read as a route. What competes with an
+	 * arc is a line, and this draws none.
+	 *
+	 * It is also the only shape of picture that works. `tools/probe-map-cost.mjs` renders both
 	 * approaches on a throttled 375px phone: four MapLibre instances per card settle in
 	 * 4.5s, sixteen (four cards) take 12.6s with 10.3s of main-thread blocking, and twenty
 	 * never settle at all because Chromium holds sixteen live WebGL contexts and evicts the
@@ -43,6 +53,7 @@
 	 */
 	import type { Coordinates } from '$lib/domain';
 	import { projectToBox } from '$lib/itinerary-map/geo';
+	import { landPath } from '$lib/itinerary-map/land';
 	import type { PreviewLine, PreviewPoint } from '$lib/itinerary-map/previews';
 
 	interface Props {
@@ -72,6 +83,10 @@
 	);
 	const legPaths = $derived(shape.paths.slice(0, lines.length));
 	const baselinePath = $derived(baseline ? shape.paths[lines.length] : undefined);
+	// The projected endpoint dots go in, so `land.ts` can refuse to draw a coast that would
+	// leave one of them offshore. They are the only places on this drawing whose being
+	// ashore is a fact rather than a guess.
+	const land = $derived(landPath(shape.frame, width, height, shape.points));
 </script>
 
 <svg
@@ -82,6 +97,9 @@
 	aria-hidden="true"
 	focusable="false"
 >
+	{#if land}
+		<path class="rp-land" d={land} fill-rule="evenodd" />
+	{/if}
 	{#if baselinePath}
 		<path class="rp-baseline" d={baselinePath} />
 	{/if}
@@ -105,18 +123,31 @@
 </svg>
 
 <style>
-	/* Issue #305: the drawing's ground and the ring around each endpoint dot are two
-	   custom properties rather than fixed tokens, because a caller decides whether this is
-	   a thumbnail sitting in its own tray (`GroundLegPreviews`, which keeps the default
-	   inset) or an ornament drawn straight onto the card (`FlightDetour`, which sets both
-	   to the card's own surface). The owner on the second case: "i expect tat it shows the
-	   sea white (same as bg in parent element)". */
+	/* The sea, and it is deliberately nothing: whatever the parent element paints shows
+	   through. The owner, twice, in #305 and #346: "i expect tat it shows the sea white
+	   (same as bg in parent element) and land a but gray (current gray is fine)".
+
+	   That is why there is no `--route-preview-bg` any more. It existed so `FlightDetour`
+	   could opt out of a grey tray that `GroundLegPreviews` wanted; now neither has a tray,
+	   because the grey is the land and the land is drawn, not assumed. */
 	.route-preview {
 		display: block;
 		width: 100%;
 		height: auto;
 		border-radius: var(--radius-md);
-		background: var(--route-preview-bg, var(--color-bg-inset));
+		background: transparent;
+	}
+
+	/* "current gray is fine" — the same `--color-bg-inset` the previews used as a
+	   background before this was geography rather than decoration.
+
+	   Filled and never stroked. #280's objection to a basemap here was that "coastline
+	   under that competes with the only thing it exists to show", and it is a real risk
+	   that a stroked coast would run straight into: a thin line next to the trip's own
+	   thin lines is a second route the eye has to rule out. A flat fill has no line in it
+	   at all, so the only strokes on this drawing remain the ones that mean something. */
+	.rp-land {
+		fill: var(--color-bg-inset);
 	}
 
 	/* Stroke widths in screen pixels, not viewBox units: the same route drawn 100px wide
@@ -157,10 +188,11 @@
 
 	.rp-dot {
 		fill: var(--color-accent);
-		/* The ground's own colour, so a dot sitting on the line it terminates still reads as
-		   an endpoint rather than a thickening. Never `transparent`, whatever the caller
-		   made the background: the ring's whole job is to cut the line. */
-		stroke: var(--route-preview-ring, var(--color-bg-inset));
+		/* The land's own colour, so a dot sitting on the line it terminates still reads as
+		   an endpoint rather than a thickening. Land rather than sea because every dot on
+		   these drawings is an airport, a hotel or a city centre, and those are ashore.
+		   Never `transparent`: the ring's whole job is to cut the line. */
+		stroke: var(--color-bg-inset);
 		stroke-width: 1.5;
 		vector-effect: non-scaling-stroke;
 	}

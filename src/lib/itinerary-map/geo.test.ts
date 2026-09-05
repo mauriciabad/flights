@@ -5,6 +5,7 @@ import {
 	CITY_VIEW_ZOOM,
 	greatCircleArc,
 	longitudeNear,
+	mercatorY,
 	POINT_VIEW_ZOOM,
 	projectToBox,
 	viewForCoordinates
@@ -195,6 +196,58 @@ describe('projectToBox', () => {
 	});
 
 	it('draws nothing for nothing', () => {
-		expect(projectToBox([], [], box)).toEqual({ paths: [], points: [] });
+		expect(projectToBox([], [], box)).toEqual({
+			paths: [],
+			points: [],
+			frame: { west: 0, east: 0, south: 0, north: 0 }
+		});
+	});
+});
+
+describe('projectToBox frame', () => {
+	const box = { width: 100, height: 50, padding: 5 };
+
+	it('reports the box edges, not the shape, so the padding is inside the frame', () => {
+		// 20° of longitude fitted across 90 usable units is 4.5 units per degree, and the
+		// 5 units of padding either side is therefore 1.111° of world the shape does not
+		// reach but the box still shows.
+		const { frame } = projectToBox(
+			[[{ latitude: 0, longitude: -10 }, { latitude: 0, longitude: 10 }]],
+			[],
+			box
+		);
+
+		expect(frame.west).toBeCloseTo(-11.111, 3);
+		expect(frame.east).toBeCloseTo(11.111, 3);
+	});
+
+	it('inverts to exactly the projection the paths were drawn with', () => {
+		const { frame, points } = projectToBox(
+			[],
+			[{ latitude: 12, longitude: -3 }, { latitude: 41, longitude: 27 }],
+			box
+		);
+		const x = ((-3 - frame.west) / (frame.east - frame.west)) * box.width;
+		const y = ((frame.north - mercatorY(12)) / (frame.north - frame.south)) * box.height;
+
+		expect(x).toBeCloseTo(points[0].x, 1);
+		expect(y).toBeCloseTo(points[0].y, 1);
+	});
+
+	it('leaves west equal to east for a journey that does not move', () => {
+		const here = { latitude: 48.2, longitude: 16.37 };
+		const { frame } = projectToBox([[here, here]], [here], box);
+
+		expect(frame.west).toBe(frame.east);
+	});
+
+	it('keeps the frame in the antimeridian-crossing longitudes it was handed', () => {
+		const { frame } = projectToBox(
+			[[{ latitude: 0, longitude: 175 }, { latitude: 0, longitude: 185 }]],
+			[],
+			box
+		);
+
+		expect(frame.east).toBeGreaterThan(180);
 	});
 });

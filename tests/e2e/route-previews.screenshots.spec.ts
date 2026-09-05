@@ -81,7 +81,7 @@ for (const viewport of VIEWPORTS) {
 			await openResults(page);
 
 			const card = page.locator('.result-card').first();
-			await expect(card.locator('.flight-shape-picture .route-preview')).toBeVisible();
+			await expect(card.locator('.flight-shape .route-preview')).toBeVisible();
 			await card.screenshot({ path: `docs/screenshots/280-card-${viewport.name}-${scheme}.png` });
 
 			await openTimeline(page);

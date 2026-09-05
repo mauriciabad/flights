@@ -131,7 +131,7 @@ export function greatCircleArc(from: Coordinates, to: Coordinates, segments = 64
  */
 const MERCATOR_LATITUDE_LIMIT = 85;
 
-function mercatorY(latitude: number): number {
+export function mercatorY(latitude: number): number {
 	const clamped = Math.min(MERCATOR_LATITUDE_LIMIT, Math.max(-MERCATOR_LATITUDE_LIMIT, latitude));
 	return (Math.log(Math.tan(Math.PI / 4 + (clamped * Math.PI) / 360)) * 180) / Math.PI;
 }
@@ -149,11 +149,38 @@ export interface ProjectedPoint {
 	y: number;
 }
 
+/**
+ * Which rectangle of the world a preview's box shows, in the same longitude frame as the
+ * lines drawn on it (`segments.ts`, `singleFrame`).
+ *
+ * Issue #346 needed this. `projectToBox` fits a route to its own extent and pads it, so a
+ * preview's box covers rather more world than the route's bounding box does, and nothing
+ * outside this function knew how much. Anything drawn *under* the route has to agree with
+ * it to the pixel, and re-deriving the projection at the call site is how two drawings of
+ * the same place end up half a degree apart.
+ *
+ * Four numbers is the whole projection: the map from here to the box is affine, so
+ * `x = (longitude - west) / (east - west) * width` and the same in y, downward.
+ *
+ * `west === east` means the shape had no extent at all — one point, or two that round to
+ * the same place. There is no rectangle to speak of, and `land.ts` treats it as such.
+ */
+export interface PreviewFrame {
+	/** Longitude at the box's left and right edges. */
+	west: number;
+	east: number;
+	/** `mercatorY` of the latitude at the box's bottom and top edges. */
+	south: number;
+	north: number;
+}
+
 export interface ProjectedShape {
 	/** One SVG path `d` string per input polyline, in input order. */
 	paths: string[];
 	/** One projected point per input point, in input order. */
 	points: ProjectedPoint[];
+	/** The piece of the world this box covers, edge to edge, padding included. */
+	frame: PreviewFrame;
 }
 
 /**
@@ -177,7 +204,9 @@ export function projectToBox(
 	const projectedLines = lines.map((line) => line.map((c) => ({ x: c.longitude, y: mercatorY(c.latitude) })));
 	const projectedPoints = points.map((c) => ({ x: c.longitude, y: mercatorY(c.latitude) }));
 	const all = [...projectedLines.flat(), ...projectedPoints];
-	if (all.length === 0) return { paths: [], points: [] };
+	if (all.length === 0) {
+		return { paths: [], points: [], frame: { west: 0, east: 0, south: 0, north: 0 } };
+	}
 
 	let minX = all[0].x;
 	let maxX = all[0].x;
@@ -207,7 +236,21 @@ export function projectToBox(
 		y: round((maxY - p.y) * scale + offsetY)
 	});
 
+	// Where the box's own four edges land, by running `place` backwards. A shape with no
+	// extent has `scale === 0` and no rectangle at all, which the frame reports by leaving
+	// west equal to east rather than by dividing by it.
+	const frame: PreviewFrame =
+		scale === 0
+			? { west: minX, east: minX, south: minY, north: maxY }
+			: {
+					west: minX - offsetX / scale,
+					east: minX + (box.width - offsetX) / scale,
+					south: maxY - (box.height - offsetY) / scale,
+					north: maxY + offsetY / scale
+				};
+
 	return {
+		frame,
 		paths: projectedLines.map((line) =>
 			line
 				.map(place)
