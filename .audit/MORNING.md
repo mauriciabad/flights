@@ -239,3 +239,35 @@ entry. More of that.
 
 Everything except the regression was caught the same way: by not explaining away a number I
 could not account for.
+
+
+## One thing left unverified, said plainly
+
+**#269 is merged and deployed. I did not confirm it in a browser.**
+
+Its author said the same in its PR: the defect is arithmetic in three pure functions, the issue
+was filed off the source rather than off a screen, and nobody has watched a real flight swap
+leave the free-time window alone. I set out to close that gap and failed twice.
+
+The first probe swapped no flight and read the same window before and after. That is the
+dangerous shape: a probe that never reaches its precondition produces output identical to a
+pass. `swapped a flight: false` is the only reason I did not report it as verified. The second
+run dumped the picker's controls to find the right selector and found the strip's segment
+buttons but no flight alternatives, so either the row click does not open the picker from a
+script or the alternatives are not `<button>` elements.
+
+**What is actually established:** two unit tests that were red on `8491ba7` and green after,
+covering all three derivation paths against one fixture, plus 2336 unit tests, 78 e2e and 19
+qa checks that drive the built app. That is strong. It is not the same as someone watching the
+number.
+
+**What would close it:** open the first card's detail panel on the acceptance route, pick a
+different outbound flight, and check the stopover block's free-time window does not widen by
+the length of the two in-city legs. It should read the same before and after.
+
+This is the third time tonight a probe of mine could not tell "the thing is right" from "I
+never reached the thing". The other two were the #235 verification reading a collapsed page and
+seven attempts at #203 against a card with no nights. Each time the null result looked exactly
+like the good result, and each time the only thing that saved it was logging whether the
+precondition was met rather than only the outcome. That is worth a line in whatever check
+comes next: **assert that you got there, not just what you saw.**
