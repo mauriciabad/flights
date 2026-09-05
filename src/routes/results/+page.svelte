@@ -25,7 +25,7 @@
 	import { base } from '$app/paths';
 	import { page } from '$app/state';
 	import { onRevalidationSettled } from '$lib/cache';
-	import { Button, Card, EmptyState, ErrorState, Icon, Skeleton } from '$lib/components';
+	import { Button, EmptyState, ErrorState, Icon } from '$lib/components';
 	import { getAirport } from '$lib/data/airports';
 	import { knownAirportCodes } from '$lib/data/known-airports.svelte';
 	import { DEFAULT_MIN_LAYOVER_TIME_MINUTES, DEFAULT_SEARCH_CURRENCY } from '$lib/domain';
@@ -70,7 +70,7 @@
 	} from '$lib/connections-map';
 	import { compareResults, sortResults } from '$lib/results/sort';
 	import type { SortMode } from '$lib/results/sort';
-	import { insertStable, slotsToResults, toSlot } from '$lib/results/stream-order';
+	import { insertStable, insertWithoutDisplacing, slotsToResults, toSlot } from '$lib/results/stream-order';
 	import type { StreamSlot } from '$lib/results/stream-order';
 	import { connectionAirportCode, deriveScoredResult, summarizePriceCalendarOutcome, widenOptionGroupKey } from '$lib/results/types';
 	import type { AffordableWiden, ProviderStatus, ScoredResult, WidenOptionGroup } from '$lib/results/types';
@@ -78,6 +78,7 @@
 	import NoResultsBoard from './NoResultsBoard.svelte';
 	import ProviderStatusStrip from './ProviderStatusStrip.svelte';
 	import ResultCard from './ResultCard.svelte';
+	import ResultCardSkeleton from './ResultCardSkeleton.svelte';
 	import ResultDetail from './ResultDetail.svelte';
 	import SegmentCustomiser from './SegmentCustomiser.svelte';
 	import StayKeyNotice from './StayKeyNotice.svelte';
@@ -203,6 +204,19 @@
 	});
 
 	let order = $state<StreamSlot[]>([]);
+	/**
+	 * Issue #314: the results that are on screen but not where the sort control says they
+	 * should be, because putting them there would have pushed a card the traveller can see
+	 * off the bottom of the screen.
+	 *
+	 * Ids rather than a count, so a provider re-answering the same stopover twice does not
+	 * offer to re-sort the same trip twice. The status line above the list offers to put them
+	 * right, and `showHeldResults` does it in one go.
+	 */
+	let arrivedOutOfOrder = $state<string[]>([]);
+	/** The `<ul>` itself, so `displacedCardIsOffScreen` can find a card by its id and ask
+	 * the browser where it ended up. */
+	let listEl = $state<HTMLUListElement | undefined>(undefined);
 	let providerStatuses = $state<Record<string, ProviderStatus>>({});
 	let widenOptions = $state<WidenOption[]>([]);
 	let calendarSummaries = $state<string[]>([]);
@@ -422,11 +436,56 @@
 	const filterOptions = $derived(deriveFilterOptions(results));
 	const filteredResults = $derived(applyFilters(results, filters));
 	const providerStatusList = $derived(Object.values(providerStatuses));
+
+	/**
+	 * Issue #314: how many card-shaped slots the list holds open for results that have not
+	 * arrived yet.
+	 *
+	 * The reservation has one job: put everything under the list below the fold and keep it
+	 * there, so the provider strip's 594px of growth and every later arrival land off screen.
+	 * Two slots is the smallest number that does it. The list starts 383px down a 375x812
+	 * phone and 272px down a 1280x900 desktop, so it needs to be over 429px and 630px tall
+	 * respectively, and two 480px slots is 960px.
+	 *
+	 * Reserving more is not free, which is why this is two and not six. Whatever the search
+	 * does not fill is withdrawn when it finishes, and `.results-list-reserved`'s floor is
+	 * what stops that collapse reaching the provider strip. Two slots keeps the amount being
+	 * withdrawn inside what the floor covers; six would not.
+	 *
+	 * Not one per candidate, which is what #314 suggested. `candidateCount` only lands with
+	 * the first snapshot, and revising the reservation down at that point is the same
+	 * collapse happening earlier rather than a way of avoiding it.
+	 */
+	const RESERVED_RESULT_SLOTS = 2;
 	// Issue #203: what the stay providers did in this search, for the one place per stopover
 	// that says why a bed is missing. Derived from the same `providerStatuses` the strip
 	// below the list renders, so the two cannot disagree about whether Hostelworld failed.
 	const stayProviders = $derived(stayProviderOutcomes(providerStatusList));
 	const stillSearching = $derived(searchesInFlight > 0);
+	/**
+	 * Issue #314: which slots are still waiting for a card, so the list is the same length at
+	 * the first frame as it is three results later and nothing under it moves.
+	 *
+	 * The values are absolute slot positions, not a count, and that is the whole trick. The
+	 * skeletons are keyed on them, so the first result consumes the placeholder at slot 0 and
+	 * leaves slots 1 and 2 holding the same two DOM nodes they already had. Keyed on a count
+	 * instead, Svelte drops the *last* placeholder and the two survivors are pushed down a
+	 * whole card by the one arriving above them: measured at 0.42 of layout shift per result,
+	 * three times a run, which is worse than the reservation is worth.
+	 *
+	 * `!primarySearchDone` and not `stillSearching` alone. `searchesInFlight` is still zero
+	 * on the frame this branch first renders, because the effect that starts the search runs
+	 * after it, and skeletons appearing one frame late would push the provider strip down
+	 * exactly the way a card does.
+	 */
+	const pendingResultSlots = $derived.by(() => {
+		if (!stillSearching && primarySearchDone) return [];
+		const slots = [];
+		for (let slot = filteredResults.length; slot < RESERVED_RESULT_SLOTS; slot++) {
+			slots.push(slot);
+		}
+		return slots;
+	});
 
 	/**
 	 * Issue #337: where this page's search has got to, as an attribute a test can wait for.
@@ -574,6 +633,42 @@
 	}
 
 	/**
+	 * Issue #314: whether the card a new arrival would push down is somewhere the traveller
+	 * can see it.
+	 *
+	 * Measured rather than reasoned about, because it depends on the viewport, on how far
+	 * down the page they have scrolled, and on how tall the cards above it turned out to be.
+	 * Absent from the DOM means a filter is hiding it, which is another way of being invisible.
+	 *
+	 * Above the viewport counts as off screen too. Inserting there is the case the browser's
+	 * own scroll anchoring already handles: it holds the scroll position against content
+	 * appearing above it, so nothing on screen moves and no shift is recorded.
+	 */
+	function displacedCardIsOffScreen(displaced: StreamSlot): boolean {
+		const card = listEl?.querySelector(`[data-result-id="${CSS.escape(displaced.id)}"]`);
+		if (!card) return true;
+		const box = card.getBoundingClientRect();
+		return box.bottom <= 0 || box.top >= window.innerHeight;
+	}
+
+	function noteOutOfOrder(id: string): void {
+		if (!arrivedOutOfOrder.includes(id)) arrivedOutOfOrder = [...arrivedOutOfOrder, id];
+	}
+
+	/**
+	 * Issue #314: the traveller asking for the list to be put in order.
+	 *
+	 * Through `sortResults`, which is the reordering path, because this is the case that
+	 * function was written for: a re-sort somebody asked for, where the list moving is the
+	 * answer rather than a jump. The layout shift it causes carries `hadRecentInput`, which
+	 * is the browser's own way of saying the same thing.
+	 */
+	function sortArrivalsIntoPlace(): void {
+		order = sortResults(slotsToResults(order), sortMode).map(toSlot);
+		arrivedOutOfOrder = [];
+	}
+
+	/**
 	 * Drains one search stream (the primary `runSearch`, or a `widenSearch` the
 	 * traveller triggered) into the shared page state. Every itinerary group merges
 	 * through `insertStable` keyed by connection airport, so a widen result for a
@@ -621,7 +716,18 @@
 						sequenceFor(group.connectionAirportCode),
 						untrack(() => requestedNightsFor(group.connectionAirportCode))
 					);
-					order = insertStable(order, toSlot(scored), compare);
+					// Issue #314: a result whose sorted place would push a card the traveller can
+					// see off the bottom of a phone goes to the end of the list instead. It is on
+					// screen either way; what waits is the reordering, and the status row offers
+					// it.
+					const placement = insertWithoutDisplacing(
+						order,
+						toSlot(scored),
+						compare,
+						displacedCardIsOffScreen
+					);
+					order = placement.order;
+					if (!placement.sortedIntoPlace) noteOutOfOrder(scored.id);
 				}
 				stayCandidatesByConnection = { ...stayCandidatesByConnection, ...snapshot.stayCandidatesByConnection };
 				transferOptionsByConnection = { ...transferOptionsByConnection, ...snapshot.transferOptionsByConnection };
@@ -705,6 +811,7 @@
 	$effect(() => {
 		const activeQuery = query;
 		order = [];
+		arrivedOutOfOrder = [];
 		providerStatuses = {};
 		widenOptions = [];
 		calendarSummaries = [];
@@ -775,6 +882,9 @@
 		const mode = sortMode;
 		untrack(() => {
 			order = sortResults(slotsToResults(order), mode).map(toSlot);
+			// Issue #314: a full re-sort puts every arrival where it belongs, including the
+			// ones that had been appended, so there is nothing left to offer.
+			arrivedOutOfOrder = [];
 		});
 	});
 
@@ -1262,11 +1372,25 @@
 				message={blockingSummary}
 			/>
 		{:else if query}
-			<p class="results-subhead" aria-live="polite">
-				{filteredResults.length} of {results.length}
-				{results.length === 1 ? 'itinerary' : 'itineraries'} shown
-				{#if stillSearching}<span class="still-searching">&middot; still searching</span>{/if}
-			</p>
+			<!-- Issue #314. The count and the held-results control share one row, and the row
+			     keeps its height whether or not the control is in it. It sits directly above
+			     the whole results layout, so a row that grew when the first trip was held
+			     would move every card on screen to say so. -->
+			<div class="results-status">
+				<p class="results-subhead" aria-live="polite">
+					{filteredResults.length} of {results.length}
+					{results.length === 1 ? 'itinerary' : 'itineraries'} shown
+					{#if stillSearching}<span class="still-searching">&middot; still searching</span>{/if}
+				</p>
+				<!-- Outside the live region on purpose: the count next door re-announces on every
+				     arrival, and a button inside it would be read out again each time. -->
+				{#if arrivedOutOfOrder.length > 0}
+					<button type="button" class="sort-arrivals" onclick={sortArrivalsIntoPlace}>
+						Sort {arrivedOutOfOrder.length}
+						{arrivedOutOfOrder.length === 1 ? 'trip' : 'trips'} into place
+					</button>
+				{/if}
+			</div>
 
 			<!-- Issue #71. One line, above the results rather than below them, because somebody
 			     whose dates are flexible decides that before reading a single card. A link, not
@@ -1379,7 +1503,16 @@
 					     search per types.ts), so Svelte only ever moves a DOM node when
 					     stream-order.ts genuinely repositions it, never recreates one just
 					     because its price or freshness changed in place. -->
-					<ul class="results-list">
+					<ul
+						class={[
+							'results-list',
+							// Only when there is a list. An empty one under "no itineraries match
+							// your filters" would be a screenful of nothing between that sentence
+							// and the panel explaining it.
+							{ 'results-list-reserved': filteredResults.length + pendingResultSlots.length > 0 }
+						]}
+						bind:this={listEl}
+					>
 						{#each filteredResults as result (result.id)}
 							{@const code = connectionAirportCode(result.itinerary)}
 							{@const itinerary = shownItinerary(result.id, result.itinerary)}
@@ -1415,18 +1548,15 @@
 								</ResultCard>
 							</li>
 						{/each}
-						{#if stillSearching}
+						<!-- Issue #314: the space the results will need, held open from the first
+						     frame at roughly the height they will need it. Keyed on the slot's
+						     own position so a card consumes the placeholder it replaces and the
+						     ones below it keep their nodes and their places. -->
+						{#each pendingResultSlots as slot (slot)}
 							<li aria-hidden="true">
-								<Card class="result-card-skeleton" padded={false}>
-									<div class="skeleton-body">
-										<Skeleton height="2rem" width="40%" />
-										<Skeleton height="1rem" width="70%" />
-										<Skeleton height="4rem" />
-										<Skeleton height="1.5rem" width="60%" />
-									</div>
-								</Card>
+								<ResultCardSkeleton />
 							</li>
-						{/if}
+						{/each}
 					</ul>
 
 					<!-- Everything that explains the results rather than being one, gathered
@@ -1548,7 +1678,14 @@
 		display: flex;
 		align-items: center;
 		gap: var(--space-3);
-		min-height: 2.75rem;
+		/* Room for the note before there is a note. `when-link-note` renders as soon as the
+		   first result lands, which on a cold load is ten seconds in, and it is a second line
+		   (measured: `.when-link-text` 20px to 36px). This row sits directly above the whole
+		   results layout, so those 16px moved every card on screen: 0.22 of issue #314's
+		   phone CLS, the second largest shift on the page and the only one above the list.
+		   Reserving the line costs 12px of empty row until the note arrives, which is the
+		   trade web.dev's "reserve the space in the initial layout" describes. */
+		min-height: 3.5rem;
 		padding: var(--space-2) var(--space-3);
 		border: 1px dashed var(--color-border-strong);
 		border-radius: var(--radius-md);
@@ -1679,9 +1816,55 @@
 		margin: 0 auto;
 	}
 
+	/* Two rows of room, held from the first frame, whether or not there is a control to put
+	   in the second one. This row sits above the whole results layout, so anything that
+	   changes its height moves every card on screen.
+
+	   Both states measure 60px: the count alone against the floor, or the count plus the
+	   control on the row below it. Reserving it costs 36px of quiet space above the list on
+	   a page that never holds anything back. Measured, the alternative was 0.195 of layout
+	   shift when the row collapsed from two lines to one, which happened at the end of every
+	   search that had held a trip: "still searching" left the count, the control fitted
+	   beside it, and the whole page rose 12px (issue #314). */
+	.results-status {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: baseline;
+		gap: var(--space-1) var(--space-3);
+		min-height: 3.75rem;
+	}
+
 	.results-subhead {
 		color: var(--color-text-muted);
 		font-size: var(--font-size-sm);
+		margin: 0;
+	}
+
+	/* The one control on this page that undoes a decision the page made for the traveller,
+	   so it reads as an offer rather than a warning: the accent the "still searching" note
+	   beside it already uses, underlined so it is not colour alone. */
+	.sort-arrivals {
+		/* Always its own row, never beside the count. Letting it share a line when the line
+		   happens to be short is what made the row's height depend on whether the search was
+		   still running. */
+		flex-basis: 100%;
+		/* A full-width button centres its own text, which put this in the middle of the page
+		   looking like a heading. It lines up with the count above it. */
+		text-align: left;
+		padding: var(--space-1) 0;
+		border: 0;
+		background: none;
+		color: var(--color-accent);
+		font: inherit;
+		font-size: var(--font-size-sm);
+		font-weight: var(--font-weight-semibold);
+		text-decoration: underline;
+		text-underline-offset: 0.2em;
+		cursor: pointer;
+	}
+
+	.sort-arrivals:hover {
+		color: var(--color-text);
 	}
 
 	.still-searching {
@@ -1832,19 +2015,32 @@
 		gap: var(--space-4);
 	}
 
+	/**
+	 * Issue #314: the list reaches the bottom of the screen whenever it holds anything at
+	 * all, so what sits under it starts below the fold and stays there.
+	 *
+	 * The skeleton slots alone are not enough. They are given up one at a time as the search
+	 * resolves, and the last one going is the provider strip climbing 480px into view: 0.11
+	 * of layout shift on a desktop, measured on a search that found two trips and held one.
+	 * A floor cannot be given up, so nothing below the list ever climbs.
+	 *
+	 * `100vh - 14rem` because what it has to clear is the distance from the top of the list
+	 * to the bottom of the screen, and the list starts 383px down a 375x812 phone and 272px
+	 * down a 1280x900 desktop. Subtracting 224px leaves margin on both and holds as long as
+	 * the rows above the list are at least that tall.
+	 *
+	 * What it costs is quiet space under the last card on a search that finds less than a
+	 * screenful: 226px on a desktop showing one trip, none at all from two trips up. That is
+	 * the trade, and it is the right way round. The space sits below the answer, where the
+	 * section break already was, instead of above it where issue #139 measured what a box
+	 * costs.
+	 */
+	.results-list-reserved {
+		min-height: calc(100vh - 14rem);
+	}
+
 	.results-list li {
 		list-style: none;
-	}
-
-	.skeleton-body {
-		display: flex;
-		flex-direction: column;
-		gap: var(--space-3);
-		padding: var(--space-5);
-	}
-
-	:global(.result-card-skeleton) {
-		min-height: 15rem;
 	}
 
 	/* ---------------------------------------------------------------------
