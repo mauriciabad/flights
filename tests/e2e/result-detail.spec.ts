@@ -82,11 +82,12 @@ test.describe('result detail (issue #104)', () => {
 		const detail = page.locator('.result-detail');
 		await expect(detail).toBeVisible();
 		await expect(detail.locator('.itinerary-timeline')).toBeVisible();
-		// The map mounts alongside the timeline rather than blocking it (its own async
-		// MapLibre setup completes independently) — a labelled "Route map" region is
-		// enough to prove it initialised without throwing (ItineraryMap.svelte's
-		// `mapAriaLabel` names the cities, not the IATA codes, hence the loose match).
-		await expect(detail.getByRole('region', { name: /Route map/ })).toBeVisible();
+		// Issue #280 moved the MapLibre map out of this panel and into a dialog behind the
+		// frozen previews, so what mounts alongside the timeline now is the previews row.
+		// `route-previews.spec.ts` owns the map itself: that it appears on tap, that there
+		// is exactly one of it, and that closing takes it away. This search names no origin
+		// or destination location, so the stopover is the only ground leg it has.
+		await expect(detail.locator('.ground-legs-item')).toHaveCount(1);
 
 		const totalPriceRow = detail.locator('.itinerary-timeline-totals .metric', { hasText: 'Total price' });
 		// 9,222.22 (the 9 March outbound) + 9,333.33 onward. Absurd figures on purpose, see

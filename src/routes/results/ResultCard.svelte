@@ -45,8 +45,19 @@
 	 * `view-model.ts`, all pure and tested. This file arranges markup and picks classes; it
 	 * never recomputes a duration or a price.
 	 */
-	import { AirlineLogo, Card, Flag, MetricRail, PriceLine, StopoverNights, TripStrip } from '$lib/components';
+	import {
+		AirlineLogo,
+		Card,
+		FlightDetour,
+		Flag,
+		MetricRail,
+		PriceLine,
+		StopoverNights,
+		TripStrip
+	} from '$lib/components';
 	import { CARD_METRIC_IDS } from '$lib/components/itinerary-metrics';
+	import { buildItineraryMapModel } from '$lib/itinerary-map/segments';
+	import { buildFlightShape } from '$lib/itinerary-map/previews';
 	import type { Airport } from '$lib/domain';
 	import { formatAge } from '$lib/format';
 	import { oneAdultFlightsTotal, placeInBand } from '$lib/results/price-band';
@@ -89,6 +100,19 @@
 
 	const itinerary = $derived(result.itinerary);
 	const connectionCode = $derived(connectionAirportCode(itinerary));
+
+	/**
+	 * Issue #280's flight ornament: the two arcs actually flown against the shortest line
+	 * that exists between the same two airports.
+	 *
+	 * Built here rather than inside `FlightDetour` so the component takes plain data and
+	 * stays testable without a dataset. Cheap enough to sit on a card: two great-circle
+	 * arcs of 65 points each, no network, no WebGL. `tools/probe-map-cost.mjs` has the
+	 * numbers for why this is an SVG and not a map.
+	 */
+	const flightShape = $derived(
+		connectionAirport ? buildFlightShape(buildItineraryMapModel(itinerary, connectionAirport)) : undefined
+	);
 	const isDeprioritized = $derived(result.score.avoidedAirlineFlightCount > 0);
 	const freshness = $derived(describePriceFreshness(result.price.freshness));
 	// A neutral badge repeats the footer's "fetched 3m ago" one line down, so only a tone
@@ -271,6 +295,15 @@
 		/>
 
 		<TripStrip {itinerary} {connectionCode} {connectionLabel} {connectionAirport} deprioritized={isDeprioritized} />
+
+		<!-- Issue #280. Beside the strip on purpose: the strip is the trip's shape in time,
+		     this is its shape in space, and the two questions a person asks about a
+		     connection ("how long does it cost me" and "how far out of the way is it") then
+		     sit next to each other. Renders only once the page has resolved the connection
+		     airport, since without it there is no second flight leg to compare. -->
+		{#if flightShape}
+			<FlightDetour shape={flightShape} />
+		{/if}
 
 		<MetricRail {itinerary} ids={CARD_METRIC_IDS} />
 

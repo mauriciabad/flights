@@ -664,8 +664,18 @@
 		width: 100%;
 		/* Tall enough to read as a real map, short enough that it never dominates a
 		   320px-wide screen; clamp keeps both ends honest instead of a fixed height
-		   that would either crop the map or leave it comically short. */
-		height: clamp(240px, 60vw, 420px);
+		   that would either crop the map or leave it comically short.
+
+		   A token, not a literal, since issue #280: `RouteMapDialog` renders this map on a
+		   near-fullscreen surface where the card-shaped default is the wrong answer, and a
+		   custom property is how a parent sets a child's dimension without reaching through
+		   `:global` into styles it does not own. `flex: 0 1 auto` with `min-height: 0` is
+		   what lets it give way to the caption bar when the container's height is imposed
+		   from outside; with an auto-height container, which is every other caller, the
+		   canvas keeps the clamp exactly as before. */
+		height: var(--itinerary-map-canvas-height, clamp(240px, 60vw, 420px));
+		flex: 0 1 auto;
+		min-height: 0;
 		border-radius: var(--radius-lg);
 		border: 1px solid var(--color-border);
 		overflow: hidden;
@@ -690,6 +700,39 @@
 		height: 2.25rem;
 	}
 
+	/* MapLibre ships white chrome. That was a small bright square on a card-sized map and
+	   it is a pair of them plus an attribution bar on issue #280's near-fullscreen dark
+	   dialog, which is where the app stops looking like one thing. The control surfaces
+	   take this app's own tokens; the glyphs inside them are black SVGs baked into
+	   background images, so dark mode flips them rather than recolouring them. */
+	.itinerary-map-canvas :global(.maplibregl-ctrl-group),
+	.itinerary-map-canvas :global(.maplibregl-ctrl-attrib) {
+		border: 1px solid var(--color-border);
+		background: var(--color-bg-elevated);
+		color: var(--color-text-muted);
+		box-shadow: var(--shadow-sm);
+	}
+
+	.itinerary-map-canvas :global(.maplibregl-ctrl-group button + button) {
+		border-top-color: var(--color-border);
+	}
+
+	.itinerary-map-canvas :global(.maplibregl-ctrl-attrib a) {
+		color: var(--color-text-muted);
+	}
+
+	.itinerary-map-canvas :global(.maplibregl-ctrl-icon) {
+		filter: invert(1);
+	}
+
+	/* `prefers-color-scheme: light`, matching src/app.css's own override exactly: dark is
+	   this app's default, so the flip is undone rather than applied. */
+	@media (prefers-color-scheme: light) {
+		.itinerary-map-canvas :global(.maplibregl-ctrl-icon) {
+			filter: none;
+		}
+	}
+
 	.itinerary-map-loading,
 	.itinerary-map-overlay {
 		position: absolute;
@@ -709,6 +752,9 @@
 	   the longest string here is a full sentence explaining an absence. */
 	.itinerary-map-bar {
 		display: flex;
+		/* Never the row that shrinks when the container's height is imposed (issue #280's
+		   dialog): the canvas can lose pixels, a sentence cannot. */
+		flex: none;
 		flex-wrap: wrap;
 		align-items: baseline;
 		justify-content: space-between;
