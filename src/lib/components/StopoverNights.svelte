@@ -102,7 +102,22 @@
 					aria-label={rung.description}
 					onclick={() => !rung.isCurrent && onNightsChange?.(rung.nights)}
 				>
-					<span class="rung-length">{rung.label}</span>
+					<span class="rung-length">
+						{#if rung.isCurrent}
+							<!-- A punched ticket. Third channel on the chosen stub after the fill and
+							     the words, and the only one that survives being read at arm's length. -->
+							<svg class="rung-punch" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+								<path
+									d="M3.5 8.5l3 3 6-7"
+									fill="none"
+									stroke="currentColor"
+									stroke-width="2"
+									stroke-linecap="round"
+									stroke-linejoin="round"
+								/>
+							</svg>
+						{/if}{rung.label}
+					</span>
 					<span class="rung-price font-mono tabular-nums">{rung.delta ?? 'this trip'}</span>
 				</button>
 			{/each}
@@ -165,7 +180,11 @@
 	/* A tear-off stub: 44px tall because #197 measured a 36px control here and rejected
 	   it, hairline bordered, on the card's own radius. Two lines rather than one so the
 	   length and its price both stay legible at 375, where a single-line stub reading
-	   "2 nights +€24.00" is 140px and only two fit a row. */
+	   "2 nights +€24.00" is 140px and only two fit a row.
+
+	   Filled rather than bare, so the unchosen stubs read as things you can press. A row
+	   of hairline outlines on a phone, where there is no hover to discover them with,
+	   looks like labels. */
 	.rung {
 		display: flex;
 		flex-direction: column;
@@ -176,20 +195,31 @@
 		padding: var(--space-1) var(--space-3);
 		border: 1px solid var(--color-border-strong);
 		border-radius: var(--radius-md);
+		background: var(--color-bg-inset);
 		/* No double-tap zoom delay on a control a traveller presses repeatedly. */
 		touch-action: manipulation;
 		transition:
 			background-color var(--transition-fast),
 			border-color var(--transition-fast),
+			box-shadow var(--transition-fast),
 			color var(--transition-fast);
 	}
 
 	.rung-length {
+		display: flex;
+		align-items: center;
+		gap: var(--space-1);
 		font-size: var(--font-size-sm);
 		font-weight: var(--font-weight-semibold);
 		line-height: 1.2;
 		color: var(--color-stopover);
 		white-space: nowrap;
+	}
+
+	.rung-punch {
+		width: 0.8rem;
+		height: 0.8rem;
+		flex-shrink: 0;
 	}
 
 	.rung-price {
@@ -215,12 +245,17 @@
 		outline-offset: 2px;
 	}
 
-	/* The trip the price above describes. Filled and solid-bordered, and it says "this
-	   trip" in words, so the marking survives both the greyed-out treatment and a reader
-	   who cannot tell teal from slate. */
+	/* The trip the price above describes, marked three ways so returning to it is obvious
+	   rather than merely possible: the teal fill, a doubled ring, and the punch mark with
+	   the words "this trip". Colour is never the only channel (WCAG 1.4.1), and here it is
+	   not even the loudest one.
+
+	   The second ring is an inset shadow rather than a 2px border, because widening a
+	   border would move the stub's neighbours by a pixel on every press. */
 	.rung.is-current {
 		background: var(--color-stopover-bg);
 		border-color: var(--color-stopover);
+		box-shadow: inset 0 0 0 1px var(--color-stopover);
 		cursor: default;
 	}
 
@@ -251,6 +286,11 @@
 	.is-quiet .rung.is-current {
 		border-color: var(--color-border);
 		background: var(--color-bg-inset);
+		box-shadow: inset 0 0 0 1px var(--color-border-strong);
+	}
+
+	.is-quiet .rung:not(.is-current) {
+		box-shadow: none;
 	}
 
 	.is-quiet.is-connection {
