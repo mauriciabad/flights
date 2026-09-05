@@ -8,17 +8,22 @@ import { mockAllKeylessProviders, routeRyanairFlights } from './support/provider
  *
  * The itinerary this builds has no stay priced, because that is the condition all three
  * defects need: with no bed, the stopover point falls back to the connection airport's own
- * coordinates and the two connection-side transfer legs never exist. BCN -> VIE -> TLL on
- * keyless Ryanair, with the fixture-marker figures every mock in this suite uses, so an
- * escaped payload reads as nonsense rather than as a working search.
+ * coordinates. BCN -> VIE -> TLL on keyless Ryanair, with the fixture-marker figures every
+ * mock in this suite uses, so an escaped payload reads as nonsense rather than as a working
+ * search.
+ *
+ * Until issue #198 the two connection-side transfer legs did not exist either, because a
+ * bedless stopover had nowhere to route to unless #162 had a hand-checked centre for the
+ * airport, and Vienna was not one of the ten. They exist now: VIE has a generated centre,
+ * so both legs run between the airport and the city. Claim 2 below is where that shows.
  *
  * The three claims:
  *
  * 1. The stopover marker takes a real click. `locator.click()` with no `force` is the
  *    assertion: Playwright refuses to click an element another element covers, which is
  *    exactly how the issue was found ("subtree intercepts pointer events", 60 retries).
- * 2. Selecting a transfer row with nothing to draw says so. The map's `role="status"`
- *    line used to go empty, which a screen reader hears as nothing at all.
+ * 2. Selecting a transfer row always says what the map is doing. The `role="status"` line
+ *    used to go empty, which a screen reader hears as nothing at all.
  * 3. The waiting-time stepper leaves the camera alone. Measured off MapLibre's own
  *    marker transforms, which move if and only if the camera does.
  */
@@ -197,7 +202,7 @@ test.describe('itinerary map defects (issue #141)', () => {
 			.toBeLessThan(4_000);
 	});
 
-	test('a transfer row with nothing to draw says why, instead of blanking the status', async ({
+	test('a transfer row says what it is showing, instead of blanking the status', async ({
 		page
 	}) => {
 		const detail = await openDetail(page);
@@ -207,20 +212,29 @@ test.describe('itinerary map defects (issue #141)', () => {
 
 		await detail.locator('[data-segment="transfer-to-hotel"]').click();
 		await expect(detail.locator('[data-segment="transfer-to-hotel"]')).toHaveAttribute('aria-current', 'true');
-		// `unroutedLegNote`'s own sentence, prefixed. Vienna is not one of the eleven
-		// airports issue #162 keeps a hand-checked city centre for, so nothing routed into
-		// town either and there is genuinely no line to draw.
+		// Issue #141's claim is that this line never goes empty, because a screen reader
+		// hears an empty `role="status"` as nothing at all. WHAT it says here changed with
+		// issue #198, and this test is where that landed first.
 		//
-		// Issue #185 took the bed out of these two sentences. It was true and it was also
-		// the third and sixth of eight places on one screen saying it; the row's own fact is
-		// the missing route, and the reason a bed is missing now lives once, in the stopover
-		// row's fold.
-		await expect(status).toHaveText('Nothing to draw. Nothing routed into the city for this stopover.');
+		// This itinerary prices no bed. Vienna also had no city centre — it was not one of
+		// the ten airports issue #162 hand-checked — so both connection legs had no
+		// destination at all, and this line read "Nothing to draw. Nothing routed into the
+		// city for this stopover." VIE now has a generated centre, so the leg runs from the
+		// airport to the city and there IS something to draw. Under these mocks no routing
+		// provider answers, so the map draws the straight line between the two ends and says
+		// that is what it is.
+		//
+		// The two directions naming different places is the point of the feature: into
+		// "Vienna", back to "VIE".
+		await expect(status).toHaveText(/^\s*Showing Transfer to Vienna \(straight-line estimate\)\.$/);
 
 		await detail.locator('[data-segment="transfer-to-connection-airport"]').click();
-		await expect(status).toHaveText(
-			'Nothing to draw. Nothing routed back from the city for this stopover.'
-		);
+		await expect(status).toHaveText(/^\s*Showing Transfer to VIE \(straight-line estimate\)\.$/);
+
+		// `unroutedLegNote`'s empty-leg sentences did not go away and are not dead: they are
+		// still reached for the ~1,085 airports with no centre, and whenever a routing
+		// provider answers nothing for one that has one. `itinerary-timeline-format.test.ts`
+		// and `itinerary-map/status.test.ts` cover both of them.
 
 		// And the way back out of a selection, which did not exist before either.
 		await detail.getByRole('button', { name: 'Show whole route' }).click();

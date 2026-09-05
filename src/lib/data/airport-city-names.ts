@@ -67,11 +67,19 @@ interface AirportCityNaming {
 	 *
 	 * Only the airports below have one, and only they need one: they are the entries this
 	 * table already exists for, where the runway sits in a different place from the city on
-	 * the ticket. Everywhere else the municipality IS the airport's own town and this app
-	 * has no better point than the runway, so the field is absent, the domain type says
-	 * `undefined`, and both readers (the stay cards, issue #161's city-centre routing) drop
-	 * what they cannot state rather than restating the airport's own position under a
-	 * different label.
+	 * the ticket. That is also the one shape a name-matching rule gets wrong, which is why
+	 * these ten still override `data/city-centres.generated.json` (issue #198) rather than
+	 * being replaced by it. Left to itself the generated rule answers Ferno for Malpensa
+	 * and Zaventem for Brussels — the villages beside those runways.
+	 *
+	 * These ten are also what verifies that rule. `scripts/prepare-city-centres.mjs
+	 * --verify` reports how far its answer lands from each hand-checked point, and nine of
+	 * the ten agree to within 2 km. The tenth is BVC below.
+	 *
+	 * Everywhere the generated table has nothing either, the field stays absent, the domain
+	 * type says `undefined`, and both readers (the stay cards, issue #161's city-centre
+	 * routing) drop what they cannot state rather than restating the airport's own position
+	 * under a different label.
 	 *
 	 * Each was read off Transitous's own `/geocode` on 2026-09-04 — keyless, free, the
 	 * geocoder this app already talks to — and kept only where the response named the place
@@ -228,15 +236,20 @@ export function displayCityName(iataCode: IataAirportCode, municipality: string)
 }
 
 /**
- * A point in the middle of the city this airport serves, or `undefined` when nobody has
- * checked one (issue #162).
+ * The HAND-CHECKED point in the middle of the city this airport serves, or `undefined`
+ * when nobody read one off a geocoder by hand (issue #162).
  *
- * `undefined` is the normal answer and the honest one. It is not "the airport will do":
- * `data/airports.ts` used to fill `City.coordinates` with the runway's own position for
- * every airport in the dataset, which is why "6.0 km from the airport" and "6.0 km from
- * the city centre" appeared side by side on the same card as if they were two facts.
- * `City.coordinates` is optional now precisely so this function can say "no" and every
- * reader has to handle it.
+ * `undefined` here no longer means the app has nothing. `data/airports.ts` asks this
+ * first and `data/city-centres.generated.json` second (issue #198), so this function's
+ * job narrowed to being the override: the ten places where a name-matching rule would
+ * confidently name the wrong town. Read it as "is there a human's answer for this
+ * airport", not as "does this airport have a centre".
+ *
+ * It is still never "the airport will do". `data/airports.ts` used to fill
+ * `City.coordinates` with the runway's own position for every airport in the dataset,
+ * which is why "6.0 km from the airport" and "6.0 km from the city centre" appeared side
+ * by side on the same card as if they were two facts. `City.coordinates` is optional
+ * precisely so both layers can say "no" and every reader has to handle it.
  */
 export function cityCentreOf(iataCode: IataAirportCode): Coordinates | undefined {
 	return AIRPORT_CITY_NAMING[iataCode]?.centre;
