@@ -8,6 +8,7 @@
  * needs the alternates kept together, not flattened into six competing rows.
  */
 
+import { moneyCostOf } from '../algorithm/score';
 import { defaultStopover } from '../algorithm/stopover-length';
 import type { ItineraryGroup, ItineraryResult } from './types';
 
@@ -17,11 +18,12 @@ import type { ItineraryGroup, ItineraryResult } from './types';
  * and sorts the groups themselves by their `best`, so the result is ready to render
  * top-to-bottom with no further sorting.
  *
- * Issue #224: `best` is the SHORTEST stopover this connection can do, not the
- * highest-scoring variant. `score.ts` pays for nights, so the top score through a city was
- * always its longest pairing, and a 6-to-12 October search came back with six nights beside
- * Gatwick while the one-night trip sat in the same `variants` array unseen. See
- * `algorithm/stopover-length.ts` for the rule and the owner's own words.
+ * Issue #224: `best` is not the highest-scoring variant. `score.ts` pays for nights, so the
+ * top score through a city was always its longest pairing, and a 6-to-12 October search came
+ * back with six nights beside Gatwick while the one-night trip sat in the same `variants`
+ * array unseen. Issue #364 then settled which of the lengths it is: the cheapest one, ties
+ * to the shortest stay. See `algorithm/stopover-length.ts` for the rule and the owner's own
+ * words.
  *
  * That also decides the ORDER of the groups, and deliberately. Sorting cities by their
  * longest pairing compared stopover lengths as much as prices: a EUR 13/night dorm 48km out
@@ -39,12 +41,16 @@ export function groupItineraryResults(results: readonly ItineraryResult[]): Itin
 
 	const groups: ItineraryGroup[] = [];
 	for (const [connectionAirportCode, variants] of byConnection) {
-		// Score order first, so `defaultStopover` picking the FIRST variant at the shortest
-		// length picks that length's best pairing rather than an arbitrary one, and so the
-		// flight pickers still list alternatives best-first.
+		// Score order first, so `defaultStopover` picking the FIRST variant at each length
+		// picks that length's best pairing rather than an arbitrary one, and so the flight
+		// pickers still list alternatives best-first.
 		variants.sort((a, b) => b.score.total - a.score.total);
 		const best =
-			defaultStopover(variants, (variant) => variant.score.itinerary.nightsInConnection) ?? variants[0];
+			defaultStopover(
+				variants,
+				(variant) => variant.score.itinerary.nightsInConnection,
+				(variant) => moneyCostOf(variant.score)
+			) ?? variants[0];
 		groups.push({ connectionAirportCode, best, variants });
 	}
 

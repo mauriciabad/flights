@@ -22,7 +22,7 @@
  * used; it does not silently re-open how long the traveller waits at the gate.
  */
 
-import { deriveItinerary, minutesBetween, type ItineraryParts } from './build';
+import { deriveTrip, minutesBetween, type ItineraryParts } from './build';
 import type { Duration, FlightOffer, Itinerary, Stay, Transfer, TransferAnchor } from '../domain';
 import { DEFAULT_MIN_LAYOVER_TIME_MINUTES } from '../domain';
 
@@ -206,14 +206,17 @@ export function recomputeItinerarySelection(
 		transferToConnectionAirport,
 		transferToDestinationLocation
 	};
-	const derived = deriveItinerary(parts);
+	// Issue #365: `deriveTrip` rather than `deriveItinerary`, so a flight swap that turns a
+	// night into a terminal wait takes the ride to the bed with it instead of leaving a
+	// journey to an address this trip no longer books.
+	const trip = deriveTrip(parts, transferAnchor);
 
 	// Not reported alongside `flights-out-of-order`, because there it is the consequence
 	// rather than the cause and it names the wrong culprit. Two flights in the wrong order
 	// leave negative free time whatever the transfers and the buffer are, and production
 	// stacked both sentences on one row: the second blamed the transfers for a trip that
 	// had no connection in it at all.
-	if (derived.freeTime.duration < 0 && !flightsOutOfOrder) {
+	if (trip.freeTime.duration < 0 && !flightsOutOfOrder) {
 		warnings.push({
 			code: 'insufficient-connection-time',
 			message:
@@ -223,7 +226,7 @@ export function recomputeItinerarySelection(
 	}
 
 	return {
-		itinerary: { ...itinerary, ...parts, ...derived, transferAnchor },
+		itinerary: { ...itinerary, ...trip },
 		warnings
 	};
 }

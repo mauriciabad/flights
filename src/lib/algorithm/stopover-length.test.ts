@@ -13,9 +13,14 @@ import {
 interface Pairing {
 	label: string;
 	nights: number;
+	/** What this pairing costs, in whatever unit the caller ranks in. Defaults to the same
+	 * figure for every pairing in a case that is not about price, so those cases read as
+	 * "nothing to choose between them but the length". */
+	cost?: number;
 }
 
 const nightsOf = (pairing: Pairing) => pairing.nights;
+const costOf = (pairing: Pairing) => pairing.cost ?? 0;
 
 describe('stopoverLengths', () => {
 	it('lists each distinct night count once, shortest first', () => {
@@ -54,7 +59,7 @@ describe('stopoverLengths', () => {
 });
 
 describe('defaultStopoverLength', () => {
-	it('opens on the fewest nights, which is the whole of issue #224', () => {
+	it('opens on the fewest nights when nothing separates the lengths on price, which is the whole of issue #224', () => {
 		// The measured London card: the search window was 6 to 12 October and the widest
 		// pairing swallowed all of it. The one-night trip was always in the same group.
 		const lengths = stopoverLengths(
@@ -66,10 +71,10 @@ describe('defaultStopoverLength', () => {
 			nightsOf
 		);
 
-		expect(defaultStopoverLength(lengths)?.pick.label).toBe('one');
+		expect(defaultStopoverLength(lengths, costOf)?.pick.label).toBe('one');
 	});
 
-	it('opens on the same-day pairing when the city has one, rather than inventing a night', () => {
+	it('opens on the same-day pairing when the city has one at the same price, rather than inventing a night', () => {
 		// Issue #225: "there shoudl be no casa in wich the nights could be 0 or more, that
 		// case should just be a flight change and thats it." Opening on the one-night
 		// pairing here would be the app choosing a stopover the flights never forced.
@@ -81,11 +86,56 @@ describe('defaultStopoverLength', () => {
 			nightsOf
 		);
 
-		expect(defaultStopoverLength(lengths)?.pick.label).toBe('same-day');
+		expect(defaultStopoverLength(lengths, costOf)?.pick.label).toBe('same-day');
+	});
+
+	it('opens on a longer stay that costs less, which is issue #364', () => {
+		// The owner's own card, in cents: BCN to BVC via Porto came back same-day at
+		// EUR 424.00 with the one-night pairing at EUR 237.78 in the same group, and the app
+		// recommended the same-day one and printed the EUR 186.22 saving underneath it.
+		const lengths = stopoverLengths(
+			[
+				{ label: 'same-day', nights: 0, cost: 42400 },
+				{ label: 'one', nights: 1, cost: 23778 },
+				{ label: 'two', nights: 2, cost: 30358 },
+				{ label: 'three', nights: 3, cost: 30138 }
+			],
+			nightsOf
+		);
+
+		expect(defaultStopoverLength(lengths, costOf)?.pick.label).toBe('one');
+	});
+
+	it('keeps the shorter stay when a longer one only matches its price', () => {
+		// The boundary is "strictly cheaper", so a night that costs nothing extra still
+		// costs a day and does not become the default.
+		const lengths = stopoverLengths(
+			[
+				{ label: 'same-day', nights: 0, cost: 20000 },
+				{ label: 'one', nights: 1, cost: 20000 }
+			],
+			nightsOf
+		);
+
+		expect(defaultStopoverLength(lengths, costOf)?.pick.label).toBe('same-day');
+	});
+
+	it('never opens on a longer stay that costs more, which is what issue #230 removed', () => {
+		// The London card: six nights at EUR 307.00 against one at EUR 265.00. The rule that
+		// replaces "shortest, full stop" has to keep giving this the same answer.
+		const lengths = stopoverLengths(
+			[
+				{ label: 'one', nights: 1, cost: 26500 },
+				{ label: 'six', nights: 6, cost: 30700 }
+			],
+			nightsOf
+		);
+
+		expect(defaultStopoverLength(lengths, costOf)?.pick.label).toBe('one');
 	});
 
 	it('is undefined for no lengths at all', () => {
-		expect(defaultStopoverLength([])).toBeUndefined();
+		expect(defaultStopoverLength([], costOf)).toBeUndefined();
 	});
 });
 
@@ -145,19 +195,33 @@ describe('stopoverOfLength', () => {
 });
 
 describe('defaultStopover', () => {
-	it('is the shortest real stopover’s own candidate', () => {
+	it('is the cheapest stopover’s own candidate', () => {
+		expect(
+			defaultStopover(
+				[
+					{ label: 'four', nights: 4, cost: 100 },
+					{ label: 'two', nights: 2, cost: 300 }
+				],
+				nightsOf,
+				costOf
+			)?.label
+		).toBe('four');
+	});
+
+	it('is the shortest when price cannot separate them', () => {
 		expect(
 			defaultStopover(
 				[
 					{ label: 'four', nights: 4 },
 					{ label: 'two', nights: 2 }
 				],
-				nightsOf
+				nightsOf,
+				costOf
 			)?.label
 		).toBe('two');
 	});
 
 	it('is undefined with nothing to choose from', () => {
-		expect(defaultStopover([], nightsOf)).toBeUndefined();
+		expect(defaultStopover([], nightsOf, costOf)).toBeUndefined();
 	});
 });

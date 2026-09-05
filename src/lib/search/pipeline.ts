@@ -41,7 +41,7 @@ import { pairConnections } from '../algorithm/build';
 import type { ConnectionBlock } from '../algorithm/build';
 import { discoverCandidateViaCalendar } from './calendar-discovery';
 import { confirmTargetFor, narrowToConfirmTarget } from './confirm-target';
-import { DEFAULT_SCORING_WEIGHTS, rankItineraries } from '../algorithm/score';
+import { DEFAULT_SCORING_WEIGHTS, moneyCostOf, rankItineraries } from '../algorithm/score';
 import type { ScoringWeights } from '../algorithm/score';
 import { defaultStopover } from '../algorithm/stopover-length';
 import { getAirport } from '../data/airports';
@@ -562,13 +562,17 @@ async function processCandidate(input: ProcessCandidateInput): Promise<Candidate
 		// return. The other variants keep their road-mode transfers, which is also what
 		// happens today when a traveller swaps flights in the picker.
 		//
-		// Issue #224: "the one the result card shows" is the SHORTEST stopover through this
-		// city, not the top-scoring pairing. `groupItineraryResults` picks the card's
-		// itinerary with the same `defaultStopover` rule, so both agree on which trip is
-		// worth the one timetable lookup this candidate gets. Spending it on the longest
-		// pairing would have bought a bus schedule for a trip nobody is shown. Same cost:
-		// one refinement per candidate, before and after.
-		const cardPairing = defaultStopover(scored, (score) => score.itinerary.nightsInConnection);
+		// Issue #224, then #364: "the one the result card shows" is the CHEAPEST stopover
+		// through this city, ties to the shortest stay, not the top-scoring pairing.
+		// `groupItineraryResults` picks the card's itinerary with the same `defaultStopover`
+		// rule, so both agree on which trip is worth the one timetable lookup this candidate
+		// gets. Spending it on the longest pairing would have bought a bus schedule for a
+		// trip nobody is shown. Same cost: one refinement per candidate, before and after.
+		const cardPairing = defaultStopover(
+			scored,
+			(score) => score.itinerary.nightsInConnection,
+			moneyCostOf
+		);
 		const refined = cardPairing ? await fetchTransitSchedules({
 			itinerary: cardPairing.itinerary,
 			connectionCoordinates: groundTransferPoint(connectionAirport),
