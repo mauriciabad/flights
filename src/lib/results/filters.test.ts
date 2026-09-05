@@ -75,31 +75,78 @@ describe('applyFilters', () => {
 		expect(filtered.map((r) => r.id)).toEqual([long.id]);
 	});
 
-	it('filters out an excluded connection airport', () => {
+	it('keeps only the chosen connection airport', () => {
+		// Issue #189, the promise the chip's own count makes: "Prague (1)" must leave one.
 		const throughVienna = makeScoredResult({ connectionAirportCode: 'VIE' });
 		const throughPrague = makeScoredResult({ connectionAirportCode: 'PRG' });
 
-		const filtered = applyFilters(
-			[throughVienna, throughPrague],
-			{ ...emptyFilters(), excludedConnectionAirports: new Set(['PRG']) }
-		);
+		const filtered = applyFilters([throughVienna, throughPrague], {
+			...emptyFilters(),
+			chosenConnectionAirports: new Set(['PRG'])
+		});
 
-		expect(filtered.map((r) => r.id)).toEqual([throughVienna.id]);
+		expect(filtered.map((r) => r.id)).toEqual([throughPrague.id]);
 	});
 
-	it('filters out either flight on an excluded airline', () => {
-		const ryanairOutbound = makeScoredResult({ outboundCarrier: 'FR' });
-		const other = makeScoredResult({ outboundCarrier: 'VY' });
+	it('keeps every connection airport when none is chosen', () => {
+		// Empty means all, which is what lets a connection city streaming in after the panel
+		// was drawn show up rather than being hidden for not being in a list nobody saw.
+		const throughVienna = makeScoredResult({ connectionAirportCode: 'VIE' });
+		const throughPrague = makeScoredResult({ connectionAirportCode: 'PRG' });
 
-		const filtered = applyFilters(
-			[ryanairOutbound, other],
-			{ ...emptyFilters(), excludedAirlines: new Set(['FR']) }
-		);
-
-		expect(filtered.map((r) => r.id)).toEqual([other.id]);
+		expect(applyFilters([throughVienna, throughPrague], emptyFilters())).toHaveLength(2);
 	});
 
-	it('does NOT filter out an avoided-but-not-excluded airline, avoid is scoring only', () => {
+	it('keeps an itinerary carrying a chosen airline on either leg', () => {
+		// `deriveFilterOptions` counts an itinerary under BOTH of its carriers, so "FR (1)"
+		// counts the trip that flies FR on one leg and W6 on the other. Requiring both legs
+		// would answer that label with zero.
+		const ryanairOutbound = makeScoredResult({ outboundCarrier: 'FR', onwardCarrier: 'W6' });
+		const ryanairOnward = makeScoredResult({ outboundCarrier: 'VY', onwardCarrier: 'FR' });
+		const neither = makeScoredResult({ outboundCarrier: 'VY', onwardCarrier: 'W6' });
+
+		const filtered = applyFilters([ryanairOutbound, ryanairOnward, neither], {
+			...emptyFilters(),
+			chosenAirlines: new Set(['FR'])
+		});
+
+		expect(filtered.map((r) => r.id)).toEqual([ryanairOutbound.id, ryanairOnward.id]);
+	});
+
+	it('widens rather than narrows when a second airline is chosen', () => {
+		const ryanair = makeScoredResult({ outboundCarrier: 'FR', onwardCarrier: 'FR' });
+		const vueling = makeScoredResult({ outboundCarrier: 'VY', onwardCarrier: 'VY' });
+		const wizz = makeScoredResult({ outboundCarrier: 'W6', onwardCarrier: 'W6' });
+
+		const filtered = applyFilters([ryanair, vueling, wizz], {
+			...emptyFilters(),
+			chosenAirlines: new Set(['FR', 'VY'])
+		});
+
+		expect(filtered.map((r) => r.id)).toEqual([ryanair.id, vueling.id]);
+	});
+
+	it('narrows across axes, so a chosen city and a chosen airline both have to hold', () => {
+		const praguePlusRyanair = makeScoredResult({
+			connectionAirportCode: 'PRG',
+			outboundCarrier: 'FR'
+		});
+		const prague = makeScoredResult({ connectionAirportCode: 'PRG', outboundCarrier: 'VY' });
+		const viennaPlusRyanair = makeScoredResult({
+			connectionAirportCode: 'VIE',
+			outboundCarrier: 'FR'
+		});
+
+		const filtered = applyFilters([praguePlusRyanair, prague, viennaPlusRyanair], {
+			...emptyFilters(),
+			chosenConnectionAirports: new Set(['PRG']),
+			chosenAirlines: new Set(['FR'])
+		});
+
+		expect(filtered.map((r) => r.id)).toEqual([praguePlusRyanair.id]);
+	});
+
+	it('does NOT hide an avoided airline, avoid is scoring only', () => {
 		// scoreItinerary already covers the score-penalty side (score.test.ts); this just
 		// asserts the results-list filter never conflates the two mechanisms (see this
 		// module's header comment).
