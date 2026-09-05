@@ -38,7 +38,6 @@
 	 * Body scroll is locked while open. The dialog's margin leaves the page visible at the
 	 * edges, and a background that scrolls under a modal reads as the modal sliding.
 	 */
-	import { untrack } from 'svelte';
 	import { ItineraryMap } from '$lib/components';
 	import type { Itinerary } from '$lib/domain';
 	import type { ItinerarySegmentId } from '$lib/itinerary-map/segment-id';
@@ -48,21 +47,21 @@
 		/** Heading, and the dialog's accessible name. The leg's own sentence from the map
 		 *  model, "(straight-line estimate)" included where that is true. */
 		title: string;
-		/** Which leg the map opens framed on. `null` shows the whole route. */
-		focusSegmentId: ItinerarySegmentId | null;
+		/**
+		 * The selection this map shares with `ItineraryTimeline`, one `ItinerarySegmentId`
+		 * meaning the same thing on both sides (`segment-id.ts` documents that contract in
+		 * full). Bound rather than copied so a marker click inside the dialog leaves the
+		 * right timeline row highlighted once the dialog is gone. The button that opened the
+		 * dialog has already written its own leg into it, which is what frames the map on
+		 * the leg that was tapped.
+		 */
+		selectedSegmentId: ItinerarySegmentId | null;
 		/** Fired for every way out: Escape, the close button, the backdrop. The parent stops
 		 *  rendering this component in response, which is what closes it. */
 		onclose: () => void;
 	}
 
-	let { itinerary, title, focusSegmentId, onclose }: Props = $props();
-
-	// Seeded from the prop once, then owned by the map: a traveller who pans to another leg
-	// inside the dialog must not be dragged back to the button they arrived through.
-	// `untrack` says that capture is the intent rather than a missed reactive read. It is
-	// safe here in a way it would not be elsewhere, because this component is created fresh
-	// on every open, so "once" and "per open" are the same moment.
-	let selectedSegmentId = $state<ItinerarySegmentId | null>(untrack(() => focusSegmentId));
+	let { itinerary, title, selectedSegmentId = $bindable(null), onclose }: Props = $props();
 
 	const headingId = $props.id();
 

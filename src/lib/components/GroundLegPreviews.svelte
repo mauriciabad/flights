@@ -31,15 +31,25 @@
 	interface Props {
 		itinerary: Itinerary;
 		previews: GroundLegPreview[];
+		/**
+		 * The selection shared with `ItineraryTimeline` (`segment-id.ts` documents the
+		 * contract). Tapping a preview writes its own leg here, which both frames the map
+		 * the dialog opens and leaves the matching timeline row highlighted underneath.
+		 */
+		selectedSegmentId: ItinerarySegmentId | null;
 	}
 
-	let { itinerary, previews }: Props = $props();
+	let { itinerary, previews, selectedSegmentId = $bindable(null) }: Props = $props();
 
 	// The dialog has no `open` prop: rendering it opens it and dropping it closes it, so
 	// this one variable is the whole state and the MapLibre instance inside it lives
-	// exactly as long as the dialog does. `null` opens on the whole route, which is what
-	// the fallback below asks for.
-	let openLeg = $state<{ title: string; focusSegmentId: ItinerarySegmentId | null } | undefined>();
+	// exactly as long as the dialog does.
+	let openTitle = $state<string | undefined>();
+
+	function open(title: string, segmentId: ItinerarySegmentId | null): void {
+		selectedSegmentId = segmentId;
+		openTitle = title;
+	}
 </script>
 
 {#if previews.length === 0}
@@ -48,14 +58,14 @@
 	     traveller with no way to a map at all. One button, no picture: there is nothing
 	     honest to draw here, and drawing the flights instead would put a thumbnail under a
 	     label that promises ground transport. -->
-	<button type="button" class="ground-leg is-fallback" onclick={() => (openLeg = { title: 'The whole route', focusSegmentId: null })}>
+	<button type="button" class="ground-leg is-fallback" onclick={() => open('The whole route', null)}>
 		Open the route map
 	</button>
 {:else}
 	<ul class="ground-legs-row">
 		{#each previews as preview (preview.id)}
 			<li class="ground-legs-item">
-				<button type="button" class="ground-leg" onclick={() => (openLeg = preview)}>
+				<button type="button" class="ground-leg" onclick={() => open(preview.title, preview.focusSegmentId)}>
 					<span class="ground-leg-frame">
 						<RoutePreview lines={preview.lines} points={preview.points} width={120} height={88} />
 						<svg class="ground-leg-expand" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
@@ -81,12 +91,12 @@
 	</ul>
 {/if}
 
-{#if openLeg}
+{#if openTitle !== undefined}
 	<RouteMapDialog
 		{itinerary}
-		title={openLeg.title}
-		focusSegmentId={openLeg.focusSegmentId}
-		onclose={() => (openLeg = undefined)}
+		title={openTitle}
+		bind:selectedSegmentId
+		onclose={() => (openTitle = undefined)}
 	/>
 {/if}
 

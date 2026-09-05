@@ -773,7 +773,7 @@
 	     to settle at four cards and stopped working entirely at five, which
 	     `tools/probe-map-cost.mjs` measures on demand. A leg the itinerary does not have
 	     gets no preview, so this row is three items or two, slightly wider. -->
-	<GroundLegPreviews {itinerary} previews={groundLegPreviews} />
+	<GroundLegPreviews {itinerary} previews={groundLegPreviews} bind:selectedSegmentId />
 
 	<!-- Issue #228's block, in full. It lands here rather than on the card because seven
 	     lines repeated down a results list is not a results screen, and here rather than

@@ -287,7 +287,10 @@ test.describe('itinerary map: every transfer leg, distinct markers, honest geome
 		await page.getByRole('button', { name: 'Show details' }).first().click();
 		const detail = page.locator('.result-detail');
 		await expect(detail).toBeVisible();
-		await expect(detail.getByRole('region', { name: /Route map/ })).toBeVisible();
+		// Issue #280: what mounts here now is one frozen preview per ground leg. All four
+		// legs exist on this search, and the two connection-side ones are one preview, so
+		// three is the count. The map itself is behind them, in a dialog.
+		await expect(detail.locator('.ground-legs-item')).toHaveCount(3);
 
 		// Every OSRM route request this search made asked for a simplified GeoJSON
 		// overview — a parameter on a request already being made (this PR's whole
@@ -323,9 +326,17 @@ test.describe('itinerary map: every transfer leg, distinct markers, honest geome
 		// Three of each — origin/connection/destination airports vs. the origin
 		// location, the hotel and the destination location.
 		// -----------------------------------------------------------------
-		const map = detail.locator('.itinerary-map-canvas');
+		// Opened from the first preview and then panned back out to the whole route, which is
+		// where all six markers are on screen at once.
+		await detail.locator('.ground-leg').first().click();
+		const dialog = page.locator('dialog.route-dialog');
+		await expect(dialog.getByRole('region', { name: /Route map/ })).toBeVisible();
+		await dialog.getByRole('button', { name: 'Show whole route' }).click();
+
+		const map = dialog.locator('.itinerary-map-canvas');
 		await expect(map.locator('.itinerary-marker-pin')).toHaveCount(3);
 		await expect(map.locator('.itinerary-marker:not(.itinerary-marker-pin)')).toHaveCount(3);
+		await page.keyboard.press('Escape');
 
 		// -----------------------------------------------------------------
 		// Honest geometry, proven both ways in one real pipeline run: the connection
@@ -334,14 +345,23 @@ test.describe('itinerary map: every transfer leg, distinct markers, honest geome
 		// live region ItineraryMap announces a selection through — which issue #141 made
 		// visible as the caption under the map, so it is no longer `.visually-hidden`.
 		// -----------------------------------------------------------------
-		const announcement = detail.locator('.map-status[role="status"]');
+		//
+		// Issue #280 gives that same sentence a second home: it is the preview button's own
+		// accessible name, so the caveat now travels with the control a traveller taps, and
+		// both halves are asserted without opening anything.
+		const previews = detail.locator('.ground-leg');
 
-		await timeline.locator('[data-segment="transfer-to-hotel"]').click();
+		await expect(previews.nth(0)).toHaveAccessibleName(/Transfer to KEF \(straight-line estimate\)/);
+		await expect(previews.nth(1)).toHaveAccessibleName(
+			new RegExp(`Transfer to ${FIXTURE_NAMES.property}`)
+		);
+		await expect(previews.nth(1)).not.toHaveAccessibleName(/straight-line estimate/);
+
+		// And the same fact reaches the live region the map announces a selection through,
+		// which issue #141 made visible as the caption under the map.
+		await previews.nth(1).click();
+		const announcement = page.locator('dialog.route-dialog .map-status[role="status"]');
 		await expect(announcement).toContainText(`Transfer to ${FIXTURE_NAMES.property}`);
 		await expect(announcement).not.toContainText('straight-line estimate');
-
-		await timeline.locator('[data-segment="transfer-to-origin-airport"]').click();
-		await expect(announcement).toContainText('Transfer to KEF');
-		await expect(announcement).toContainText('straight-line estimate');
 	});
 });
