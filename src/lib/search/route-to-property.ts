@@ -25,16 +25,17 @@
  * route cache under the same key `fetchConnectionResources` would have used, so the second
  * traveller to compare the same beds on the same trip pays nothing.
  *
- * No taxi fare estimate. `estimateTaxiFareForLeg` needs a driving route WITH a distance,
- * and `fetchRoute` caches one, so it would be a cache hit rather than a new request — but
- * it is a second provider call per leg and the panel's transfer rows do not print an
- * estimated fare for the picked bed today. Adding it is a separate decision from making
- * the journey exist at all.
+ * The taxi fare estimate comes free with the route, since issue #249: OSRM rates the
+ * driving distance it already fetched and hands the range back on the taxi `Transfer`
+ * itself. Not a second provider call, not a second request, and without it a bed swap
+ * would leave the receipt saying "not priced" for a ride the same screen priced a moment
+ * earlier under a different bed.
  */
 
 import type {
   AirportSizeClass,
   Coordinates,
+  IsoCountryCode,
   LandingToTransportRule,
   Transfer,
 } from "../domain";
@@ -68,6 +69,10 @@ export interface RouteToPropertyInput {
    * would disagree with itself depending on which code path produced it. */
   landingToTransportRules: readonly LandingToTransportRule[];
   connectionAirportSize: AirportSizeClass;
+  /** The connection airport's own country, so a taxi routed here is rated against the same
+   * card `fetchConnectionResources` would have used (issue #249). Absent means no estimate
+   * for this bed, never one borrowed from a neighbouring country. */
+  connectionCountryCode?: IsoCountryCode;
   /** Where a provider call gets reported. The panel does not feed the search-wide status
    * map (this call happens after the search is over and would make "Ryanair answered
    * twice" wrong), so this exists so a failure has somewhere to go rather than being
@@ -104,6 +109,7 @@ export async function routeToProperty(
     signal,
     landingToTransportRules,
     connectionAirportSize,
+    connectionCountryCode,
     record,
   } = input;
 
@@ -121,6 +127,7 @@ export async function routeToProperty(
         from: connectionCoordinates,
         to: propertyCoordinates,
         modes: [...ROAD_TRANSFER_MODES],
+        countryCode: connectionCountryCode,
       },
       transferProviders,
       keys,
@@ -133,6 +140,7 @@ export async function routeToProperty(
         from: propertyCoordinates,
         to: connectionCoordinates,
         modes: [...ROAD_TRANSFER_MODES],
+        countryCode: connectionCountryCode,
       },
       transferProviders,
       keys,

@@ -49,7 +49,6 @@ import type {
 } from '../domain';
 import type { ProviderRegistry } from '../providers/registry';
 import type { AvailableKeys, ProviderError, ProviderId, ProviderKind, ProviderSource } from '../providers/types';
-import type { TaxiFareEstimate } from '../providers/transfers/taxi-rate-table';
 import type { ProviderAnswer } from './provenance';
 // Type-only, so no runtime cycle with `transit-schedule.ts`'s own import of this file.
 import type { TransitLookupBudget } from './transit-schedule';
@@ -250,15 +249,16 @@ export interface ItineraryResult {
  * pattern (issue #80) for transfers instead of stays. `candidates` is every `Transfer` a
  * usable provider returned for this exact A-to-B, not only the one `resources.ts` picked to
  * build the itinerary with (an itinerary's own `transferToHotel`/etc. field is always one of
- * these, when any exist). `taxiFareEstimate` is OSRM's distance-based fare range for this
- * same pair, present only when a `taxi` candidate is among `candidates` — it is never folded
- * into any candidate's own `Transfer.price` (`providers/transfers/osrm.ts`'s own header
- * comment on why that separation is deliberate), so a component renders it as its own
- * clearly-labelled range instead of a quoted fare.
+ * these, when any exist).
+ *
+ * Issue #249 removed a `taxiFareEstimate` field from here. A rate-card range is a fact
+ * about one candidate, not about the leg, so it now rides on that candidate's own
+ * `Transfer.fareEstimate` and reaches every reader through the transfer itself: the
+ * picker, the receipt on the results card, a transfer swapped in later. That beats a prop
+ * threaded past three components in parallel with the transfer it describes.
  */
 export interface TransferLegOptions {
 	candidates: Transfer[];
-	taxiFareEstimate?: TaxiFareEstimate;
 	/**
 	 * Issue #119: the driving and taxi routes `isPlausibleTransfer` refused for this leg,
 	 * kept rather than dropped on the floor, for the same reason #220 keeps the refused

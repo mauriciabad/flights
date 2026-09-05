@@ -15,7 +15,7 @@ import {
 	staleScheduleNote,
 	summariseTransferLegs,
 	transferDetailLine,
-	unpricedTransferNote,
+	transferFareNote,
 	unroutedLegNote
 } from './itinerary-timeline-format';
 
@@ -295,25 +295,92 @@ describe('unroutedLegNote', () => {
 	});
 });
 
-describe('unpricedTransferNote (issue #119)', () => {
+describe('transferFareNote (issues #119, #249)', () => {
+	function ride(mode: Transfer['mode'], extra: Partial<Transfer> = {}): Transfer {
+		return { mode, duration: 20 as Duration, legs: [], ...extra };
+	}
+
 	it('says a walk has no fare, which is a fact, not a missing number', () => {
-		expect(unpricedTransferNote('walk')).toBe('No fare');
-		expect(unpricedTransferNote('walk', true)).toBe('no fare');
+		expect(transferFareNote(ride('walk'))).toEqual({
+			text: 'No fare',
+			amount: false,
+			estimated: false,
+			unknown: false
+		});
+		expect(transferFareNote(ride('walk'), true).text).toBe('no fare');
 	});
 
 	it('says a paid mode with no quote is a gap in the data, not a free ride', () => {
 		for (const mode of ['transit', 'taxi', 'drive'] as const) {
-			expect(unpricedTransferNote(mode)).toBe('Price not available');
-			expect(unpricedTransferNote(mode, true)).toBe('price n/a');
+			expect(transferFareNote(ride(mode))).toEqual({
+				text: 'Price not available',
+				amount: false,
+				estimated: false,
+				unknown: true
+			});
+			expect(transferFareNote(ride(mode), true).text).toBe('price n/a');
 		}
 	});
 
-	it('never prints a zero for any mode, in either form', () => {
+	it('prints a rate-card range as an amount, marked as a guess rather than greyed out', () => {
+		// The defect that made this take a Transfer instead of a mode: measured on a live
+		// build on 2026-09-05, `StopoverBlock` read "Taxi, 36m from the airport, price not
+		// available" a few centimetres under a receipt line reading "£35.85-£55.58 ESTIMATE"
+		// for that same ride.
+		const rated = ride('taxi', {
+			fareEstimate: {
+				kind: 'estimate',
+				currency: 'GBP',
+				lowMinorUnits: 3585,
+				highMinorUnits: 5558,
+				countryCode: 'GB',
+				rateSource: 'country',
+				citation: 'London black-cab Tariff 1'
+			}
+		});
+		expect(transferFareNote(rated)).toEqual({
+			text: '£35.85-£55.58',
+			amount: true,
+			estimated: true,
+			unknown: false
+		});
+	});
+
+	it("keeps issue #246's refusal distinct from nobody having asked", () => {
+		const beyond = ride('taxi', {
+			fareEstimate: {
+				kind: 'out-of-range',
+				distanceKm: 94.9,
+				ratedUpToKm: 30,
+				countryCode: 'GB',
+				citation: 'London black-cab Tariff 1'
+			}
+		});
+		expect(transferFareNote(beyond)).toEqual({
+			text: 'No fare estimate',
+			amount: false,
+			estimated: false,
+			unknown: true
+		});
+		expect(transferFareNote(beyond, true).text).toBe('no estimate');
+	});
+
+	it('prefers a real quote over an estimate, and never marks it as one', () => {
+		const quoted = ride('transit', { price: { minorUnits: 450, currency: 'EUR' } });
+		expect(transferFareNote(quoted)).toEqual({
+			text: '€4.50',
+			amount: true,
+			estimated: false,
+			unknown: false
+		});
+	});
+
+	it('never prints a bare zero for any mode, in either form', () => {
 		// The owner's complaint in full: "price of walk is 0\u20ac". A zero next to real
 		// fares invites a comparison the number cannot support, whatever the mode.
 		for (const mode of ['walk', 'transit', 'taxi', 'drive'] as const) {
-			expect(unpricedTransferNote(mode)).not.toMatch(/0/);
-			expect(unpricedTransferNote(mode, true)).not.toMatch(/0/);
+			expect(transferFareNote(ride(mode)).text).not.toMatch(/0/);
+			expect(transferFareNote(ride(mode), true).text).not.toMatch(/0/);
 		}
 	});
 });

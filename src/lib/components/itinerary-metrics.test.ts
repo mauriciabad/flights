@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { Duration, Itinerary } from '../domain';
+import type { Duration, Itinerary, Money, Transfer } from '../domain';
 import { sumMoney } from '../algorithm/build';
 import { makeItinerary } from '../results/test-support';
 import { ALL_METRIC_IDS, CARD_METRIC_IDS, itineraryMetrics, priceBreakdown } from './itinerary-metrics';
@@ -354,5 +354,157 @@ describe('priceBreakdown', () => {
 			minorUnits: 400,
 			currency: 'EUR'
 		});
+	});
+});
+
+// Issue #249 -----------------------------------------------------------------
+
+describe('priceBreakdown: a ride the rate card can describe', () => {
+	/** A taxi carrying the range OSRM's rate table produced for its own route. `price` stays
+	 * undefined, which is the point: this is a guess, and the receipt has to show it as one. */
+	function ratedTaxi(lowMinorUnits: number, highMinorUnits: number, currency: string): Transfer {
+		return {
+			mode: 'taxi',
+			duration: 22 as Duration,
+			legs: [],
+			fareEstimate: {
+				kind: 'estimate',
+				currency: currency as Money['currency'],
+				lowMinorUnits,
+				highMinorUnits,
+				countryCode: 'GB',
+				rateSource: 'country',
+				citation: 'London black-cab Tariff 1'
+			}
+		};
+	}
+
+	/** A taxi past what any card in the table reaches, which is issue #246's Gatwick run. */
+	const unratedTaxi: Transfer = {
+		mode: 'taxi',
+		duration: 76 as Duration,
+		legs: [],
+		fareEstimate: {
+			kind: 'out-of-range',
+			distanceKm: 94.9,
+			ratedUpToKm: 30,
+			countryCode: 'GB',
+			citation: 'London black-cab Tariff 1'
+		}
+	};
+
+	it('sums the estimated rides into their own line, never into the total', () => {
+		const trip = {
+			...makeItinerary({ nightsInConnection: 1 }),
+			transferToHotel: ratedTaxi(2426, 3830, 'GBP'),
+			transferToConnectionAirport: ratedTaxi(2426, 3830, 'GBP')
+		};
+		const breakdown = priceBreakdown(trip);
+
+		expect(breakdown.estimatedGround).toEqual([
+			{ rides: 2, currency: 'GBP', lowMinorUnits: 4852, highMinorUnits: 7660 }
+		]);
+		// The load-bearing assertion. `total` is `Itinerary.totalPrice`, which
+		// `algorithm/build.ts` builds from quoted money alone, and `results/sort.ts` and
+		// `results/filters.ts` both read it as if every unit in it were real.
+		expect(breakdown.total).toEqual(makeItinerary({ nightsInConnection: 1 }).totalPrice);
+		expect(breakdown.parts.some((part) => part.id === 'ground')).toBe(false);
+	});
+
+	it('stops calling an estimated ride unpriced, so no leg is counted twice', () => {
+		const trip = {
+			...makeItinerary({ nightsInConnection: 1 }),
+			transferToHotel: ratedTaxi(2426, 3830, 'GBP'),
+			transferToConnectionAirport: ratedTaxi(2426, 3830, 'GBP')
+		};
+		const breakdown = priceBreakdown(trip);
+
+		expect(breakdown.unpricedTransferCount).toBe(0);
+		expect(breakdown.walkedTransferCount).toBe(0);
+	});
+
+	it('keeps a ride past the card range in the unpriced count, with no figure attached', () => {
+		// Issue #246 refuses to rate a 94.9 km motorway run off a card back-calculated from a
+		// 5.1 km city ride. That refusal is still a hole in the total, and the receipt says so
+		// rather than quietly reporting one leg where the trip has two.
+		const trip = {
+			...makeItinerary({ nightsInConnection: 1 }),
+			transferToHotel: ratedTaxi(2426, 3830, 'GBP'),
+			transferToConnectionAirport: unratedTaxi
+		};
+		const breakdown = priceBreakdown(trip);
+
+		expect(breakdown.estimatedGround).toEqual([
+			{ rides: 1, currency: 'GBP', lowMinorUnits: 2426, highMinorUnits: 3830 }
+		]);
+		expect(breakdown.unpricedTransferCount).toBe(1);
+	});
+
+	it('never estimates a bus, because Transitous quotes no fares at all', () => {
+		const bus: Transfer = { mode: 'transit', duration: 35 as Duration, legs: [] };
+		const trip = {
+			...makeItinerary({ nightsInConnection: 1 }),
+			transferToHotel: bus,
+			transferToConnectionAirport: bus
+		};
+		const breakdown = priceBreakdown(trip);
+
+		expect(breakdown.estimatedGround).toEqual([]);
+		expect(breakdown.unpricedTransferCount).toBe(2);
+	});
+
+	it('splits two currencies into two lines rather than adding them up', () => {
+		// A trip with an origin location in Spain and a stopover in Britain rates one leg
+		// against the EUR card and the other against the GBP one. `sumMoney` throws on that
+		// mix by design and nothing in this repo converts, so the receipt says both.
+		const trip = {
+			...makeItinerary({ nightsInConnection: 1 }),
+			transferToOriginAirport: ratedTaxi(1300, 1900, 'EUR'),
+			transferToHotel: ratedTaxi(2426, 3830, 'GBP'),
+			transferToConnectionAirport: ratedTaxi(2426, 3830, 'GBP')
+		};
+		const breakdown = priceBreakdown(trip);
+
+		expect(breakdown.estimatedGround).toEqual([
+			{ rides: 1, currency: 'EUR', lowMinorUnits: 1300, highMinorUnits: 1900 },
+			{ rides: 2, currency: 'GBP', lowMinorUnits: 4852, highMinorUnits: 7660 }
+		]);
+	});
+
+	it('puts the size of the gap in the caveat under the total', () => {
+		const trip = {
+			...makeItinerary({ nightsInConnection: 1 }),
+			transferToHotel: ratedTaxi(2426, 3830, 'GBP'),
+			transferToConnectionAirport: ratedTaxi(2426, 3830, 'GBP')
+		};
+		expect(itineraryMetrics(trip, ['total-price'])[0]!.note).toBe(
+			'excludes ground transport, about £48.52-£76.60'
+		);
+	});
+
+	it('names no figure when part of the ground has none, rather than one that covers half of it', () => {
+		const trip = {
+			...makeItinerary({ nightsInConnection: 1 }),
+			transferToHotel: ratedTaxi(2426, 3830, 'GBP'),
+			transferToConnectionAirport: unratedTaxi
+		};
+		expect(itineraryMetrics(trip, ['total-price'])[0]!.note).toBe('excludes unpriced ground transport');
+	});
+
+	it('names no figure when two currencies are involved, for the same reason', () => {
+		const trip = {
+			...makeItinerary({ nightsInConnection: 1 }),
+			transferToOriginAirport: ratedTaxi(1300, 1900, 'EUR'),
+			transferToHotel: ratedTaxi(2426, 3830, 'GBP')
+		};
+		expect(itineraryMetrics(trip, ['total-price'])[0]!.note).toBe('excludes unpriced ground transport');
+	});
+
+	it('still says a bed is missing alongside an estimated ride', () => {
+		const trip = {
+			...withoutStay(makeItinerary({ nightsInConnection: 3 })),
+			transferToHotel: ratedTaxi(2426, 3830, 'GBP')
+		};
+		expect(itineraryMetrics(trip, ['total-price'])[0]!.note).toBe('excludes a bed and ground transport');
 	});
 });

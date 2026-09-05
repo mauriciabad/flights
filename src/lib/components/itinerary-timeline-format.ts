@@ -18,8 +18,9 @@ import type {
 	TransferMode,
 	TransitPlanMoment
 } from '../domain';
+import { groundFare } from '../domain';
 import type { WithheldRoutes } from '../search/types';
-import { formatClockTime, formatDuration } from '$lib/format';
+import { formatClockTime, formatDuration, formatMoney, formatMoneyRange } from '$lib/format';
 
 export {
 	calendarDayOffset,
@@ -119,23 +120,87 @@ export function formatKilometres(km: number): string {
 }
 
 /**
- * What a transfer row prints where a price would go, when no provider quoted one.
+ * What one transfer row prints where a price goes, and what kind of claim it is making.
  *
- * Issue #119, the owner on a walking option: **"and price of walk is 0€..."**. That zero
- * is long gone from this codebase — no `TransferProvider` sets `Transfer.price` at all, so
- * every row already fell through to a "not available" note — but the note itself still put
- * walking and a bus in the same bucket. They are not the same fact. Walking has no fare:
- * that is something this app knows, and it is the reason walking is worth offering. A bus
- * with no price is a gap in what Transitous told us. Printing one sentence for both makes
- * the known fact look like the missing one, which is the same collapse the €0 made in the
- * other direction.
+ * Three booleans over five states rather than the state itself, because they are the three
+ * questions the screens actually ask and answering them once here is what stops four
+ * components each deriving them differently. "No fare" against a walk is the case that
+ * needs all three: it is not an amount, it is not an estimate, and it is not an admission.
+ */
+export interface TransferFareNote {
+	text: string;
+	/** `text` is a figure, so a sentence can append "each way" to it and a column can set it
+	 * in tabular numerals. True for a quote and for a range. */
+	amount: boolean;
+	/** A rate-card range rather than a fare anybody quoted, so a caller can tag it the way
+	 * `TransportPicker` and `PriceLine` both do. Never true unless `amount` is. */
+	estimated: boolean;
+	/** An admission rather than an amount, so a caller can grey it out. False for a walk,
+	 * whose "no fare" is a fact about walking. */
+	unknown: boolean;
+}
+
+/**
+ * What a transfer row says about its own fare, in one place, for every screen that shows a
+ * transfer.
+ *
+ * Issue #119, the owner on a walking option: **"and price of walk is 0€..."**. That zero is
+ * long gone, since no `TransferProvider` sets `Transfer.price` at all, but the note that
+ * replaced it put walking and a bus in the same bucket, and they are not the same fact.
+ * Walking has no fare, which this app knows and which is the reason walking is worth
+ * offering. A bus with no price is a gap in what Transitous told us.
+ *
+ * Issue #249 adds the two the app has since learned to tell apart, and takes a `Transfer`
+ * rather than a `TransferMode` because a mode cannot answer either of them. A short taxi
+ * carries a rate-card range, and a long one carries issue #246's refusal to guess. This
+ * printed "Price not available" for both, which put the words "price not available"
+ * directly under a receipt line reading "£35.85-£55.58 ESTIMATE" for the same ride.
+ * Measured on a live build on 2026-09-05, in `StopoverBlock`'s own sentence. One screen
+ * cannot say both.
  *
  * `compact` is the timeline's own price column, which sits under real money on a 375px
  * screen and cannot take a full sentence. The picker gives the note a row to itself.
  */
-export function unpricedTransferNote(mode: TransferMode, compact = false): string {
-	if (mode === 'walk') return compact ? 'no fare' : 'No fare';
-	return compact ? 'price n/a' : 'Price not available';
+export function transferFareNote(transfer: Transfer, compact = false): TransferFareNote {
+	const fare = groundFare(transfer);
+	switch (fare.kind) {
+		case 'free':
+			return {
+				text: compact ? 'no fare' : 'No fare',
+				amount: false,
+				estimated: false,
+				unknown: false
+			};
+		case 'quoted':
+			return { text: formatMoney(fare.price), amount: true, estimated: false, unknown: false };
+		case 'estimated':
+			return {
+				text: formatMoneyRange(
+					fare.estimate.lowMinorUnits,
+					fare.estimate.highMinorUnits,
+					fare.estimate.currency
+				),
+				amount: true,
+				estimated: true,
+				unknown: false
+			};
+		case 'beyond-rate-card':
+			// Issue #246. The column is too narrow for the reason; `TransportPicker`'s own
+			// disclosure carries it, and this states the fact.
+			return {
+				text: compact ? 'no estimate' : 'No fare estimate',
+				amount: false,
+				estimated: false,
+				unknown: true
+			};
+		case 'unquoted':
+			return {
+				text: compact ? 'price n/a' : 'Price not available',
+				amount: false,
+				estimated: false,
+				unknown: true
+			};
+	}
 }
 
 /**

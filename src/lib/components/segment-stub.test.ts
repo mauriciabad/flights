@@ -269,7 +269,11 @@ describe('the transport stub', () => {
 		const taxi = itineraryFor({
 			transferToHotel: { mode: 'taxi', duration: 20 as Duration, legs: [], price: eur(3250) }
 		});
-		expect(stubOf(taxi, 'transport').facts).toContainEqual({ label: 'Fare', value: '€32.50' });
+		expect(stubOf(taxi, 'transport').facts).toContainEqual({
+			label: 'Fare',
+			value: '€32.50',
+			unknown: false
+		});
 	});
 
 	it('labels a great-circle figure as a straight line, and a routed one as the road it is', () => {

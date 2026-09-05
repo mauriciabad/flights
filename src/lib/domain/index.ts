@@ -11,6 +11,7 @@ export * from './coordinates';
 export * from './datetime';
 export * from './duration';
 export * from './money';
+export * from './fare';
 export * from './location';
 export * from './airport';
 export * from './waiting-time';

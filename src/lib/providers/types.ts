@@ -18,6 +18,7 @@ import type {
 	FlightOffer,
 	IataAirportCode,
 	IsoCalendarDate,
+	IsoCountryCode,
 	IsoCurrencyCode,
 	LocalDateTime,
 	RoomKind,
@@ -319,6 +320,19 @@ export interface TransferSearchQuery {
 	 * estimate from elsewhere and only wants public transport. All modes this adapter
 	 * supports if omitted. */
 	modes?: TransferMode[];
+	/**
+	 * Which country's rate card to guess a fare from, when an adapter has one and nobody
+	 * quotes the ride. Issue #249.
+	 *
+	 * Only `providers/transfers/osrm.ts` reads it, and only for a taxi, whose
+	 * `Transfer.fareEstimate` it fills from `taxi-rate-table.ts`. Absent means no guess: the
+	 * leg comes back with no estimate rather than one rated against the wrong country, which
+	 * between a €2.15 Barcelona flag-down and a CHF 6.00 Zurich one is a factor of three.
+	 *
+	 * On the query rather than on the provider, because it is a property of the journey being
+	 * asked about, and one search asks about legs in two different countries.
+	 */
+	countryCode?: IsoCountryCode;
 }
 
 export interface TransferProvider extends ProviderBase {

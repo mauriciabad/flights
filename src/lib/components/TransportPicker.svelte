@@ -34,7 +34,6 @@
 	import type { MissedService } from '../algorithm/transit-schedule';
 	import type { TransitLegAnswer } from '../search/types';
 	import { MAX_TRANSIT_LOOKUPS_PER_SEARCH } from '../search/transit-schedule';
-	import type { TaxiFareEstimate } from '../providers/transfers/taxi-rate-table';
 	import Button from './Button.svelte';
 	import ModeIcon from './ModeIcon.svelte';
 	import {
@@ -49,7 +48,7 @@
 		isDifferentCalendarDate,
 		summariseTransferLegs,
 		transferModeLabel,
-		unpricedTransferNote
+		transferFareNote
 	} from './itinerary-timeline-format';
 
 	type TransferLegField =
@@ -66,9 +65,6 @@
 		/** Every mode fetched for this leg. The itinerary's own current transfer is always
 		 * shown too, whether or not it appears in this list. */
 		alternatives: Transfer[];
-		/** OSRM's taxi-rate-table.ts estimate for this leg's `taxi` alternative, kept as its
-		 * own type so it can never be mistaken for a confirmed `Transfer.price`. */
-		taxiFareEstimate?: TaxiFareEstimate;
 		/** The instant the traveller becomes free to start this leg, e.g. the outbound
 		 * flight's arrival for a connection-airport-to-hotel leg. Omit for a leg with no such
 		 * anchor (an origin-location transfer ahead of any flight event): the schedule still
@@ -104,7 +100,6 @@
 		itinerary,
 		legField,
 		alternatives,
-		taxiFareEstimate,
 		referenceMoment,
 		referenceLabel = 'the reference time',
 		transitAnswer,
@@ -271,8 +266,17 @@
 <section class="transport-picker">
 	<div role="radiogroup" aria-label={legLabel} class="picker-list">
 		{#each rows as row (transferKey(row.transfer))}
-			{@const taxiFare = row.transfer.mode === 'taxi' ? taxiFareEstimate : undefined}
+			<!-- Issue #249: the rate-card range rides on the transfer that was routed, so a
+			     taxi swapped in from this very list carries its own estimate rather than
+			     depending on a prop about the leg. -->
+			{@const taxiFare = row.transfer.fareEstimate}
 			{@const summary = summariseTransferLegs(row.transfer.legs)}
+			<!-- Issue #249: five answers, one function. A walk says "No fare", which is a fact
+			     about walking rather than a gap in what a provider told us (#119); a rate-card
+			     range says roughly what the meter will read; a ride past that card's range says
+			     so and leaves the reason to the disclosure below, which the price column is far
+			     too narrow for (#246). -->
+			{@const fare = transferFareNote(row.transfer)}
 			<label
 				class={[
 					'picker-row',
@@ -302,19 +306,10 @@
 					</span>
 				</span>
 				<span class="row-price font-mono tabular-nums">
-					{#if taxiFare?.kind === 'estimate'}
-						{formatMoneyRange(taxiFare.lowMinorUnits, taxiFare.highMinorUnits, taxiFare.currency)}
-						<span class="estimate-tag">estimate</span>
-					{:else if taxiFare?.kind === 'out-of-range'}
-						<!-- Issue #246: this column is too narrow for the reason, so the reason is
-						     one tap away in the disclosure below and this states the fact. -->
-						<span class="price-unknown">No fare estimate</span>
-					{:else if row.transfer.price}
-						{formatMoney(row.transfer.price)}
+					{#if fare.unknown}
+						<span class="price-unknown">{fare.text}</span>
 					{:else}
-						<!-- Issue #119: a walk says "No fare", which is a fact about walking, not
-						     a gap in what a provider told us. See unpricedTransferNote. -->
-						<span class="price-unknown">{unpricedTransferNote(row.transfer.mode)}</span>
+						{fare.text}{#if fare.estimated}<span class="estimate-tag">estimate</span>{/if}
 					{/if}
 				</span>
 				<span class="row-delta">
@@ -373,12 +368,14 @@
 							<p class="schedule-gap-headline">
 								No {transferModeLabel(row.transfer.mode).toLowerCase()} until {formatClockTime(schedule.intended)}{#if row.gapMinutes !== undefined && row.gapMinutes > 0}, that is {formatDuration(row.gapMinutes)} after {referenceLabel}{/if}.
 							</p>
-							{#if taxiRow && taxiFareEstimate?.kind === 'estimate'}
+							{#if taxiRow?.fareEstimate?.kind === 'estimate'}
+								{@const taxiFareEstimate = taxiRow.fareEstimate}
 								<p class="schedule-gap-alternative">
 									A taxi now takes about {formatDuration(taxiRow.duration)} and costs roughly
 									{formatMoneyRange(taxiFareEstimate.lowMinorUnits, taxiFareEstimate.highMinorUnits, taxiFareEstimate.currency)}.
 								</p>
-							{:else if taxiRow && taxiFareEstimate?.kind === 'out-of-range'}
+							{:else if taxiRow?.fareEstimate?.kind === 'out-of-range'}
+								{@const taxiFareEstimate = taxiRow.fareEstimate}
 								<!-- Issue #246: the duration is measured and stays. The fare is the half
 								     nothing here knows, and "roughly £268-£431" was the app inventing it. -->
 								<p class="schedule-gap-alternative">

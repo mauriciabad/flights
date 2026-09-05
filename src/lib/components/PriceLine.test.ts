@@ -58,6 +58,22 @@ function ride(mode: Transfer['mode']): Transfer {
 const walk = ride('walk');
 const taxi = ride('taxi');
 
+/** The same taxi, carrying what the GB rate card says a ride like it costs: the range
+ * `providers/transfers/taxi-rate-table.ts` produces from an OSRM driving distance. Still no
+ * `price`, because this is a guess and the row it produces has to read as one. */
+const ratedTaxi: Transfer = {
+	...taxi,
+	fareEstimate: {
+		kind: 'estimate',
+		currency: 'GBP',
+		lowMinorUnits: 2426,
+		highMinorUnits: 3830,
+		countryCode: 'GB',
+		rateSource: 'country',
+		citation: 'London black-cab Tariff 1'
+	}
+};
+
 /** The shape the owner was looking at, reproduced on production on 2026-09-05 with an
  * origin and a destination location filled in: four ground legs, the first walked and the
  * other three taxis nobody quoted. */
@@ -117,6 +133,83 @@ describe('the ground lines on the receipt', () => {
 			'Flights -> €118.00',
 			'Bed, 1 night × €20.00 -> €20.00',
 			'Ground, 2 rides -> not priced'
+		]);
+	});
+});
+
+describe('an estimated ground line (issue #249)', () => {
+	function twoRatedTaxis(): Itinerary {
+		return {
+			...makeItinerary({ nightsInConnection: 1 }),
+			transferToHotel: ratedTaxi,
+			transferToConnectionAirport: ratedTaxi
+		};
+	}
+
+	it('prints the range on its own row, tagged as an estimate and untinted', () => {
+		// Untinted on purpose. The warning tint means "the total is short by this much and
+		// nobody knows how much"; this row says how much, so wearing the same colour would
+		// make a number the app has read as a hole it is confessing to.
+		expect(rows(twoRatedTaxis()).map((row) => ({ ...row, line: row.line.replace(/\s+/g, ' ') }))).toEqual([
+			{ line: 'Flights -> €118.00', missing: false },
+			{ line: 'Bed, 1 night × €20.00 -> €20.00', missing: false },
+			{ line: 'Ground, 2 rides -> £48.52-£76.60 estimate', missing: false }
+		]);
+	});
+
+	it('keeps the headline a floor, because the estimate is not inside it', () => {
+		// The whole argument for the row existing at all. €138.00 is flights plus bed, and
+		// the taxis are still outside it, so the number is still understating the trip.
+		expect(headline(twoRatedTaxis())).toBe('from€138.00');
+	});
+
+	it('never adds the estimate to the total, even in one currency', () => {
+		const trip = {
+			...makeItinerary({ nightsInConnection: 1 }),
+			transferToHotel: {
+				...taxi,
+				fareEstimate: {
+					kind: 'estimate' as const,
+					currency: 'EUR' as const,
+					lowMinorUnits: 1300,
+					highMinorUnits: 1900,
+					countryCode: 'ES' as const,
+					rateSource: 'country' as const,
+					citation: 'Barcelona municipal taxi tariff'
+				}
+			}
+		};
+		// The trip's own currency, so nothing would have thrown had somebody totalled it.
+		// It is still out, because `results/sort.ts` orders cheapest-first on this figure
+		// and `results/filters.ts` hides anything above the traveller's max price.
+		expect(headline(trip)).toBe('from€138.00');
+	});
+
+	it('shows the rated ride and the unrated one as two different admissions', () => {
+		// Issue #246's Gatwick run alongside a short hop. One row says roughly what it costs
+		// and the other says nobody knows; collapsing them into "Ground, 2 rides not priced"
+		// throws away the half the app has an answer for.
+		const beyondTheCard: Transfer = {
+			...taxi,
+			fareEstimate: {
+				kind: 'out-of-range',
+				distanceKm: 94.9,
+				ratedUpToKm: 30,
+				countryCode: 'GB',
+				citation: 'London black-cab Tariff 1'
+			}
+		};
+		const trip = {
+			...makeItinerary({ nightsInConnection: 1 }),
+			transferToHotel: ratedTaxi,
+			transferToConnectionAirport: beyondTheCard
+		};
+
+		expect(rows(trip).map((row) => ({ ...row, line: row.line.replace(/\s+/g, ' ') }))).toEqual([
+			{ line: 'Flights -> €118.00', missing: false },
+			{ line: 'Bed, 1 night × €20.00 -> €20.00', missing: false },
+			{ line: 'Ground, 1 ride -> £24.26-£38.30 estimate', missing: false },
+			{ line: 'Ground, 1 ride -> not priced', missing: true }
 		]);
 	});
 });

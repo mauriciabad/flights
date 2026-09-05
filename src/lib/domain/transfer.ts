@@ -1,6 +1,7 @@
 import type { Coordinates } from './coordinates';
 import type { LocalDateTime } from './datetime';
 import type { Duration } from './duration';
+import type { FareBeyondRatedRange, FareEstimate, FareRange } from './fare';
 import type { Money } from './money';
 import type { TransitSchedule } from './transit-schedule';
 
@@ -271,6 +272,75 @@ export interface Transfer {
 	 * happens.
 	 */
 	landingBuffer?: Duration;
+	/**
+	 * What this ride costs if nobody quotes it, from a rate card rather than a provider.
+	 * Issue #249.
+	 *
+	 * Separate from `price` above and a different type on purpose, and that separation is
+	 * the entire point of the field. `price` is a `Money`, one number a screen prints as a
+	 * confirmed fare and `algorithm/build.ts` adds into `Itinerary.totalPrice`. This is a
+	 * range with its source attached, it never reaches a total, and `groundFare` below is
+	 * what makes a reader choose between them deliberately.
+	 *
+	 * `'out-of-range'` is a populated field too, not an absent one: issue #246 refuses to
+	 * rate a 94.9 km motorway run off a card back-calculated from a 5.1 km city ride, and
+	 * that refusal carries the distance and the ceiling so a screen can say which ride it
+	 * declined to price instead of going quiet. Absent means nobody even asked, because no
+	 * rate card covers the mode (a bus fare: Transitous returns a timetable, not a ticket
+	 * price) or the caller had no country to rate the ride against.
+	 */
+	fareEstimate?: FareEstimate;
+}
+
+/**
+ * What one ground leg costs, as five answers instead of an absent field read five ways.
+ *
+ * Issue #249. An absent `Transfer.price` used to mean two opposite things depending on the
+ * mode, and issue #204's `costIsUnknown` split those two apart. Two is still short of
+ * reality: since a `Transfer` can now carry a rate-card estimate for its own leg, the app
+ * holds a number for some of the rides nobody quoted, and a documented refusal for others.
+ * Rendering all three as one word ("not priced") throws away the difference between
+ * "roughly £24-£38", "too far for any card here to say" and "nobody prices buses".
+ *
+ * The five, and what each one licenses a caller to do:
+ *
+ * | kind | means | belongs in a total |
+ * | --- | --- | --- |
+ * | `free` | a walk, and walking really is free | yes, as nothing |
+ * | `quoted` | a provider gave a fare | yes |
+ * | `estimated` | a rate card guessed a range | **no** |
+ * | `beyond-rate-card` | asked, and declined to guess (issue #246) | no |
+ * | `unquoted` | nobody has a number and nothing tried | no |
+ *
+ * The right-hand column is the line issues #212 and #246 were both about. Only the first
+ * two are money this app was given; the last three are money it was not, and
+ * `Itinerary.totalPrice` sums the first two alone. An estimate inside a total is a guess a
+ * traveller can sort on, filter by and screenshot, which is worse than a gap because it is
+ * invisible.
+ *
+ * One function rather than a predicate per question, so a fifth mode or a sixth answer
+ * cannot arrive while some caller keeps reading an absent price its own way. A switch over
+ * this union is exhaustive and the compiler says so; a chain of `if (price === undefined)`
+ * is not, which is how a walk came to be priced at €0 in the first place.
+ */
+export type GroundFare =
+	| { kind: 'free' }
+	| { kind: 'quoted'; price: Money }
+	| { kind: 'estimated'; estimate: FareRange }
+	| { kind: 'beyond-rate-card'; refusal: FareBeyondRatedRange }
+	| { kind: 'unquoted' };
+
+export function groundFare(transfer: Transfer): GroundFare {
+	if (transfer.price !== undefined) return { kind: 'quoted', price: transfer.price };
+	// Checked after `price` so a provider that ever does quote a walk, an airport shuttle
+	// sold as one, reads as quoted money rather than as free. `walkedTransferLegs` in
+	// itinerary.ts makes the same choice for the same reason.
+	if (transfer.mode === 'walk') return { kind: 'free' };
+	if (transfer.fareEstimate?.kind === 'estimate')
+		return { kind: 'estimated', estimate: transfer.fareEstimate };
+	if (transfer.fareEstimate?.kind === 'out-of-range')
+		return { kind: 'beyond-rate-card', refusal: transfer.fareEstimate };
+	return { kind: 'unquoted' };
 }
 
 /**
@@ -287,7 +357,14 @@ export interface Transfer {
  * AGENTS.md, "When the data is missing": "say what you do not know rather than guessing."
  * This is the predicate that lets the rest of the app do that instead of quietly
  * substituting zero.
+ *
+ * Issue #249: a leg carrying a rate-card estimate is still unknown here, and that is the
+ * load-bearing line of the whole change. The estimate is shown on the receipt beside its
+ * own leg; it stays out of `Itinerary.totalPrice` and out of the ranking charge
+ * `algorithm/score.ts` levies for an unquoted ride, both of which read this predicate.
+ * Change that and a guess starts deciding which itineraries a max-price filter hides.
  */
 export function costIsUnknown(transfer: Transfer): boolean {
-	return transfer.mode !== 'walk' && transfer.price === undefined;
+	const fare = groundFare(transfer);
+	return fare.kind !== 'free' && fare.kind !== 'quoted';
 }

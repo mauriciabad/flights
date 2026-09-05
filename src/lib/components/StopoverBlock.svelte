@@ -33,7 +33,7 @@
 	 *   the distance beside it is `stays/distance.ts`, the same straight line and the same
 	 *   formatter every row of that picker prints (issue #219).
 	 * - The transfer's duration, mode and fare are `itinerary.transferToHotel` through
-	 *   `formatDuration`, `transferModeLabel` and `unpricedTransferNote`, and when nothing
+	 *   `formatDuration`, `transferModeLabel` and `transferFareNote`, and when nothing
 	 *   routed to the bed at all, `unroutedLegNote`.
 	 *
 	 * ## The two format decisions worth naming
@@ -76,7 +76,7 @@
 		ROOM_KIND_LABELS
 	} from '$lib/stays';
 	import { freeTimeDays } from './free-time-days';
-	import { transferModeLabel, unpricedTransferNote, unroutedLegNote } from './itinerary-timeline-format';
+	import { transferFareNote, transferModeLabel, unroutedLegNote } from './itinerary-timeline-format';
 
 	interface Props {
 		itinerary: Itinerary;
@@ -159,9 +159,15 @@
 				transferAnchor: itinerary.transferAnchor
 			});
 		}
-		const fare = toHotel.price
-			? `${formatMoney(toHotel.price)} each way`
-			: unpricedTransferNote(toHotel.mode).toLocaleLowerCase();
+		// Issue #249: "about £35.85-£55.58 each way" where the rate card reaches, because
+		// this sentence used to read "price not available" a few centimetres under a receipt
+		// line carrying that very range for that very ride.
+		const note = transferFareNote(toHotel);
+		// "each way" only attaches to a figure. A walk's "No fare" is a fact about walking,
+		// not an amount, and "No fare each way" is not a sentence.
+		const fare = note.amount
+			? `${note.estimated ? 'about ' : ''}${note.text} each way`
+			: note.text.toLocaleLowerCase();
 		return `${transferModeLabel(toHotel.mode)}, ${formatDuration(toHotel.duration)} from the airport, ${fare}`;
 	});
 

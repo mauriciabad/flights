@@ -27,21 +27,9 @@ import type {
 import { createStayLookupBudget, createUnboundedStayLookupBudget } from '../providers/budget';
 import { recordProviderResult, SourceTracker } from './provenance';
 import type { ProviderStatus } from './types';
-import type { TaxiFareEstimate } from '../providers/transfers/taxi-rate-table';
-
-// Issue #114: `resources.ts` reaches past the generic `TransferProvider` interface into
-// osrm.ts's own `getTaxiFareEstimate` for a taxi fare range (see `estimateTaxiFareForLeg`'s
-// own doc comment for why). Mocking just that one export — keeping every other real export
-// (`OSRM_PROVIDER_ID` included) — lets these tests assert exactly when that call happens
-// without hitting the real OSRM network or its cache.
-const getTaxiFareEstimate = vi.fn();
-vi.mock('../providers/transfers/osrm', async (importOriginal) => {
-	const actual = await importOriginal<typeof import('../providers/transfers/osrm')>();
-	return { ...actual, getTaxiFareEstimate };
-});
-
-// Imported after the mock is registered, per vitest's hoisting contract for vi.mock (same
-// pattern as providers-adapter.test.ts).
+// Imported this way for the same reason it was when this file mocked one OSRM export
+// (issue #114's `getTaxiFareEstimate`, gone since #249): the destructuring is what the
+// vi.mock calls further down this file's history relied on, and keeping it costs nothing.
 const {
 	DEFAULT_STAY_RADIUS_KM,
 	fetchBestTransfer,
@@ -444,32 +432,75 @@ describe('fetchConnectionResources: transfer candidates for both connection-side
 	});
 });
 
-describe('fetchConnectionResources: taxi fare estimate wiring (issue #114)', () => {
-	beforeEach(() => {
-		getTaxiFareEstimate.mockReset();
-	});
-
-	function fareEstimate(): TaxiFareEstimate {
+describe('fetchConnectionResources: rating a taxi against the right country (issues #114, #249)', () => {
+	/** A transfer provider that records every query it is asked, so a test can assert what
+	 * `fetchConnectionResources` puts on the wire rather than only what comes back. */
+	function queryRecordingTransferProvider(transfers: Transfer[]): {
+		provider: TransferProvider;
+		queries: TransferSearchQuery[];
+	} {
+		const queries: TransferSearchQuery[] = [];
+		const inner = configurableTransferProvider(transfers);
 		return {
-			kind: 'estimate',
-			currency: 'EUR',
-			lowMinorUnits: 1800,
-			highMinorUnits: 2400,
-			countryCode: 'AT',
-			rateSource: 'country',
-			citation: 'Test citation'
+			queries,
+			provider: {
+				...inner,
+				async searchTransfers(query, ctx) {
+					queries.push(query);
+					return inner.searchTransfers(query, ctx);
+				}
+			}
 		};
 	}
 
-	it('asks OSRM for a taxi fare estimate on both legs when a taxi candidate and a country code are both present', async () => {
-		getTaxiFareEstimate.mockResolvedValue({
-			ok: true,
-			data: { duration: 15 as Duration, distanceMeters: 5000, fareEstimate: fareEstimate() },
-			source: source('osrm'),
-			requestsUsed: 0
-		});
+	it("puts the connection's own country on both legs' queries, so OSRM can rate the ride", async () => {
+		// Issue #249 moved the estimate onto the taxi `Transfer` the adapter builds, so what
+		// this module owes the adapter is the country code, on both directions of the trip.
 		const stays = [stay('Hostel', 'dorm', 2000)];
 		const taxi: Transfer = { mode: 'taxi', duration: 15 as Duration, legs: [] };
+		const { provider, queries } = queryRecordingTransferProvider([taxi]);
+		const input = baseInput([fakeStayProvider('stays', stays)], {
+			transferProviders: [provider],
+			connectionCountryCode: 'AT'
+		});
+
+		await fetchConnectionResources(input);
+
+		expect(queries).toHaveLength(2);
+		expect(queries.map((query) => query.countryCode)).toEqual(['AT', 'AT']);
+	});
+
+	it('leaves the country off when this connection has none, rather than borrowing one', async () => {
+		const stays = [stay('Hostel', 'dorm', 2000)];
+		const taxi: Transfer = { mode: 'taxi', duration: 15 as Duration, legs: [] };
+		const { provider, queries } = queryRecordingTransferProvider([taxi]);
+		const input = baseInput([fakeStayProvider('stays', stays)], {
+			transferProviders: [provider]
+			// connectionCountryCode intentionally omitted
+		});
+
+		await fetchConnectionResources(input);
+
+		expect(queries).toHaveLength(2);
+		for (const query of queries) expect(query.countryCode).toBeUndefined();
+	});
+
+	it("carries a provider's estimate through to the candidate list untouched", async () => {
+		const stays = [stay('Hostel', 'dorm', 2000)];
+		const taxi: Transfer = {
+			mode: 'taxi',
+			duration: 15 as Duration,
+			legs: [],
+			fareEstimate: {
+				kind: 'estimate',
+				currency: 'EUR',
+				lowMinorUnits: 1800,
+				highMinorUnits: 2400,
+				countryCode: 'AT',
+				rateSource: 'country',
+				citation: 'Test citation'
+			}
+		};
 		const input = baseInput([fakeStayProvider('stays', stays)], {
 			transferProviders: [configurableTransferProvider([taxi])],
 			connectionCountryCode: 'AT'
@@ -477,42 +508,12 @@ describe('fetchConnectionResources: taxi fare estimate wiring (issue #114)', () 
 
 		const resources = await fetchConnectionResources(input);
 
-		// Once for the hotel-bound leg, once for the return leg — never more, since each is
-		// a cache hit on a route `searchTransfers` already fetched (see
-		// `estimateTaxiFareForLeg`'s own doc comment; the cache-hit behaviour itself is
-		// verified directly in osrm.test.ts).
-		expect(getTaxiFareEstimate).toHaveBeenCalledTimes(2);
-		expect(resources.transferToHotelTaxiFareEstimate).toEqual(fareEstimate());
-		expect(resources.transferToConnectionAirportTaxiFareEstimate).toEqual(fareEstimate());
-	});
-
-	it('never asks OSRM for an estimate when no taxi candidate came back for this leg', async () => {
-		const stays = [stay('Hostel', 'dorm', 2000)];
-		const walk: Transfer = { mode: 'walk', duration: 30 as Duration, legs: [] };
-		const input = baseInput([fakeStayProvider('stays', stays)], {
-			transferProviders: [configurableTransferProvider([walk])],
-			connectionCountryCode: 'AT'
-		});
-
-		const resources = await fetchConnectionResources(input);
-
-		expect(getTaxiFareEstimate).not.toHaveBeenCalled();
-		expect(resources.transferToHotelTaxiFareEstimate).toBeUndefined();
-		expect(resources.transferToConnectionAirportTaxiFareEstimate).toBeUndefined();
-	});
-
-	it('never asks OSRM for an estimate when this connection has no known country code', async () => {
-		const stays = [stay('Hostel', 'dorm', 2000)];
-		const taxi: Transfer = { mode: 'taxi', duration: 15 as Duration, legs: [] };
-		const input = baseInput([fakeStayProvider('stays', stays)], {
-			transferProviders: [configurableTransferProvider([taxi])]
-			// connectionCountryCode intentionally omitted
-		});
-
-		const resources = await fetchConnectionResources(input);
-
-		expect(getTaxiFareEstimate).not.toHaveBeenCalled();
-		expect(resources.transferToHotelTaxiFareEstimate).toBeUndefined();
+		// The hotel-bound leg is re-wrapped by `applyLandingBuffer`, which is the spread that
+		// would drop the field if it ever stopped being a spread.
+		expect(resources.transferToHotelCandidates[0]?.fareEstimate).toEqual(taxi.fareEstimate);
+		expect(resources.transferToConnectionAirportCandidates[0]?.fareEstimate).toEqual(taxi.fareEstimate);
+		// And it is still not a price, which is what keeps it out of `Itinerary.totalPrice`.
+		expect(resources.transferToHotel?.price).toBeUndefined();
 	});
 });
 

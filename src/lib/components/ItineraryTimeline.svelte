@@ -74,7 +74,7 @@
 		formatPropertyRating,
 		staleScheduleNote,
 		transferDetailLine,
-		unpricedTransferNote,
+		transferFareNote,
 		unroutedLegNote
 	} from './itinerary-timeline-format';
 	import type { UnroutedLeg } from './itinerary-timeline-format';
@@ -523,13 +523,14 @@
 		<div class="tl-meta">
 			{#if transfer}
 				<span class="tl-duration font-mono tabular-nums">{formatDuration(transfer.duration)}</span>
-				{#if transfer.price}
-					<span class="tl-price font-mono tabular-nums">{formatMoney(transfer.price)}</span>
-				{:else}
-					<!-- Issue #119: "no fare" for a walk, "price n/a" for a mode that has one
-					     and nobody quoted it. See unpricedTransferNote. -->
-					<span class="tl-price-unknown">{unpricedTransferNote(transfer.mode, true)}</span>
-				{/if}
+				{@const fare = transferFareNote(transfer, true)}
+				<!-- Issue #119: "no fare" for a walk, "price n/a" for a mode that has one and
+				     nobody quoted it. Issue #249 adds the rate-card range and #246's refusal
+				     to guess past it, which is why one function decides all five and this row
+				     only chooses a class. -->
+				<span class={fare.unknown ? 'tl-price-unknown' : 'tl-price font-mono tabular-nums'}>
+					{fare.text}{#if fare.estimated}<span class="tl-price-estimate">est</span>{/if}
+				</span>
 			{/if}
 		</div>
 		{@render rowExpansion(segment)}
@@ -1112,6 +1113,21 @@
 	.tl-price-unknown {
 		font-size: var(--font-size-xs);
 		font-style: italic;
+		color: var(--color-text-faint);
+	}
+
+	/* Issue #249. The timeline's price column is the narrowest fare surface in the app, so
+	   the marker is three letters on its own line under the range rather than the word
+	   "estimate" the receipt and the picker have room for. It still has to be there: an
+	   unmarked range in a column of quoted fares reads as a quote for two people. */
+	.tl-price-estimate {
+		display: block;
+		font-family: var(--font-sans);
+		font-size: var(--font-size-xs);
+		font-weight: var(--font-weight-regular);
+		letter-spacing: var(--tracking-wide);
+		line-height: 1.2;
+		text-transform: uppercase;
 		color: var(--color-text-faint);
 	}
 

@@ -80,7 +80,6 @@ import { raceToCompletion } from './race';
 import {
 	applyLandingBuffer,
 	DEFAULT_STAY_RADIUS_KM,
-	estimateTaxiFareForLeg,
 	fetchBestTransfer,
 	fetchConnectionResources,
 	pickBestTransfer,
@@ -117,10 +116,12 @@ const NO_TRANSFER_LEG_OPTIONS: TransferLegOptions = { candidates: [] };
  * `destinationLocation`) once per search — they never depend on which connection candidate
  * ends up winning, so re-fetching them per candidate would just be the same query repeated.
  *
- * Issue #114: also returns each leg's full candidate list and taxi fare estimate
- * (`TransferLegOptions`), the outer-leg equivalent of `resources.ts`'s per-connection
- * candidates — a `TransportPicker` for "travel to the airport"/"travel to the destination"
- * needs real alternatives exactly the same way the connection-side pickers do. */
+ * Issue #114: also returns each leg's full candidate list (`TransferLegOptions`), the
+ * outer-leg equivalent of `resources.ts`'s per-connection candidates. A `TransportPicker`
+ * for "travel to the airport" or "travel to the destination" needs real alternatives
+ * exactly the same way the connection-side pickers do. Since issue #249 each taxi in that
+ * list carries its own rate-card estimate, which is why `countryCode` rides on the query
+ * below. */
 async function fetchOuterTransfers(
 	query: SearchQuery,
 	originAirport: Airport,
@@ -143,7 +144,12 @@ async function fetchOuterTransfers(
 					// Roads only. This resolves once per search, before any flight is known,
 					// so there is no journey moment to plan a timetable for — that happens
 					// per itinerary in `transit-schedule.ts` (issue #135).
-					{ from: query.originLocation.coordinates, to: originAirport.coordinates, modes: [...ROAD_TRANSFER_MODES] },
+					{
+						from: query.originLocation.coordinates,
+						to: originAirport.coordinates,
+						modes: [...ROAD_TRANSFER_MODES],
+						countryCode: originAirport.country.isoCode
+					},
 					transferProviders,
 					keys,
 					signal,
@@ -153,7 +159,12 @@ async function fetchOuterTransfers(
 			: undefined,
 		query.destinationLocation
 			? fetchBestTransfer(
-					{ from: destinationAirport.coordinates, to: query.destinationLocation.coordinates, modes: [...ROAD_TRANSFER_MODES] },
+					{
+						from: destinationAirport.coordinates,
+						to: query.destinationLocation.coordinates,
+						modes: [...ROAD_TRANSFER_MODES],
+						countryCode: destinationAirport.country.isoCode
+					},
 					transferProviders,
 					keys,
 					signal,
@@ -175,46 +186,18 @@ async function fetchOuterTransfers(
 	);
 	const transferToDestinationLocation = pickBestTransfer(destinationCandidates);
 
-	// Sequenced after both `fetchBestTransfer` calls above resolve, never alongside them —
-	// see `estimateTaxiFareForLeg`'s own doc comment for why that ordering is what keeps this
-	// a cache hit rather than a second driving-route request for the same pair.
-	const [originTaxiFareEstimate, destinationTaxiFareEstimate] = await Promise.all([
-		query.originLocation
-			? estimateTaxiFareForLeg(
-					originOutcome?.candidates ?? [],
-					query.originLocation.coordinates,
-					originAirport.coordinates,
-					originAirport.country.isoCode,
-					signal,
-					record
-				)
-			: undefined,
-		query.destinationLocation
-			? estimateTaxiFareForLeg(
-					destinationCandidates,
-					destinationAirport.coordinates,
-					query.destinationLocation.coordinates,
-					destinationAirport.country.isoCode,
-					signal,
-					record
-				)
-			: undefined
-	]);
-
 	return {
 		transferToOriginAirport: originOutcome?.selected,
 		transferToDestinationLocation,
 		transferToOriginAirportOptions: query.originLocation
 			? {
 					candidates: originOutcome?.candidates ?? [],
-					taxiFareEstimate: originTaxiFareEstimate,
 					withheldRoad: withheldRoadFor(originOutcome)
 				}
 			: NO_TRANSFER_LEG_OPTIONS,
 		transferToDestinationLocationOptions: query.destinationLocation
 			? {
 					candidates: destinationCandidates,
-					taxiFareEstimate: destinationTaxiFareEstimate,
 					withheldRoad: withheldRoadFor(destinationOutcome)
 				}
 			: NO_TRANSFER_LEG_OPTIONS
@@ -607,12 +590,10 @@ async function processCandidate(input: ProcessCandidateInput): Promise<Candidate
 			transferOptions: {
 				transferToHotel: {
 					candidates: resources.transferToHotelCandidates,
-					taxiFareEstimate: resources.transferToHotelTaxiFareEstimate,
 					withheldRoad: resources.transferToHotelWithheldRoad
 				},
 				transferToConnectionAirport: {
 					candidates: resources.transferToConnectionAirportCandidates,
-					taxiFareEstimate: resources.transferToConnectionAirportTaxiFareEstimate,
 					withheldRoad: resources.transferToConnectionAirportWithheldRoad
 				}
 			}
