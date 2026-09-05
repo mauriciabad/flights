@@ -19,7 +19,7 @@
  * time and price of each part, and the totals.
  */
 
-import type { Coordinates, Itinerary, Money } from '$lib/domain';
+import type { Coordinates, Itinerary, Money, Stay } from '$lib/domain';
 import { greatCircleDistanceKm, unpricedTransferLegs } from '$lib/domain';
 import { scaleFareForParty, sumMoney } from '$lib/algorithm/build';
 import { formatDuration, formatLongDuration, formatMoney } from '$lib/format';
@@ -253,6 +253,35 @@ function distanceFromCentre(itinerary: Itinerary, cityCentre: Coordinates | unde
 	return `${formatDistanceKm(greatCircleDistanceKm(itinerary.stay.property.coordinates, cityCentre))} from centre`;
 }
 
+/**
+ * The bed's nightly rate, and who that rate covers, which is issue #206.
+ *
+ * Three shapes, and which one you get is decided by what the provider actually quoted
+ * rather than by arithmetic here:
+ *
+ * - One traveller: `€13.00`. Per person and per party are the same number, and "each"
+ *   beside a party of one is noise.
+ * - A party, and the provider quoted per person: `€13.00 each`. That is a Hostelworld dorm
+ *   bed, where `Stay.pricePerPersonPerNight` holds the rate the response carried and
+ *   `pricePerNight` is that rate multiplied up (`hostelworld-mapper.ts`).
+ * - A party, and nobody quoted per person: `€44.00 for 2`. A private room and every Agoda
+ *   or Booking quote are one room for the whole party. Dividing by heads would print a
+ *   figure no provider gave, and issue #206 was opened partly because a research claim
+ *   about exactly this had never been checked. So the line says what the room costs and
+ *   how many people it is for, and leaves the division to the reader.
+ */
+function bedRate(stay: Stay, travellers: number): string {
+	if (travellers <= 1) return formatMoney(stay.pricePerNight);
+	if (stay.pricePerPersonPerNight) return `${formatMoney(stay.pricePerPersonPerNight)} each`;
+	return `${formatMoney(stay.pricePerNight)} for ${travellers}`;
+}
+
+/** "3 rides" rather than a bare 3, because a number beside the word "Ground" reads as an
+ * amount of money, which is the one thing it is not. */
+export function rideCount(rides: number): string {
+	return `${rides} ${rides === 1 ? 'ride' : 'rides'}`;
+}
+
 /** What the bed line can say beyond its own amount, when the caller knows it. */
 export interface PriceBreakdownContext {
 	/**
@@ -282,7 +311,7 @@ export function priceBreakdown(itinerary: Itinerary, context: PriceBreakdownCont
 		// answers issue #225's "+x€per night" for accommodation on the card itself rather
 		// than only inside the stay picker.
 		const detail = [
-			`${nights} ${nights === 1 ? 'night' : 'nights'} x ${formatMoney(itinerary.stay.pricePerNight)}`,
+			`${nights} ${nights === 1 ? 'night' : 'nights'} × ${bedRate(itinerary.stay, itinerary.travellers)}`,
 			distanceFromCentre(itinerary, context.cityCentre)
 		].filter((part): part is string => part !== undefined);
 		parts.push({
@@ -303,7 +332,16 @@ export function priceBreakdown(itinerary: Itinerary, context: PriceBreakdownCont
 		itinerary.transferToDestinationLocation?.price
 	].filter((price): price is Money => price !== undefined);
 	if (groundLegs.length > 0) {
-		parts.push({ id: 'ground', label: 'Ground', money: sumMoney(groundLegs[0]!, ...groundLegs.slice(1)) });
+		parts.push({
+			id: 'ground',
+			label: 'Ground',
+			money: sumMoney(groundLegs[0]!, ...groundLegs.slice(1)),
+			// The size of what the money bought, matching the unpriced chip's own count so a
+			// trip with two quoted rides and two unquoted ones reads as four legs rather than
+			// as one line contradicting the other. A walked leg is in neither count: walking
+			// is free and this app knows it (`domain/transfer.ts`).
+			detail: rideCount(groundLegs.length)
+		});
 	}
 
 	return {

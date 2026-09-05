@@ -39,5 +39,25 @@ export interface Property {
 export interface Stay {
   property: Property;
   roomKind: RoomKind;
+  /** The whole party's nightly cost, which is what `nights × pricePerNight` totals into
+   * `Itinerary.totalPrice`. Every adapter normalises to this. */
   pricePerNight: Money;
+  /**
+   * What one person's bed costs a night, and only when a provider quoted it that way.
+   *
+   * Issue #206 asks the card for "price per night per person", and it warns that nobody
+   * had checked whether a provider's nightly rate is per person or per party. Measured on
+   * 2026-09-05 (docs/PROVIDERS.md, "`guests` filters availability and never scales a
+   * price"): Hostelworld quotes one unit of inventory and `guests` moves no number. A dorm
+   * unit is one bed, so its quote already IS the per-person rate and
+   * `hostelworld-mapper.ts` multiplies it up to fill `pricePerNight`. This field carries
+   * the figure it started from, so the card prints what Hostelworld said rather than a
+   * division of a total.
+   *
+   * Absent for a private room, and for every Agoda and Booking quote. Those are one room
+   * for the whole party, priced as a room whatever the party size, and cutting a room rate
+   * into heads would put a number on screen that no provider ever gave. A card with no
+   * per-person figure says the party rate and who it covers instead.
+   */
+  pricePerPersonPerNight?: Money;
 }

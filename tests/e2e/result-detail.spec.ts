@@ -126,14 +126,15 @@ test.describe('result detail (issue #104)', () => {
 	});
 
 	/**
-	 * Issue #224. The same two-pairing fixture, read from the card instead of the panel:
-	 * one night by default, two nights when the traveller asks for them, and the card
-	 * saying what that cost and which flight moved to allow it.
+	 * Issues #224 and #225. The same two-pairing fixture, read from the card instead of the
+	 * panel: one night by default, every longer length priced on the card before anything
+	 * is pressed, and the number that headline delta is measured against printed right
+	 * above it.
 	 *
 	 * The owner: "the nights should be kept to a minimum by default", "and i can decide to
 	 * add more nights if the city is interesting and the hotel in the center".
 	 */
-	test('the card opens at the fewest nights and extends only when asked', async ({ page }) => {
+	test('the card opens at the fewest nights and prices every longer stay', async ({ page }) => {
 		await mockAllKeylessProviders(page.context());
 		await routeRyanairFlights(page.context(), [
 			{
@@ -166,37 +167,42 @@ test.describe('result detail (issue #104)', () => {
 		await expect(page.getByText('still searching')).toHaveCount(0, { timeout: 20_000 });
 
 		const card = page.locator('.result-card').first();
-		const nights = card.locator('.stopover-nights');
+		const ladder = card.locator('.staying-longer');
+		const rungs = ladder.locator('.rung');
 		const stripCaption = card.locator('.trip-strip-caption-mid');
 
 		// The 8 March outbound would give two nights and a cheaper total. The card opens on
 		// the 9 March one anyway, because one night is the fewest these flights allow.
-		await expect(nights.locator('.nights-value')).toHaveText('1 night');
 		await expect(stripCaption).toContainText('1 night');
-		await expect(card).toContainText('€18,555.55');
+		await expect(card.locator('.price-headline')).toContainText('Getting there');
+		await expect(card.locator('.price-total')).toContainText('€18,555.55');
+		await expect(rungs).toHaveText([/1 night/, /2 nights/]);
 
-		// Nothing to shorten to, and the button says so by being disabled rather than by
-		// disappearing and moving the other one under a finger already on its way down.
-		const [fewer, more] = [nights.locator('.nights-step').first(), nights.locator('.nights-step').last()];
-		await expect(fewer).toBeDisabled();
-		// The outcome and its price, before it is pressed: "2 nights in FIXTURE Vienna, one
-		// more night, -€111.11".
-		await expect(more).toHaveAttribute('aria-label', /2 nights.*one more night/);
-		await expect(more).toBeEnabled();
+		// Issue #225: the price of the longer stay is on the card before anything is
+		// pressed, and it is a real pairing's real total rather than a nightly rate. The
+		// second night here is CHEAPER, which is the whole reason this card names the
+		// number instead of adding one up.
+		await expect(rungs.nth(0)).toHaveAttribute('aria-pressed', 'true');
+		await expect(rungs.nth(0)).toContainText('this trip');
+		await expect(rungs.nth(1)).toHaveAttribute('aria-pressed', 'false');
+		await expect(rungs.nth(1)).toContainText('-€111.11');
+		await expect(rungs.nth(1)).toHaveAttribute('aria-label', /2 nights in .*-€111\.11/);
+		// The second night is only available on the earlier outbound, so both flights move.
+		await expect(ladder.locator('.ladder-note')).toHaveText('different flights');
 
-		await more.click();
+		await rungs.nth(1).click();
 
-		await expect(nights.locator('.nights-value')).toHaveText('2 nights');
 		await expect(stripCaption).toContainText('2 nights');
-		await expect(card).toContainText('€18,444.44');
-		// Issue #224: "the card must say the price moved and why, never silently." The
-		// second night is only available on the earlier outbound, so the flight changed.
-		await expect(nights.locator('.nights-note')).toHaveText('-€111.11 vs 1 night, on a different outbound flight');
+		await expect(card.locator('.price-total')).toContainText('€18,444.44');
+		// The deltas re-anchor on the trip now showing, so the headline plus any rung is
+		// still exactly what that rung costs.
+		await expect(rungs.nth(1)).toHaveAttribute('aria-pressed', 'true');
+		await expect(rungs.nth(0)).toContainText('+€111.11');
 
 		// And back, with no trace left of the detour.
-		await expect(fewer).toBeEnabled();
-		await fewer.click();
-		await expect(nights.locator('.nights-value')).toHaveText('1 night');
-		await expect(nights.locator('.nights-note')).toHaveCount(0);
+		await rungs.nth(0).click();
+		await expect(stripCaption).toContainText('1 night');
+		await expect(rungs.nth(0)).toHaveAttribute('aria-pressed', 'true');
+		await expect(rungs.nth(1)).toContainText('-€111.11');
 	});
 });

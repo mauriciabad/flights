@@ -122,9 +122,9 @@ describe('priceBreakdown', () => {
 		// night here worth it", which is the decision the nights control exists for.
 		const breakdown = priceBreakdown(makeItinerary({ nightsInConnection: 1 }));
 		const stay = breakdown.parts.find((part) => part.id === 'stay');
-		expect(stay?.detail).toBe('1 night x €20.00');
+		expect(stay?.detail).toBe('1 night × €20.00');
 		expect(priceBreakdown(makeItinerary({ nightsInConnection: 5 })).parts.find((p) => p.id === 'stay')?.detail).toBe(
-			'5 nights x €20.00'
+			'5 nights × €20.00'
 		);
 	});
 
@@ -137,7 +137,7 @@ describe('priceBreakdown', () => {
 			cityCentre: { latitude: itinerary.stay!.property.coordinates.latitude + 0.025, longitude: 0 }
 		}).parts.find((part) => part.id === 'stay');
 
-		expect(stay?.detail).toBe('2 nights x €20.00, 2.8 km from centre');
+		expect(stay?.detail).toBe('2 nights × €20.00, 2.8 km from centre');
 	});
 
 	it('says nothing about the centre when nobody has checked where the centre is', () => {
@@ -145,13 +145,65 @@ describe('priceBreakdown', () => {
 		// against the runway and calling that the centre is the bug that fix removed.
 		const stay = priceBreakdown(makeItinerary({ nightsInConnection: 2 })).parts.find((p) => p.id === 'stay');
 
-		expect(stay?.detail).toBe('2 nights x €20.00');
+		expect(stay?.detail).toBe('2 nights × €20.00');
+	});
+
+	// Issue #206 -------------------------------------------------------------
+
+	it('prints one bare rate for one traveller, since per person and per party agree', () => {
+		// "€13.00 each" beside a party of one is noise.
+		const solo = priceBreakdown(makeItinerary({ nightsInConnection: 1, travellers: 1 }));
+		expect(solo.parts.find((part) => part.id === 'stay')?.detail).toBe('1 night × €20.00');
+	});
+
+	it('says who a room rate covers rather than dividing it between them', () => {
+		// The `Stay` fixture is a private room, which is one unit of inventory whatever the
+		// party size — measured, not assumed: Hostelworld sells a 4-bed private for roughly
+		// what its four beds cost separately, and says in its own words that three people
+		// booking one pay for four (docs/PROVIDERS.md). Splitting that by heads would print
+		// a figure no provider ever quoted, which is exactly what issue #206 warned about.
+		const party = priceBreakdown(makeItinerary({ nightsInConnection: 2, travellers: 3 }));
+		expect(party.parts.find((part) => part.id === 'stay')?.detail).toBe('2 nights × €20.00 for 3');
+	});
+
+	it('prints the per-person rate a provider actually quoted, marked as each', () => {
+		// A Hostelworld dorm bed. `pricePerNight` is the party's cost and
+		// `pricePerPersonPerNight` is the rate it was multiplied up from, so this figure is
+		// the response's own number rather than a division of a total.
+		const base = makeItinerary({ nightsInConnection: 2, travellers: 3 });
+		const inADorm: Itinerary = {
+			...base,
+			stay: {
+				...base.stay!,
+				roomKind: 'dorm',
+				pricePerNight: { minorUnits: 3900, currency: 'EUR' },
+				pricePerPersonPerNight: { minorUnits: 1300, currency: 'EUR' }
+			}
+		};
+
+		const stay = priceBreakdown(inADorm).parts.find((part) => part.id === 'stay');
+		expect(stay?.detail).toBe('2 nights × €13.00 each');
+		// And the amount stays the party's, because that is what the total is built from.
+		expect(stay?.money).toEqual({ minorUnits: 7800, currency: 'EUR' });
 	});
 
 	it('omits a ground line while no transfer provider prices one', () => {
 		// domain/transfer.ts: no adapter populates `Transfer.price` today. A zero row here
 		// would read as "the transfers are free", which is a claim nobody measured.
 		expect(priceBreakdown(makeItinerary({})).parts.some((part) => part.id === 'ground')).toBe(false);
+	});
+
+	it('says how many rides a ground line paid for', () => {
+		// Issue #225's receipt reads "Ground, 3 rides €13.00". The count is what the money
+		// bought, and it uses the same wording as the unpriced chip so a trip with two
+		// quoted rides and two unquoted ones reads as four legs rather than as one line
+		// contradicting the other.
+		const bus = { mode: 'transit' as const, duration: 25 as Duration, legs: [], price: { minorUnits: 650, currency: 'EUR' } };
+		const withFares = { ...makeItinerary({}), transferToHotel: bus, transferToConnectionAirport: bus };
+		const ground = priceBreakdown(withFares).parts.find((part) => part.id === 'ground');
+
+		expect(ground?.detail).toBe('2 rides');
+		expect(ground?.money).toEqual({ minorUnits: 1300, currency: 'EUR' });
 	});
 
 	// Issue #204 --------------------------------------------------------------
