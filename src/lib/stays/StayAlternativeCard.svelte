@@ -13,6 +13,7 @@
 	import { formatMoney, stayTotalForNights } from './pricing';
 	import { cheapestSelectableOption } from './rank';
 	import { propertyOf, type PropertyStayOptions } from './types';
+	import { originalAgodaPhoto } from '$lib/providers/stays/agoda-photo';
 
 	interface Props {
 		group: PropertyStayOptions;
@@ -46,7 +47,15 @@
 		cheapest ? undefined : femaleDormFitMessage(femaleDormFit(travellers, females), travellers, females)
 	);
 
-	const image = $derived(property.images[0]);
+	// Issue #281, the same one-retry shape StayPicker's own photograph uses: hold the
+	// STORED url that failed, not the failing one, so a fallback that also fails settles
+	// instead of alternating, and so a different property clears it on its own.
+	let failedPhotoOf = $state<string | undefined>(undefined);
+	const image = $derived.by(() => {
+		const stored = property.images[0];
+		if (!stored) return undefined;
+		return stored === failedPhotoOf ? (originalAgodaPhoto(stored) ?? stored) : stored;
+	});
 </script>
 
 <button
@@ -57,7 +66,12 @@
 >
 	<span class="alt-card-thumb" aria-hidden="true">
 		{#if image}
-			<img src={image} alt="" loading="lazy" />
+			<img
+				src={image}
+				alt=""
+				loading="lazy"
+				onerror={() => (failedPhotoOf = property.images[0])}
+			/>
 		{:else}
 			<svg viewBox="0 0 24 24" fill="none">
 				<path

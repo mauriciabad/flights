@@ -15,6 +15,7 @@ import {
 	mapSearchPropertyToCandidate,
 	resolveLocationLabel
 } from './agoda-mapper';
+import { originalAgodaPhoto } from './agoda-photo';
 
 const searchFixture = agodaSearchVienna as AgodaSearchResponse;
 const wombatsFixture = agodaGetPricesWombats as AgodaGetPricesResponse;
@@ -154,6 +155,30 @@ describe('mapSearchPropertyToCandidate (real fixture)', () => {
 		});
 		expect(candidate?.property.images.length).toBeGreaterThan(0);
 		expect(candidate?.property.images[0]).toMatch(/^https:/);
+	});
+
+	/**
+	 * Issue #281. Every image this adapter hands out is asked for at the size the card was
+	 * measured to draw, and every one of them can still be turned back into the address
+	 * Agoda gave, which is what `StayPicker`'s `onerror` retries with. `agoda-photo.ts`
+	 * carries the byte counts; `tools/probe-agoda-image-size.mjs` re-renders them.
+	 */
+	it('asks Agoda for every photograph at the card size, reversibly', () => {
+		const urls = properties.flatMap((p) => mapSearchPropertyToCandidate(p)?.property.images ?? []);
+		// Not every image in an Agoda response is hosted by Agoda: this fixture also carries
+		// three `bstatic.com` photographs, already served at `max500`, that #279 owns and
+		// this rewrite deliberately leaves alone.
+		const agodaHosted = urls.filter((url) => /^pix\d+\.agoda\.net$/.test(new URL(url).hostname));
+		expect(agodaHosted.length).toBeGreaterThan(0);
+		for (const url of agodaHosted) {
+			expect(new URL(url).searchParams.get('s')).toBe('800x600');
+			// The fallback has to land on the address Agoda actually published, character for
+			// character, or the worst case stops being today's behaviour.
+			expect(originalAgodaPhoto(url)).toBe(url.replace('&s=800x600', ''));
+		}
+		for (const url of urls.filter((u) => !agodaHosted.includes(u))) {
+			expect(new URL(url).searchParams.has('s')).toBe(false);
+		}
 	});
 
 	it('trims a trailing non-breaking space off a real property name', () => {

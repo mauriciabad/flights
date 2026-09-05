@@ -14,6 +14,7 @@ import type {
 } from "../../domain";
 import { moneyFromMajorUnits } from "../../domain";
 import { haversineDistanceKm } from "./agoda-geo";
+import { agodaCardPhoto } from "./agoda-photo";
 import type {
   AgodaGetPricesResponse,
   AgodaMasterRoom,
@@ -138,7 +139,10 @@ function mapImages(property: AgodaSearchProperty): string[] {
     // (types.ts: adapters must resolve, never throw) rather than just dropping one image.
     const url =
       typeof original === "string" ? asNonEmptyString(original) : undefined;
-    if (url) urls.push(toHttpsUrl(url));
+    // Agoda stores these at 1620-2048px and resizes on request. `agoda-photo.ts` carries
+    // the measurement, the size the card was measured to render at, and the reverse
+    // direction that makes the swap safe against a shape it has not seen.
+    if (url) urls.push(agodaCardPhoto(toHttpsUrl(url)));
   }
   return urls;
 }
