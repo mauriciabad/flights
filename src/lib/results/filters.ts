@@ -4,12 +4,14 @@
  *
  * This is a different mechanism from `SearchQuery.airlinesToAvoid` (docs/prompts/001-initial
  * -brief.md interpretation notes, lines 102-103): "avoid" is a soft, score-only preference
- * that must never remove a result, algorithm/score.ts enforces that. The airline filter
- * here is the opposite: an explicit, user-driven hide-this-carrier control on the results
- * screen itself, which is the whole point of this screen (issue #23's own brief line:
- * "the ui has the search results first, so it is easy to filter out"). Both can be true of
- * the same itinerary at once, greyed out AND still shown, unless the traveller separately
- * chooses to filter it away here.
+ * that must never remove a result, algorithm/score.ts enforces that. The facets here are
+ * the opposite: the traveller pointing at what is already on screen and asking to see only
+ * that, which is the whole point of this screen (issue #23's own brief line: "the ui has
+ * the search results first, so it is easy to filter out"). Both can be true of the same
+ * itinerary at once, greyed out AND still shown, until the traveller narrows past it here.
+ *
+ * The facets INCLUDE rather than exclude, which is issue #189. The reasoning sits on
+ * `chosenConnectionAirports` below. The search form owns the excluding half already.
  *
  * Every numeric bound is EXCLUSIVE-by-omission: `undefined` means "no filter on this axis,"
  * never zero or the current data's minimum, so a filter panel rendered before any results
@@ -39,17 +41,40 @@ export interface ResultFilters {
 	 */
 	minNights?: number;
 	minFreeTimeMinutes?: number;
-	/** Airports EXCLUDED from the connection city, not an allow-list, so a connection
-	 * city that streams in after the panel is first drawn is visible by default instead of
-	 * silently hidden for not yet being in some included-list the user never saw. */
-	excludedConnectionAirports: ReadonlySet<IataAirportCode>;
-	/** Same exclude-not-include reasoning as above, and orthogonal to `airlinesToAvoid`
-	 * (see this file's header). */
-	excludedAirlines: ReadonlySet<IataAirlineCode>;
+	/**
+	 * The connection cities the traveller asked to see. EMPTY MEANS ALL, so a connection
+	 * city that streams in after the panel is first drawn is visible by default rather than
+	 * silently hidden for not being in a list the traveller never saw.
+	 *
+	 * This was an exclude-list until issue #189. Every chip in the rail is labelled with its
+	 * own count, `London LGW (1)`, and under exclusion clicking it left the OTHER results on
+	 * screen: the number on the label was one you had to invert to be right. It also
+	 * duplicated the search form's own `forbiddenConnectionAirports` field, and it could not
+	 * say "only show me LGW", which is the whole question a page of four options raises.
+	 * Measured before and after in tools/probe-filter-chips.mjs.
+	 *
+	 * Once the traveller HAS narrowed to a city, a result arriving later through a different
+	 * one is correctly hidden, and its chip still appears in the rail carrying its own count,
+	 * so the choice stays visible and one click wide.
+	 */
+	chosenConnectionAirports: ReadonlySet<IataAirportCode>;
+	/**
+	 * The airlines the traveller asked to see, empty meaning all, same as above.
+	 *
+	 * An itinerary has two carriers, and this matches on EITHER leg, because that is what
+	 * makes the chip's count true: `deriveFilterOptions` counts an itinerary under both of
+	 * its carriers, so `FR (1)` promises the one itinerary that flies FR somewhere in it.
+	 * Requiring both legs would answer that label with zero.
+	 *
+	 * Still orthogonal to `SearchQuery.airlinesToAvoid` (see this file's header): that one is
+	 * a soft score-only preference that must never remove a result, this one is the traveller
+	 * pointing at a carrier on the results screen and saying show me that.
+	 */
+	chosenAirlines: ReadonlySet<IataAirlineCode>;
 }
 
 export function emptyFilters(): ResultFilters {
-	return { excludedConnectionAirports: new Set(), excludedAirlines: new Set() };
+	return { chosenConnectionAirports: new Set(), chosenAirlines: new Set() };
 }
 
 /** True if no filter is currently narrowing the list, for a "clear filters" control that
@@ -60,8 +85,8 @@ export function isEmptyFilters(filters: ResultFilters): boolean {
 		filters.maxTotalDurationMinutes === undefined &&
 		filters.minNights === undefined &&
 		filters.minFreeTimeMinutes === undefined &&
-		filters.excludedConnectionAirports.size === 0 &&
-		filters.excludedAirlines.size === 0
+		filters.chosenConnectionAirports.size === 0 &&
+		filters.chosenAirlines.size === 0
 	);
 }
 
@@ -96,12 +121,16 @@ function passesFilters(result: ScoredResult, filters: ResultFilters): boolean {
 	) {
 		return false;
 	}
-	if (filters.excludedConnectionAirports.has(connectionAirportCode(itinerary))) {
+	if (
+		filters.chosenConnectionAirports.size > 0 &&
+		!filters.chosenConnectionAirports.has(connectionAirportCode(itinerary))
+	) {
 		return false;
 	}
 	if (
-		filters.excludedAirlines.has(itinerary.outboundFlight.carrier.iataCode) ||
-		filters.excludedAirlines.has(itinerary.onwardFlight.carrier.iataCode)
+		filters.chosenAirlines.size > 0 &&
+		!filters.chosenAirlines.has(itinerary.outboundFlight.carrier.iataCode) &&
+		!filters.chosenAirlines.has(itinerary.onwardFlight.carrier.iataCode)
 	) {
 		return false;
 	}

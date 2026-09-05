@@ -3,13 +3,23 @@
 	 * Issue #23: "Filters over price, total duration, nights, connection city, airline,
 	 * and free-time length." Plus the sort control (score/price/duration).
 	 *
-	 * `filters` and `sortMode` are `$bindable` (like Input/Select/Chip elsewhere in this
+	 * `filters` and `sortMode` are `$bindable` (like Input and Select elsewhere in this
 	 * design system) rather than callback props, since the page just needs to reassign its
 	 * own `$state` when either changes, no extra shadow state or `$effect` needed here.
+	 *
+	 * The two chip rails CHOOSE rather than exclude (issue #189). Every chip carries its own
+	 * count, so one click has to leave that many results, and nothing chosen means everything
+	 * shown. Chip itself owns none of this: `selected` is read straight off `filters` and the
+	 * click writes `filters` back, which is the other half of #189.
 	 */
 	import { Chip, Select } from '$lib/components';
 	import type { Duration, IataAirlineCode, IataAirportCode, IsoCurrencyCode } from '$lib/domain';
-	import { isEmptyFilters, type FilterOptions, type ResultFilters } from '$lib/results/filters';
+	import {
+		emptyFilters,
+		isEmptyFilters,
+		type FilterOptions,
+		type ResultFilters
+	} from '$lib/results/filters';
 	import { formatDuration, formatMoney } from '$lib/format';
 	import { SORT_MODES, SORT_MODE_LABELS, type SortMode } from '$lib/results/sort';
 
@@ -18,9 +28,10 @@
 		filters: ResultFilters;
 		sortMode: SortMode;
 		currency?: IsoCurrencyCode;
-		/** Airlines the SEARCH QUERY asked to avoid, shown as a hint next to the matching
-		 * chip so a traveller can tell "greyed by avoid" apart from "just unchecked," never
-		 * used to pre-exclude anything (that would turn a soft preference into a filter). */
+		/** Airlines the SEARCH QUERY asked to avoid, shown as a hint next to the matching chip
+		 * so a traveller can tell "the search is already scoring this one down" apart from "I
+		 * have not chosen it," never used to preselect or hide anything (either would turn a
+		 * soft preference into a filter). */
 		avoidedAirlines?: readonly IataAirlineCode[];
 		/** Issue #136: connection airport code to the city a traveller would name, so a
 		 * control headed "Connection city" says Bergamo rather than BGY. The page resolves
@@ -39,6 +50,7 @@
 		connectionCityNames = {}
 	}: Props = $props();
 
+	const uid = $props.id();
 	const avoidedSet = $derived(new Set(avoidedAirlines.map((code) => code.toUpperCase())));
 
 	function isSortMode(value: string): value is SortMode {
@@ -58,27 +70,28 @@
 	}
 
 	function toggleAirport(code: IataAirportCode) {
-		filters = { ...filters, excludedConnectionAirports: toggleSetMember(filters.excludedConnectionAirports, code) };
+		filters = {
+			...filters,
+			chosenConnectionAirports: toggleSetMember(filters.chosenConnectionAirports, code)
+		};
 	}
 
 	function toggleAirline(code: IataAirlineCode) {
-		filters = { ...filters, excludedAirlines: toggleSetMember(filters.excludedAirlines, code) };
+		filters = { ...filters, chosenAirlines: toggleSetMember(filters.chosenAirlines, code) };
 	}
 
-	// Chip's `selected` is `$bindable`, and left unbound here on purpose (each click
-	// already recomputes `filters` directly, which is the actual source of truth), but
-	// an unbound bindable prop owns its OWN copy after mount, so a click's symmetric
-	// flip stays in sync with `filters` by construction, while an external reset like
-	// "Clear filters" does NOT flow back into an already-mounted Chip's local copy.
-	// Remounting every chip on a reset (via the {#key} blocks below) is the cheap fix.
-	let filtersGeneration = $state(0);
-
 	function clearAll() {
-		filters = {
-			excludedConnectionAirports: new Set(),
-			excludedAirlines: new Set()
-		};
-		filtersGeneration += 1;
+		filters = emptyFilters();
+	}
+
+	/** The right-hand readout on a chip group's head, in the same slot where the sliders
+	 * print `Any` or their current bound. Naming the single choice rather than counting it
+	 * is what makes the group readable when the rail is scrolled and the chips are off
+	 * screen on a phone. */
+	function chosenSummary(chosen: ReadonlySet<string>): string {
+		if (chosen.size === 0) return 'Any';
+		if (chosen.size === 1) return [...chosen][0];
+		return `${chosen.size} chosen`;
 	}
 
 	// Each range's "off" end doubles as "no filter": a max-price slider dragged all the
@@ -201,56 +214,65 @@
 
 	{#if options.connectionAirports.length > 0}
 		<div class="filter-control">
-			<span class="filter-control-head-static">Connection city</span>
-			<div class="chip-row">
-				{#key filtersGeneration}
-					{#each options.connectionAirports as option (option.value)}
-						{@const city = connectionCityNames[option.value]}
-						<Chip
-							interactive
-							selected={!filters.excludedConnectionAirports.has(option.value)}
-							onclick={() => toggleAirport(option.value)}
-						>
-							<!-- City first, because that is what the traveller is choosing
-							     between. The code stays alongside it in mono, the same ticket-stub
-							     pairing the result card header uses, since two airports can serve
-							     one city and the code is what tells them apart.
-							     `title` because Chip truncates its label at 16rem: a long city
-							     name would otherwise take the count away with it, leaving no way
-							     to read how many results the chip stands for.
-							     `translate="no"` so a browser's page translation leaves the IATA
-							     code alone. It is an identifier, not a word. -->
-							<span title={city ? `${city} (${option.value}), ${option.count}` : undefined}>
-								{#if city}
-									{city}
-									<span class="chip-code font-mono" translate="no">{option.value}</span>
-								{:else}
-									<span translate="no">{option.value}</span>
-								{/if}
-								<span class="tabular-nums">({option.count})</span>
-							</span>
-						</Chip>
-					{/each}
-				{/key}
+			<div class="filter-control-head">
+				<span id="{uid}-city">Connection city</span>
+				<span class="filter-value font-mono tabular-nums">
+					{chosenSummary(filters.chosenConnectionAirports)}
+				</span>
+			</div>
+			<!-- A `group`, so a screen reader announces "Connection city" before the first chip
+			     and "London LGW 1, toggle button, not pressed" arrives attached to the question
+			     it answers rather than floating loose after a slider. -->
+			<div class="chip-row" role="group" aria-labelledby="{uid}-city">
+				{#each options.connectionAirports as option (option.value)}
+					{@const city = connectionCityNames[option.value]}
+					<Chip
+						interactive
+						selected={filters.chosenConnectionAirports.has(option.value)}
+						onclick={() => toggleAirport(option.value)}
+					>
+						<!-- City first, because that is what the traveller is choosing
+						     between. The code stays alongside it in mono, the same ticket-stub
+						     pairing the result card header uses, since two airports can serve
+						     one city and the code is what tells them apart.
+						     `title` because Chip truncates its label at 16rem: a long city
+						     name would otherwise take the count away with it, leaving no way
+						     to read how many results the chip stands for.
+						     `translate="no"` so a browser's page translation leaves the IATA
+						     code alone. It is an identifier, not a word. -->
+						<span title={city ? `${city} (${option.value}), ${option.count}` : undefined}>
+							{#if city}
+								{city}
+								<span class="chip-code font-mono" translate="no">{option.value}</span>
+							{:else}
+								<span translate="no">{option.value}</span>
+							{/if}
+							<span class="tabular-nums">({option.count})</span>
+						</span>
+					</Chip>
+				{/each}
 			</div>
 		</div>
 	{/if}
 
 	{#if options.airlines.length > 0}
 		<div class="filter-control">
-			<span class="filter-control-head-static">Airline</span>
-			<div class="chip-row">
-				{#key filtersGeneration}
-					{#each options.airlines as option (option.value)}
-						<Chip
-							interactive
-							selected={!filters.excludedAirlines.has(option.value)}
-							onclick={() => toggleAirline(option.value)}
-						>
-							{option.value} ({option.count}){avoidedSet.has(option.value) ? ' · avoided' : ''}
-						</Chip>
-					{/each}
-				{/key}
+			<div class="filter-control-head">
+				<span id="{uid}-airline">Airline</span>
+				<span class="filter-value font-mono tabular-nums">
+					{chosenSummary(filters.chosenAirlines)}
+				</span>
+			</div>
+			<div class="chip-row" role="group" aria-labelledby="{uid}-airline">
+				{#each options.airlines as option (option.value)}
+					<Chip
+						interactive
+						selected={filters.chosenAirlines.has(option.value)}
+						onclick={() => toggleAirline(option.value)}
+					>
+						{option.value} ({option.count}){avoidedSet.has(option.value) ? ' · avoided' : ''}
+					</Chip>
+				{/each}
 			</div>
 		</div>
 	{/if}
@@ -291,11 +313,6 @@
 	.filter-control-head {
 		display: flex;
 		justify-content: space-between;
-		font-size: var(--font-size-sm);
-		color: var(--color-text-muted);
-	}
-
-	.filter-control-head-static {
 		font-size: var(--font-size-sm);
 		color: var(--color-text-muted);
 	}

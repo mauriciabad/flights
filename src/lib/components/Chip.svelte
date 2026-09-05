@@ -11,6 +11,18 @@
 		deprioritized?: boolean;
 		/** Renders the chip body as a toggle button instead of a static tag. */
 		interactive?: boolean;
+		/**
+		 * Whether this chip is on, owned by whoever passes it and never by the chip.
+		 * Deliberately not `$bindable`: it was, and the chip flipped its own copy in its click
+		 * handler on top of the flip the parent had already made from the same click, so it
+		 * rendered the negation of the truth and then stayed stuck there, because a local
+		 * write to an unbound bindable prop shadows every later value from the parent
+		 * (issue #189, Chip.test.ts).
+		 *
+		 * A toggle whose pressed state is derived from application state cannot also keep a
+		 * private copy of it. The parent reads the click through `onclick` and passes the
+		 * answer back down.
+		 */
 		selected?: boolean;
 		removable?: boolean;
 		disabled?: boolean;
@@ -25,7 +37,7 @@
 		variant = 'default',
 		deprioritized = false,
 		interactive = false,
-		selected = $bindable(false),
+		selected = false,
 		removable = false,
 		disabled = false,
 		onRemove,
@@ -33,12 +45,6 @@
 		class: className,
 		children
 	}: Props = $props();
-
-	function handleToggle(event: MouseEvent) {
-		if (disabled) return;
-		onclick?.(event);
-		selected = !selected;
-	}
 
 	function handleRemove(event: MouseEvent) {
 		event.stopPropagation();
@@ -60,7 +66,7 @@
 	]}
 >
 	{#if interactive}
-		<button type="button" class="chip-toggle" aria-pressed={selected} {disabled} onclick={handleToggle}>
+		<button type="button" class="chip-toggle" aria-pressed={selected} {disabled} {onclick}>
 			{#if children}
 				{@render children()}
 			{:else}
@@ -158,10 +164,15 @@
 		transform: scale(0.97);
 	}
 
+	/* The inset ring doubles the border's apparent weight without adding a pixel to the
+	   chip's box, so choosing a facet never reflows the row it sits in. A real 2px border
+	   would, and a row of chips jumping under the finger that just tapped one is the kind
+	   of thing that makes a filter rail feel broken even when it is right. */
 	.chip.is-selected {
 		background: var(--color-accent-muted);
 		border-color: var(--color-accent);
 		color: var(--color-accent);
+		box-shadow: inset 0 0 0 1px var(--color-accent);
 	}
 
 	.chip-accent {

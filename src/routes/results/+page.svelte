@@ -585,8 +585,8 @@
 			filters.maxTotalDurationMinutes !== undefined,
 			filters.minNights !== undefined,
 			filters.minFreeTimeMinutes !== undefined,
-			filters.excludedConnectionAirports.size > 0,
-			filters.excludedAirlines.size > 0
+			filters.chosenConnectionAirports.size > 0,
+			filters.chosenAirlines.size > 0
 		].filter(Boolean).length
 	);
 </script>
