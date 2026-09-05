@@ -480,27 +480,28 @@
 						>&nbsp;&middot; {transferDetailLine(transfer)}</span
 					>{@render optionMark(segment)}
 				</p>
-				{#if transfer.mode === 'transit' && transfer.transitSchedule && staleAt}
+				{#if transfer.mode === 'transit' && transfer.transitSchedule}
 					{@const schedule = transfer.transitSchedule}
-					<p class="tl-note tl-note-warning">
-						Timetable planned for {formatClockTime(schedule.plannedFor.time)}. You now need to be there by
-						{formatClockTime(staleAt)}, so these departures are not the ones to catch.
-					</p>
-				{:else if transfer.mode === 'transit' && transfer.transitSchedule}
-					{@const schedule = transfer.transitSchedule}
-					{@const missed = readMissedService(schedule)}
-					{#if missed.outcome === 'last-in-time'}
+					{#if staleAt}
 						<p class="tl-note tl-note-warning">
-							Last departure that still gets you there by {formatClockTime(schedule.plannedFor.time)}.
-						</p>
-					{:else if missed.outcome === 'last-known'}
-						<p class="tl-note tl-note-warning">No later service runs for the rest of the timetable.</p>
-					{:else if missed.outcome === 'long-gap' && missed.next && missed.gap !== undefined}
-						<p class="tl-note tl-note-warning">
-							Miss it and the next is {formatClockTime(missed.next)}, {formatDuration(missed.gap)} later.
+							Timetable planned for {formatClockTime(schedule.plannedFor.time)}. You now need to be there by
+							{formatClockTime(staleAt)}, so these departures are not the ones to catch.
 						</p>
 					{:else}
-						<p class="tl-note">Next: {schedule.following.map((time) => formatClockTime(time)).join(', ')}</p>
+						{@const missed = readMissedService(schedule)}
+						{#if missed.outcome === 'last-in-time'}
+							<p class="tl-note tl-note-warning">
+								Last departure that still gets you there by {formatClockTime(schedule.plannedFor.time)}.
+							</p>
+						{:else if missed.outcome === 'last-known'}
+							<p class="tl-note tl-note-warning">No later service runs for the rest of the timetable.</p>
+						{:else if missed.outcome === 'long-gap' && missed.next && missed.gap !== undefined}
+							<p class="tl-note tl-note-warning">
+								Miss it and the next is {formatClockTime(missed.next)}, {formatDuration(missed.gap)} later.
+							</p>
+						{:else}
+							<p class="tl-note">Next: {schedule.following.map((time) => formatClockTime(time)).join(', ')}</p>
+						{/if}
 					{/if}
 				{/if}
 			{:else}
