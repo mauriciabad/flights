@@ -56,7 +56,16 @@ export const REQUESTS_PER_SEARCH: Readonly<Record<ProviderId, number>> = {
 	// Ryanair's 11 for the same question when the budget was written, which was issue #165.
 	// PR #174 halved the route-graph half and it fits now, so the ceiling stayed where it
 	// was rather than being raised to meet the old number.
-	'kiwi-public': 30,
+	//
+	// 31 is that shape written out for a full six candidates, the way `hostelworld` below
+	// is. One route-graph lookup for the origin, `ROUTE_PROBES_PER_KEPT_CANDIDATE` (3) per
+	// kept candidate, and one fare call per leg per kept candidate: 1 + 18 + 12. It was 30,
+	// which is the same arithmetic for FIVE candidates, and this bench kept five because
+	// the probe ceiling was cutting the sixth — the defect issue #255 measured on the
+	// acceptance route, where the two cut cities were Birmingham and Manchester. So this is
+	// not the ceiling moving to meet a measurement; it is the ceiling finally being sized
+	// for the six candidates `DEFAULT_MAX_CANDIDATES` has always allowed.
+	'kiwi-public': 31,
 
 	// Keyless and unmetered, so this is a politeness limit rather than money — but it is the
 	// one number issue #204 moved, and it moved a long way, so here is the arithmetic.

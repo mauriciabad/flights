@@ -134,8 +134,14 @@ const DESTINATIONS_WINDOW_LENGTH_DAYS = 30;
  *
  * 20 is where it sits now, and both halves of that were measured against a real build:
  *
- * - BVC to PFO, the thin-network route this adapter exists for, uses 19 route lookups for
- *   its whole search, so it never reaches the ceiling and its itinerary is unchanged.
+ * - BVC to PFO, the thin-network route this adapter exists for, fits inside 20 and is
+ *   held there by `algorithm/connections.ts` rather than by this number. An instrumented
+ *   production build ranks 21 candidate airports for that search (issue #255); one lookup
+ *   goes on the origin and 18 on the top of the ranking, and the rest are answered by
+ *   Ryanair's bundled snapshot at no request. An earlier version of this comment said the
+ *   search "uses 19 route lookups for its whole search, so it never reaches the ceiling",
+ *   and #248 built an argument on that number. 19 was the count of a search that asked
+ *   about every candidate, not the count of the candidates.
  * - BCN to TLL returns the same 6 of 6 itineraries at 20 as it did at 40. Three loads of
  *   that search on `origin/main` spent 40, 40 and 27 route lookups against three different
  *   sets of airports and returned the same six itineraries every time, because Ryanair's
@@ -146,7 +152,7 @@ const DESTINATIONS_WINDOW_LENGTH_DAYS = 30;
  * module singleton), and cache hits do not count against it, only real requests do. A
  * second search over the same airports is free and unaffected.
  */
-const MAX_ROUTE_LOOKUPS_PER_SESSION = 20;
+export const MAX_ROUTE_LOOKUPS_PER_SESSION = 20;
 
 export interface KiwiPublicProviderOptions {
 	/** Overrides the shared IndexedDB-or-memory store. Tests inject a `MemoryCacheStore`. */

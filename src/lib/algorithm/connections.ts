@@ -45,6 +45,7 @@ import type {
 	SearchQuery
 } from '../domain';
 import { getAirport } from '../data/airports';
+import { loadBundledRyanairNetwork } from '../data/ryanair-network';
 import type { AvailableKeys, FlightProvider, FlightSearchQuery, ProviderResult } from '../providers/types';
 import { contextFor } from '../providers/registry';
 import { FALLBACK_AIRPORTS, FALLBACK_ROUTES } from './connections-fallback-data';
@@ -174,9 +175,11 @@ export interface ConnectionGraphOptions {
 	) => void;
 	/** How many ranked candidates to return. Default `DEFAULT_MAX_CANDIDATES`. */
 	maxCandidates?: number;
-	/** How many candidates this call may ask a route-graph source about. Default
+	/** How many candidates this call may spend a request asking about. Default
 	 * `maxCandidates * ROUTE_PROBES_PER_KEPT_CANDIDATE`. See that constant for why the
-	 * ceiling belongs here rather than inside each adapter. */
+	 * ceiling belongs here rather than inside each adapter. Candidates past it are still
+	 * asked about, but only of the sources that ship with the app and answer for free —
+	 * see the probe loop in `findConnectionCandidates`. */
 	maxRouteProbes?: number;
 	/** Candidates whose detour ratio — `(dist(A,C) + dist(C,B)) / dist(A,B)` — exceeds
 	 * this are dropped outright rather than merely scored low. Default
@@ -203,31 +206,38 @@ export interface ConnectionGraphOptions {
 export const DEFAULT_MAX_CANDIDATES = 6;
 
 /**
- * How many airports this module may ask a route-graph source about, per candidate it
- * intends to keep. Issue #187.
+ * How many candidates this module may spend a request asking about, per candidate it
+ * intends to keep. Issue #187. It bounds requests, not candidates — see the probe loop,
+ * which asks about every candidate and only varies which sources it asks.
  *
- * This loop used to ask about every airport the origin flies to and then keep six. For a
- * hub that is hundreds of questions for six answers: BCN unions 79 resolvable outbound
- * airports across Ryanair's bundled snapshot, the build-time cheap-routes dataset and the
- * fallback table, and STN unions 179. Every keyless route-graph provider paid that, and
- * each grew a private ceiling of its own to survive it — `kiwi-public.ts`'s
- * `MAX_ROUTE_LOOKUPS_PER_SESSION` being the blunt one, which stops answering partway
- * through a search.
+ * This loop used to ask every airport the origin flies to for its route graph and then
+ * keep six. For a hub that is hundreds of requests for six answers: BCN unions 79
+ * resolvable outbound airports across Ryanair's bundled snapshot, the build-time
+ * cheap-routes dataset and the fallback table, and STN unions 179. Every keyless
+ * route-graph provider paid that, and each grew a private ceiling of its own to survive
+ * it — `kiwi-public.ts`'s `MAX_ROUTE_LOOKUPS_PER_SESSION` being the blunt one, which
+ * stops answering partway through a search.
  *
  * A ceiling inside an adapter can only say "I will stop after N". It cannot say which N,
  * because the adapter cannot see which candidates the search is going to keep. This one
  * can: every input to `scoreGeography` is bundled data, so the candidates get ranked
- * before anything is asked and only the top slice is asked about.
+ * before any request is spent, and the requests go to the top of that ranking.
  *
- * Three per kept candidate, so the default search probes 18. Two reasons for three rather
- * than one. Most candidates the origin flies to do not fly on to the destination, so the
- * list has to be walked some way past six to find six; and an over-tight window would let
- * geography alone decide the answer, where the point of asking is that out-degree can
- * still reorder what geography proposed.
+ * Three per kept candidate, so a default search spends 18. It is a guess at a hit rate —
+ * most candidates the origin flies to do not fly on to the destination, so the list has
+ * to be walked some way past six to find six — and it stays a guess, because nothing
+ * offline can tell you which airports a network route graph will confirm.
  *
- * 18 is also above the 19 route lookups issue #187 measured for the whole BVC to PFO
- * search (one for the origin, then one per candidate), so the route this adapter exists
- * for is not touched by the ceiling at all — it never had more candidates than this.
+ * What makes a guess tolerable here is that it no longer decides which cities the search
+ * can find, only which ones cost a request to find. Before issue #255 it decided both,
+ * and it decided wrong: geography ranks Birmingham 20th and Manchester 21st of BVC to
+ * PFO's 21 candidates, both of them cut at 18, both of them in Ryanair's bundled snapshot
+ * as flying to Pafos all along.
+ *
+ * The sentence this replaces read: "18 is also above the 19 route lookups issue #187
+ * measured for the whole BVC to PFO search ... it never had more candidates than this."
+ * 18 is not above 19, that search ranks 21 candidates rather than 18, and the conclusion
+ * was the opposite of the truth.
  */
 export const ROUTE_PROBES_PER_KEPT_CANDIDATE = 3;
 
@@ -496,6 +506,29 @@ function scoreGeography({
 }
 
 /**
+ * Ryanair's bundled network snapshot as a `DirectDestinationSource`, the same shape the
+ * fallback table wears above. Issue #255.
+ *
+ * The whole route graph ships with the app (issue #121), so this answers "which airports
+ * does C fly to" out of memory: no request, no key, no waiting on a provider, and the
+ * same answer on every load. That is what lets the probe loop below ask about candidates
+ * it has no request budget left for.
+ *
+ * It overlaps the real Ryanair adapter, which reads the same snapshot, and that is fine:
+ * `unionDirectDestinations` unions, and the adapter is preferred when both are present
+ * because it can refresh the snapshot while this one cannot.
+ */
+function bundledRyanairSource(): DirectDestinationSource {
+	return {
+		id: 'bundled-ryanair-network',
+		async getDirectDestinations(iataCode) {
+			const snapshot = await loadBundledRyanairNetwork();
+			return [...(snapshot.destinationsByOrigin[iataCode] ?? [])];
+		}
+	};
+}
+
+/**
  * Adds the one component only a provider can supply — how many airports the candidate
  * flies on to — to the geography score, and weights the three into the final number.
  *
@@ -573,6 +606,10 @@ export async function findConnectionCandidates(
 		...freeProviders.map((p) => sourceFromProvider(p, providerKeys, effectiveSignal, onProviderResult)),
 		fallbackRouteSource()
 	];
+	// The subset of the above that answers out of data shipped with the app. Asking these
+	// costs no request, so the probe loop can ask them about candidates the ceiling has
+	// already spent its request budget on. Issue #255.
+	const bundledSources: DirectDestinationSource[] = [bundledRyanairSource(), fallbackRouteSource()];
 
 	const forbiddenAirports = new Set(query.forbiddenConnectionAirports ?? []);
 	const forbiddenCountries = new Set(query.forbiddenConnectionCountries ?? []);
@@ -680,16 +717,34 @@ export async function findConnectionCandidates(
 
 	const candidates: ConnectionCandidate[] = [];
 
-	// Step 3: the only pass that can cost a request. Bounded, and in an order fixed by
-	// bundled data alone, which is what makes a reload cheap (issue #194): the first load
-	// caches exactly the set the second load asks for, so the second asks for nothing.
-	for (const { code, geography } of ranked.slice(0, Math.max(0, maxRouteProbes))) {
-		const inboundEdges = await unionDirectDestinations(freeSources, code);
+	// Step 3: the only pass that can cost a request. The spending is bounded, and it goes
+	// out in an order fixed by bundled data alone, which is what makes a reload cheap
+	// (issue #194): the first load caches exactly the set the second load asks for, so the
+	// second asks for nothing.
+	for (const [index, { code, geography }] of ranked.entries()) {
+		// `maxRouteProbes` bounds the requests, not the candidates. Past it every source
+		// that would cost something is dropped and the candidate is still asked of the
+		// ones that ship with the app, which answer out of memory.
+		//
+		// That distinction is issue #255. Geography decided which candidates were ever
+		// asked, and a city can rank mediocre on geography while being the one that
+		// actually flies on — the exact question the probe exists to answer, so settling
+		// it by ranking beforehand is circular. Where the bundled graph has already
+		// answered it, the circle costs nothing to cut. Measured on BVC to PFO, the route
+		// docs/ACCEPTANCE.md is about: 21 candidates ranked, Birmingham 20th and
+		// Manchester 21st, and both of them in Ryanair's bundled snapshot as flying to
+		// Pafos. They were the two the ceiling threw away.
+		const withinRequestBudget = index < Math.max(0, maxRouteProbes);
+		const inboundEdges = await unionDirectDestinations(
+			withinRequestBudget ? freeSources : bundledSources,
+			code
+		);
 		let inboundSourceId = inboundEdges.get(destination);
 		let meteredRequestSpent = false;
 
 		if (
 			!inboundSourceId &&
+			withinRequestBudget &&
 			meteredProviders.length > 0 &&
 			remainingMeteredBudget > 0 &&
 			allowList?.has(code)
