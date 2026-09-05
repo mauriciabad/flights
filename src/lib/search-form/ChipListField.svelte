@@ -153,8 +153,8 @@
 
 	.field-input {
 		width: 100%;
-		min-height: 2.75rem;
-		padding: var(--space-3) var(--space-4);
+		min-height: var(--control-height);
+		padding: var(--control-padding-y) var(--space-3);
 		background: var(--color-surface);
 		border: 1px solid var(--color-border-strong);
 		border-radius: var(--radius-md);

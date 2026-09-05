@@ -191,6 +191,22 @@
 	   page content in a container at this width so lines don't stretch
 	   into an unreadable ruler on a desktop-width viewport. */
 	--layout-max-width: 72rem;
+	/* The search form is the exception: it is a control panel rather than
+	   prose, and the owner asked for it by name (#277) — "the screen is
+	   big, we can use full width on desktop to fit more elements in 1
+	   screen". Nothing here reads in lines, so nothing here has a measure
+	   to protect. */
+	--layout-max-width-wide: 96rem;
+
+	/* Control size. Every field, chip and calendar day reads these rather
+	   than hardcoding a height, so density is one decision instead of
+	   thirty. The default is the 44px touch target (WCAG 2.5.5); a mouse
+	   opts into the tighter scale below, which still clears the 24px of
+	   WCAG 2.5.8. Issue #277, the owner: "i dont like that inputs are soo
+	   large". */
+	--control-height: 2.75rem;
+	--control-padding-y: var(--space-3);
+	--day-size: 2.75rem;
 
 	/* Strips that pin inside a scrolling page rather than to the viewport: the
 	   results page's search summary is the one today. Above the page's own
@@ -207,6 +223,20 @@
 	--z-grain: 200;
 
 	color-scheme: dark;
+}
+
+/* `pointer: fine` is the PRIMARY pointer, not `any-pointer`: a laptop with a
+   touchscreen is driven by its trackpad, and sizing its whole UI for the
+   finger it rarely uses is how the owner ended up asking for smaller inputs. */
+@media (pointer: fine) {
+	:root {
+		--control-height: 2.25rem;
+		/* Small enough that the height above is what actually decides the
+		   control's size. At --space-2 the padding plus a 24px line box
+		   comes to 40px and the 36px min-height never bites. */
+		--control-padding-y: var(--space-1);
+		--day-size: 2.25rem;
+	}
 }
 
 @media (prefers-color-scheme: light) {
