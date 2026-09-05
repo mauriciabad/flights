@@ -61,10 +61,7 @@
 <div class="page">
 	<header class="page-intro">
 		<h1>Search a layover trip</h1>
-		<p>
-			Two flights instead of one, with enough time in the middle to make that city a trip of its
-			own. Fill this in and the results open on the next screen.
-		</p>
+		<p>Two flights instead of one, with enough time in the middle to make that city a trip of its own.</p>
 	</header>
 
 	<RecentSearches />
@@ -79,20 +76,33 @@
 </div>
 
 <style>
+	/* Wider than the app's usual reading column (#277: "the screen is big, we can use full
+	   width on desktop to fit more elements in 1 screen"). A form is a control panel, not
+	   prose, so there is no measure here to protect by keeping it narrow. */
 	.page {
-		max-width: var(--layout-max-width);
+		max-width: var(--layout-max-width-wide);
 		margin-inline: auto;
 		display: flex;
 		flex-direction: column;
-		gap: var(--space-6);
+		gap: var(--space-5);
+	}
+
+	/* The title and its one line of explanation share a row once there is room, rather than
+	   spending two stacked blocks of a phone screen on the same sentence. */
+	.page-intro {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: baseline;
+		gap: var(--space-1) var(--space-4);
 	}
 
 	.page-intro h1 {
 		font-size: var(--font-size-2xl);
-		margin-bottom: var(--space-2);
 	}
 
 	.page-intro p {
+		flex: 1 1 18rem;
+		font-size: var(--font-size-sm);
 		color: var(--color-text-muted);
 		max-width: 40rem;
 	}
