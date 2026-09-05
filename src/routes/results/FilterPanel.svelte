@@ -285,14 +285,19 @@
 		gap: var(--space-5);
 	}
 
+	/* Wraps because `Clear filters` appears only once something is filtered, and on a phone
+	   it landed beside a full-width sort control and broke across two lines on top of it.
+	   Dropping to its own row is the honest answer at that width. */
 	.filter-panel-head {
 		display: flex;
 		align-items: flex-end;
+		flex-wrap: wrap;
 		gap: var(--space-3);
 	}
 
 	.clear-filters {
 		height: 2.75rem;
+		white-space: nowrap;
 		padding: 0 var(--space-3);
 		border-radius: var(--radius-md);
 		color: var(--color-text-muted);
