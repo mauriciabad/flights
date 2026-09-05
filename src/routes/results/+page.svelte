@@ -897,6 +897,7 @@
 			minLayoverTime={query.minLayoverTime}
 			searchDone={primarySearchDone && !stillSearching}
 			{stayProviders}
+			{transitLookupBudget}
 			onNightsChange={(nights) => chooseNights(customisingResult, nights)}
 		/>
 	{:else}

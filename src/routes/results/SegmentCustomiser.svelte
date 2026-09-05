@@ -51,8 +51,23 @@
 	import { recomputeItinerarySelection } from '$lib/algorithm/recompute-selection';
 	import { FlightPicker, Skeleton, StopoverNights, TransportPicker, WaitingTimeStepper } from '$lib/components';
 	import { segmentStubFor } from '$lib/components/segment-stub';
-	import type { ConnectionTransferOptions, ItineraryGroup, OuterTransferOptions, TransferLegOptions } from '$lib/search';
-	import { routeToProperty } from '$lib/search';
+	import type {
+		ConnectionTransferOptions,
+		ItineraryGroup,
+		OuterTransferOptions,
+		TransferLegOptions,
+		TransitLegAnswer,
+		TransitLegAnswers,
+		TransitLookupBudget,
+		TransitScheduleOutcome
+	} from '$lib/search';
+	import {
+		SourceTracker,
+		TRANSIT_LEGS_TO_A_PROPERTY,
+		fetchTransitSchedules,
+		pickLandingToTransportTime,
+		routeToProperty
+	} from '$lib/search';
 	import { keyStore } from '$lib/keys';
 	import { getProviderRegistry, hasUnconfiguredStayProvider, hasUsableStayProvider } from '$lib/results/provider-setup';
 	import type { ItineraryDraft, PropertyRouteState } from '$lib/results/itinerary-draft.svelte';
@@ -92,6 +107,13 @@
 		/** Issue #203: what each stay provider did in this search, so the note can tell
 		 * "asked and answered with nothing" from "asked and got a 503". */
 		stayProviders?: readonly StayProviderOutcome[];
+		/**
+		 * Issue #267: the timetable ration this search is spending, so the on-demand check
+		 * below draws from it rather than from a second allowance nobody counts. The page
+		 * hands the same object to `runSearch` and to `widenSearch`. Absent means the check
+		 * cannot be offered at all.
+		 */
+		transitLookupBudget?: TransitLookupBudget;
 		onNightsChange?: (nights: number) => void;
 	}
 
@@ -119,6 +141,7 @@
 		minLayoverTime,
 		searchDone = false,
 		stayProviders = [],
+		transitLookupBudget,
 		onNightsChange
 	}: Props = $props();
 
@@ -158,6 +181,42 @@
 	// extended, because the lookups were never planned for the trip that results, and
 	// pretending otherwise is the defect that issue is about.
 	const transitAnswers = $derived(!draft.pickedAnAlternative && atDefaultLength ? group?.best.transit : undefined);
+
+	/**
+	 * Issue #267: the two in-city legs, once the traveller has swapped to a bed the search
+	 * never routed to. `routeToProperty` asks road modes only, so those legs carry a real
+	 * road route to the right address and no timetable at all, and the panel said nothing
+	 * about the difference. "Taxi, 1h 27m" with no further word reads as a claim that a taxi
+	 * is how you get there, when what happened is that nobody asked about the bus.
+	 */
+	const otherPropertyTransitAnswer: TransitLegAnswer = { answer: 'not-asked', reason: 'other-property' };
+	const swappedToAnotherProperty = $derived(
+		itinerary.stay !== undefined && !isSameProperty(itinerary.stay.property, draft.routedProperty)
+	);
+	const pickedPropertyKey = $derived(itinerary.stay ? propertyKey(itinerary.stay.property) : undefined);
+	const transitCheckState = $derived(pickedPropertyKey ? draft.transitChecks.get(pickedPropertyKey) : undefined);
+
+	/** Which timetable answers describe the two in-city legs as they now stand: the
+	 * traveller's own check when they have made one, the "belongs to another bed" note while
+	 * they have not, and the search's own answers when the bed is the search's own. */
+	const connectionTransitAnswers = $derived.by<TransitLegAnswers | undefined>(() => {
+		if (transitCheckState?.kind === 'checked') return transitCheckState.answers;
+		if (!swappedToAnotherProperty) return transitAnswers;
+		return {
+			transferToHotel: otherPropertyTransitAnswer,
+			transferToConnectionAirport: otherPropertyTransitAnswer
+		};
+	});
+
+	/** Offered once per property, and only for a bed the search never asked about. The
+	 * search's own bed already has its timetable, and a second lookup for it would spend two
+	 * requests to learn what is on screen. */
+	const canCheckTransit = $derived(
+		swappedToAnotherProperty &&
+			transitLookupBudget !== undefined &&
+			connectionAirport !== undefined &&
+			transitCheckState === undefined
+	);
 
 	// The same expression the banner above the results list uses (`StayKeyNotice`), so the
 	// two cannot say different things about whether a bed was ever searched for.
@@ -264,6 +323,99 @@
 		if (routing.kind === 'routed') applyStayWithJourney(stay, routing);
 	}
 
+	/**
+	 * Issue #267: the timetable for a bed the traveller swapped to, asked because they
+	 * pressed for it.
+	 *
+	 * ## Why this is a press and not part of the swap
+	 *
+	 * A bed swap already spends 2 to 4 OSRM requests on the road route. Adding the
+	 * timetable to it would spend 2 Transitous `/plan` requests on every tap as well, so
+	 * comparing five beds would cost 10 against the 12 this app rations to a whole search,
+	 * on a free service run by volunteers. Behind a press it costs 2 when somebody has
+	 * chosen a bed and wants to know whether they can get there by bus, and nothing at all
+	 * while they are still comparing.
+	 *
+	 * ## Why it goes through the search's own budget
+	 *
+	 * `routeToProperty` sits outside `MAX_TRANSIT_LOOKUPS_PER_SEARCH` and can afford to: it
+	 * asks road modes only, so it never reaches Transitous. This does, so it draws from the
+	 * same object `runSearch` was handed. With the ration spent, `fetchTransitSchedules`
+	 * refuses the claim and answers `not-asked` / `budget-spent`, which the picker already
+	 * knows how to say. The request is never sent.
+	 *
+	 * A handler, never an `$effect`, for the same reason `routePickedProperty` is one.
+	 */
+	async function checkTransitForPickedProperty() {
+		const stay = itinerary.stay;
+		const airport = connectionAirport;
+		const budget = transitLookupBudget;
+		if (!stay || !airport || !budget) return;
+		const key = propertyKey(stay.property);
+		if (draft.transitChecks.has(key)) return;
+
+		const generation = ++draft.routingGeneration;
+		draft.transitChecks.set(key, { kind: 'checking' });
+
+		const outcome = await checkTransitOnce(airport, budget);
+		draft.transitChecks.set(key, { kind: 'checked', answers: outcome.answers });
+		// Same guard as `routePickedProperty`, and the same counter on purpose. Pressing
+		// this while that bed's road route is still in flight abandons the road route,
+		// because a road answer landing second would rebuild the stay selection and wipe the
+		// bus this just paid two requests for. The road route stays banked under its own
+		// key, so tapping the bed again applies it.
+		if (generation !== draft.routingGeneration) return;
+		draft.itinerary = outcome.itinerary;
+	}
+
+	async function checkTransitOnce(
+		airport: Airport,
+		budget: TransitLookupBudget
+	): Promise<TransitScheduleOutcome> {
+		const controller = new AbortController();
+		try {
+			return await fetchTransitSchedules({
+				itinerary,
+				connectionCoordinates: airport.coordinates,
+				// The same buffer `fetchConnectionResources` and `routeToProperty` apply, from
+				// the same function, so a bus planned here starts from the same minute the road
+				// route already assumed the traveller reaches the street.
+				connectionLandingBuffer: pickLandingToTransportTime(
+					DEFAULT_LANDING_TO_TRANSPORT_RULES,
+					airport.sizeClass
+				),
+				// The two legs the swap moved, and no others. The origin and destination legs
+				// keep the timetables the search fetched for them, which a bed swap cannot have
+				// invalidated, and asking again would double what this press costs.
+				fields: TRANSIT_LEGS_TO_A_PROPERTY,
+				transferProviders: getProviderRegistry().ofKind('transfer'),
+				keys: keyStore.availableKeys,
+				signal: controller.signal,
+				sources: new SourceTracker(),
+				record: () => {},
+				budget,
+				minLayoverTime
+			});
+		} catch (error) {
+			return {
+				itinerary,
+				answers: {
+					transferToHotel: transitLookupFailure(error),
+					transferToConnectionAirport: transitLookupFailure(error)
+				}
+			};
+		}
+	}
+
+	/** AGENTS.md, "show the error you got, never the one you assumed": whatever threw comes
+	 * through in its own words rather than as a generic "could not check". */
+	function transitLookupFailure(error: unknown): TransitLegAnswer {
+		return {
+			answer: 'failed',
+			error: { code: 'unknown', message: error instanceof Error ? error.message : String(error) }
+		};
+	}
+
 	async function routeOnce(stay: Stay, airport: Airport): Promise<PropertyRouteState> {
 		const controller = new AbortController();
 		try {
@@ -303,9 +455,12 @@
 	legLabel: string,
 	legField: 'transferToOriginAirport' | 'transferToHotel' | 'transferToConnectionAirport' | 'transferToDestinationLocation',
 	options: TransferLegOptions,
-	transitAnswer: Parameters<typeof TransportPicker>[1]['transitAnswer'],
+	transitAnswer: TransitLegAnswer | undefined,
 	referenceMoment?: Itinerary['outboundFlight']['arrival'],
-	referenceLabel?: string
+	referenceLabel?: string,
+	/** Issue #267: offered on the two in-city legs alone, and only for a bed the search
+	 * never asked Transitous about. */
+	oncheckTransit?: () => void
 )}
 	<TransportPicker
 		{legLabel}
@@ -317,6 +472,7 @@
 		{referenceMoment}
 		{referenceLabel}
 		{minLayoverTime}
+		{oncheckTransit}
 		onselect={(recomputed) => draft.apply(recomputed)}
 	/>
 {/snippet}
@@ -379,9 +535,10 @@
 						itinerary.stay ? `Travel to ${itinerary.stay.property.name}` : 'Travel to the stopover',
 						'transferToHotel',
 						hotelTransferOptions,
-						transitAnswers?.transferToHotel,
+						connectionTransitAnswers?.transferToHotel,
 						itinerary.outboundFlight.arrival,
-						'you land'
+						'you land',
+						canCheckTransit ? checkTransitForPickedProperty : undefined
 					)}
 				{:else}
 					<p class="customiser-note">Nothing was routed into the city, so there is no ride to change.</p>
@@ -442,7 +599,10 @@
 						'Travel to the connection airport',
 						'transferToConnectionAirport',
 						connectionAirportTransferOptions,
-						transitAnswers?.transferToConnectionAirport
+						connectionTransitAnswers?.transferToConnectionAirport,
+						undefined,
+						undefined,
+						canCheckTransit ? checkTransitForPickedProperty : undefined
 					)}
 				{:else}
 					<p class="customiser-note">Nothing was routed back to the airport, so there is no ride to change.</p>

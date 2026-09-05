@@ -42,7 +42,7 @@
 import { SvelteMap } from 'svelte/reactivity';
 import type { Itinerary, Stay } from '$lib/domain';
 import type { RecomputedSelection } from '$lib/algorithm/recompute-selection';
-import type { PropertyRouting } from '$lib/search';
+import type { PropertyRouting, TransitLegAnswers } from '$lib/search';
 import { propertyKey } from '$lib/stays';
 
 /**
@@ -52,6 +52,12 @@ import { propertyKey } from '$lib/stays';
  * happens when two states that read differently share one representation.
  */
 export type PropertyRouteState = PropertyRouting | { kind: 'unrouted' } | { kind: 'routing' };
+
+/** Issue #267's timetable half: what asking Transitous about one property produced. Kept
+ * apart from the road answer above because the two are asked separately and cost different
+ * things: the road route rides along with a bed tap, the timetable costs two requests out
+ * of a whole search's ration and so waits for a press. */
+export type TransitCheckState = { kind: 'checking' } | { kind: 'checked'; answers: TransitLegAnswers };
 
 export class ItineraryDraft {
 	/** The trip as the search last streamed it, kept for the two questions that are about
@@ -71,6 +77,10 @@ export class ItineraryDraft {
 	 * rather than a plain one because the stay rows read it while a click handler writes
 	 * it, and a plain `Map` mutated in place would not repaint. */
 	readonly propertyRouting = new SvelteMap<string, PropertyRouteState>();
+
+	/** Issue #267: timetable answers by `propertyKey`, for the lifetime of this draft, so a
+	 * press that cost two requests is not spent again on the bed it already answered for. */
+	readonly transitChecks = new SvelteMap<string, TransitCheckState>();
 
 	/** Bumped on every pick, so a route that resolves after the traveller has moved on is
 	 * banked but never written onto whatever bed is on screen now. Plain bookkeeping: it
