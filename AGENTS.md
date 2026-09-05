@@ -442,3 +442,17 @@ made.
 
 Main moved eight times that afternoon. Any branch older than the last merge can carry this,
 and the cost is a green test and its instrument quietly ceasing to exist.
+
+**The sequence that produced it, because nothing warns you about it.** The agent finished with
+`git reset --soft origin/main` and then `git add -A` to sweep up "everything else". The soft
+reset moves your base forward without touching the working tree, so stale copies of files you
+never opened are now a difference against the new base, and `git add -A` records that difference
+as your authorship. What comes out is a well-formed commit that happens to say "delete this
+feature", and every later rebase applies it cleanly because there is nothing wrong with it as a
+commit.
+
+So `git reset --soft` onto a base that has moved is only safe if you know what your working tree
+holds. If you want a single tidy commit, prefer `git add` on the paths you actually changed. And
+whichever way you get there, read `git diff --stat origin/main...HEAD` before pushing and look for
+a file where you delete far more than you add. That agent verified its feature exhaustively in a
+browser and never looked at what its own commit contained.
