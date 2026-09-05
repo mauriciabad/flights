@@ -37,6 +37,24 @@ export interface ItineraryTimes {
 }
 
 /**
+ * Where `transferToHotel` and `transferToConnectionAirport` go, on an itinerary that has
+ * them, and why it has none when it does not.
+ *
+ * `'stay'` is a booked bed's own address. `'city-centre'` is the connection city's
+ * hand-checked centre point (`data/airport-city-names.ts`), routed when no bed was priced
+ * but the ride into town is still worth knowing about (issue #161).
+ *
+ * `'unrouted-stay'` is the third case, and the only one that carries no legs at all: a bed
+ * nobody has routed to. The search asks OSRM and Transitous about the one property it
+ * picks and no other (`search/resources.ts`), so a traveller who picks a different
+ * property off the stay list is going somewhere this app has no journey for. Issue #243 is
+ * what happened before that state existed: swapping a hotel 2.8 km from the terminal for a
+ * hostel 36 km out left `1h 7m`, "Bus, then bus", the same five next departures and the
+ * same free-time window on screen, with only the name and the nightly rate replaced.
+ */
+export type TransferAnchor = 'stay' | 'city-centre' | 'unrouted-stay';
+
+/**
  * Issue #1: "Itinerary — the full chain, exactly the schedule listed in the brief."
  * Field order mirrors the brief's schedule, lines 44-53.
  */
@@ -106,6 +124,10 @@ export interface Itinerary {
 	travellers: number;
 	/** Line 50. Present only alongside `stay` — see that field's own doc comment. */
 	transferToConnectionAirport?: Transfer;
+	/** What the two connection-side legs above are journeys to, or why the trip has none.
+	 * See `TransferAnchor`. `undefined` when nobody ever routed them: no destination to
+	 * route to, or every transfer provider failed. */
+	transferAnchor?: TransferAnchor;
 	/** Line 51. */
 	connectionWaitingTime: Duration;
 	/** Line 52. */

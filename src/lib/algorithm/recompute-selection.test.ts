@@ -397,3 +397,115 @@ describe('diffTransfers', () => {
 		expect(delta.currencyMismatch).toBe(false);
 	});
 });
+
+describe('recomputeItinerarySelection: swapping the bed (issue #243)', () => {
+	/** An overnight stopover with two slow in-city legs, so the journey to the bed really
+	 * moves the free-time window, the night count and the total. Those are exactly the
+	 * numbers a swap used to leave describing the previous property. */
+	function overnightItinerary() {
+		const outboundArrival = localDateTime('2026-06-01T21:00:00');
+		const onwardDeparture = localDateTime('2026-06-02T12:00:00');
+		const outbound = makeFlight('LGW', 'VIE', outboundArrival, outboundArrival, 150);
+		const onward = makeFlight('VIE', 'IST', onwardDeparture, onwardDeparture, 90);
+		const [itinerary] = buildItineraries(
+			baseInput({
+				outboundOffers: [outbound],
+				onwardOffers: [onward],
+				connectionResources: {
+					VIE: {
+						stay: makeStay(),
+						transferAnchor: 'stay',
+						transferToHotel: makeTransfer(75),
+						transferToConnectionAirport: makeTransfer(45)
+					}
+				}
+			})
+		);
+		if (!itinerary) throw new Error('fixture itinerary failed to build');
+		return itinerary;
+	}
+
+	function otherProperty(pricePerNightMinorUnits: number): Stay {
+		return {
+			...makeStay(pricePerNightMinorUnits),
+			property: { name: 'Far Hostel', coordinates: { latitude: 51.5, longitude: -0.1 }, images: [] }
+		};
+	}
+
+	it("drops both in-city legs rather than lending the new property the old one's journey", () => {
+		const before = overnightItinerary();
+		expect(before.transferToHotel?.duration).toBe(75);
+		expect(before.transferAnchor).toBe('stay');
+
+		const other = otherProperty(4000);
+		const { itinerary } = recomputeItinerarySelection(before, { staySelection: { stay: other } });
+
+		expect(itinerary.stay).toBe(other);
+		expect(itinerary.transferToHotel).toBeUndefined();
+		expect(itinerary.transferToConnectionAirport).toBeUndefined();
+		expect(itinerary.transferAnchor).toBe('unrouted-stay');
+	});
+
+	it('moves the free-time window off the old journey instead of leaving it where it was', () => {
+		const before = overnightItinerary();
+		// It used to start 75 minutes after landing and end 45 minutes before the departure.
+		expect(before.freeTime.start.local).toBe('2026-06-01T22:15:00');
+		expect(before.freeTime.end.local).toBe('2026-06-02T11:15:00');
+
+		const { itinerary } = recomputeItinerarySelection(before, {
+			staySelection: { stay: otherProperty(4000) }
+		});
+
+		// With no journey to this address, the honest window runs from landing to departure:
+		// the app cannot deduct minutes nobody has measured.
+		expect(itinerary.freeTime.start).toEqual(before.outboundFlight.arrival);
+		expect(itinerary.freeTime.end).toEqual(before.onwardFlight.departure);
+		expect(itinerary.times.free).toBe(itinerary.freeTime.duration);
+	});
+
+	it('rebuilds the total from the trip rather than nudging the old one by a delta', () => {
+		const before = overnightItinerary();
+
+		const { itinerary } = recomputeItinerarySelection(before, {
+			staySelection: { stay: otherProperty(4000) }
+		});
+
+		// Both fares (5000 each, per-person, one traveller) plus this bed's own nights. The
+		// previous bed's 3000 a night is gone from the figure, not subtracted back out of it.
+		expect(itinerary.nightsInConnection).toBe(1);
+		expect(itinerary.totalPrice.minorUnits).toBe(5000 + 5000 + 4000);
+	});
+
+	it('restores the journey and the anchor when the routed property is picked back', () => {
+		const before = overnightItinerary();
+		const { itinerary: swapped } = recomputeItinerarySelection(before, {
+			staySelection: { stay: otherProperty(4000) }
+		});
+
+		const { itinerary: backAgain } = recomputeItinerarySelection(swapped, {
+			staySelection: {
+				stay: before.stay,
+				transferToHotel: before.transferToHotel,
+				transferToConnectionAirport: before.transferToConnectionAirport
+			}
+		});
+
+		expect(backAgain.transferAnchor).toBe('stay');
+		expect(backAgain.transferToHotel).toBe(before.transferToHotel);
+		expect(backAgain.freeTime).toEqual(before.freeTime);
+		expect(backAgain.totalPrice).toEqual(before.totalPrice);
+		expect(backAgain.times).toEqual(before.times);
+	});
+
+	it('leaves a transport swap alone, which replaces one leg and keeps the bed it reaches', () => {
+		const before = overnightItinerary();
+		const faster = makeTransfer(20, 500, 'taxi');
+
+		const { itinerary } = recomputeItinerarySelection(before, { transferToHotel: faster });
+
+		expect(itinerary.transferToHotel).toBe(faster);
+		expect(itinerary.stay).toBe(before.stay);
+		expect(itinerary.transferToConnectionAirport).toBe(before.transferToConnectionAirport);
+		expect(itinerary.transferAnchor).toBe('stay');
+	});
+});

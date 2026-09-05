@@ -127,6 +127,16 @@ const CHECKS: Record<string, FixtureCheck> = {
 		map: (raw) =>
 			mapPropertiesToStays((raw as { properties?: never[] }).properties, AIRPORT, 25, 1).length
 	},
+	// The same shape with a second property 32 km out, for `itinerary-editing.spec.ts`'s
+	// bed swap (issues #243, #250). Read at the app's own 50 km radius rather than 25, so
+	// this check fails if the far one ever stops mapping — that property being reachable is
+	// the whole point of the fixture.
+	'hostelworld/properties-vienna-two.json': {
+		readBy: 'providers/stays/hostelworld-mapper.ts mapPropertiesToStays',
+		yields: 'some',
+		map: (raw) =>
+			mapPropertiesToStays((raw as { properties?: never[] }).properties, AIRPORT, 50, 1).length
+	},
 	'kiwi-public/one-per-city-empty.json': {
 		readBy: 'providers/flights/kiwi-public-mapper.ts mapOnePerCityResultToDestinations',
 		yields: 'none',

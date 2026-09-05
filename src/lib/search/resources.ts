@@ -51,6 +51,7 @@ import type {
   LandingToTransportRule,
   Stay,
   Transfer,
+  TransferAnchor,
   TransferMode,
 } from "../domain";
 import {
@@ -58,7 +59,7 @@ import {
   MAX_PLAUSIBLE_WALK_MINUTES,
   maxPlausibleTransitMinutes,
 } from "../domain";
-import type { ConnectionResources, TransferAnchor } from "../algorithm/build";
+import type { ConnectionResources } from "../algorithm/build";
 import {
   femaleDormFit,
   isFemaleDormSelectable,

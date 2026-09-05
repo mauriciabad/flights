@@ -3,8 +3,9 @@
  * one transfer leg on an already-built `Itinerary` is a different operation from building
  * one from scratch (`build.ts`'s job): the candidate pool, the connection airport's size
  * class and the origin/connection waiting-time tiers are all already baked into the
- * itinerary the traveller is looking at, and a picker only ever changes one of six fields
- * on it. Reusing `minutesBetween` / `addLocalMinutes` / `nightsToPayFor` / `sumMoney` /
+ * itinerary the traveller is looking at, and a picker only ever changes one flight, one
+ * transfer leg, or (issue #243) the bed and the two legs that reach it.
+ * Reusing `minutesBetween` / `addLocalMinutes` / `nightsToPayFor` / `sumMoney` /
  * `scaleFareForParty` / `sumDurations` from `build.ts` keeps this the same DST-correct,
  * priceScope-aware arithmetic that built the itinerary in the first place, rather than a
  * second implementation that could disagree with it on an overnight connection or on which
@@ -20,8 +21,30 @@
  */
 
 import { addLocalMinutes, minutesBetween, nightsToPayFor, scaleFareForParty, sumDurations, sumMoney } from './build';
-import type { Duration, FlightOffer, Itinerary, ItineraryTimes, Money, Transfer } from '../domain';
+import type { Duration, FlightOffer, Itinerary, ItineraryTimes, Money, Stay, Transfer, TransferAnchor } from '../domain';
 import { DEFAULT_MIN_LAYOVER_TIME_MINUTES } from '../domain';
+
+/**
+ * Issue #243: a bed and the two journeys that reach it, picked together.
+ *
+ * The stay picker used to be the one edit that bypassed this module, on the reasoning that
+ * only the price changes when you book a different room. That is true of a different room
+ * and false of a different building. `transferToHotel` and `transferToConnectionAirport`
+ * are routes to one address, and the free-time window is measured from when they get you
+ * there, so a swap that replaced the name alone left a 36 km hostel showing the 1h 7m bus
+ * ride computed for a hotel 2.8 km from the terminal.
+ *
+ * Both transfers arrive together, because one routing produces both. Absent means nobody
+ * has routed to this address: the search only ever routes to the property it picks itself,
+ * so every other property on the list starts here, and the itinerary comes back with both
+ * legs gone and `transferAnchor: 'unrouted-stay'` rather than wearing the previous bed's.
+ */
+export interface StaySelection {
+	/** The property picked, or `undefined` for a trip with no bed priced. */
+	stay?: Stay;
+	transferToHotel?: Transfer;
+	transferToConnectionAirport?: Transfer;
+}
 
 /** Every field a flight or transport picker can replace on one itinerary. All optional:
  * a caller passes only the one field the user actually picked an alternative for. */
@@ -32,6 +55,19 @@ export interface SelectionOverrides {
 	transferToHotel?: Transfer;
 	transferToConnectionAirport?: Transfer;
 	transferToDestinationLocation?: Transfer;
+	/** Issue #243's stay swap. It owns `stay` and both connection-side transfers together,
+	 * so the two `transfer*` fields above stay what they always were: a transport swap on
+	 * the bed the itinerary already has. No caller passes both, and this one wins if one
+	 * ever does. */
+	staySelection?: StaySelection;
+}
+
+/** `'stay'` once something has routed to the picked property, `'unrouted-stay'` while
+ * nothing has. Both legs come from one routing, so the hotel-bound one answers for the
+ * pair. No bed picked leaves no in-city legs and nothing for an anchor to name. */
+function anchorForStaySelection(selection: StaySelection): TransferAnchor | undefined {
+	if (!selection.stay) return undefined;
+	return selection.transferToHotel ? 'stay' : 'unrouted-stay';
 }
 
 export type ItineraryWarningCode =
@@ -72,21 +108,24 @@ export function recomputeItinerarySelection(
 	const outboundFlight = overrides.outboundFlight ?? itinerary.outboundFlight;
 	const onwardFlight = overrides.onwardFlight ?? itinerary.onwardFlight;
 	const transferToOriginAirport = overrides.transferToOriginAirport ?? itinerary.transferToOriginAirport;
-	const transferToHotel = overrides.transferToHotel ?? itinerary.transferToHotel;
-	const transferToConnectionAirport =
-		overrides.transferToConnectionAirport ?? itinerary.transferToConnectionAirport;
 	const transferToDestinationLocation =
 		overrides.transferToDestinationLocation ?? itinerary.transferToDestinationLocation;
 	// Left exactly as the source itinerary had them. See this file's header for why a
 	// picker swap never reclassifies these on its own.
 	const { originWaitingTime, connectionWaitingTime } = itinerary;
-	// No override field exists for the stay itself (issue #27's picker owns that swap
-	// separately, outside this module), so it only ever carries over unchanged. Issue #94:
-	// it may be `undefined` — no bed priced for this connection — in which case a
-	// `transferToHotel`/`transferToConnectionAirport` override would have nowhere real to
-	// go; this module still never crashes on that combination, it just cannot price nights
-	// or in-city transfers that have no stay to anchor them.
-	const { stay } = itinerary;
+	// Issue #243: the bed and the two legs that reach it move as one, so a stay swap
+	// replaces all three and a transport swap replaces only the leg it is about.
+	// Issue #94: `stay` may be `undefined` — no bed priced for this connection — and the
+	// two legs can still be real, since issue #161 gave them the city centre to route to.
+	const { staySelection } = overrides;
+	const stay = staySelection ? staySelection.stay : itinerary.stay;
+	const transferToHotel = staySelection
+		? staySelection.transferToHotel
+		: (overrides.transferToHotel ?? itinerary.transferToHotel);
+	const transferToConnectionAirport = staySelection
+		? staySelection.transferToConnectionAirport
+		: (overrides.transferToConnectionAirport ?? itinerary.transferToConnectionAirport);
+	const transferAnchor = staySelection ? anchorForStaySelection(staySelection) : itinerary.transferAnchor;
 
 	const warnings: ItineraryWarning[] = [];
 
@@ -193,6 +232,8 @@ export function recomputeItinerarySelection(
 			transferToHotel,
 			transferToConnectionAirport,
 			transferToDestinationLocation,
+			transferAnchor,
+			stay,
 			freeTime,
 			nightsInConnection,
 			totalPrice,

@@ -62,6 +62,7 @@
 	import type { Snippet } from 'svelte';
 	import type { Airport, Duration, FlightOffer, Itinerary, LocalDateTime, Location, Transfer } from '../domain';
 	import { recomputeItineraryWaitingTimes } from '../algorithm/build';
+	import type { WaitingTimeOverrides } from '../algorithm/build';
 	import { isOvernightWait } from '../algorithm/nights';
 	import { readMissedService } from '../algorithm/transit-schedule';
 	import type { ItinerarySegmentId } from '../itinerary-map/segment-id';
@@ -84,6 +85,9 @@
 	import TimeCell from './TimeCell.svelte';
 
 	interface Props {
+		/** Bindable, because the waiting-time stepper in the rows below edits it (issue
+		 * #250). A caller that binds gets the traveller's edit; one that only passes a value
+		 * gets a timeline that edits its own copy, which is what the unit tests mount. */
 		itinerary: Itinerary;
 		/**
 		 * Issue #73: the selection half of the contract `ItineraryMap` (issue #26) already
@@ -121,7 +125,7 @@
 	}
 
 	let {
-		itinerary,
+		itinerary = $bindable(),
 		selectedSegmentId = $bindable(null),
 		connectionAirport,
 		expansion,
@@ -133,33 +137,30 @@
 	 * borrows from free time), so this is purely a sane upper bound for the number input. */
 	const ORIGIN_WAITING_TIME_INPUT_MAX_MINUTES = 720 as Duration;
 
-	// Waiting-time overrides from the inline editor below (brief lines 39 & 69: "airport
-	// waiting times can be edited afterwards", called out twice). `undefined` means "use
-	// the itinerary's own value". See recomputeItineraryWaitingTimes in algorithm/build.ts.
-	let originWaitingTimeOverride = $state<Duration | undefined>(undefined);
-	let connectionWaitingTimeOverride = $state<Duration | undefined>(undefined);
-
-	// A new `itinerary` object identity (a fresh search, a different offer picked in the
-	// results list) means any hand-tuned buffer belonged to the *previous* itinerary in this
-	// slot and must not silently carry over. Reading `itinerary` here, rather than
-	// diffing it against a locally tracked "previous" value, is what makes this effect
-	// re-run exactly when the prop identity changes; Svelte already tracks that for us.
-	$effect(() => {
-		void itinerary;
-		originWaitingTimeOverride = undefined;
-		connectionWaitingTimeOverride = undefined;
-	});
-
-	const shown = $derived(
-		recomputeItineraryWaitingTimes(itinerary, {
-			originWaitingTime: originWaitingTimeOverride,
-			connectionWaitingTime: connectionWaitingTimeOverride
-		})
-	);
+	/**
+	 * The inline waiting-time editor (brief lines 39 & 69: "airport waiting times can be
+	 * edited afterwards", called out twice) writes the edited itinerary straight back to
+	 * the caller.
+	 *
+	 * Issue #250: it used to keep the edit in two private override fields and render a
+	 * derived copy nobody outside this component could see. `ResultDetail` puts
+	 * `StopoverBlock` eight lines above this timeline off the same itinerary, so pushing
+	 * the connection buffer to 700 minutes dropped the bed out of the total printed here
+	 * while the block above went on naming that bed, its nightly rate and a checkout time
+	 * the trip no longer had. Two trips, one screen. Editing the caller's itinerary is what
+	 * makes that unrepresentable rather than merely fixed.
+	 *
+	 * The reset effect that used to clear those overrides on a new itinerary identity went
+	 * with them: there is no second copy left to fall out of step, and a caller that wants
+	 * the search's own buffers back re-mounts or re-assigns.
+	 */
+	function editWaitingTimes(overrides: WaitingTimeOverrides) {
+		itinerary = recomputeItineraryWaitingTimes(itinerary, overrides);
+	}
 
 	/** "Bergamo", or "BGY" until the airport record resolves. Never both, and never a
 	 * guess: the code is a fact this component always has. */
-	const connectionLabel = $derived(connectionAirport?.city.name ?? shown.outboundFlight.arrivalAirport);
+	const connectionLabel = $derived(connectionAirport?.city.name ?? itinerary.outboundFlight.arrivalAirport);
 
 	/**
 	 * The reading each clock is compared against: the one directly before it in schedule
@@ -171,16 +172,19 @@
 	 */
 	const timeReferences = $derived({
 		outboundDeparture: undefined,
-		outboundArrival: shown.outboundFlight.departure,
-		freeStart: shown.outboundFlight.arrival,
-		freeEnd: shown.freeTime.start,
-		onwardDeparture: shown.freeTime.end,
-		onwardArrival: shown.onwardFlight.departure
+		outboundArrival: itinerary.outboundFlight.departure,
+		freeStart: itinerary.outboundFlight.arrival,
+		freeEnd: itinerary.freeTime.start,
+		onwardDeparture: itinerary.freeTime.end,
+		onwardArrival: itinerary.onwardFlight.departure
 	});
 
-	// The connection buffer can grow only as far as the *original* free time allows before
-	// it would push freeTime.duration negative. It is a UI input range, not a rule the domain
-	// model itself enforces, so it lives here rather than in recomputeItineraryWaitingTimes.
+	// The connection buffer can grow only as far as free time allows before it would push
+	// freeTime.duration negative. It is a UI input range, not a rule the domain model itself
+	// enforces, so it lives here rather than in recomputeItineraryWaitingTimes. The sum
+	// holds still while the buffer is edited, which is why it can be read off the edited
+	// itinerary: every minute the buffer takes is a minute free time gives up, both carved
+	// from one fixed layover (`recomputeItineraryWaitingTimes`'s own doc comment).
 	const maxConnectionWaitingTime = $derived(
 		(itinerary.connectionWaitingTime + itinerary.freeTime.duration) as Duration
 	);
@@ -190,31 +194,37 @@
 	}
 
 	function adjustOriginWaitingTime(deltaMinutes: number) {
-		originWaitingTimeOverride = clamp(
-			shown.originWaitingTime + deltaMinutes,
-			0,
-			ORIGIN_WAITING_TIME_INPUT_MAX_MINUTES
-		) as Duration;
+		editWaitingTimes({
+			originWaitingTime: clamp(
+				itinerary.originWaitingTime + deltaMinutes,
+				0,
+				ORIGIN_WAITING_TIME_INPUT_MAX_MINUTES
+			) as Duration
+		});
 	}
 
 	function adjustConnectionWaitingTime(deltaMinutes: number) {
-		connectionWaitingTimeOverride = clamp(
-			shown.connectionWaitingTime + deltaMinutes,
-			0,
-			maxConnectionWaitingTime
-		) as Duration;
+		editWaitingTimes({
+			connectionWaitingTime: clamp(
+				itinerary.connectionWaitingTime + deltaMinutes,
+				0,
+				maxConnectionWaitingTime
+			) as Duration
+		});
 	}
 
 	function handleOriginWaitingTimeInput(event: Event & { currentTarget: HTMLInputElement }) {
 		const minutes = event.currentTarget.valueAsNumber;
 		if (!Number.isFinite(minutes)) return;
-		originWaitingTimeOverride = clamp(minutes, 0, ORIGIN_WAITING_TIME_INPUT_MAX_MINUTES) as Duration;
+		editWaitingTimes({
+			originWaitingTime: clamp(minutes, 0, ORIGIN_WAITING_TIME_INPUT_MAX_MINUTES) as Duration
+		});
 	}
 
 	function handleConnectionWaitingTimeInput(event: Event & { currentTarget: HTMLInputElement }) {
 		const minutes = event.currentTarget.valueAsNumber;
 		if (!Number.isFinite(minutes)) return;
-		connectionWaitingTimeOverride = clamp(minutes, 0, maxConnectionWaitingTime) as Duration;
+		editWaitingTimes({ connectionWaitingTime: clamp(minutes, 0, maxConnectionWaitingTime) as Duration });
 	}
 
 	// A second activation of the selected row clears the selection: that is how a traveller
@@ -319,13 +329,13 @@
 
 	// Accommodation subtotal for the free-time row: not stored anywhere on Itinerary
 	// (totalPrice is the door-to-door figure), but it is exactly nights × nightly rate, and
-	// both of those already live on `shown`. `undefined` when no stay was priced for this
+	// both of those already live on the itinerary. `undefined` when no stay was priced for this
 	// connection (issue #94) — there is no nightly rate to multiply.
 	const staySubtotal = $derived(
-		shown.stay
+		itinerary.stay
 			? {
-					minorUnits: shown.stay.pricePerNight.minorUnits * shown.nightsInConnection,
-					currency: shown.stay.pricePerNight.currency
+					minorUnits: itinerary.stay.pricePerNight.minorUnits * itinerary.nightsInConnection,
+					currency: itinerary.stay.pricePerNight.currency
 				}
 			: undefined
 	);
@@ -333,7 +343,7 @@
 	const uid = $props.id();
 
 	const routeDescription = $derived(
-		`Itinerary from ${shown.originAirport.iataCode} to ${shown.destinationAirport.iataCode} via ${shown.outboundFlight.arrivalAirport}`
+		`Itinerary from ${itinerary.originAirport.iataCode} to ${itinerary.destinationAirport.iataCode} via ${itinerary.outboundFlight.arrivalAirport}`
 	);
 </script>
 
@@ -454,9 +464,10 @@
 				<p class="tl-label">
 					{label}<span class="tl-detail-inline tl-detail-absent"
 						>&nbsp;&middot; {unroutedLegNote(leg, {
-							hasStay: shown.stay !== undefined,
-							nightsInConnection: shown.nightsInConnection,
-							overnightWait: isOvernightWait(shown.freeTime.start, shown.freeTime.end)
+							hasStay: itinerary.stay !== undefined,
+							nightsInConnection: itinerary.nightsInConnection,
+							overnightWait: isOvernightWait(itinerary.freeTime.start, itinerary.freeTime.end),
+							transferAnchor: itinerary.transferAnchor
 						})}</span
 					>{@render optionMark(segment)}
 				</p>
@@ -615,10 +626,10 @@
 	role="list"
 	onkeydown={handleListKeydown}
 >
-	{#if shown.originLocation}
-		{@render locationRow(shown.originLocation, 'Start', 'origin-location')}
+	{#if itinerary.originLocation}
+		{@render locationRow(itinerary.originLocation, 'Start', 'origin-location')}
 		{@render transferRow(
-			shown.transferToOriginAirport,
+			itinerary.transferToOriginAirport,
 			'To the airport',
 			'transfer-to-origin-airport',
 			'to-origin-airport'
@@ -626,9 +637,9 @@
 	{/if}
 
 	{@render waitingRow(
-		`${shown.originAirport.name} (${shown.originAirport.iataCode})`,
-		shown.originAirport.iataCode,
-		shown.originWaitingTime,
+		`${itinerary.originAirport.name} (${itinerary.originAirport.iataCode})`,
+		itinerary.originAirport.iataCode,
+		itinerary.originWaitingTime,
 		'origin-waiting',
 		adjustOriginWaitingTime,
 		handleOriginWaitingTimeInput,
@@ -636,16 +647,16 @@
 	)}
 
 	{@render flightRow(
-		shown.outboundFlight,
-		`Flight to ${shown.outboundFlight.arrivalAirport}`,
+		itinerary.outboundFlight,
+		`Flight to ${itinerary.outboundFlight.arrivalAirport}`,
 		'outbound-flight',
 		timeReferences.outboundDeparture,
 		timeReferences.outboundArrival
 	)}
 
 	{@render transferRow(
-		shown.transferToHotel,
-		shown.stay ? `To ${shown.stay.property.name}` : 'To the stopover',
+		itinerary.transferToHotel,
+		itinerary.stay ? `To ${itinerary.stay.property.name}` : 'To the stopover',
 		'transfer-to-hotel',
 		'to-hotel'
 	)}
@@ -664,8 +675,8 @@
 		onkeydown={(event) => handleRowKeydown(event, 'free-time')}
 	>
 		<span class="tl-when tl-when-pair">
-			<TimeCell value={shown.freeTime.start} reference={timeReferences.freeStart} align="end" />
-			<TimeCell value={shown.freeTime.end} reference={timeReferences.freeEnd} align="end" />
+			<TimeCell value={itinerary.freeTime.start} reference={timeReferences.freeStart} align="end" />
+			<TimeCell value={itinerary.freeTime.end} reference={timeReferences.freeEnd} align="end" />
 		</span>
 		<span class="tl-rail">{@render dot('stopover')}</span>
 		<div class="tl-content tl-stopover">
@@ -674,9 +685,9 @@
 				     `nightsBetween`, issue #105), never off whether a bed was priced, so it
 				     leads here whether or not a stay provider is configured. Zero nights is a
 				     same-day connection, a fact about the schedule, not a missing purchase. -->
-				{#if shown.nightsInConnection > 0}
-					<strong class="font-mono tabular-nums">{shown.nightsInConnection}</strong>
-					{shown.nightsInConnection === 1 ? 'night' : 'nights'} in {connectionLabel}
+				{#if itinerary.nightsInConnection > 0}
+					<strong class="font-mono tabular-nums">{itinerary.nightsInConnection}</strong>
+					{itinerary.nightsInConnection === 1 ? 'night' : 'nights'} in {connectionLabel}
 				{:else}
 					Day stopover in {connectionLabel}
 				{/if}
@@ -690,14 +701,14 @@
 			     is where the reason and the fix live (`stays/no-stays-reason.ts`). The
 			     zero-night line went with it, because "Day stopover in London" one line up
 			     already says no night is spent here. -->
-			{#if shown.stay}
+			{#if itinerary.stay}
 				<!-- Issue #245: `&nbsp;&middot;` rather than a newline before the separator.
 				     Svelte trims the whitespace at the start of an `{#if}` block, so the
 				     indented version rendered as "dorm· rated" on production. Same
 				     `&nbsp;&middot;` the unrouted-leg row above uses, for the same reason. -->
 				<p class="tl-stopover-stay">
-					{shown.stay.property.name} &middot; {shown.stay.roomKind}{#if shown.stay.property.rating}&nbsp;&middot;
-						rated {formatPropertyRating(shown.stay.property.rating)}{/if}
+					{itinerary.stay.property.name} &middot; {itinerary.stay.roomKind}{#if itinerary.stay.property.rating}&nbsp;&middot;
+						rated {formatPropertyRating(itinerary.stay.property.rating)}{/if}
 				</p>
 			{/if}
 		</div>
@@ -707,9 +718,9 @@
 			     really two evenings and a morning. The count is the honest headline, and
 			     `StopoverBlock` above the timeline carries the two edge times with it. -->
 			<span class="tl-duration tl-duration-free font-mono tabular-nums"
-				>{freeTimeDays(shown.freeTime.start, shown.freeTime.end)?.count ?? 'No full days'}</span
+				>{freeTimeDays(itinerary.freeTime.start, itinerary.freeTime.end)?.count ?? 'No full days'}</span
 			>
-			{#if staySubtotal && shown.nightsInConnection > 0}
+			{#if staySubtotal && itinerary.nightsInConnection > 0}
 				<span class="tl-price font-mono tabular-nums">{formatMoney(staySubtotal)}</span>
 			{/if}
 		</div>
@@ -717,7 +728,7 @@
 	</li>
 
 	{@render transferRow(
-		shown.transferToConnectionAirport,
+		itinerary.transferToConnectionAirport,
 		'To the connection airport',
 		'transfer-to-connection-airport',
 		'from-hotel'
@@ -727,9 +738,9 @@
 		// Itinerary never stores a full Airport record for the connection, only the two
 		// flights that touch it (see domain/itinerary.ts), so this shows the one fact we
 		// actually have (the IATA code) rather than fabricating a name, city or country.
-		`the connection airport (${shown.outboundFlight.arrivalAirport})`,
-		shown.outboundFlight.arrivalAirport,
-		shown.connectionWaitingTime,
+		`the connection airport (${itinerary.outboundFlight.arrivalAirport})`,
+		itinerary.outboundFlight.arrivalAirport,
+		itinerary.connectionWaitingTime,
 		'connection-waiting',
 		adjustConnectionWaitingTime,
 		handleConnectionWaitingTimeInput,
@@ -737,25 +748,25 @@
 	)}
 
 	{@render flightRow(
-		shown.onwardFlight,
-		`Flight to ${shown.destinationAirport.iataCode}`,
+		itinerary.onwardFlight,
+		`Flight to ${itinerary.destinationAirport.iataCode}`,
 		'onward-flight',
 		timeReferences.onwardDeparture,
 		timeReferences.onwardArrival
 	)}
 
-	{#if shown.destinationLocation}
+	{#if itinerary.destinationLocation}
 		{@render transferRow(
-			shown.transferToDestinationLocation,
+			itinerary.transferToDestinationLocation,
 			'To the destination',
 			'transfer-to-destination-location',
 			'to-destination-location'
 		)}
-		{@render locationRow(shown.destinationLocation, 'Arrive', 'destination-location')}
+		{@render locationRow(itinerary.destinationLocation, 'Arrive', 'destination-location')}
 	{/if}
 </ol>
 
-<MetricRail itinerary={shown} ids={ALL_METRIC_IDS} class="itinerary-timeline-totals" />
+<MetricRail {itinerary} ids={ALL_METRIC_IDS} class="itinerary-timeline-totals" />
 
 <style>
 	/* ---------------------------------------------------------------------

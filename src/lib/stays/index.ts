@@ -12,7 +12,7 @@ export type { NightlyRate } from './pricing';
 export { formatDistanceKm, haversineDistanceKm } from './distance';
 export { ROOM_KIND_LABELS } from './room-kind';
 export { cheapestSelectableOption, isOptionSelectable, rankProperties, selectableOptions } from './rank';
-export { groupByProperty, propertyOf } from './types';
+export { groupByProperty, isSameProperty, propertyOf } from './types';
 export { describeNoStays } from './no-stays-reason';
 export type { NoStaysContext, NoStaysNotice, StayProviderOutcome } from './no-stays-reason';
 export type { PropertyStayOptions, StayOption } from './types';

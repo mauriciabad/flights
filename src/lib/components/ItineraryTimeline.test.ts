@@ -217,6 +217,43 @@ describe('ItineraryTimeline, editable waiting time recomputes totals', () => {
 		expect(getTotal(root, 'Total price')).not.toBe(totalPriceBefore);
 	});
 
+	/**
+	 * Issue #250. The edit used to live in two override fields inside this component, and a
+	 * derived copy nobody outside could read. `ResultDetail` renders `StopoverBlock` eight
+	 * lines above this timeline off the same itinerary, so pushing the connection buffer
+	 * dropped the bed out of the total here while the block above went on naming that bed
+	 * and a checkout time the trip no longer had.
+	 *
+	 * Asserting on the caller's own itinerary rather than on the rendered totals is the
+	 * point: rendering right while the caller holds something else is exactly the state
+	 * that produced two trips on one screen.
+	 */
+	it('hands the edited itinerary back to the caller, not only to its own rows (issue #250)', () => {
+		const itinerary = makeItinerary({
+			onwardDeparture: localDateTime('2026-06-03T00:45:00', 'Europe/Vienna', 120)
+		});
+		const { root, harness } = renderSelectionHarness(itinerary);
+
+		expect(harness.currentItinerary().connectionWaitingTime).toBe(120);
+		const nightsBefore = harness.currentItinerary().nightsInConnection;
+		const priceBefore = harness.currentItinerary().totalPrice.minorUnits;
+
+		const connectionInput = root.querySelector<HTMLInputElement>('[data-segment="connection-waiting"] input')!;
+		connectionInput.value = '0';
+		connectionInput.dispatchEvent(new Event('input', { bubbles: true }));
+		flushSync();
+
+		const edited = harness.currentItinerary();
+		expect(edited.connectionWaitingTime).toBe(0);
+		// Free time, the nights it buys and the price of those nights all followed, so a
+		// sibling component reading this itinerary cannot describe the trip from before.
+		expect(edited.freeTime.end).not.toEqual(itinerary.freeTime.end);
+		expect(edited.nightsInConnection).toBeGreaterThan(nightsBefore);
+		expect(edited.totalPrice.minorUnits).toBeGreaterThan(priceBefore);
+		// And what the rail prints is that same object, never a second reading of it.
+		expect(getTotal(root, 'Nights')).toBe(String(edited.nightsInConnection));
+	});
+
 	it('the stepper buttons move the value by 15 minutes and stay in sync with the number input', () => {
 		const itinerary = makeItinerary();
 		const root = renderTimeline(itinerary);
