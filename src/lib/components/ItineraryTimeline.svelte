@@ -62,6 +62,7 @@
 	import type { Snippet } from 'svelte';
 	import type { Airport, Duration, FlightOffer, Itinerary, LocalDateTime, Location, Transfer } from '../domain';
 	import { recomputeItineraryWaitingTimes } from '../algorithm/build';
+	import { isOvernightWait } from '../algorithm/nights';
 	import { readMissedService } from '../algorithm/transit-schedule';
 	import type { ItinerarySegmentId } from '../itinerary-map/segment-id';
 	import {
@@ -453,7 +454,8 @@
 					{label}<span class="tl-detail-inline tl-detail-absent"
 						>&nbsp;&middot; {unroutedLegNote(leg, {
 							hasStay: shown.stay !== undefined,
-							nightsInConnection: shown.nightsInConnection
+							nightsInConnection: shown.nightsInConnection,
+							overnightWait: isOvernightWait(shown.freeTime.start, shown.freeTime.end)
 						})}</span
 					>{@render optionMark(segment)}
 				</p>

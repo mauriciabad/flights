@@ -4,7 +4,7 @@
  * one from scratch (`build.ts`'s job): the candidate pool, the connection airport's size
  * class and the origin/connection waiting-time tiers are all already baked into the
  * itinerary the traveller is looking at, and a picker only ever changes one of six fields
- * on it. Reusing `minutesBetween` / `addLocalMinutes` / `nightsBetween` / `sumMoney` /
+ * on it. Reusing `minutesBetween` / `addLocalMinutes` / `nightsToPayFor` / `sumMoney` /
  * `scaleFareForParty` / `sumDurations` from `build.ts` keeps this the same DST-correct,
  * priceScope-aware arithmetic that built the itinerary in the first place, rather than a
  * second implementation that could disagree with it on an overnight connection or on which
@@ -19,7 +19,7 @@
  * used; it does not silently re-open how long the traveller waits at the gate.
  */
 
-import { addLocalMinutes, minutesBetween, nightsBetween, scaleFareForParty, sumDurations, sumMoney } from './build';
+import { addLocalMinutes, minutesBetween, nightsToPayFor, scaleFareForParty, sumDurations, sumMoney } from './build';
 import type { Duration, FlightOffer, Itinerary, ItineraryTimes, Money, Transfer } from '../domain';
 import { DEFAULT_MIN_LAYOVER_TIME_MINUTES } from '../domain';
 
@@ -118,11 +118,12 @@ export function recomputeItinerarySelection(
 
 	const freeTime = { start: freeStart, end: freeEnd, duration: freeDuration };
 	// A negative gap has no meaningful night count; clamped to 0 rather than handed to
-	// `nightsBetween` and left to produce a number nobody asked for, since the accompanying
+	// `nightsToPayFor` and left to produce a number nobody asked for, since the accompanying
 	// warning above is already what tells the caller this result is not a bookable trip.
 	// Issue #105: NOT gated on `stay` otherwise — a real stopover's night count comes from
-	// the free-time window alone, same as `build.ts`'s own `buildItineraries`.
-	const nightsInConnection = freeDuration < 0 ? 0 : nightsBetween(freeStart, freeEnd);
+	// the free-time window alone, same as `build.ts`'s own `buildItineraries`. Issue #231:
+	// and from whether that window is long enough, and at the right hours, to sleep in.
+	const nightsInConnection = freeDuration < 0 ? 0 : nightsToPayFor(freeStart, freeEnd);
 
 	// Issue #106/#109: `itinerary.travellers` carries over from the itinerary being edited
 	// (a picker swap changes which flight is used, never the party size); each flight leg

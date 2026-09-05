@@ -718,3 +718,60 @@ describe('buildItineraries — in-city legs without a bed (issue #161)', () => {
 		expect(edited.freeTime.duration).toBe(itinerary.freeTime.duration - 30);
 	});
 });
+
+describe('buildItineraries — a short overnight is a wait, not a stay (issue #231)', () => {
+	/** Land late, leave before dawn, with half an hour of ground transfer at each end and a
+	 * two-hour airport buffer, which is what the app assumes everywhere. */
+	function overnight(arrivalLocal: string, departureLocal: string) {
+		const arrival = localDateTime(arrivalLocal, 'Europe/London', 60);
+		const departure = localDateTime(departureLocal, 'Europe/London', 60);
+		return buildItineraries(
+			baseInput({
+				outboundOffers: [makeFlight('LGW', 'VIE', arrival, arrival, 150, 5000)],
+				onwardOffers: [makeFlight('VIE', 'IST', departure, departure, 90, 6000)],
+				connectionResources: {
+					VIE: {
+						stay: makeStay(3000),
+						transferToHotel: makeTransfer(30),
+						transferToConnectionAirport: makeTransfer(30)
+					}
+				},
+				waitingTimeRules: flatWaitingTime(120)
+			})
+		)[0];
+	}
+
+	it('charges no room for six hours between 11pm and 5am', () => {
+		// At the property 11:30pm, leaving for the airport at 2:30am. The clock crosses a
+		// date, so before this rule the total carried a night nobody would have checked in
+		// for.
+		const itinerary = overnight('2026-10-06T23:00:00', '2026-10-07T05:00:00');
+
+		expect(itinerary.freeTime.start.local).toBe('2026-10-06T23:30:00');
+		expect(itinerary.freeTime.end.local).toBe('2026-10-07T02:30:00');
+		expect(itinerary.nightsInConnection).toBe(0);
+		// Flights only: 5000 + 6000, with no 3000 bed folded in.
+		expect(itinerary.totalPrice.minorUnits).toBe(11000);
+	});
+
+	it('still charges the room when the same gap is long enough to sleep in', () => {
+		// Land at 9pm, fly out at 11am: at the property 9:30pm until 8:30am.
+		const itinerary = overnight('2026-10-06T21:00:00', '2026-10-07T11:00:00');
+
+		expect(itinerary.nightsInConnection).toBe(1);
+		expect(itinerary.totalPrice.minorUnits).toBe(14000);
+	});
+
+	it('follows a waiting-time edit that turns a night into a wait', () => {
+		// Land 8:30pm, fly out 6am. The default buffer leaves the traveller at the property
+		// from 9pm until 3:30am, six and a half hours of night, so it is a night. Push the
+		// buffer to five hours and they leave at 12:30am, which is not.
+		const itinerary = overnight('2026-10-06T20:30:00', '2026-10-07T06:00:00');
+		expect(itinerary.nightsInConnection).toBe(1);
+
+		const edited = recomputeItineraryWaitingTimes(itinerary, { connectionWaitingTime: 300 as Duration });
+		expect(edited.freeTime.end.local).toBe('2026-10-07T00:30:00');
+		expect(edited.nightsInConnection).toBe(0);
+		expect(edited.totalPrice.minorUnits).toBe(11000);
+	});
+});

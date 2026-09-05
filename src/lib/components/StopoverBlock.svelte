@@ -28,7 +28,9 @@
 	 *   money edge. The card's price breakdown composes the same two pieces into its own
 	 *   "Bed, 2 nights × €13.00 each", so the panel and the card cannot quote two different
 	 *   figures for one bed (issue #206).
-	 * - The room kind is `ROOM_KIND_LABELS`, the same table the stay picker's tiles use.
+	 * - The room kind is `ROOM_KIND_LABELS`, the same table the stay picker's tiles use, and
+	 *   the distance beside it is `stays/distance.ts`, the same straight line and the same
+	 *   formatter every row of that picker prints (issue #219).
 	 * - The transfer's duration, mode and fare are `itinerary.transferToHotel` through
 	 *   `formatDuration`, `transferModeLabel` and `unpricedTransferNote`, and when nothing
 	 *   routed to the bed at all, `unroutedLegNote`.
@@ -47,15 +49,24 @@
 	 * the mode out through `transferModeLabel`. Inventing four glyphs here would be a second
 	 * vocabulary for the same four modes.
 	 *
+	 * ## The stay half has three states, not two
+	 *
+	 * A bed, no bed priced for a real night, and — since issue #231 — a stopover that
+	 * crosses a midnight it is too short to sleep through. The third one prints the wait
+	 * and its length instead of a property, because the two time lines above it plainly
+	 * show a date change and "no night spent here" beside them would read as a bug rather
+	 * than as the answer.
+	 *
 	 * ## Issue #227
 	 *
 	 * That issue is building a hover panel over the trip strip whose design carries this
 	 * same content. This component is what it should render rather than writing a second
 	 * one; it takes an `Itinerary` and nothing else, so a popover can call it unchanged.
 	 */
-	import type { Itinerary } from '$lib/domain';
+	import type { Coordinates, Itinerary } from '$lib/domain';
 	import { formatDuration, formatMoney } from '$lib/format';
-	import { bedNightlyRate, ROOM_KIND_LABELS } from '$lib/stays';
+	import { overnightWaitNote } from '$lib/results/stopover-nights';
+	import { bedNightlyRate, formatDistanceKm, haversineDistanceKm, ROOM_KIND_LABELS } from '$lib/stays';
 	import { freeTimeDays } from './free-time-days';
 	import { transferModeLabel, unpricedTransferNote, unroutedLegNote } from './itinerary-timeline-format';
 
@@ -65,9 +76,15 @@
 		 * itinerary carries only the IATA code (domain/itinerary.ts), so a component that
 		 * derived this itself would print a code where the rest of the card prints a city. */
 		connectionLabel: string;
+		/** Issue #219: the connection airport's position, so the block can say how far out
+		 * the bed is. Optional, and the line degrades to the room kind alone without it: the
+		 * itinerary carries no connection `Airport` (domain/itinerary.ts holds the IATA code
+		 * and nothing else), and a caller that has not resolved one must not be forced to
+		 * invent a point. */
+		connectionCoordinates?: Coordinates;
 	}
 
-	let { itinerary, connectionLabel }: Props = $props();
+	let { itinerary, connectionLabel, connectionCoordinates }: Props = $props();
 
 	// `undefined` for a window with no length: a same-day change whose whole gap is eaten
 	// by the waiting rule and the transfers. Three lines about nothing is worse than none.
@@ -75,6 +92,27 @@
 	const nights = $derived(itinerary.nightsInConnection);
 	const stay = $derived(itinerary.stay);
 	const toHotel = $derived(itinerary.transferToHotel);
+	// Issue #231: set only when the stopover crosses a midnight it is too short to sleep
+	// through. Both lines below need it, so it is derived once rather than asked twice.
+	const waitNote = $derived(overnightWaitNote(itinerary));
+
+	/**
+	 * "Dorm bed - 48.3 km from the airport". Issue #219: the app picked a bed that far out
+	 * and the card said nothing about it, so the one number that made the pick look absurd
+	 * was the one number missing from the screen.
+	 *
+	 * Straight-line, the same figure and the same formatter the stay picker's rows use
+	 * (`stays/distance.ts`), never a second measurement that could disagree with the list
+	 * a tap away. The transfer line below is the other half of the answer: how long the
+	 * journey actually takes, which is a route rather than a line.
+	 */
+	const roomLine = $derived.by(() => {
+		if (!stay) return undefined;
+		const kind = ROOM_KIND_LABELS[stay.roomKind];
+		if (!connectionCoordinates) return kind;
+		const km = haversineDistanceKm(stay.property.coordinates, connectionCoordinates);
+		return `${kind} · ${formatDistanceKm(km)} from the airport`;
+	});
 
 	// Issue #206: the rate, and who it covers. `bedNightlyRate` owns that decision so this
 	// line and the card's own "Bed, 2 nights × €13.00 each" can never quote two different
@@ -101,7 +139,11 @@
 	 */
 	const transferLine = $derived.by(() => {
 		if (!toHotel) {
-			return unroutedLegNote('to-hotel', { hasStay: Boolean(stay), nightsInConnection: nights });
+			return unroutedLegNote('to-hotel', {
+				hasStay: Boolean(stay),
+				nightsInConnection: nights,
+				overnightWait: waitNote !== undefined
+			});
 		}
 		const fare = toHotel.price
 			? `${formatMoney(toHotel.price)} each way`
@@ -109,11 +151,19 @@
 		return `${transferModeLabel(toHotel.mode)}, ${formatDuration(toHotel.duration)} from the airport, ${fare}`;
 	});
 
-	// Issue #140 ruled out "yet" for a state nothing is about to change, and separates a
-	// night with no bed priced from a same-day connection that has no bed to price.
-	const noBedLine = $derived(
-		nights > 0 ? 'No bed priced, so the total is a floor' : 'No night spent here, so there is no bed to price'
-	);
+	/**
+	 * Issue #140 ruled out "yet" for a state nothing is about to change, and separates a
+	 * night with no bed priced from a same-day connection that has no bed to price.
+	 *
+	 * Issue #231 added the third state, and it is the one the traveller most needs spelled
+	 * out: the clock crossed midnight, the app charged nothing for it, and the reason is
+	 * that six hours between 11pm and 5am buys nobody a room. Saying only "no night spent
+	 * here" beside two clock readings that plainly show a date change would read as a bug.
+	 */
+	const noBedLine = $derived.by(() => {
+		if (nights > 0) return 'No bed priced, so the total is a floor';
+		return waitNote ?? 'No night spent here, so there is no bed to price';
+	});
 </script>
 
 <section class="stopover" aria-label={`Your stopover in ${connectionLabel}`}>
@@ -131,9 +181,13 @@
 	{/if}
 
 	<div class="stopover-stay">
-		{#if stay}
+		<!-- `nights > 0` as well as `stay`, since issue #231: a stopover can carry a priced
+		     bed it does not need. Naming the property under a trip that books nothing would
+		     put a hostel and no rate on the card and leave the reader to work out which of
+		     the two they are being told. -->
+		{#if stay && nights > 0}
 			<p class="stopover-property">{stay.property.name}</p>
-			<p class="stopover-room">{ROOM_KIND_LABELS[stay.roomKind]}</p>
+			<p class="stopover-room">{roomLine}</p>
 			{#if nightsAndRate}
 				<p class="stopover-rate font-mono tabular-nums">{nightsAndRate}</p>
 			{/if}

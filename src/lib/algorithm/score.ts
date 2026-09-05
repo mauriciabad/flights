@@ -349,6 +349,21 @@ export interface ScoringWeights {
 	avoidedAirlinePenaltyPerFlight: number;
 }
 
+/**
+ * The road speed `assumedRoadTransferCostPerHour` above is denominated against: what an
+ * airport-to-city car route averages once OSRM's profile has been down a motorway and
+ * through a suburb. It is half of that figure's derivation (median 1.36 a kilometre times
+ * 50 an hour), and it is exported because `stays/stopover-cost.ts` has the other half of
+ * the problem.
+ *
+ * That module ranks beds before any of them has been routed, so it holds a distance and no
+ * duration, and dividing the hourly charge by this speed turns it back into the
+ * per-kilometre figure the taxi table actually contains. Derived rather than restated, so
+ * retuning the weight above cannot leave two modules charging different amounts for the
+ * same ride. Issue #219.
+ */
+export const ASSUMED_ROAD_TRANSFER_KM_PER_HOUR = 50;
+
 /** See each field's comment above for why that specific number. */
 export const DEFAULT_SCORING_WEIGHTS: ScoringWeights = {
 	pricePerCurrencyUnit: 1,

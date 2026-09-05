@@ -73,7 +73,13 @@ export interface Itinerary {
 	 * starts and ends on the same calendar day is zero nights even if it runs 20 hours,
 	 * and a stay spanning two midnights is two nights even on a short layover.
 	 *
-	 * Issue #105: computed from `freeTime` alone (`build.ts`'s own `nightsBetween`),
+	 * Issue #231: nights the traveller would sleep, not midnights the clock passed. A
+	 * window from 11pm to 5am crosses a date boundary and is worth nobody's room rate, so
+	 * it reads zero and the card calls it an overnight wait. `algorithm/nights.ts` owns
+	 * that rule and the argument for its six-hour floor; `freeTime` above still carries
+	 * the real window, so nothing hides the date change from the traveller.
+	 *
+	 * Issue #105: computed from `freeTime` alone (`algorithm/nights.ts`'s `nightsToPayFor`),
 	 * regardless of whether `stay` above is `undefined`. A 12-night stopover is 12
 	 * calendar nights whether or not any provider ever priced a bed for it — the
 	 * product thesis ("three nights in Vienna for free") has to rank on that fact even

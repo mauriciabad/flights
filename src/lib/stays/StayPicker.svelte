@@ -84,7 +84,18 @@
 		})
 	);
 
-	const ranked = $derived(rankProperties(properties, travellers, females));
+	// Issue #219: the ordering weighs each property's distance from the terminal against
+	// the nights on screen, so extending the stopover reorders this list under the
+	// traveller. That is the point: a dorm across town is the wrong bed for one night and
+	// the right one for four, and the list should say so rather than hold still.
+	const ranked = $derived(
+		rankProperties(properties, {
+			travellers,
+			females,
+			connectionAirport: connectionAirport.coordinates,
+			nights
+		})
+	);
 
 	const fallbackStay = $derived(ranked[0] ? cheapestSelectableOption(ranked[0], travellers, females)?.stay : undefined);
 	const effectiveSelected = $derived(selected ?? fallbackStay);

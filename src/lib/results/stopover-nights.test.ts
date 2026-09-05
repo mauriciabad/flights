@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import type { FlightOffer, Itinerary } from '$lib/domain';
-import { describeLadderFlights, stopoverLadder, stopoverLengthLabel } from './stopover-nights';
-import { makeScoredResult } from './test-support';
+import {
+	describeLadderFlights,
+	overnightWaitNote,
+	stopoverLadder,
+	stopoverLengthLabel,
+	stopoverLengthLabelFor
+} from './stopover-nights';
+import { makeItinerary, makeScoredResult } from './test-support';
 
 /** `makeScoredResult` already assembles a whole itinerary from the fields these functions
  * read; this only names the two knobs that matter here. */
@@ -206,5 +212,61 @@ describe('describeLadderFlights', () => {
 		expect(
 			describeLadderFlights(sameTripAnotherProxy, [option(oneNight), option(twoNights)])
 		).toBeUndefined();
+	});
+});
+
+describe('a stopover that crosses a midnight it cannot sleep through (issue #231)', () => {
+	/** Land 11pm, at the property by 11:30pm, leave for the airport at 2:30am. Three hours
+	 * of night, which is the case the owner reported. */
+	const overnightWait = makeItinerary({
+		freeTimeStart: '2026-10-06T23:30:00',
+		freeTimeEnd: '2026-10-07T02:30:00',
+		freeTimeMinutes: 180,
+		nightsInConnection: 0
+	});
+
+	/** Same zero nights, but the traveller never sees a midnight. */
+	const sameDay = makeItinerary({
+		freeTimeStart: '2026-10-06T10:00:00',
+		freeTimeEnd: '2026-10-06T18:00:00',
+		freeTimeMinutes: 480,
+		nightsInConnection: 0
+	});
+
+	it('is not called a flight change', () => {
+		expect(stopoverLengthLabelFor(overnightWait)).toBe('Overnight wait');
+		expect(stopoverLengthLabelFor(sameDay)).toBe('Flight change');
+	});
+
+	it('still counts its nights when it has any', () => {
+		expect(stopoverLengthLabelFor(makeItinerary({ nightsInConnection: 2 }))).toBe('2 nights');
+	});
+
+	it('says how long the wait is and why nothing is booked', () => {
+		expect(overnightWaitNote(overnightWait)).toBe('Overnight wait, 3h, too short to be worth a bed');
+	});
+
+	it('says nothing at all about any other trip', () => {
+		expect(overnightWaitNote(sameDay)).toBeUndefined();
+		expect(overnightWaitNote(makeItinerary({ nightsInConnection: 1 }))).toBeUndefined();
+	});
+
+	it('names the rung a traveller would step up from', () => {
+		// The ladder's shortest rung is the wait itself. Labelling it "Flight change" would
+		// be the app describing a journey the traveller is not on.
+		const twoNights = makeItinerary({
+			freeTimeStart: '2026-10-06T23:30:00',
+			freeTimeEnd: '2026-10-08T10:00:00',
+			nightsInConnection: 2,
+			priceMinorUnits: 15000
+		});
+		const rungs = stopoverLadder(twoNights, [
+			{ nights: 0, itinerary: overnightWait },
+			{ nights: 2, itinerary: twoNights }
+		], 'London');
+
+		expect(rungs[0].label).toBe('Overnight wait');
+		expect(rungs[0].description).toContain('Overnight wait in London');
+		expect(rungs[1].label).toBe('2 nights');
 	});
 });

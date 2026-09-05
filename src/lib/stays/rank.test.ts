@@ -1,10 +1,24 @@
-import type { Property, RoomKind, Stay } from '$lib/domain';
+import type { Coordinates, Property, RoomKind, Stay } from '$lib/domain';
 import { describe, expect, it } from 'vitest';
 import { cheapestSelectableOption, isOptionSelectable, rankProperties, selectableOptions } from './rank';
 import type { PropertyStayOptions, StayOption } from './types';
 
-function makeProperty(name: string): Property {
-	return { name, coordinates: { latitude: 48.2, longitude: 16.37 }, images: [] };
+const AIRPORT: Coordinates = { latitude: 48.11, longitude: 16.57 };
+
+/** Every property in these tests sits at the airport itself unless a case is about
+ * distance, so the ordering they assert is the one they mean to assert. */
+function makeProperty(name: string, coordinates: Coordinates = AIRPORT): Property {
+	return { name, coordinates, images: [] };
+}
+
+/** A point `km` due north of the airport, so a test can name a distance rather than a
+ * latitude. One degree of latitude is 111.19 km on this module's Earth radius. */
+function kmFromAirport(km: number): Coordinates {
+	return { latitude: AIRPORT.latitude + km / 111.19, longitude: AIRPORT.longitude };
+}
+
+function stopover(nights: number, travellers?: number, females?: number) {
+	return { travellers, females, connectionAirport: AIRPORT, nights };
 }
 
 function makeStay(property: Property, roomKind: RoomKind, minorUnits: number): Stay {
@@ -97,7 +111,7 @@ describe('rankProperties', () => {
 		];
 		// A group with no female travellers cannot book the cheaper property at all, so
 		// the mid-priced, actually-bookable one must rank first.
-		const ranked = rankProperties(properties, 4, 0);
+		const ranked = rankProperties(properties, stopover(1, 4, 0));
 		expect(ranked[0].options[0].stay.property.name).toBe('Mid Hostel');
 		expect(ranked[1].options[0].stay.property.name).toBe('Cheap Female-Only Hostel');
 	});
@@ -107,7 +121,7 @@ describe('rankProperties', () => {
 			group([{ stay: makeStay(makeProperty('A'), 'female-dorm', 1000) }]),
 			group([{ stay: makeStay(makeProperty('B'), 'dorm', 3000) }])
 		];
-		const ranked = rankProperties(properties, 2, 0);
+		const ranked = rankProperties(properties, stopover(1, 2, 0));
 		expect(ranked.map((p) => p.options[0].stay.property.name)).toEqual(['B', 'A']);
 	});
 
@@ -117,7 +131,60 @@ describe('rankProperties', () => {
 			group([{ stay: makeStay(makeProperty('B'), 'dorm', 1000) }])
 		];
 		const original = [...properties];
-		rankProperties(properties, 1, undefined);
+		rankProperties(properties, stopover(1, 1, undefined));
 		expect(properties).toEqual(original);
+	});
+});
+
+describe('rankProperties — how far the bed is (issue #219)', () => {
+	/** The two beds off the owner's own Gatwick card, at their measured distances and
+	 * prices: a EUR 13.00 dorm 48.3 km away in London, and a EUR 52.82 room 2.8 km from
+	 * the terminal in Horley. */
+	function gatwickList(): PropertyStayOptions[] {
+		return [
+			group([{ stay: makeStay(makeProperty('London Backpackers', kmFromAirport(48.3)), 'dorm', 1300) }]),
+			group([
+				{ stay: makeStay(makeProperty('The Gatwick White House Hotel', kmFromAirport(2.8)), 'private', 5282) }
+			])
+		];
+	}
+
+	it('puts the walkable room first for one night, not last of the list', () => {
+		const ranked = rankProperties(gatwickList(), stopover(1));
+		expect(ranked[0].options[0].stay.property.name).toBe('The Gatwick White House Hotel');
+	});
+
+	it('hands the city dorm back once the stopover is long enough to pay for the journey', () => {
+		// The nightly saving is EUR 39.82 and the round trip out to London costs about
+		// EUR 127, so the crossover sits between three nights and four. That shape is the
+		// point of the rule: sleep by the runway for one night, go into town for four.
+		expect(rankProperties(gatwickList(), stopover(3))[0].options[0].stay.property.name).toBe(
+			'The Gatwick White House Hotel'
+		);
+		expect(rankProperties(gatwickList(), stopover(4))[0].options[0].stay.property.name).toBe(
+			'London Backpackers'
+		);
+	});
+
+	it('still ranks two beds at the same distance on price alone', () => {
+		const properties: PropertyStayOptions[] = [
+			group([{ stay: makeStay(makeProperty('Dearer', kmFromAirport(12)), 'dorm', 4000) }]),
+			group([{ stay: makeStay(makeProperty('Cheaper', kmFromAirport(12)), 'dorm', 2000) }])
+		];
+		expect(rankProperties(properties, stopover(2)).map((p) => p.options[0].stay.property.name)).toEqual([
+			'Cheaper',
+			'Dearer'
+		]);
+	});
+
+	it('never lets distance rescue a bed the group cannot book', () => {
+		// Issue #80's rule outranks this one: a female-only dorm at the terminal is still
+		// unbookable for a group with no female travellers, however near it is.
+		const properties: PropertyStayOptions[] = [
+			group([{ stay: makeStay(makeProperty('At the gate', kmFromAirport(0.2)), 'female-dorm', 900) }]),
+			group([{ stay: makeStay(makeProperty('Across town', kmFromAirport(30)), 'dorm', 2000) }])
+		];
+		const ranked = rankProperties(properties, stopover(1, 4, 0));
+		expect(ranked.map((p) => p.options[0].stay.property.name)).toEqual(['Across town', 'At the gate']);
 	});
 });

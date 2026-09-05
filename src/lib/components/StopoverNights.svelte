@@ -28,6 +28,14 @@
 	 * rung's delta is measured against it, so the headline above plus any stub is exactly
 	 * what that stub costs.
 	 *
+	 * ## The badge a nightless trip gets instead
+	 *
+	 * A trip with no night in it is not a short stopover, and since issue #231 it is one of
+	 * two things. A same-day connection lands and leaves before midnight. An overnight wait
+	 * crosses a midnight it is too short to sleep through, and telling that traveller their
+	 * connection is same-day would describe a different journey from the one they are on, so
+	 * the badge reads "Overnight wait" and its title carries the hours.
+	 *
 	 * ## What is deliberately not here
 	 *
 	 * No "+EUR x per night". A pairing's nights are fixed by its two flights, so a longer
@@ -40,7 +48,12 @@
 	 */
 	import type { Itinerary } from '$lib/domain';
 	import type { StopoverLengthOption } from '$lib/results/types';
-	import { describeLadderFlights, stopoverLadder, stopoverLengthLabel } from '$lib/results/stopover-nights';
+	import {
+		describeLadderFlights,
+		overnightWaitNote,
+		stopoverLadder,
+		stopoverLengthLabelFor
+	} from '$lib/results/stopover-nights';
 
 	interface Props {
 		/** The itinerary currently on the card, at the length currently chosen. */
@@ -76,6 +89,9 @@
 	 * is the flight change, because the strip has no way of saying "this is not a
 	 * stopover". */
 	const hasLadder = $derived(rungs.length > 1);
+	// Issue #231: "no nights" is two different trips, and the badge below is the only place
+	// that says which. `undefined` for a same-day connection, and for every real stopover.
+	const waitNote = $derived(overnightWaitNote(itinerary));
 </script>
 
 {#if hasLadder}
@@ -129,9 +145,11 @@
 	     offers nothing longer to step to. -->
 	<p
 		class={['stopover-nights', 'is-connection', { 'is-quiet': deprioritized }]}
-		title="Lands and leaves {connectionLabel} on the same day, so there is no night to book."
+		title={waitNote
+			? `${waitNote}, so the total is the flights alone.`
+			: `Lands and leaves ${connectionLabel} on the same day, so there is no night to book.`}
 	>
-		{stopoverLengthLabel(itinerary.nightsInConnection)}
+		{stopoverLengthLabelFor(itinerary)}
 	</p>
 {/if}
 

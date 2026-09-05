@@ -397,6 +397,7 @@
 	<StopoverBlock
 		{itinerary}
 		connectionLabel={connectionAirport?.city.name ?? itinerary.outboundFlight.arrivalAirport}
+		connectionCoordinates={connectionAirport?.coordinates}
 	/>
 
 	<!-- aria-live: this sentence flips when a provider answers, not when the traveller does

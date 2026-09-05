@@ -25,6 +25,7 @@ import type {
 	WaitingTimeRule
 } from '../domain';
 import { DEFAULT_MIN_LAYOVER_TIME_MINUTES, DEFAULT_TRAVELLERS, DEFAULT_WAITING_TIME_RULES } from '../domain';
+import { nightsToPayFor } from './nights';
 
 /**
  * The brief ties waiting-time tiers to "short flight or small airport" vs "long flight or
@@ -116,20 +117,11 @@ export function addLocalMinutes(dateTime: LocalDateTime, minutes: number): Local
 	};
 }
 
-/**
- * Hotel nights between two LocalDateTimes at the same place, counted the way a front desk
- * would: by calendar dates crossed, never by dividing free time by 24. A 23:00 arrival and
- * an 08:00-next-day departure is one night at nine hours; a stopover that starts and ends on
- * the same calendar date is zero nights even at twenty. Comparing calendar dates directly
- * (ignoring both clock time and UTC offset) is safe here because check-in and check-out are
- * the same place, so both dates are already in that place's own calendar.
- * Exported for the same reason as `minutesBetween` above.
- */
-export function nightsBetween(start: LocalDateTime, end: LocalDateTime): number {
-	const startDateMs = Date.parse(`${start.local.slice(0, 10)}T00:00:00Z`);
-	const endDateMs = Date.parse(`${end.local.slice(0, 10)}T00:00:00Z`);
-	return Math.round((endDateMs - startDateMs) / 86_400_000);
-}
+/** Issue #231 moved the two night rules to `nights.ts`, where `recompute-selection.ts` reads
+ * them too and where the argument for the six-hour floor can be written down beside the
+ * arithmetic it qualifies. Still re-exported here: `nightsBetween` has been part of this
+ * module's surface since issue #13. */
+export { nightsBetween, nightsToPayFor } from './nights';
 
 /** Exported for the same reason as `minutesBetween` above. */
 export function sumDurations(...durations: (Duration | undefined)[]): Duration {
@@ -345,11 +337,14 @@ export function buildItineraries(input: BuildItinerariesInput): Itinerary[] {
 			if (freeDuration < 0) continue; // not enough layover for the transfers plus the buffer
 
 			const freeTime = { start: freeStart, end: freeEnd, duration: freeDuration };
-			// Issue #105: calendar nights come from the free-time window alone, which is
-			// already known from the two flights' own timestamps — never gated on `stay`.
-			// A 12-night stopover is 12 nights whether or not a bed ever got priced for it;
+			// Issue #105: nights come from the free-time window alone, which is already
+			// known from the two flights' own timestamps — never gated on `stay`. A
+			// 12-night stopover is 12 nights whether or not a bed ever got priced for it;
 			// `stay` being absent only ever affects `totalPrice` below, not this.
-			const nightsInConnection = nightsBetween(freeStart, freeEnd);
+			// Issue #231: nights the traveller would SLEEP, not midnights the clock passed.
+			// A gap from 11pm to 5am crosses a date boundary and buys nobody a bed, and
+			// `totalPrice` below charges a room for every night this number reports.
+			const nightsInConnection = nightsToPayFor(freeStart, freeEnd);
 
 			// Issue #106/#109: each flight leg scales to the party by its OWN declared
 			// `priceScope` (`scaleFareForParty`), never a blanket multiply — a per-adult
@@ -436,7 +431,7 @@ export interface WaitingTimeOverrides {
  * plus a hand-edited waiting time on either side and returns a new Itinerary with every
  * dependent field recomputed. It never leaves a partial patch that skips one total.
  *
- * Reuses this module's own arithmetic (`addLocalMinutes`, `minutesBetween`, `nightsBetween`,
+ * Reuses this module's own arithmetic (`addLocalMinutes`, `minutesBetween`, `nightsToPayFor`,
  * `sumMoney`, `scaleFareForParty`) rather than a second implementation in the UI layer, so
  * a hand edit can never disagree with how `buildItineraries` would have computed the same
  * itinerary from scratch. Every value this needs (both flights' price/duration/priceScope
@@ -485,8 +480,9 @@ export function recomputeItineraryWaitingTimes(
 		: addLocalMinutes(itinerary.onwardFlight.departure, -connectionWaitingTime);
 	const freeDuration = minutesBetween(freeStart, freeEnd);
 	const freeTime = { start: freeStart, end: freeEnd, duration: freeDuration };
-	// Issue #105: not gated on `stay` — see `buildItineraries`'s own identical comment.
-	const nightsInConnection = nightsBetween(freeStart, freeEnd);
+	// Issue #105: not gated on `stay`, and issue #231: sleepable, not merely crossed —
+	// see `buildItineraries`'s own identical comment.
+	const nightsInConnection = nightsToPayFor(freeStart, freeEnd);
 
 	// Issue #106/#109: `itinerary.travellers` is the party size this itinerary was already
 	// priced for (set once by `buildItineraries`, carried over untouched by a waiting-time
