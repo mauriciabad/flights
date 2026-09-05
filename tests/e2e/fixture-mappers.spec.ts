@@ -137,6 +137,15 @@ const CHECKS: Record<string, FixtureCheck> = {
 		map: (raw) =>
 			mapPropertiesToStays((raw as { properties?: never[] }).properties, AIRPORT, 25, 1).length
 	},
+	// Issue #356: two beds far enough out that both get a taxi rather than a walk, which is
+	// what makes the swapped one's missing fare visible beside the search's own. Read at 50 km
+	// so both stay reachable; the fixture is pointless if either drops out.
+	'hostelworld/properties-vienna-both-far.json': {
+		readBy: 'providers/stays/hostelworld-mapper.ts mapPropertiesToStays',
+		yields: 'some',
+		map: (raw) =>
+			mapPropertiesToStays((raw as { properties?: never[] }).properties, AIRPORT, 50, 1).length
+	},
 	'hostelworld/properties-vienna-two.json': {
 		readBy: 'providers/stays/hostelworld-mapper.ts mapPropertiesToStays',
 		yields: 'some',
