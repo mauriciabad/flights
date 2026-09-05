@@ -36,7 +36,20 @@ const GOOD_CLS = 0.1;
 /** Matches `RESERVED_RESULT_SLOTS` in `src/routes/results/+page.svelte`. */
 const RESERVED_SLOTS = 2;
 
-const SEARCH_URL = '/results/?dep=2027-03-08&arr=2027-03-27&from=BCN&to=TLL';
+/**
+ * `via` pins the two stopovers this file mocks fares for, rather than trusting them to
+ * survive the ranking. Issue #361 vendored an all-carrier route graph, and BCN to TLL now
+ * confirms 49 candidates from bundled data alone where it used to confirm a handful: Vienna
+ * holds at second but Berlin falls to tenth, outside `DEFAULT_MAX_CANDIDATES`, so its fares
+ * were never fetched and the second card never arrived. Nothing about layout stability
+ * changed, only which cities the search chose to price.
+ *
+ * Pinning is the fix rather than re-picking two cities that rank well today, because the
+ * graph is regenerated weekly and the next refresh would move them again. This file is about
+ * where a late card lands, so it should say which two trips it means and stop depending on a
+ * ranking it does not test.
+ */
+const SEARCH_URL = '/results/?dep=2027-03-08&arr=2027-03-27&from=BCN&to=TLL&via=VIE,BER';
 
 /**
  * Vienna is answered first and is the more expensive trip; Berlin answers a second later and

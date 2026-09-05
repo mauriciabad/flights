@@ -26,16 +26,24 @@ import { waitForSearchToSettle } from '../shared/search-wait';
  * Keyless providers only: no Agoda or Booking request is made or mocked here.
  */
 test.describe('providers that answer with nothing (issue #130)', () => {
-	test('an airport outside Ryanair’s network reads as answered-with-nothing, never as silence', async ({
+	test('an airport no bundled source names reads as answered-with-nothing, never as silence', async ({
 		page
 	}) => {
 		await mockAllKeylessProviders(page.context());
 
-		// The issue's own URL. BCN would not reproduce it: the bundled fallback route table
-		// covers Barcelona, so candidates survive, fares get fetched, and Ryanair ends the
-		// search having answered with data. BVC is the case where the route graph is the
-		// entire search.
-		await page.goto('/results/?dep=2026-10-06&arr=2026-10-12&from=BVC&to=PFO');
+		// Addis Ababa, because what this test needs is an origin no bundled source names at
+		// all, so the route graph really is the entire search and Ryanair's empty answer is
+		// the only answer there is. BCN would not reproduce it: the bundled fallback table
+		// covers Barcelona, so candidates survive and Ryanair ends the search having answered
+		// with data.
+		//
+		// It was the issue's own BVC to PFO until issue #361 vendored an all-carrier route
+		// graph, which gave Boa Vista 27 neighbours and thirteen confirmed stopovers. That is
+		// the fix working, and it silently turned this check into one that could never see the
+		// empty board again. ADD confirms zero candidates against the shipped graph; if a
+		// future refresh gives it edges, this test starts failing rather than passing for a
+		// reason it does not state, which is the failure #354 was.
+		await page.goto('/results/?dep=2026-10-06&arr=2026-10-12&from=ADD&to=PFO');
 		await waitForSearchToSettle(page, { timeout: 15_000 });
 
 		// The first lie: Ryanair answered, so the strip must not claim nothing was called.
