@@ -25,7 +25,7 @@ import { scaleFareForParty, sumMoney } from '$lib/algorithm/build';
 import { formatDuration, formatLongDuration, formatMoney, formatMoneyRange } from '$lib/format';
 import { bedNightlyRate } from '$lib/stays/pricing';
 import { fareAudience } from './itinerary-timeline-format';
-import { freeTimeDays } from './free-time-days';
+import { freeTimeCount } from './free-time-days';
 
 export type ItineraryMetricId =
 	| 'in-flight'
@@ -126,7 +126,9 @@ function buildMetric(itinerary: Itinerary, id: ItineraryMetricId): ItineraryMetr
 				// long"; what a person asks about a stopover is how many whole days they
 				// get. `StopoverBlock` in the expanded panel is the long form of this cell:
 				// the same count, with its two edge times and the stay they bracket.
-				value: freeTimeDays(itinerary.freeTime.start, itinerary.freeTime.end)?.count ?? 'No full days',
+				// Issue #365 added the case where the honest answer is that there are none:
+				// a layover spent in a terminal is in `times.airportWaiting`, not here.
+				value: freeTimeCount(itinerary),
 				tone: 'stopover'
 			};
 		case 'nights':
@@ -592,9 +594,10 @@ export function walkCount(walks: number): string {
 /** What the hotel group can say beyond its own amounts, when the caller knows it. */
 export interface PriceBreakdownContext {
 	/**
-	 * `ScoredResult.stopover.minimum`: the fewest nights this connection's own flight
-	 * pairings allow. Issue #305 splits the bed rows into the nights the schedule forces
-	 * and the nights the traveller added on top, and this is the line between them.
+	 * `ScoredResult.stopover.minimum`: the nights the card opened on, which is the cheapest
+	 * length this connection's own flight pairings allow (issue #364). Issue #305 splits the
+	 * bed rows into the nights the traveller did not choose and the nights they added on top,
+	 * and this is the line between them.
 	 *
 	 * Absent, every night reads as required. That is the honest default: without the
 	 * group behind the card there is no way to know that any night was chosen, and calling

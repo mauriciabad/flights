@@ -186,6 +186,35 @@ describe('unroutedLegNote', () => {
 		);
 	});
 
+	it('says the same thing when the search quoted a bed the trip does not book', () => {
+		// Issue #365. `build.ts` takes the two legs off a nightless stopover BECAUSE no night
+		// is spent here, and the bed stays on as the quote it always was. Production printed
+		// "The bed is priced, but no transport provider could route to it" over a metro route
+		// the app had found and then correctly discarded, which blames a provider for a
+		// decision this app made.
+		const overnightWithQuote = { hasStay: true, nightsInConnection: 0, overnightWait: true };
+		expect(unroutedLegNote('to-hotel', overnightWithQuote)).toBe(
+			'Overnight wait, so there is no hotel leg here.'
+		);
+		expect(unroutedLegNote('from-hotel', overnightWithQuote)).toBe(
+			'Overnight wait, so there is no hotel leg here.'
+		);
+	});
+
+	it('outranks the picked-property sentence, because no night means no leg either way', () => {
+		// A traveller can still open the stay picker on a stopover that carries a quote, so
+		// `unrouted-stay` and zero nights can meet. "Nothing routed to this property" would be
+		// answering a question nobody asked: the trip books no night, so it has no hotel leg
+		// to route at all.
+		expect(
+			unroutedLegNote('to-hotel', {
+				hasStay: true,
+				nightsInConnection: 0,
+				transferAnchor: 'unrouted-stay'
+			})
+		).toBe('Same-day connection, so there is no hotel leg here.');
+	});
+
 	it('reports an empty outer leg as providers answering with nothing, which is what happened', () => {
 		// These two are gated on the query carrying a location, not on a stay, and their
 		// rows only render when it does — so reaching here means a request was made.

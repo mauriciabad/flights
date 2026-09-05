@@ -515,3 +515,26 @@ export function rankItineraries(
 		.map((itinerary) => scoreItinerary(itinerary, airlinesToAvoid, weights))
 		.sort((a, b) => b.total - a.total);
 }
+
+/**
+ * What one trip costs the traveller in money, in the same major units the weights above
+ * are denominated in. Issue #364.
+ *
+ * Two terms, not one. `price` is what providers actually quoted. `unpricedNights` is what
+ * this trip's nights cost when nobody priced a bed for them, charged at
+ * `assumedNightCostWithoutPricedBed`. A comparison between two stopover lengths needs both
+ * or it is not a comparison: `Itinerary.totalPrice` leaves a bed out entirely when no stay
+ * provider answered, so a three-night pairing would come out cheaper than a same-day one
+ * purely because the app never learned what three beds cost. That is the app being rewarded
+ * for its own ignorance, which is the exact defect issue #167 added the charge for.
+ *
+ * Everything else in the breakdown is deliberately absent. The night bonus, the free-time
+ * bonus and the travel-time charges are the app's opinion about how good a trip is; this is
+ * what the trip costs. Issue #230 took that opinion out of the choice of stopover length
+ * and it stays out. Unpriced transfers are out too: they are the same legs at every length
+ * through one city, so folding them in would make a length choice turn on which day's route
+ * happened to get routed.
+ */
+export function moneyCostOf(score: ItineraryScore): number {
+	return -(score.breakdown.price + score.breakdown.unpricedNights);
+}

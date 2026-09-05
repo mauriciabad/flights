@@ -427,18 +427,27 @@ export function unroutedLegNote(
 		// and printing "the road route in takes 33h" beside this property's name would be
 		// #243's own wrong-address bug arriving from the other direction. Reorder these two
 		// and `itinerary-timeline-format.test.ts` fails on purpose.
+		if (context.nightsInConnection === 0) {
+			// Issue #231 split the nightless trip in two. Both book nothing, but one of them
+			// is awake in a terminal at 3am, and telling that traveller their connection is
+			// same-day is the app describing a different journey from the one they are on.
+			//
+			// Above `unrouted-stay` and no longer conditioned on there being no bed at all,
+			// both since issue #365. A nightless stopover can carry a bed the search quoted
+			// and did not book, and `build.ts` takes the two legs off it precisely BECAUSE
+			// no night is spent here. Saying "nothing routed to this property" there blames a
+			// transport provider for a decision this app made, which is the same wrong-cause
+			// sentence AGENTS.md keeps having to remove. Measured on the owner's own card:
+			// "The bed is priced, but no transport provider could route to it", printed over
+			// a metro route the app had found and then correctly discarded.
+			return context.overnightWait
+				? 'Overnight wait, so there is no hotel leg here.'
+				: 'Same-day connection, so there is no hotel leg here.';
+		}
 		if (context.transferAnchor === 'unrouted-stay') {
 			return leg === 'to-hotel'
 				? 'Nothing routed to this property, so the journey to it is unknown.'
 				: 'Nothing routed back from this property, so the journey back is unknown.';
-		}
-		if (!context.hasStay && context.nightsInConnection === 0) {
-			// Issue #231 split the nightless trip in two. Both book nothing, but one of them
-			// is awake in a terminal at 3am, and telling that traveller their connection is
-			// same-day is the app describing a different journey from the one they are on.
-			return context.overnightWait
-				? 'Overnight wait, so there is no hotel leg here.'
-				: 'Same-day connection, so there is no hotel leg here.';
 		}
 		// Above the two "nothing routed" sentences below, and above #211's, because it
 		// contradicts all three. "Nothing routed into the city" is as false as "no transport

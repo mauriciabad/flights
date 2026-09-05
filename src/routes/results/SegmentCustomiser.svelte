@@ -52,7 +52,7 @@
 	import { FlightPicker, Skeleton, StopoverNights, TransportPicker, WaitingTimeStepper } from '$lib/components';
 	import { segmentStubFor } from '$lib/components/segment-stub';
 	import { unroutedLegNote } from '$lib/components/itinerary-timeline-format';
-	import { isOvernightWait } from '$lib/algorithm/nights';
+	import { waitsOvernight } from '$lib/algorithm/nights';
 	import type { UnroutedLeg } from '$lib/components/itinerary-timeline-format';
 	import type {
 		ConnectionTransferOptions,
@@ -481,7 +481,7 @@
 		return unroutedLegNote(leg, {
 			hasStay: itinerary.stay !== undefined,
 			nightsInConnection: itinerary.nightsInConnection,
-			overnightWait: isOvernightWait(itinerary.freeTime.start, itinerary.freeTime.end),
+			overnightWait: waitsOvernight(itinerary),
 			transferAnchor: itinerary.transferAnchor,
 			withheld: withheldByLeg[leg]
 		});

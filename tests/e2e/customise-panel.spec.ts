@@ -170,16 +170,19 @@ test.describe('the customise rail on a wide screen', () => {
 		// and to nowhere else on this screen. The timeline's totals rail that used to repeat
 		// it is gone, so this reads the caption.
 		const nights = card.locator('.trip-strip-caption-mid');
-		await expect(nights).toContainText('1 night');
+		// Two, not one, since issue #364: both outbounds reach the same onward flight and the
+		// 8 March one is both the longer stopover and the cheaper trip.
+		await expect(nights).toContainText('2 nights');
 
 		await pickStripSegment(page, 'wait', 1);
 		await expect(customiser(page)).toHaveAttribute('data-segment', 'connection-waiting');
 
-		// The one control the timeline and the rail now share. 1530 minutes at the connection
-		// eats the night off the far end of the stopover, which is issue #250's own repro
-		// driven from the other surface.
+		// The one control the timeline and the rail now share. A buffer this long eats both
+		// nights off the far end of the stopover, which is issue #250's own repro driven from
+		// the other surface. The figure went up with the default: the card now opens on the
+		// two-night pairing, so there is a second night to eat.
 		const input = customiser(page).locator('.waiting-stepper-input');
-		await input.fill('1530');
+		await input.fill('2800');
 		await input.dispatchEvent('input');
 
 		// A stopover with no night left in it is not "0 nights": the caption says how long the

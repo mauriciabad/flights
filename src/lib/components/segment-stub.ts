@@ -482,22 +482,34 @@ function transportStub(segment: TripStripTransferSegment, context: StubContext):
 function stopoverStub(start: LocalDateTime, end: LocalDateTime, context: StubContext): SegmentStub {
 	const { itinerary, connectionLabel, connectionCode, connectionAirport } = context;
 	const nights = itinerary.nightsInConnection;
+	// Issue #365: "Day stopover in Porto, 4h 26m free" was the panel on a window running
+	// 10:37pm to 3:03am with no bed booked and nothing to leave the airport for. Neither word
+	// survives that: it is not a day and none of it is free. `times.free` is what `build.ts`
+	// decides, and it is zero exactly when the traveller never leaves the terminal.
+	const airside = itinerary.times.free <= 0;
 	const title =
 		nights > 0
 			? `${nights} ${nights === 1 ? 'night' : 'nights'} in ${connectionLabel}`
-			: `Day stopover in ${connectionLabel}`;
-	const free = `${formatLongDuration(itinerary.freeTime.duration)} free`;
+			: airside
+				? `Waiting at ${connectionCode}`
+				: `Day stopover in ${connectionLabel}`;
+	const free = airside
+		? formatLongDuration(itinerary.freeTime.duration)
+		: `${formatLongDuration(itinerary.freeTime.duration)} free`;
 
 	// Issue #219's whole complaint: the list ranks a bed 48 km out above one 2.8 km away
 	// and shows no distance at all. `StopoverBlock` prints the leg's duration and fare; the
 	// kilometres are the part it does not have, and the airport record is where they come
 	// from, so this row appears only once the page has resolved it.
+	// Issue #365: only where a bed is actually booked. A trip with no night carries the stay
+	// as a quote, not a booking, so how far that property sits from the runway is not a fact
+	// about the trip on screen.
 	const facts: StubFact[] = [];
-	if (connectionAirport && itinerary.stay) {
+	if (connectionAirport && itinerary.stay && nights > 0) {
 		const km = haversineDistanceKm(connectionAirport.coordinates, itinerary.stay.property.coordinates);
 		facts.push({ label: `From ${connectionCode}`, value: `${formatDistanceKm(km)} straight line` });
 	}
-	if (connectionAirport?.city.coordinates && itinerary.stay) {
+	if (connectionAirport?.city.coordinates && itinerary.stay && nights > 0) {
 		const km = haversineDistanceKm(connectionAirport.city.coordinates, itinerary.stay.property.coordinates);
 		facts.push({ label: 'From centre', value: `${formatDistanceKm(km)} straight line` });
 	}

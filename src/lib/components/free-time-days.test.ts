@@ -1,7 +1,9 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { LocalDateTime } from '$lib/domain';
 import { timeFormat } from '$lib/settings/time-format.svelte';
-import { freeTimeDays } from './free-time-days';
+import { makeItinerary } from '$lib/results/test-support';
+import type { Duration } from '$lib/domain';
+import { freeTimeCount, freeTimeDays } from './free-time-days';
 
 /** Every reading in these cases is on the stopover airport's own clock, which is the only
  * clock this block ever prints. London in October is UTC+1. */
@@ -172,5 +174,31 @@ describe('zero whole days', () => {
 		const days = freeTimeDays(at('2026-10-09T10:00:00'), at('2026-10-10T13:00:00'));
 		expect(days?.count).toBe('Parts of 2 days');
 		expect(days?.count).not.toContain('0');
+	});
+});
+
+describe('freeTimeCount', () => {
+	it('counts the days when the stopover has free time to count', () => {
+		const itinerary = makeItinerary({
+			freeTimeStart: '2026-10-09T21:10:00',
+			freeTimeEnd: '2026-10-12T09:05:00',
+			freeTimeMinutes: 3595
+		});
+
+		expect(freeTimeCount(itinerary)).toBe('2 days');
+	});
+
+	it('says "None" for a layover nobody leaves the airport for', () => {
+		// Issue #365. `build.ts` puts such a layover into `times.airportWaiting`, and the
+		// window it came from is still on the itinerary because the traveller is still on
+		// the ground for it. "No full days" here read as a short stopover in Porto when the
+		// truth was four and a half hours in the terminal at OPO.
+		const itinerary = makeItinerary({
+			freeTimeStart: '2026-09-16T22:17:00',
+			freeTimeEnd: '2026-09-17T04:10:00'
+		});
+		const airside = { ...itinerary, times: { ...itinerary.times, free: 0 as Duration } };
+
+		expect(freeTimeCount(airside)).toBe('None');
 	});
 });

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { LocalDateTime } from '../domain';
 import {
+	waitsOvernight,
 	MIN_SLEEPABLE_MINUTES,
 	isOvernightWait,
 	nightsBetween,
@@ -103,5 +104,34 @@ describe('nightsToPayFor', () => {
 
 	it('agrees with the clock whenever the clock is right', () => {
 		expect(nightsToPayFor(at('2026-10-06T10:00:00'), at('2026-10-06T22:00:00'))).toBe(0);
+	});
+});
+
+describe('waitsOvernight (issue #365)', () => {
+	/** Only the two fields the function reads. A `Duration` is not among them: the calendar
+	 * and the night count are the whole question. */
+	function trip(nightsInConnection: number, startLocal: string, endLocal: string) {
+		return {
+			nightsInConnection,
+			freeTime: { start: at(startLocal), end: at(endLocal), duration: 0 as never }
+		};
+	}
+
+	it('is true for the owner\'s Porto card once its rides to a bed come off', () => {
+		// The window widens from 10:07pm-3:03am to 9:20pm-4:10am when `build.ts` drops the
+		// two legs, and 6h50m of that is inside the night. `isOvernightWait` says false at
+		// that width, which is right about whether a room is worth buying and wrong about
+		// what the card should call the trip: it printed "Same-day connection" over a trip
+		// landing at 9:20pm and boarding at 6:10am.
+		expect(isOvernightWait(at('2026-09-16T21:20:00'), at('2026-09-17T04:10:00'))).toBe(false);
+		expect(waitsOvernight(trip(0, '2026-09-16T21:20:00', '2026-09-17T04:10:00'))).toBe(true);
+	});
+
+	it('is false for a connection that lands and leaves on one calendar day', () => {
+		expect(waitsOvernight(trip(0, '2026-10-06T10:00:00', '2026-10-06T22:00:00'))).toBe(false);
+	});
+
+	it('is false whenever a night is actually booked', () => {
+		expect(waitsOvernight(trip(1, '2026-10-06T22:32:00', '2026-10-07T11:43:00'))).toBe(false);
 	});
 });

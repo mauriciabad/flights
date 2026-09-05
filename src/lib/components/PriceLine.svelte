@@ -88,9 +88,9 @@
 		/** `lg` for the results card's headline, `md` anywhere the price is not the
 		 * loudest thing in its own block. */
 		size?: 'md' | 'lg';
-		/** `ScoredResult.stopover.minimum`: the fewest nights this connection can be done
-		 * in, which is what tells a required night from an extra one. Absent, every night
-		 * reads as required. */
+		/** `ScoredResult.stopover.minimum`: the nights the card opened on, which is what tells
+		 * a night the traveller did not choose from one they added. Absent, every night reads
+		 * as required. */
 		requiredNights?: number;
 	}
 

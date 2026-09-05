@@ -33,7 +33,7 @@
  * away, so reading it from anywhere else would put two different answers on one screen.
  */
 
-import type { LocalDateTime } from '$lib/domain';
+import type { Itinerary, LocalDateTime } from '$lib/domain';
 import { formatClockTime, formatWeekday, formatWeekdayAndDay } from '$lib/format';
 import type { FreeTimePiece } from './trip-strip';
 import { splitFreeTimeAtLocalMidnight } from './trip-strip';
@@ -227,4 +227,27 @@ export function freeTimeDays(start: LocalDateTime, end: LocalDateTime): FreeTime
 		fullDayCount: fullDayDates.length,
 		usablePartDayCount
 	};
+}
+
+/**
+ * The one string every surface prints for how much of a stopover is the traveller's. Issue
+ * #365.
+ *
+ * The owner, on a card reading `FREE TIME No full days` beside `AIRPORT WAIT 4h`:
+ *
+ * > free time should not be free time, it should become waiting at the airport
+ *
+ * He was looking at four and a half hours at OPO between two flights with no bed booked.
+ * "No full days" is the right answer for a stopover with a few evening hours in a city and
+ * the wrong one for a night in a departures hall: it reads as a short stopover rather than
+ * as no stopover at all. `build.ts` is what decides which this is, by putting a layover
+ * nobody can leave the airport for into `times.airportWaiting` instead of `times.free`, and
+ * this prints what that decided.
+ *
+ * Shared by the card's metric rail and the timeline row rather than written twice, because
+ * the owner's rule is that expanding a card must not change what it says.
+ */
+export function freeTimeCount(itinerary: Pick<Itinerary, 'freeTime' | 'times'>): string {
+	if (itinerary.times.free <= 0) return 'None';
+	return freeTimeDays(itinerary.freeTime.start, itinerary.freeTime.end)?.count ?? 'No full days';
 }

@@ -206,6 +206,11 @@ export function recomputeItinerarySelection(
 		transferToConnectionAirport,
 		transferToDestinationLocation
 	};
+	// Issue #365's rule that a nightless stopover plans no ride to a bed lives in
+	// `pairConnections`, not here. Every leg on this path is one the traveller picked, and
+	// `recomputeItinerarySelection` answering a pick by deleting it is the thing the
+	// `insufficient-connection-time` warning below exists to avoid: the app says what the
+	// choice costs and leaves the choice standing.
 	const derived = deriveItinerary(parts);
 
 	// Not reported alongside `flights-out-of-order`, because there it is the consequence

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { overnightWaitNote } from '$lib/results/stopover-nights';
 import type {
 	Airport,
 	City,
@@ -742,16 +743,96 @@ describe('buildItineraries — a short overnight is a wait, not a stay (issue #2
 	}
 
 	it('charges no room for six hours between 11pm and 5am', () => {
-		// At the property 11:30pm, leaving for the airport at 2:30am. The clock crosses a
-		// date, so before this rule the total carried a night nobody would have checked in
-		// for.
+		// Land 11pm, board at 3am. The clock crosses a date, so before this rule the total
+		// carried a night nobody would have checked in for.
 		const itinerary = overnight('2026-10-06T23:00:00', '2026-10-07T05:00:00');
 
-		expect(itinerary.freeTime.start.local).toBe('2026-10-06T23:30:00');
-		expect(itinerary.freeTime.end.local).toBe('2026-10-07T02:30:00');
 		expect(itinerary.nightsInConnection).toBe(0);
 		// Flights only: 5000 + 6000, with no 3000 bed folded in.
 		expect(itinerary.totalPrice.minorUnits).toBe(11000);
+		// Issue #365: with no night there is no bed, so the two half-hour rides to and from
+		// one are not part of this trip and the window runs runway to runway. Until this
+		// landed it read 11:30pm to 2:30am, an hour of it spent travelling to a hostel the
+		// traveller never checks into.
+		expect(itinerary.transferToHotel).toBeUndefined();
+		expect(itinerary.transferToConnectionAirport).toBeUndefined();
+		expect(itinerary.freeTime.start.local).toBe('2026-10-06T23:00:00');
+		expect(itinerary.freeTime.end.local).toBe('2026-10-07T03:00:00');
+	});
+
+	it('counts a stopover nobody can leave the airport for as airport waiting, not free time', () => {
+		// The owner, on the same card: "free time should not be free time, it should become
+		// waiting at the airport." Four hours in a terminal between two flights is not a
+		// stopover in a city, and the card was printing AIRPORT WAIT beside it as though the
+		// two were different time.
+		const itinerary = overnight('2026-10-06T23:00:00', '2026-10-07T05:00:00');
+
+		expect(itinerary.freeTime.duration).toBe(240);
+		expect(itinerary.times.free).toBe(0);
+		// Two 120-minute buffers plus the four hours on the ground between them.
+		expect(itinerary.times.airportWaiting).toBe(120 + 120 + 240);
+		// Door to door is untouched: those minutes are real either way, and only their name
+		// changed.
+		expect(itinerary.times.total).toBe(120 + 150 + 240 + 120 + 90);
+	});
+
+	it('never says a bed is not worth it and plans two rides to it in the same breath', () => {
+		// The sharpest form of issue #365, because the card was printing both at once. On
+		// production, three centimetres apart on one card: "Overnight wait, 4h 26m, too short
+		// to be worth a bed", and then "Transfer to Owls Hostel (straight-line estimate)",
+		// "Rides from and to hotel", and a 47-minute metro drawn on the map. The traveller
+		// spent 2h 24m of a 4h 26m gap commuting to a bed the app itself had refused.
+		//
+		// Driven through the real builder and the real sentence, so this cannot pass on a
+		// component that merely stopped rendering something.
+		const itinerary = overnight('2026-10-06T23:00:00', '2026-10-07T05:00:00');
+
+		expect(overnightWaitNote(itinerary)).toMatch(/too short to be worth a bed/);
+		expect(itinerary.transferToHotel).toBeUndefined();
+		expect(itinerary.transferToConnectionAirport).toBeUndefined();
+		expect(itinerary.transferAnchor).toBeUndefined();
+	});
+
+	it('keeps free time when the ride goes into town rather than to a bed', () => {
+		// Issue #161's case, which issue #365 must not touch: no stay priced, both legs
+		// anchored to the city centre. A traveller with a long layover really does go into
+		// town, and those hours are free time whether or not anyone priced a place to sleep.
+		const [itinerary] = buildItineraries(
+			baseInput({
+				outboundOffers: [
+					makeFlight(
+						'LGW',
+						'VIE',
+						localDateTime('2026-10-06T09:00:00', 'Europe/London', 60),
+						localDateTime('2026-10-06T09:00:00', 'Europe/London', 60),
+						150,
+						5000
+					)
+				],
+				onwardOffers: [
+					makeFlight(
+						'VIE',
+						'IST',
+						localDateTime('2026-10-06T21:00:00', 'Europe/London', 60),
+						localDateTime('2026-10-06T21:00:00', 'Europe/London', 60),
+						90,
+						6000
+					)
+				],
+				connectionResources: {
+					VIE: {
+						transferAnchor: 'city-centre',
+						transferToHotel: makeTransfer(30),
+						transferToConnectionAirport: makeTransfer(30)
+					}
+				},
+				waitingTimeRules: flatWaitingTime(120)
+			})
+		);
+
+		expect(itinerary?.nightsInConnection).toBe(0);
+		expect(itinerary?.transferToHotel?.duration).toBe(30);
+		expect(itinerary?.times.free).toBeGreaterThan(0);
 	});
 
 	it('still charges the room when the same gap is long enough to sleep in', () => {

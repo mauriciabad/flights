@@ -1,7 +1,7 @@
 import type { Airport, Coordinates, Itinerary, Transfer } from '$lib/domain';
 // Reaching into the components layer for one pure string function, deliberately: see
 // `absenceNote` below for why the map must not keep its own copy of this wording.
-import { isOvernightWait } from '$lib/algorithm/nights';
+import { waitsOvernight } from '$lib/algorithm/nights';
 import { unroutedLegNote, type UnroutedLeg } from '$lib/components/itinerary-timeline-format';
 import { greatCircleArc, longitudeNear } from './geo';
 import type { ItinerarySegmentId } from './segment-id';
@@ -215,7 +215,7 @@ function absenceNote(itinerary: Itinerary, leg: UnroutedLeg): string {
 	const reason = unroutedLegNote(leg, {
 		hasStay: itinerary.stay !== undefined,
 		nightsInConnection: itinerary.nightsInConnection,
-		overnightWait: isOvernightWait(itinerary.freeTime.start, itinerary.freeTime.end)
+		overnightWait: waitsOvernight(itinerary)
 	});
 	return `Nothing to draw. ${reason}`;
 }

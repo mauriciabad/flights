@@ -18,6 +18,7 @@
 import type { IataAirlineCode, IataAirportCode, Itinerary, Money } from '$lib/domain';
 import { currencyExponent, majorUnitsOf } from '$lib/domain';
 import type { ItineraryScore } from '$lib/algorithm/score';
+import { moneyCostOf } from '$lib/algorithm/score';
 import { defaultStopoverLength, isFlightChange, stopoverLengths, stopoverOfLength } from '$lib/algorithm/stopover-length';
 import type { ProviderError, ProviderId, ProviderKind } from '$lib/providers/types';
 import type { ProviderIssueReason } from '$lib/components';
@@ -131,9 +132,14 @@ export interface StopoverLengths {
 	/** Every length this connection offers, ascending. Always contains the shown
 	 * itinerary's own length, and always contains `minimum`. */
 	options: StopoverLengthOption[];
-	/** The count the card opens on, and the floor the traveller can return to. */
+	/**
+	 * The count the card opens on, which since issue #364 is the cheapest length rather
+	 * than always the shortest. Named `minimum` since issue #224, when the two were the same
+	 * thing; what every reader of it actually wants is the nights the traveller did not
+	 * choose, and that is still exactly this.
+	 */
 	minimum: number;
-	/** The itinerary at `minimum`. What a longer pick's price and flights are compared
+	/** The itinerary at `minimum`. What another pick's price and flights are compared
 	 * against, so the card can say the price moved and why (issue #224: "Do not silently
 	 * cap it either"). Identical to `ScoredResult.itinerary` while nothing is extended. */
 	minimumItinerary: Itinerary;
@@ -271,7 +277,7 @@ export function deriveScoredResult(
 	requestedNights?: number
 ): ScoredResult {
 	const lengths = stopoverLengths(group.variants, (variant) => variant.score.itinerary.nightsInConnection);
-	const minimum = defaultStopoverLength(lengths);
+	const minimum = defaultStopoverLength(lengths, (variant) => moneyCostOf(variant.score));
 	const chosen =
 		(requestedNights === undefined ? undefined : stopoverOfLength(lengths, requestedNights)) ?? minimum;
 	// `group.variants` is never empty (a group exists because a variant put it there), so
