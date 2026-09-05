@@ -51,6 +51,8 @@ import type { ProviderRegistry } from '../providers/registry';
 import type { AvailableKeys, ProviderError, ProviderId, ProviderKind, ProviderSource } from '../providers/types';
 import type { TaxiFareEstimate } from '../providers/transfers/taxi-rate-table';
 import type { ProviderAnswer } from './provenance';
+// Type-only, so no runtime cycle with `transit-schedule.ts`'s own import of this file.
+import type { TransitLookupBudget } from './transit-schedule';
 
 export type { Airport };
 export type ConnectionCandidate = AlgorithmConnectionCandidate;
@@ -104,6 +106,18 @@ export interface SearchRunOptions {
 	maxCandidates?: number;
 	/** Radius used for the near-connection stay search, brief line 76: "within 100km". */
 	stayRadiusKm?: number;
+	/**
+	 * Issue #267: the timetable ration for this search, when the caller wants to hold it
+	 * rather than let the search own one privately. Default is a fresh
+	 * `createTransitLookupBudget()` and nothing about the search changes.
+	 *
+	 * It exists because a search is no longer the only thing that spends Transitous. The
+	 * detail panel can ask about a bed the traveller swapped to, and a ration a second
+	 * caller cannot see is not a ration: `routeToProperty` already sits outside this one,
+	 * which is why it is road-only. Handing the same object to both means the twelve are
+	 * twelve, however they are spent.
+	 */
+	transitLookupBudget?: TransitLookupBudget;
 }
 
 /** One provider's running status for the lifetime of one search — enough for a settings-

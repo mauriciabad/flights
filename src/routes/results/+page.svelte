@@ -34,7 +34,13 @@
 	import { hasBlockingIssue, validateSearchFields } from '$lib/search-form/validation';
 	import { normalizeQuery, RecentSearches, searchHistory, summarizeSearch } from '$lib/search-history';
 	import SearchSummaryBar from './SearchSummaryBar.svelte';
-	import { confirmTargetFor, runSearch, widenSearch, widenWithPriceCalendar } from '$lib/search';
+	import {
+		confirmTargetFor,
+		createTransitLookupBudget,
+		runSearch,
+		widenSearch,
+		widenWithPriceCalendar
+	} from '$lib/search';
 	import type {
 		ConnectionTransferOptions,
 		ItineraryGroup,
@@ -174,6 +180,14 @@
 	 * it is always the one current answer for the whole search, never keyed per connection. */
 	let transferOptionsByConnection = $state<Record<string, ConnectionTransferOptions>>({});
 	let outerTransferOptions = $state<OuterTransferOptions | undefined>(undefined);
+	/**
+	 * Issue #267: this search's ration of Transitous lookups, owned here because two
+	 * different things spend it. `runSearch` and `widenSearch` take it as an option, and
+	 * `ResultDetail`'s "check public transport" claims from the same object, so the twelve
+	 * are twelve across both rather than twelve each. Replaced with the query, in the same
+	 * effect that clears everything else a new search invalidates.
+	 */
+	let transitLookupBudget = $state(createTransitLookupBudget());
 	/**
 	 * Issue #224: how many nights the traveller has chosen for a given stopover, for the
 	 * ones they have touched. Absent means "whatever the card opens on", which is the
@@ -423,6 +437,13 @@
 		stayCandidatesByConnection = {};
 		transferOptionsByConnection = {};
 		outerTransferOptions = undefined;
+		// Issue #267: one timetable ration per query, held here rather than inside the
+		// search, because the search is no longer the only thing that spends it. The detail
+		// panel's "check public transport" draws from this same object, so twelve lookups
+		// against a volunteer-run service stay twelve however the traveller spends them.
+		// Replaced on every new query, for the same reason every line above is reset: a new
+		// query is a new search and gets its own allowance.
+		transitLookupBudget = createTransitLookupBudget();
 		if (!activeQuery) return;
 
 		// Issue #87: `consumeSearch` is only "async" in name here — it's called without
@@ -438,7 +459,9 @@
 		// naturally outside any effect's tracking already and need no wrapping.
 		const controller = new AbortController();
 		untrack(() =>
-			consumeSearch(runSearch(activeQuery, deps(), { signal: controller.signal }), { trackWidenOptions: true })
+			consumeSearch(runSearch(activeQuery, deps(), { signal: controller.signal, transitLookupBudget }), {
+				trackWidenOptions: true
+			})
 		);
 		return () => controller.abort();
 	});
@@ -564,7 +587,8 @@
 				if (targets.length === 0) return;
 				await consumeSearch(
 					widenSearch(activeQuery, { targets, maxMeteredRequests: affordable.requests }, deps(), {
-						signal: controller.signal
+						signal: controller.signal,
+						transitLookupBudget
 					}),
 					{ trackWidenOptions: false }
 				);
@@ -811,6 +835,7 @@
 										minLayoverTime={query.minLayoverTime}
 										searchDone={primarySearchDone && !stillSearching}
 										{stayProviders}
+										{transitLookupBudget}
 									/>
 									{/key}
 								{/if}

@@ -72,7 +72,19 @@
 	import { SvelteMap } from 'svelte/reactivity';
 	import { DEFAULT_LANDING_TO_TRANSPORT_RULES } from '$lib/domain';
 	import { routeToProperty } from '$lib/search';
-	import type { PropertyRouting, TransitLegAnswer } from '$lib/search';
+	import {
+		SourceTracker,
+		TRANSIT_LEGS_TO_A_PROPERTY,
+		fetchTransitSchedules,
+		pickLandingToTransportTime
+	} from '$lib/search';
+	import type {
+		PropertyRouting,
+		TransitLegAnswer,
+		TransitLegAnswers,
+		TransitLookupBudget,
+		TransitScheduleOutcome
+	} from '$lib/search';
 	import { getProviderRegistry, hasUnconfiguredStayProvider, hasUsableStayProvider } from '$lib/results/provider-setup';
 	import { StayPicker, describeNoStays, groupByProperty, isSameProperty, propertyKey } from '$lib/stays';
 	import type { StayProviderOutcome } from '$lib/stays';
@@ -115,6 +127,13 @@
 		 * used to claim the first for both. Not frozen at expand time, for the same reason
 		 * `searchDone` is not. */
 		stayProviders?: readonly StayProviderOutcome[];
+		/**
+		 * Issue #267: the timetable ration this search is spending, so the on-demand check
+		 * below draws from it rather than from a second allowance nobody counts. The page
+		 * hands the same object to `runSearch`. Absent means the check cannot be offered at
+		 * all, which is what a test that mounts this panel bare gets.
+		 */
+		transitLookupBudget?: TransitLookupBudget;
 	}
 
 	/** Issue #114: no alternatives yet — the default for `transferOptions`/
@@ -135,7 +154,8 @@
 		females,
 		minLayoverTime,
 		searchDone = false,
-		stayProviders = []
+		stayProviders = [],
+		transitLookupBudget
 	}: Props = $props();
 
 	// Deliberately a one-time read, not a reactive derivation — see this file's header
@@ -162,6 +182,24 @@
 	 * handler writes it; a plain `Map` mutated in place would not repaint. */
 	type PropertyRouteState = PropertyRouting | { kind: 'unrouted' } | { kind: 'routing' };
 	let propertyRouting = new SvelteMap<string, PropertyRouteState>();
+
+	/**
+	 * Issue #267's timetable half: what asking Transitous about one property produced,
+	 * keyed the same way, for the lifetime of this panel.
+	 *
+	 * Separate from `propertyRouting` above because the two are asked at different times
+	 * and on different terms. The road route happens on the tap, costs OSRM requests
+	 * against a 30-day cache, and is what makes the swap useful at all. The timetable
+	 * happens only when the traveller presses for it, costs two `/plan` requests against a
+	 * volunteer-run service this search may only ask twelve times, and is a question about
+	 * a bed they have already chosen. Folding them into one state would make the cheap
+	 * answer wait for the expensive one, or spend the expensive one on every tap.
+	 *
+	 * Present means asked. There is no retry affordance: a second press would spend two
+	 * more requests to re-ask a question the service has already answered.
+	 */
+	type TransitCheckState = { kind: 'checking' } | { kind: 'checked'; answers: TransitLegAnswers };
+	let transitChecks = new SvelteMap<string, TransitCheckState>();
 
 	/** Bumped on every pick, so a route that resolves after the traveller has moved on is
 	 * kept but not applied. See `routePickedProperty`. */
@@ -313,6 +351,104 @@
 		}
 	}
 
+	/**
+	 * Issue #267: the timetable for a bed the traveller swapped to, asked because they
+	 * pressed for it.
+	 *
+	 * ## Why this is a press and not part of the swap
+	 *
+	 * A bed swap already spends 2 to 4 OSRM requests on the road route. Adding the
+	 * timetable to it would spend 2 Transitous `/plan` requests on every tap as well, so
+	 * comparing five beds would cost 10 against the 12 this app rations to a whole search,
+	 * on a free service run by volunteers. Behind a press it costs 2 when somebody has
+	 * chosen a bed and wants to know whether they can get there by bus, and nothing at all
+	 * while they are still comparing.
+	 *
+	 * ## Why it goes through the search's own budget
+	 *
+	 * `routeToProperty` sits outside `MAX_TRANSIT_LOOKUPS_PER_SEARCH` and can afford to:
+	 * it asks road modes only, so it never reaches Transitous. This does, so it draws from
+	 * the same object `runSearch` was handed. With the ration spent, `fetchTransitSchedules`
+	 * refuses the claim and answers `not-asked` / `budget-spent`, which the picker already
+	 * knows how to say. The request is never sent.
+	 *
+	 * A handler, never an `$effect`, for the same reason `routePickedProperty` is one: this
+	 * writes two pieces of `$state` and an unawaited async call inside an effect is #87.
+	 */
+	async function checkTransitForPickedProperty() {
+		const stay = itinerary.stay;
+		const airport = connectionAirport;
+		const budget = transitLookupBudget;
+		if (!stay || !airport || !budget) return;
+		const key = propertyKey(stay.property);
+		if (transitChecks.has(key)) return;
+
+		const generation = ++routingGeneration;
+		transitChecks.set(key, { kind: 'checking' });
+
+		const outcome = await checkTransitOnce(airport, budget);
+		transitChecks.set(key, { kind: 'checked', answers: outcome.answers });
+		// Same guard as `routePickedProperty`: a timetable that lands after the traveller
+		// has moved to another bed is banked under its own key and never written onto
+		// whatever is on screen now.
+		if (generation !== routingGeneration) return;
+		itinerary = outcome.itinerary;
+	}
+
+	async function checkTransitOnce(
+		airport: Airport,
+		budget: TransitLookupBudget
+	): Promise<TransitScheduleOutcome> {
+		const controller = new AbortController();
+		try {
+			return await fetchTransitSchedules({
+				itinerary,
+				connectionCoordinates: airport.coordinates,
+				// The same buffer `fetchConnectionResources` and `routeToProperty` apply, from
+				// the same function, so a bus planned here starts from the same minute the
+				// road route already assumed the traveller reaches the street.
+				connectionLandingBuffer: pickLandingToTransportTime(
+					DEFAULT_LANDING_TO_TRANSPORT_RULES,
+					airport.sizeClass
+				),
+				// The two legs the swap moved, and no others. The origin and destination legs
+				// keep the timetables the search fetched for them, which a bed swap cannot
+				// have invalidated, and asking again would double what this press costs.
+				fields: TRANSIT_LEGS_TO_A_PROPERTY,
+				transferProviders: getProviderRegistry().ofKind('transfer'),
+				keys: keyStore.availableKeys,
+				signal: controller.signal,
+				sources: new SourceTracker(),
+				// Dropped rather than folded into `SearchSnapshot.providers`, the same choice
+				// `routeOnce` makes and for the same reason: this happens after the search is
+				// over, and the provider strip reads as "what this search did".
+				record: () => {},
+				budget,
+				minLayoverTime
+			});
+		} catch (error) {
+			return {
+				itinerary,
+				answers: {
+					transferToHotel: transitLookupFailure(error),
+					transferToConnectionAirport: transitLookupFailure(error)
+				}
+			};
+		}
+	}
+
+	/** AGENTS.md, "show the error you got, never the one you assumed": whatever threw comes
+	 * through in its own words rather than as a generic "could not check". */
+	function transitLookupFailure(error: unknown): TransitLegAnswer {
+		return {
+			answer: 'failed',
+			error: {
+				code: 'unknown',
+				message: error instanceof Error ? error.message : String(error)
+			}
+		};
+	}
+
 	// `ItineraryGroup.variants`: every (outbound, onward) pair the free tier found for this
 	// stopover. `FlightPicker` dedupes internally (`flightKey`), so passing every variant's
 	// flight straight through, current pick included, is enough.
@@ -430,11 +566,29 @@
 	const swappedToAnotherProperty = $derived(
 		itinerary.stay !== undefined && !isSameProperty(itinerary.stay.property, routedProperty)
 	);
-	const hotelTransitAnswer = $derived(
-		swappedToAnotherProperty ? otherPropertyTransitAnswer : transitAnswers?.transferToHotel
-	);
-	const connectionAirportTransitAnswer = $derived(
-		swappedToAnotherProperty ? otherPropertyTransitAnswer : transitAnswers?.transferToConnectionAirport
+	const pickedPropertyKey = $derived(itinerary.stay ? propertyKey(itinerary.stay.property) : undefined);
+	const transitCheckState = $derived(pickedPropertyKey ? transitChecks.get(pickedPropertyKey) : undefined);
+
+	/** Which timetable answers describe the two in-city legs as they now stand: the
+	 * traveller's own check when they have made one, the "belongs to another bed" note
+	 * while they have not, and the search's own answers when the bed is the search's own. */
+	const connectionTransitAnswers = $derived.by<TransitLegAnswers | undefined>(() => {
+		if (transitCheckState?.kind === 'checked') return transitCheckState.answers;
+		if (!swappedToAnotherProperty) return transitAnswers;
+		return {
+			transferToHotel: otherPropertyTransitAnswer,
+			transferToConnectionAirport: otherPropertyTransitAnswer
+		};
+	});
+
+	/** Offered once per property, and only for a bed the search never asked about. The
+	 * search's own bed already has its timetable, and a second lookup for it would spend
+	 * two requests to learn what is on screen. */
+	const canCheckTransit = $derived(
+		swappedToAnotherProperty &&
+			transitLookupBudget !== undefined &&
+			connectionAirport !== undefined &&
+			transitCheckState === undefined
 	);
 
 	// The timeline's "2 flights" / "3 options" marks: only rows whose fold offers more than
@@ -502,7 +656,9 @@
 				{itinerary}
 				alternatives={hotelTransferOptions.candidates}
 				taxiFareEstimate={hotelTransferOptions.taxiFareEstimate}
-				transitAnswer={hotelTransitAnswer}
+				transitAnswer={connectionTransitAnswers?.transferToHotel}
+				oncheckTransit={canCheckTransit ? checkTransitForPickedProperty : undefined}
+				transitChecking={transitCheckState?.kind === 'checking'}
 				referenceMoment={itinerary.outboundFlight.arrival}
 				referenceLabel="you land"
 				{minLayoverTime}
@@ -562,7 +718,9 @@
 				{itinerary}
 				alternatives={connectionAirportTransferOptions.candidates}
 				taxiFareEstimate={connectionAirportTransferOptions.taxiFareEstimate}
-				transitAnswer={connectionAirportTransitAnswer}
+				transitAnswer={connectionTransitAnswers?.transferToConnectionAirport}
+				oncheckTransit={canCheckTransit ? checkTransitForPickedProperty : undefined}
+				transitChecking={transitCheckState?.kind === 'checking'}
 				{minLayoverTime}
 				onselect={applySelection}
 			/>

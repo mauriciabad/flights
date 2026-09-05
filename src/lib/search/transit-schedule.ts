@@ -126,11 +126,33 @@ export interface PlanTransitLegsInput {
 	/** `pickLandingToTransportTime` for the connection airport: how long after touchdown the
 	 * traveller can realistically be at a stop. Already folded into `transferToHotel`'s
 	 * duration by `applyLandingBuffer`, and needed separately here because the question is
-	 * "from when", not "how long". */
-	connectionLandingBuffer: Duration;
+	 * "from when", not "how long".
+	 *
+	 * Optional since issue #267, and a runway leg with no buffer is not planned at all. A
+	 * caller asking about one leg should not have to invent a number for an airport it is
+	 * not asking about, and a made-up buffer would be a made-up journey moment. */
+	connectionLandingBuffer?: Duration;
 	/** The same, for the destination airport. */
-	destinationLandingBuffer: Duration;
+	destinationLandingBuffer?: Duration;
+	/**
+	 * Issue #267: ask about these legs and no others. Absent means every leg the itinerary
+	 * has, which is what a search asks.
+	 *
+	 * The detail panel asks about the two in-city legs alone. A bed swap moves those two to
+	 * an address nobody holds a timetable for and leaves the outer two exactly as they
+	 * were, so re-asking all four would spend two lookups on legs the swap never touched.
+	 * Against a volunteer-run service rationed to `MAX_TRANSIT_LOOKUPS_PER_SEARCH` per
+	 * search, that is the difference between a traveller's deliberate question costing 2
+	 * and costing 4.
+	 */
+	fields?: readonly TransitLegField[];
 }
+
+/** The two legs a bed swap moves: issue #267's on-demand check asks about exactly these. */
+export const TRANSIT_LEGS_TO_A_PROPERTY: readonly TransitLegField[] = [
+	'transferToHotel',
+	'transferToConnectionAirport'
+];
 
 /**
  * Every transit question this itinerary raises, each with the moment that makes it
@@ -156,12 +178,16 @@ export function planTransitLegs(input: PlanTransitLegsInput): TransitLegPlan[] {
 	}
 
 	if (itinerary.stay && input.connectionCoordinates) {
-		plans.push({
-			field: 'transferToHotel',
-			from: input.connectionCoordinates,
-			to: itinerary.stay.property.coordinates,
-			moment: { time: addLocalMinutes(itinerary.outboundFlight.arrival, input.connectionLandingBuffer), arriveBy: false }
-		});
+		// Only the runway leg needs the buffer. The ride back to the airport is a deadline
+		// and derives its own moment, so it is still planned when nobody supplied one.
+		if (input.connectionLandingBuffer !== undefined) {
+			plans.push({
+				field: 'transferToHotel',
+				from: input.connectionCoordinates,
+				to: itinerary.stay.property.coordinates,
+				moment: { time: addLocalMinutes(itinerary.outboundFlight.arrival, input.connectionLandingBuffer), arriveBy: false }
+			});
+		}
 		const connectionMoment = transitLegMoment(itinerary, 'transferToConnectionAirport');
 		if (connectionMoment) {
 			plans.push({
@@ -173,7 +199,7 @@ export function planTransitLegs(input: PlanTransitLegsInput): TransitLegPlan[] {
 		}
 	}
 
-	if (itinerary.destinationLocation) {
+	if (itinerary.destinationLocation && input.destinationLandingBuffer !== undefined) {
 		plans.push({
 			field: 'transferToDestinationLocation',
 			from: itinerary.destinationAirport.coordinates,
@@ -182,7 +208,7 @@ export function planTransitLegs(input: PlanTransitLegsInput): TransitLegPlan[] {
 		});
 	}
 
-	return plans;
+	return input.fields ? plans.filter((plan) => input.fields!.includes(plan.field)) : plans;
 }
 
 export interface FetchTransitSchedulesInput extends PlanTransitLegsInput {
@@ -351,8 +377,11 @@ function startsAtARunway(field: TransitLegField): boolean {
 	return field === 'transferToHotel' || field === 'transferToDestinationLocation';
 }
 
+/** Zero is unreachable for a leg that was planned at all: `planTransitLegs` only plans a
+ * runway leg once its buffer is known, and only a planned leg reaches this. */
 function bufferFor(field: TransitLegField, input: PlanTransitLegsInput): Duration {
-	return field === 'transferToHotel' ? input.connectionLandingBuffer : input.destinationLandingBuffer;
+	const buffer = field === 'transferToHotel' ? input.connectionLandingBuffer : input.destinationLandingBuffer;
+	return buffer ?? (0 as Duration);
 }
 
 /** Among transit options for one leg, the quickest — the same tie-break `pickBestTransfer`
