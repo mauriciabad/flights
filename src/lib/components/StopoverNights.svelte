@@ -192,6 +192,11 @@
 		justify-content: center;
 		gap: 1px;
 		min-height: 2.75rem;
+		/* The two lines inside never wrap, so a stub is as wide as its widest line. This
+		   clamp is what stops an unusually long one (a currency whose formatted delta runs
+		   past the card, say) pushing the row out of the card rather than taking a row of
+		   its own. */
+		max-width: 100%;
 		padding: var(--space-1) var(--space-3);
 		border: 1px solid var(--color-border-strong);
 		border-radius: var(--radius-md);

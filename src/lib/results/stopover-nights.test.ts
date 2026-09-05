@@ -43,7 +43,7 @@ describe('stopoverLengthLabel', () => {
 });
 
 describe('stopoverLadder', () => {
-	it('prices the owner’s own example, second night included', () => {
+	it('prices the example the owner was shown, second night included', () => {
 		// The measurement that decided this issue's shape. BVC to PFO via London: one night
 		// EUR 265.00, two nights EUR 262.00 on a different onward fare, three nights
 		// EUR 289.00. Priced off the bed's EUR 13.00 nightly rate the second night would
