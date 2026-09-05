@@ -2,6 +2,7 @@
 	{ "iataCode": "BCN", "name": "FIXTURE mock airport record", "timeZone": "Europe/Madrid", "routes": ["airport:VIE", "airport:STN", "airport:TLL"] },
 	{ "iataCode": "TLL", "name": "FIXTURE mock airport record", "timeZone": "Europe/Tallinn", "routes": ["airport:VIE", "airport:STN", "airport:BCN"] },
 	{ "iataCode": "STN", "name": "FIXTURE mock airport record", "timeZone": "Europe/London", "routes": ["airport:VIE", "airport:TLL", "airport:BCN"] },
+	{ "iataCode": "BER", "name": "FIXTURE mock airport record", "timeZone": "Europe/Berlin", "routes": ["airport:VIE", "airport:STN", "airport:TLL"] },
 	{ "iataCode": "CRL", "name": "FIXTURE mock airport record", "timeZone": "Europe/Brussels", "routes": ["airport:VIE", "airport:STN", "airport:TLL"] },
 	{ "iataCode": "WAW", "name": "FIXTURE mock airport record", "timeZone": "Europe/Warsaw", "routes": ["airport:VIE", "airport:STN", "airport:TLL"] },
 	{ "iataCode": "BUD", "name": "FIXTURE mock airport record", "timeZone": "Europe/Budapest", "routes": ["airport:VIE", "airport:STN", "airport:TLL"] },

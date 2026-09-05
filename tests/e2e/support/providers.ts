@@ -74,18 +74,86 @@ function daysInMonth(year: number, month: number): number {
 }
 
 /**
+ * Every airport the mocked active-airports list carries an IANA zone for, which is the set
+ * of airports a mocked fare can actually become an offer at. Issue #354.
+ *
+ * Read from the fixture rather than typed out again, so adding an airport there is the
+ * whole of adding it.
+ */
+function timeableAirports(): Set<string> {
+	const airports = JSON.parse(loadFixture('ryanair/active-airports.json')) as {
+		iataCode?: string;
+		timeZone?: string;
+	}[];
+	return new Set(airports.filter((airport) => airport.timeZone).map((airport) => airport.iataCode!));
+}
+
+/**
+ * Refuses to mock a fare at an airport the mocked airport list cannot put a clock on.
+ *
+ * Issue #354, and the afternoon it cost is the argument for it existing. Berlin was proposed
+ * as a stopover on BCN -> TLL and then refused with "Nothing flies here", against a fixture
+ * that priced BCN-BER exactly as it priced the four cities that worked. Request by request
+ * the four BER got and the four Charleroi got were the same paths carrying the same bytes.
+ * The response that differed was a fifth one nobody was looking at: `active-airports`, which
+ * is where this adapter reads every airport's IANA zone, and BER was not in it.
+ *
+ * From there it is quiet the whole way down. `ryanair-mapper.ts` drops a fare whose origin or
+ * destination has no zone, because issue #93 decided that a wrong UTC offset silently moves
+ * an overnight connection by a night. `processCandidate` then sees zero outbound offers and
+ * blocks the candidate as `no-outbound-flight`, whose sentence since issue #340 is "Nothing
+ * flies here". Nothing logs, nothing fails, and the reason on screen is untrue.
+ *
+ * The fares fixture and the airport list are two halves of one answer and a spec only writes
+ * the first, so the second is the half that gets forgotten. Throwing here names the airport
+ * at the moment somebody adds the flight.
+ */
+function assertAirportsCanBeTimed(flights: readonly RyanairFlightSpec[]) {
+	const timeable = timeableAirports();
+	const missing = [...new Set(flights.flatMap((flight) => [flight.dep, flight.arr]))]
+		.filter((iataCode) => !timeable.has(iataCode))
+		.sort();
+	if (missing.length === 0) return;
+	throw new Error(
+		`routeRyanairFlights was asked to price a flight at ${missing.join(', ')}, and ` +
+			'tests/e2e/fixtures/ryanair/active-airports.json has no time zone for ' +
+			`${missing.length > 1 ? 'those airports' : 'that airport'}. Every fare there is ` +
+			'dropped by ryanair-mapper.ts and the city is then refused with "Nothing flies here", ' +
+			'which is not true and is issue #354. Add it to that fixture with its IANA zone, or ' +
+			'pass `{ airportsAnsweredBySpec: true }` if this spec answers the active-airports ' +
+			'endpoint itself.'
+	);
+}
+
+export interface RouteRyanairFlightsOptions {
+	/** Set when the spec registers its own `active-airports` response, which brings its own
+	 * zone table and makes the check above measure the wrong list.
+	 * `itinerary-map-transfers.spec.ts` does exactly that, building a fictional three-airport
+	 * network for a map it wants exact geometry from. */
+	airportsAnsweredBySpec?: boolean;
+}
+
+/**
  * Answers both `services-api.ryanair.com` endpoints the adapter needs from one list of
  * flights (issue #137): `cheapestPerDay` for the prices and `timtbl/3/schedules` for the
  * flight numbers. Neither alone produces a single offer — the adapter drops any fare the
  * timetable does not confirm — so a test that mocks only one gets zero itineraries and no
  * clue why, which is exactly what this helper exists to prevent.
  *
+ * It refuses outright to price a flight at an airport the mocked airport list cannot time,
+ * for the same reason and after the same failure. See `assertAirportsCanBeTimed`.
+ *
  * Days with no matching flight come back as `unavailable`, the way Ryanair itself answers
  * a day (or a whole route) it does not sell. Note that the fare calendar prices at most one
  * flight per day, so two flights on the same route and date cannot both be returned — give
  * them different dates.
  */
-export async function routeRyanairFlights(target: Routable, flights: readonly RyanairFlightSpec[]) {
+export async function routeRyanairFlights(
+	target: Routable,
+	flights: readonly RyanairFlightSpec[],
+	options: RouteRyanairFlightsOptions = {}
+) {
+	if (!options.airportsAnsweredBySpec) assertAirportsCanBeTimed(flights);
 	await target.route('https://services-api.ryanair.com/**', async (route) => {
 		const url = new URL(route.request().url());
 
