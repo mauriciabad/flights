@@ -8,8 +8,19 @@
 				{
 					"mode": "BUS",
 					"routeShortName": "FIXTURE",
-					"from": { "name": "FIXTURE Bravo Airport", "lat": 48.1103, "lon": 16.5697 },
-					"to": { "name": "FIXTURELAND Hauptbahnhof", "lat": 48.185, "lon": 16.377 },
+					"duration": 1500,
+					"from": {
+						"name": "FIXTURE Bravo Airport",
+						"lat": 48.1103,
+						"lon": 16.5697,
+						"tz": "Europe/Vienna"
+					},
+					"to": {
+						"name": "FIXTURELAND Hauptbahnhof",
+						"lat": 48.185,
+						"lon": 16.377,
+						"tz": "Europe/Vienna"
+					},
 					"startTime": "2027-03-08T09:40:00Z",
 					"endTime": "2027-03-08T10:05:00Z"
 				}
