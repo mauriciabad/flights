@@ -857,7 +857,14 @@
 	}
 
 	function onDocumentKeydown(event: KeyboardEvent) {
-		if (event.key === 'Escape' && customising) closeCustomiser();
+		if (event.key !== 'Escape' || !customising) return;
+		// Whatever is in the top layer owns Escape while it is up, and issue #280's route map
+		// is a real `<dialog>` reached from a ground preview inside the timeline. A press
+		// there means "close the map", and closing the customise panel underneath it as well
+		// would take away the selection the map just made. The dialog is still open when this
+		// runs: its own close is the keydown's default action, which happens after listeners.
+		if (document.querySelector('dialog[open]')) return;
+		closeCustomiser();
 	}
 
 	let filtersOpenOnPhone = $state(false);

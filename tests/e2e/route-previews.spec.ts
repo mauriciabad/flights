@@ -1,6 +1,7 @@
 import { test, expect, type Page } from './support/fixtures';
 import { FIXTURE_FLIGHT_NUMBERS, FIXTURE_PRICES } from './support/fixture-markers';
 import { mockAllKeylessProviders, routeRyanairFlights } from './support/providers';
+import { openTimeline } from './support/results-ui';
 
 /**
  * Issue #280: the frozen previews, and the one map that is still a map.
@@ -95,8 +96,11 @@ test.describe('frozen route previews (issue #280)', () => {
 		await search(page, BOTH_ENDS);
 
 		await expect(page.locator('.result-card').first()).toBeVisible();
-		for (const toggle of await page.getByRole('button', { name: 'Show details' }).all()) {
-			await toggle.click();
+		// Issue #278: every card, one at a time. The unfold control is the trip strip's own
+		// stopover caption, so its accessible name carries the city and cannot be matched by
+		// a fixed string; the class is what identifies it.
+		for (const unfold of await page.locator('.trip-strip-unfold').all()) {
+			await unfold.click();
 		}
 		await expect(page.locator('.ground-legs-item').first()).toBeVisible();
 
@@ -119,7 +123,7 @@ test.describe('frozen route previews (issue #280)', () => {
 		// and the concern is whether following it can leave the row wrong: a leg vanishing,
 		// or a second copy of one appearing.
 		await search(page, BOTH_ENDS);
-		await page.getByRole('button', { name: 'Show details' }).first().click();
+		await openTimeline(page);
 
 		const detail = page.locator('.result-detail');
 		const items = detail.locator('.ground-legs-item');
@@ -142,7 +146,7 @@ test.describe('frozen route previews (issue #280)', () => {
 
 	test('three ground legs render three previews, each with real size', async ({ page }) => {
 		await search(page, BOTH_ENDS);
-		await page.getByRole('button', { name: 'Show details' }).first().click();
+		await openTimeline(page);
 
 		const detail = page.locator('.result-detail');
 		const items = detail.locator('.ground-legs-item');
@@ -162,7 +166,7 @@ test.describe('frozen route previews (issue #280)', () => {
 
 	test('a missing origin location leaves two previews, each wider than three would be', async ({ page }) => {
 		await search(page, { toLoc: BOTH_ENDS.toLoc });
-		await page.getByRole('button', { name: 'Show details' }).first().click();
+		await openTimeline(page);
 
 		const detail = page.locator('.result-detail');
 		const items = detail.locator('.ground-legs-item');
@@ -181,7 +185,7 @@ test.describe('frozen route previews (issue #280)', () => {
 		page
 	}) => {
 		await search(page, BOTH_ENDS);
-		await page.getByRole('button', { name: 'Show details' }).first().click();
+		await openTimeline(page);
 
 		const detail = page.locator('.result-detail');
 		const trigger = detail.locator('.ground-leg').first();
@@ -212,7 +216,7 @@ test.describe('frozen route previews (issue #280)', () => {
 
 	test('the close button returns to the results the same way Escape does', async ({ page }) => {
 		await search(page, BOTH_ENDS);
-		await page.getByRole('button', { name: 'Show details' }).first().click();
+		await openTimeline(page);
 
 		const trigger = page.locator('.result-detail .ground-leg').first();
 		await trigger.click();
@@ -228,7 +232,7 @@ test.describe('frozen route previews (issue #280)', () => {
 
 	test('ten opens and closes leave no map behind', async ({ page }) => {
 		await search(page, BOTH_ENDS);
-		await page.getByRole('button', { name: 'Show details' }).first().click();
+		await openTimeline(page);
 
 		const previews = page.locator('.result-detail .ground-leg');
 		const dialog = page.locator('dialog.route-dialog');
@@ -249,7 +253,7 @@ test.describe('frozen route previews (issue #280)', () => {
 
 	test('the dialog opens framed on the leg that was tapped', async ({ page }) => {
 		await search(page, BOTH_ENDS);
-		await page.getByRole('button', { name: 'Show details' }).first().click();
+		await openTimeline(page);
 
 		// The stopover leg, second of the three, so a wrong pick reads as the wrong sentence
 		// rather than coincidentally matching the first.
