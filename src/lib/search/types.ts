@@ -33,6 +33,7 @@
  * rather than a diff.
  */
 
+import type { ConnectionBlock } from '../algorithm/build';
 import type { ConnectionCandidate as AlgorithmConnectionCandidate } from '../algorithm/connections';
 import type { ItineraryScore } from '../algorithm/score';
 import type {
@@ -55,6 +56,7 @@ import type { TransitLookupBudget } from './transit-schedule';
 
 export type { Airport };
 export type ConnectionCandidate = AlgorithmConnectionCandidate;
+export type { ConnectionBlock };
 
 /**
  * Everything the pipeline needs from the outside world, gathered in one place so
@@ -419,6 +421,17 @@ export interface SearchSnapshot {
 	 * these two legs to go, so there is nothing to offer alternatives for either).
 	 */
 	transferOptionsByConnection: Record<IataAirportCode, ConnectionTransferOptions>;
+	/**
+	 * Issue #324: why each finished candidate carries no itinerary, keyed by airport code.
+	 * Written by the rules that refused the pairing (`algorithm/build.ts`'s
+	 * `pairConnections`, plus the two checks `pipeline.ts` makes before it) and never
+	 * re-derived by a reader.
+	 *
+	 * A candidate absent from BOTH this and `itineraryGroups` has not finished yet, which
+	 * is a third state and not a synonym for either. The connections map draws it as
+	 * pending rather than asserting anything about the route.
+	 */
+	blockedConnections: Record<IataAirportCode, ConnectionBlock>;
 	/**
 	 * Issue #114: alternatives for the two legs that never depend on which connection wins
 	 * (origin location to origin airport, destination airport to destination location).

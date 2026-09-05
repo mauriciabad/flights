@@ -37,7 +37,8 @@
 
 import { DEFAULT_MAX_CANDIDATES, findConnectionCandidates, hasKnownDirectRoute } from '../algorithm/connections';
 import type { ConnectionAirportInfo } from '../algorithm/connections';
-import { buildItineraries } from '../algorithm/build';
+import { pairConnections } from '../algorithm/build';
+import type { ConnectionBlock } from '../algorithm/build';
 import { discoverCandidateViaCalendar } from './calendar-discovery';
 import { confirmTargetFor, narrowToConfirmTarget } from './confirm-target';
 import { DEFAULT_SCORING_WEIGHTS, rankItineraries } from '../algorithm/score';
@@ -409,6 +410,11 @@ interface CandidateOutcome {
 	/** Issue #114: both connection-side legs' transfer alternatives and taxi fare estimates,
 	 * the transfer equivalent of `stayCandidates` above. */
 	transferOptions: ConnectionTransferOptions;
+	/** Issue #324: why this candidate produced no itinerary. Absent whenever `itineraries`
+	 * carries one, and absent on an aborted search, where nothing was decided and saying
+	 * "nothing flies here" would be this app reporting its own cancellation as a fact about
+	 * the route. */
+	block?: ConnectionBlock;
 }
 
 /**
@@ -447,10 +453,15 @@ async function processCandidate(input: ProcessCandidateInput): Promise<Candidate
 		stayCandidates: [],
 		transferOptions: NO_CONNECTION_TRANSFER_OPTIONS
 	};
+	/** Issue #324: the same empty outcome, carrying the rule that emptied it. Every reason
+	 * below is one this function already decided; none of them is re-derived downstream. */
+	const blockedBy = (block: ConnectionBlock): CandidateOutcome => ({ ...empty, block });
+
 	if (input.signal.aborted) return empty;
 
 	const connectionAirport = await input.resolveAirport(input.candidate.airportCode);
-	if (!connectionAirport) return empty; // No dataset entry — nowhere to send the traveller.
+	// No dataset entry — nowhere to send the traveller.
+	if (!connectionAirport) return blockedBy({ reason: 'airport-unknown' });
 
 	const outboundQuery = outboundLegQuery(
 		input.query,
@@ -470,7 +481,8 @@ async function processCandidate(input: ProcessCandidateInput): Promise<Candidate
 	if (input.signal.aborted) return empty;
 	// Nothing flies this way, so nothing below is worth asking about. See this function's
 	// own comment for what asking anyway cost.
-	if (outboundOffers.length === 0 || onwardOffers.length === 0) return empty;
+	if (outboundOffers.length === 0) return blockedBy({ reason: 'no-outbound-flight' });
+	if (onwardOffers.length === 0) return blockedBy({ reason: 'no-onward-flight' });
 
 	// Issue #94: `resources` itself is never `undefined` — a missing stay degrades
 	// `resources.stay` to `undefined` rather than dropping the candidate, so having no
@@ -501,7 +513,7 @@ async function processCandidate(input: ProcessCandidateInput): Promise<Candidate
 	if (input.signal.aborted) return empty;
 
 	try {
-		const itineraries = buildItineraries({
+		const { itineraries, blocked } = pairConnections({
 			originAirport: input.originAirport,
 			destinationAirport: input.destinationAirport,
 			outboundOffers,
@@ -578,6 +590,7 @@ async function processCandidate(input: ProcessCandidateInput): Promise<Candidate
 		return {
 			candidate: input.candidate,
 			itineraries: results,
+			block: blocked[input.candidate.airportCode],
 			stayCandidates: resources.stayCandidates,
 			// Deliberately NOT widened with the transit transfers `fetchTransitSchedules` just
 			// found. These lists are shared by every variant in the group and, for the outer
@@ -604,8 +617,22 @@ async function processCandidate(input: ProcessCandidateInput): Promise<Candidate
 		// the same one to make this rare. Degrading this one candidate, rather than the
 		// whole search, is the same "one failure must never fail a search" contract this
 		// pipeline holds for a provider error.
-		return empty;
+		return blockedBy({ reason: 'prices-disagree' });
 	}
+}
+
+/**
+ * Issue #324: keeps the map of refusals in step with the map of results, in the one place
+ * both `runSearch` and `widenSearch` call.
+ *
+ * The delete matters as much as the set. A widen can price a candidate the free tier could
+ * not, and a connection that has just produced its first itinerary must stop carrying the
+ * sentence saying it produced none, or the map draws a route and captions it "nothing flies
+ * onward from here".
+ */
+function recordBlock(blockedConnections: Map<IataAirportCode, ConnectionBlock>, outcome: CandidateOutcome): void {
+	if (outcome.itineraries.length > 0 || !outcome.block) blockedConnections.delete(outcome.candidate.airportCode);
+	else blockedConnections.set(outcome.candidate.airportCode, outcome.block);
 }
 
 /** Issue #114: no outer-leg alternatives resolved yet — every `SearchSnapshot` before
@@ -630,6 +657,7 @@ function makeSnapshotFn(
 	providerStatus: Map<ProviderId, ProviderStatus>,
 	stayCandidatesByConnection: Map<IataAirportCode, Stay[]>,
 	transferOptionsByConnection: Map<IataAirportCode, ConnectionTransferOptions>,
+	blockedConnections: Map<IataAirportCode, ConnectionBlock>,
 	outerTransferOptionsRef: { current: OuterTransferOptions }
 ) {
 	let sequence = 0;
@@ -650,6 +678,7 @@ function makeSnapshotFn(
 			widenOptions,
 			stayCandidatesByConnection: Object.fromEntries(stayCandidatesByConnection),
 			transferOptionsByConnection: Object.fromEntries(transferOptionsByConnection),
+			blockedConnections: Object.fromEntries(blockedConnections),
 			outerTransferOptions: outerTransferOptionsRef.current,
 			hasDirectRoute
 		};
@@ -790,12 +819,14 @@ export async function* runSearch(
 	const results: ItineraryResult[] = [];
 	const stayCandidatesByConnection = new Map<IataAirportCode, Stay[]>();
 	const transferOptionsByConnection = new Map<IataAirportCode, ConnectionTransferOptions>();
+	const blockedConnections = new Map<IataAirportCode, ConnectionBlock>();
 	const outerTransferOptionsRef = { current: NO_OUTER_TRANSFER_OPTIONS };
 	const snapshot = makeSnapshotFn(
 		results,
 		providerStatus,
 		stayCandidatesByConnection,
 		transferOptionsByConnection,
+		blockedConnections,
 		outerTransferOptionsRef
 	);
 
@@ -1009,6 +1040,7 @@ export async function* runSearch(
 		results.push(...outcome.itineraries);
 		stayCandidatesByConnection.set(outcome.candidate.airportCode, outcome.stayCandidates);
 		transferOptionsByConnection.set(outcome.candidate.airportCode, outcome.transferOptions);
+		recordBlock(blockedConnections, outcome);
 		yield snapshot('stage1', candidatesToRun, false, widenOptions);
 	}
 
@@ -1065,6 +1097,7 @@ export async function* runSearch(
 				results.push(...outcome.itineraries);
 				stayCandidatesByConnection.set(outcome.candidate.airportCode, outcome.stayCandidates);
 				transferOptionsByConnection.set(outcome.candidate.airportCode, outcome.transferOptions);
+				recordBlock(blockedConnections, outcome);
 				yield snapshot('stage1', finalCandidates, false, finalWidenOptions);
 			}
 		}
@@ -1127,12 +1160,14 @@ export async function* widenSearch(
 	const results: ItineraryResult[] = [];
 	const stayCandidatesByConnection = new Map<IataAirportCode, Stay[]>();
 	const transferOptionsByConnection = new Map<IataAirportCode, ConnectionTransferOptions>();
+	const blockedConnections = new Map<IataAirportCode, ConnectionBlock>();
 	const outerTransferOptionsRef = { current: NO_OUTER_TRANSFER_OPTIONS };
 	const snapshot = makeSnapshotFn(
 		results,
 		providerStatus,
 		stayCandidatesByConnection,
 		transferOptionsByConnection,
+		blockedConnections,
 		outerTransferOptionsRef
 	);
 
@@ -1282,6 +1317,7 @@ export async function* widenSearch(
 		results.push(...outcome.itineraries);
 		stayCandidatesByConnection.set(outcome.candidate.airportCode, outcome.stayCandidates);
 		transferOptionsByConnection.set(outcome.candidate.airportCode, outcome.transferOptions);
+		recordBlock(blockedConnections, outcome);
 		yield snapshot('stage2', candidates, false);
 	}
 

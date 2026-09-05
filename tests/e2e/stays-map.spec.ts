@@ -102,6 +102,33 @@ async function openStays(page: Page): Promise<string[]> {
 	return requested;
 }
 
+/**
+ * Issue #324 moved this dialog's near-fullscreen shell into `MapDialog`, and the parts of
+ * that shell no assertion about words can see are the margin `clamp()`, the safe-area
+ * insets, the `::backdrop` tint and the 52rem split. So the surface is photographed at both
+ * widths in both schemes, and a reviewer comparing against `main` is the check. Tagged
+ * `@screenshot`, out of `pnpm test:e2e`, for the reason `route-previews.screenshots.spec.ts`
+ * gives: its output is files a person looks at.
+ */
+for (const width of [375, 1280] as const) {
+	for (const scheme of ['dark', 'light'] as const) {
+		test(`@screenshot stays dialog ${width} ${scheme}`, async ({ page }) => {
+			test.setTimeout(180_000);
+			await page.setViewportSize({ width, height: width === 375 ? 900 : 1000 });
+			await page.emulateMedia({ colorScheme: scheme });
+			await openStays(page);
+			await page.locator('.stay-map-open').click();
+			const dialog = page.locator('dialog.stays-dialog');
+			await expect(dialog.getByTestId('stays-sidebar')).toBeVisible({ timeout: 30_000 });
+			// A point only exists once MapLibre has fired `load` and the markers are drawn.
+			// Shooting on the sidebar alone photographed an empty rectangle, which is a
+			// convincing picture of a broken map.
+			await expect(page.locator('.stay-point').first()).toBeVisible({ timeout: 30_000 });
+			await page.screenshot({ path: `docs/screenshots/324-stays-${width}-${scheme}.png` });
+		});
+	}
+}
+
 test.describe('the alternatives list (issue #319)', () => {
 	test.use({ viewport: { width: 1280, height: 900 } });
 
