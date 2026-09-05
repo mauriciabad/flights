@@ -36,7 +36,7 @@
 	 * one at a time, behind a click that already says the traveller is interested. Nothing
 	 * is fetched here until a point is chosen.
 	 */
-	import { Button } from '$lib/components';
+	import { Button, Icon } from '$lib/components';
 	import type { Airport, Stay } from '$lib/domain';
 	import { formatPropertyRating } from '$lib/format';
 	import { describePriceComparison, stayDistances, type StayChoice } from './choice';
@@ -98,9 +98,7 @@
 				class="stays-dialog-close"
 				onclick={(event) => event.currentTarget.closest('dialog')?.close()}
 			>
-				<svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
-					<path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
-				</svg>
+				<Icon name="x" />
 				Close
 			</button>
 		</div>
@@ -109,15 +107,7 @@
 			<div class="stays-sidebar" data-testid="stays-sidebar">
 				{#if open}
 					<button type="button" class="stays-back" onclick={() => (selectedKey = null)}>
-						<svg viewBox="0 0 16 16" fill="none" aria-hidden="true" focusable="false">
-							<path
-								d="M10 3 5 8l5 5"
-								stroke="currentColor"
-								stroke-width="1.6"
-								stroke-linecap="round"
-								stroke-linejoin="round"
-							/>
-						</svg>
+						<Icon name="chevron-left" />
 						All {choices.length} stays
 					</button>
 
@@ -311,7 +301,7 @@
 		-webkit-tap-highlight-color: transparent;
 	}
 
-	.stays-dialog-close svg {
+	.stays-dialog-close :global(svg) {
 		width: 0.875rem;
 		height: 0.875rem;
 	}
@@ -410,7 +400,7 @@
 		border-color: var(--color-border-strong);
 	}
 
-	.stays-back svg {
+	.stays-back :global(svg) {
 		width: 0.75rem;
 		height: 0.75rem;
 	}

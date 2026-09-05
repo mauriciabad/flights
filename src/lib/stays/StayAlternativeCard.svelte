@@ -45,6 +45,7 @@
 	 * here. This row keeps its single lazy thumbnail.
 	 */
 	import { describePriceComparison, stayDistances, type StayChoice } from './choice';
+	import { Icon } from '$lib/components';
 	import { formatPropertyRating } from '$lib/format';
 	import { formatMoney } from './pricing';
 	import { originalStayPhoto } from '$lib/providers/stays/original-photo';
@@ -82,15 +83,7 @@
 		{#if image}
 			<img src={image} alt="" loading="lazy" onerror={() => (failedPhotoOf = property.images[0])} />
 		{:else}
-			<svg viewBox="0 0 24 24" fill="none">
-				<path
-					d="M4 20V9l8-5 8 5v11"
-					stroke="currentColor"
-					stroke-width="1.6"
-					stroke-linejoin="round"
-				/>
-				<path d="M9 20v-6h6v6" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" />
-			</svg>
+			<Icon name="home" />
 		{/if}
 	</span>
 
@@ -199,7 +192,7 @@
 		object-fit: cover;
 	}
 
-	.alt-card-thumb svg {
+	.alt-card-thumb :global(svg) {
 		width: 1.5rem;
 		height: 1.5rem;
 	}
