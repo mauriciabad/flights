@@ -169,16 +169,20 @@ export async function routeToProperty(
   return { kind: "routed", transferToHotel, transferToConnectionAirport };
 }
 
-/** The first provider error verbatim, status code included where the provider gave one.
- * Never this app's own paraphrase of it. */
+/**
+ * The first provider error verbatim, never this app's own paraphrase of it, and with the
+ * HTTP status where `ProviderError`'s union carries one. AGENTS.md is emphatic about that
+ * last part: "`403` versus `200`-with-an-error-body is exactly the distinction that went
+ * missing, and it is what eventually resolved this."
+ */
 function firstFailure(
   results: readonly ProviderResult<Transfer[]>[],
 ): string | undefined {
   for (const result of results) {
     if (result.ok) continue;
-    return result.error.message
-      ? `${result.error.code}: ${result.error.message}`
-      : result.error.code;
+    const { error } = result;
+    const code = "status" in error ? `${error.code} ${error.status}` : error.code;
+    return error.message ? `${code}: ${error.message}` : code;
   }
   return undefined;
 }

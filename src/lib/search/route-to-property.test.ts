@@ -23,8 +23,7 @@ const RULES = DEFAULT_LANDING_TO_TRANSPORT_RULES;
 function source(id: string): ProviderSource {
   return {
     providerId: id as ProviderId,
-    label: `Fixture (${id})`,
-    fetchedAt: new Date("2026-10-06T12:00:00Z"),
+    fetchedAt: "2026-10-06T12:00:00.000Z",
   };
 }
 
@@ -139,7 +138,7 @@ describe("routing to a property the search never picked (issue #267)", () => {
     const broke = fixtureProvider(
       () => ({
         ok: false,
-        error: { code: "http-error", message: "429 Too Many Requests" },
+        error: { code: "quota-exceeded", message: "Too Many Requests", status: 429 },
         source: source("broke"),
         requestsUsed: 1,
       }),
@@ -150,8 +149,9 @@ describe("routing to a property the search never picked (issue #267)", () => {
 
     const failed = await routeToProperty(inputWith([broke]));
     if (failed.kind !== "failed") throw new Error(`expected failed, got ${failed.kind}`);
-    // The provider's own words and its own code, not a paraphrase.
-    expect(failed.message).toBe("http-error: 429 Too Many Requests");
+    // The provider's own words, its own code and its own status. AGENTS.md: "403 versus
+    // 200-with-an-error-body is exactly the distinction that went missing".
+    expect(failed.message).toBe("quota-exceeded 429: Too Many Requests");
   });
 
   it("drops a route no traveller could take rather than offering it (issue #119)", async () => {
