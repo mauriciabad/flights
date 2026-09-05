@@ -121,16 +121,25 @@ function flightNumbersOffered(bench: Bench): Set<string> {
  * the timeline is read from the row. Cards are opened one at a time because the page owns a
  * single `expandedId` and opening a second closes the first.
  */
+/**
+ * Every flight row the full timeline draws for one card, unfolded and folded again.
+ *
+ * Issue #278 replaced the card's "Show details" button with the trip strip's own stopover
+ * caption, and moved the timeline inside the card rather than into a sibling below it, so
+ * both the gesture and the ancestor walk changed. The rest of this check is untouched: it
+ * still reads `.tl-row-flight` and it still fails loudly on an empty list, which is the
+ * assertion that caught this rename rather than passing vacuously over it.
+ */
 async function flightsShownOn(card: import('@playwright/test').Locator): Promise<string[]> {
-	const toggle = card.getByRole('button', { name: /details/i }).first();
-	if ((await toggle.count()) === 0) return [];
-	await toggle.click();
+	const unfold = card.locator('.trip-strip-unfold').first();
+	if ((await unfold.count()) === 0) return [];
+	await unfold.click();
 
-	const rows = card.locator('xpath=ancestor::li[1]').locator('.tl-row-flight');
+	const rows = card.locator('.tl-row-flight');
 	await rows.first().waitFor({ state: 'visible', timeout: 15_000 });
 	const lines = await rows.allInnerTexts();
 
-	await toggle.click();
+	await unfold.click();
 	return lines.map((row) => row.replace(/\s+/g, ' ').trim()).filter(Boolean);
 }
 
