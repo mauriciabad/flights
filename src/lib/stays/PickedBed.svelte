@@ -49,7 +49,7 @@
 	import { ModeIcon } from '$lib/components';
 	import type { Property, TransferMode } from '$lib/domain';
 	import { formatPropertyRating } from '$lib/format';
-	import { originalBookingPhoto } from '$lib/providers/stays/booking-photo';
+	import { originalStayPhoto } from '$lib/providers/stays/original-photo';
 
 	interface Props {
 		/** Name, photographs, rating and the women-only restriction. The three after the
@@ -85,8 +85,9 @@
 	 * existed rather than an empty box. `broken` is a photograph that failed with nothing
 	 * left to try.
 	 *
-	 * Only Booking needs a fallback, so only Booking is asked. A second provider wanting one
-	 * turns that call into a table; one does not.
+	 * Booking was the only provider rewriting a URL when this was written. Issue #281 made
+	 * Agoda a second, so the reverse lookup is now `original-photo.ts`'s table and this asks
+	 * it rather than naming a provider.
 	 */
 	let fallbacks = $state<Record<number, string>>({});
 	let broken = $state<Record<number, true>>({});
@@ -177,7 +178,7 @@
 	}
 
 	function onPhotoError(i: number) {
-		const fallback = fallbacks[i] === undefined ? originalBookingPhoto(photos[i].original) : undefined;
+		const fallback = fallbacks[i] === undefined ? originalStayPhoto(photos[i].original) : undefined;
 		if (fallback) {
 			fallbacks[i] = fallback;
 			return;

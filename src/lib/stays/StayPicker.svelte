@@ -20,7 +20,7 @@
 	import { cheapestSelectableOption, isOptionSelectable, rankProperties } from './rank';
 	import { describeNoStays, type StayProviderOutcome } from './no-stays-reason';
 	import { propertyOf, type PropertyStayOptions } from './types';
-	import { originalAgodaPhoto } from '$lib/providers/stays/agoda-photo';
+	import { originalStayPhoto } from '$lib/providers/stays/original-photo';
 
 	interface Props {
 		/** Every candidate property for this connection, each with its priced room-kind
@@ -117,7 +117,7 @@
 	const openPhoto = $derived.by(() => {
 		const stored = openProperty?.images[0];
 		if (!stored) return undefined;
-		return stored === failedPhotoOf ? (originalAgodaPhoto(stored) ?? stored) : stored;
+		return stored === failedPhotoOf ? (originalStayPhoto(stored) ?? stored) : stored;
 	});
 
 	/** Whether anything in the whole candidate list is bookable by this group at all -

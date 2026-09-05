@@ -13,7 +13,7 @@
 	import { formatMoney, stayTotalForNights } from './pricing';
 	import { cheapestSelectableOption } from './rank';
 	import { propertyOf, type PropertyStayOptions } from './types';
-	import { originalAgodaPhoto } from '$lib/providers/stays/agoda-photo';
+	import { originalStayPhoto } from '$lib/providers/stays/original-photo';
 
 	interface Props {
 		group: PropertyStayOptions;
@@ -54,7 +54,7 @@
 	const image = $derived.by(() => {
 		const stored = property.images[0];
 		if (!stored) return undefined;
-		return stored === failedPhotoOf ? (originalAgodaPhoto(stored) ?? stored) : stored;
+		return stored === failedPhotoOf ? (originalStayPhoto(stored) ?? stored) : stored;
 	});
 </script>
 
