@@ -1268,6 +1268,30 @@ Each stopover is still two requests, one per direction, and that is on purpose: 
 from the airport and the drive back are different journeys on a real road network, and
 printing one leg's duration for the other would be presenting an estimate as a fact.
 
+**A car route that crosses water can be wrong by a factor of nine, and nothing in the
+response says so.** Issue #119. OSRM's car profile routes over ferries, and prices a
+`route=ferry` way from that way's own `duration` tag. Where OSM has no such tag it falls
+back to roughly 5 km/h, which is a rowing boat. Measured on 2026-09-05 against
+`routed-car`:
+
+| route | straight | road | OSRM says | reality |
+| --- | --- | --- | --- | --- |
+| Athens airport to Naxos town | 156.6 km | 180.0 km | 33h 0m | the Piraeus ferry is about 3h 45m |
+| Athens airport to Thira, Santorini | 214.4 km | 268.9 km | 37h 31m | five untagged ferry ways in a row |
+| Marseille airport to Ajaccio, Corsica | 333.5 km | 590.0 km | 12h 23m | correct; that way carries a tag |
+
+The response looks entirely ordinary. There is no flag, no warning, and the route's shape
+gives nothing away either: Naxos travels only 1.15 times its straight-line distance, a
+tighter ratio than an honest drive round a Norwegian fjord. Nor does average speed along
+the road help — across fourteen measured pairs, water crossings and dry land alike, every
+real route averaged between 38.8 and 70.9 km/h, and Naples to Capri crosses 33 km of open
+sea at 40.2 km/h.
+
+The only signal that separates the two is how long the answer takes against the
+straight-line distance, which is what `maxPlausibleRoadMinutes` (`domain/transfer.ts`)
+judges and where the full table lives. Anything reading an OSRM car duration for a pair
+that could have water between it needs that check, or it is quoting a rowing boat.
+
 **OurAirports** publishes a 12 MB public-domain CSV of every airport. Filter it at build
 time. Never ship it to a phone.
 
