@@ -692,6 +692,15 @@ function makeSnapshotFn(
 			stage,
 			done,
 			candidates,
+			// Issue #350: subtracted here rather than trusted from the caller. The #115
+			// fallback sweep re-runs discovery at a larger cap, so a candidate the primary
+			// call dropped can be on screen by the time this snapshot is built, and a page
+			// reading "8 considered and 2 more we did not price" about two of those eight is
+			// worse than the silence this replaced. Making the invariant hold where the
+			// snapshot is assembled means it cannot depend on which discovery call ran last.
+			confirmedBeyondCap: confirmedBeyondCapRef.current.filter(
+				(code) => !candidates.some((candidate) => candidate.airportCode === code)
+			),
 			itineraryGroups: groupItineraryResults(results),
 			providers: Object.fromEntries(providerStatus),
 			widenOptions,
@@ -699,7 +708,6 @@ function makeSnapshotFn(
 			transferOptionsByConnection: Object.fromEntries(transferOptionsByConnection),
 			blockedConnections: Object.fromEntries(blockedConnections),
 			outerTransferOptions: outerTransferOptionsRef.current,
-			confirmedBeyondCap: confirmedBeyondCapRef.current,
 			hasDirectRoute
 		};
 	};
@@ -842,6 +850,9 @@ export async function* runSearch(
 	const blockedConnections = new Map<IataAirportCode, ConnectionBlock>();
 	const outerTransferOptionsRef = { current: NO_OUTER_TRANSFER_OPTIONS };
 	const confirmedBeyondCapRef = { current: [] as IataAirportCode[] };
+	const reportBeyondCap = (beyondCap: readonly ConnectionCandidate[]) => {
+		confirmedBeyondCapRef.current = beyondCap.map((candidate) => candidate.airportCode);
+	};
 	const snapshot = makeSnapshotFn(
 		results,
 		providerStatus,
@@ -904,13 +915,11 @@ export async function* runSearch(
 			// make, so without this the status panel had nothing to report at all.
 			onProviderResult: record,
 			maxCandidates: options.maxCandidates,
-			// Issue #350: the only one of this file's three discovery calls that reports its
-			// drops. The other two run at a deliberately larger cap for their own reasons
-			// (the #115 fallback sweep, and widenSearch re-deriving a ranking a traveller has
-			// already been shown), so what THEY drop is not what the results page is showing.
-			onCandidatesBeyondCap: (beyondCap) => {
-				confirmedBeyondCapRef.current = beyondCap.map((candidate) => candidate.airportCode);
-			},
+			// Issue #350: what this cap threw away, so the page can say it found more than it
+			// is pricing. Every discovery call in this file reports, and the last one to run
+			// wins, because the candidates on screen are the ones IT returned. The snapshot
+			// subtracts anything a later call went on to keep.
+			onCandidatesBeyondCap: reportBeyondCap,
 			signal
 			// meteredRequestBudget intentionally omitted (default 0): this is the line that
 			// guarantees stage 1 spends nothing, even as connections.ts's own last-resort
@@ -1108,6 +1117,7 @@ export async function* runSearch(
 				airportLookup: airportLookupFrom(resolveAirport),
 				onProviderResult: record,
 				maxCandidates: FALLBACK_MAX_CANDIDATES,
+				onCandidatesBeyondCap: reportBeyondCap,
 				signal
 				// meteredRequestBudget intentionally omitted (default 0), same as the primary
 				// call above — re-deriving a larger slice of the same free ranking spends
@@ -1193,6 +1203,9 @@ export async function* widenSearch(
 	const blockedConnections = new Map<IataAirportCode, ConnectionBlock>();
 	const outerTransferOptionsRef = { current: NO_OUTER_TRANSFER_OPTIONS };
 	const confirmedBeyondCapRef = { current: [] as IataAirportCode[] };
+	const reportBeyondCap = (beyondCap: readonly ConnectionCandidate[]) => {
+		confirmedBeyondCapRef.current = beyondCap.map((candidate) => candidate.airportCode);
+	};
 	const snapshot = makeSnapshotFn(
 		results,
 		providerStatus,
@@ -1236,6 +1249,7 @@ export async function* widenSearch(
 			// find that candidate again even when it only appeared via that fallback sweep.
 			maxCandidates: options.maxCandidates ?? FALLBACK_MAX_CANDIDATES,
 			onProviderResult: record,
+			onCandidatesBeyondCap: reportBeyondCap,
 			signal
 			// meteredRequestBudget intentionally omitted (default 0): re-deriving the
 			// candidate ranking here must stay free too, even though widenSearch itself goes

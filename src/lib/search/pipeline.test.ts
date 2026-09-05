@@ -1231,9 +1231,17 @@ describe('runSearch: falls back to more candidates when the top-ranked ones find
 		// Disjoint by construction: a candidate is either being priced or it is not.
 		expect(kept).not.toContain(dropped[0]);
 		expect([...DECOY_CODES, FAST]).toContain(dropped[0]);
-		// Carried forward, not only on the snapshot that discovered it. The results page reads
-		// whichever snapshot it last received.
-		expect(snapshots.at(-1)!.confirmedBeyondCap).toEqual(dropped);
+
+		// And by the last snapshot it is gone, because the #115 fallback sweep re-ran
+		// discovery at the larger cap, picked this candidate up and priced it. It is on
+		// screen, so "we also found it and did not price it" is no longer true about it.
+		//
+		// This is the case that makes the subtraction in `makeSnapshotFn` load-bearing rather
+		// than defensive: without it a page would list a stopover as withheld in the same
+		// breath as showing its card.
+		const final = snapshots.at(-1)!;
+		expect(final.candidates.map((c) => c.airportCode)).toContain(dropped[0]);
+		expect(final.confirmedBeyondCap).toEqual([]);
 	});
 
 	it('leaves the list empty when discovery found fewer airports than the cap', async () => {
