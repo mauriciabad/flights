@@ -73,3 +73,12 @@ airport in. Its licence sits beside the copies at `static/flags/LICENSE.md`.
 [GeoNames](https://www.geonames.org/) `cities1000`, licensed
 [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/), via `pnpm run data:city-centres`.
 Each row names the GeoNames record it came from in `src/lib/data/city-centres.audit.tsv`.
+
+`src/lib/data/direct-routes.generated.json` comes from English Wikipedia's airport
+destination tables, licensed
+[CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/), via
+`pnpm run data:direct-routes`. Share-alike, unlike everything above it, so that one file
+and its audit carry their own licence at `src/lib/data/direct-routes.LICENSE.md`; the app
+code stays MIT. Each row names the article it was read from in
+`src/lib/data/direct-routes.audit.tsv`. The IATA-code-to-article mapping comes from
+[Wikidata](https://www.wikidata.org/) property P238, CC0.
