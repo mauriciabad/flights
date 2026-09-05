@@ -7,6 +7,7 @@
 	 * inert row with the reason stated rather than a price.
 	 */
 	import type { Airport } from '$lib/domain';
+	import { formatPropertyRating } from '$lib/format';
 	import { femaleDormFit, femaleDormFitMessage } from './female-dorm-fit';
 	import { formatDistanceKm, haversineDistanceKm } from './distance';
 	import { formatMoney, stayTotalForNights } from './pricing';
@@ -73,8 +74,10 @@
 	<span class="alt-card-body">
 		<span class="alt-card-name">{property.name}</span>
 		<span class="alt-card-meta">
+			<!-- Issue #245: the scale, not just the number. Same wording as the row in the
+			     open card below it and the stopover row in the timeline. -->
 			{#if property.rating !== undefined}
-				<span class="alt-card-rating">{property.rating.toFixed(1)} rating</span>
+				<span class="alt-card-rating">rated {formatPropertyRating(property.rating)}</span>
 			{/if}
 			<span>{formatDistanceKm(distanceToAirportKm)} from airport</span>
 			{#if distanceToCentreKm !== undefined}

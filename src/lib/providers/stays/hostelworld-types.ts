@@ -71,9 +71,13 @@ export interface HostelworldProperty {
 	 * answer to that. */
 	type?: string;
 	overallRating?: {
-		/** Out of 100 (a live Wombat's London scored 91). Passed through raw on that scale,
-		 * per domain/stay.ts's `Property.rating` comment: providers disagree on out-of-5 vs
-		 * out-of-10 vs out-of-100 and normalising is a display concern. */
+		/** Out of 100 (a live Wombat's London scored 91). Carried through raw on that scale
+		 * with `outOf: 100` beside it, per domain/stay.ts's `PropertyRating`: providers
+		 * disagree on out-of-5 vs out-of-10 vs out-of-100, so the number is only meaningful
+		 * with its scale attached.
+		 *
+		 * Zero means unrated, not nought out of a hundred (issue #245) — see
+		 * `hostelworld-mapper.ts` for the measurement that settles that. */
 		overall?: number;
 	};
 	/**

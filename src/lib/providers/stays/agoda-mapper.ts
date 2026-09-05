@@ -211,7 +211,9 @@ export function mapSearchPropertyToCandidate(
       name,
       coordinates: { latitude, longitude },
       images: mapImages(property),
-      rating: isFiniteNumber(rating) ? rating : undefined,
+      // Issue #245: out of 5 (see `agoda-types.ts`), and the scale rides along so no screen
+      // has to guess which one this is.
+      rating: isFiniteNumber(rating) ? { value: rating, outOf: 5 } : undefined,
       // Read from the property name because neither provider has a field for it. Its
       // rooms are named ordinarily, so classifying rooms alone let a women-only
       // hostel through to a party with no female travellers.

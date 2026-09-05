@@ -21,6 +21,7 @@ export {
 	formatMoney,
 	formatMoneyDelta,
 	formatMoneyRange,
+	formatPropertyRating,
 	formatTimeDelta,
 	formatUtcOffset,
 	isDifferentCalendarDate

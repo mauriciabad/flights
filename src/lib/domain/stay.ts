@@ -10,6 +10,30 @@ import type { Money } from "./money";
 export type RoomKind = "dorm" | "private" | "female-dorm";
 
 /**
+ * A guest score together with the scale its provider published it on.
+ *
+ * Issue #245: this used to be a bare `number` with a comment saying the scale was a
+ * display concern, and the display had no way to know it. `ItineraryTimeline.svelte`
+ * hardcoded `/5`, so Hostelworld's 87-out-of-100 for London Backpackers reached the owner
+ * as "rated 87/5" and a Booking 7.8-out-of-10 would have read "7.8/5". The `StayPicker`
+ * hedged instead, printing "87.0 rating (scale as reported by the source)", which is
+ * honest and unreadable, and made one screen describe one number two ways.
+ *
+ * The number and the scale are one value, so they travel as one value. The three scales
+ * this repo has captured live are in `outOf`'s comment.
+ */
+export interface PropertyRating {
+  /** Exactly what the provider reported, on its own scale, never rescaled here. Converting
+   * for a reader is `formatPropertyRating`'s job in `$lib/format`. */
+  value: number;
+  /** The top of that provider's scale. Measured, per adapter: Hostelworld 100
+   * (`hostelworld-properties-london.json`, 63/68/88), Booking 10
+   * (`booking-search-vienna.json`, 7.8/7.4), Agoda 5 (`agoda-search-vienna.json`,
+   * 4.0/5.0/1.5/3.0). */
+  outOf: number;
+}
+
+/**
  * The hostel/hotel itself, shared by every RoomKind priced within it.
  * Brief line 64: "Info about the hostels and rooms and images if possible."
  */
@@ -17,9 +41,9 @@ export interface Property {
   name: string;
   coordinates: Coordinates;
   images: string[];
-  /** Not normalised to a common scale here — providers disagree on out-of-5 vs
-   * out-of-10, and that conversion is a display concern, not a domain fact. */
-  rating?: number;
+  /** Absent means no provider gave a score, which is a different fact from a bad score.
+   * See `PropertyRating`. */
+  rating?: PropertyRating;
   /** The WHOLE property admits women only, which is not the same thing as one of its
    * rooms being a female dorm. "Hostelle - women only hostel London" was recommended to
    * the owner's party of zero female travellers, because both mappers only ever tested

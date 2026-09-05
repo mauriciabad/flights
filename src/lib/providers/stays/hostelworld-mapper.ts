@@ -195,12 +195,29 @@ export function mapPropertyToStays(
 	const name = property?.name;
 	if (!property || !coordinates || typeof name !== 'string' || name.length === 0) return [];
 
+	// Issue #245, both halves. The scale travels with the number now (100 here, see
+	// `hostelworld-types.ts`), and a zero is dropped rather than passed on as a score.
+	//
+	// Zero is Hostelworld's "nobody has rated this", not a rating of nought. Measured live
+	// 2026-09-05 on city 3671 (Gatwick), the two properties it holds:
+	//   The Gatwick White House Hotel  overall 0    ratingBreakdown.ratingsCount 0
+	//   The Lawn Guest House           overall 100  ratingBreakdown.ratingsCount 1
+	// `overallRating.numberOfRatings` reads "100" for the unrated one, so it is not a count
+	// of anything; `ratingBreakdown.ratingsCount` is, and it is 0 for exactly the property
+	// scoring 0. The issue's own words for what the old code printed: "a zero on a 0-100
+	// scale is a claim about the hotel that nobody made."
+	//
+	// Only Hostelworld is guarded, because Hostelworld is the only one of the three
+	// measured doing this. Booking sends `review_score: null` and Agoda `rating: null` for
+	// a property with no score, and both already fall through to `undefined`.
 	const rating = property.overallRating?.overall;
 	const propertyRecord = {
 		name,
 		coordinates,
 		images: imageUrls(property),
-		...(typeof rating === 'number' && Number.isFinite(rating) ? { rating } : {}),
+		...(typeof rating === 'number' && Number.isFinite(rating) && rating > 0
+			? { rating: { value: rating, outOf: 100 } }
+			: {}),
 		// #207, and it applies to this adapter for exactly the reason it applied to the
 		// other two: Hostelworld has no structured field for a property-wide gender
 		// restriction either, and a women-only hostel's ROOMS are named ordinarily, so
