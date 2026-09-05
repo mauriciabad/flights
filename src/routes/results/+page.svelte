@@ -1356,6 +1356,7 @@
 			onsearch={submitSearch}
 			{advisories}
 			revealIssues={blockingIssues.length > 0}
+			currentQuery={normalizedQuery}
 			bind:expanded={editorOpen}
 		/>
 

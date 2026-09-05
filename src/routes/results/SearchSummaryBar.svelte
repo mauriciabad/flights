@@ -17,7 +17,7 @@
 	import { Icon } from '$lib/components';
 	import type { SearchFormFields } from '$lib/search-form/model';
 	import SearchForm from '$lib/search-form/SearchForm.svelte';
-	import type { SearchSummary } from '$lib/search-history';
+	import { RecentSearches, type SearchSummary } from '$lib/search-history';
 
 	interface Props {
 		summary: SearchSummary;
@@ -31,6 +31,9 @@
 		 * a blur that will never come, when the search on screen is the broken thing. */
 		revealIssues?: boolean;
 		expanded?: boolean;
+		/** The normalised query on screen, so the history below the form can mark the entry
+		 * that is this page rather than offer it as somewhere to go. */
+		currentQuery: string;
 	}
 
 	let {
@@ -40,7 +43,8 @@
 		onsearch,
 		advisories = [],
 		revealIssues = false,
-		expanded = $bindable(false)
+		expanded = $bindable(false),
+		currentQuery
 	}: Props = $props();
 
 	let editorEl = $state<HTMLDivElement | undefined>();
@@ -117,6 +121,19 @@
 					{onsearch}
 					oncancel={() => (expanded = false)}
 				/>
+
+				<!-- Issue #351. Changing the search and picking one already run are the same
+				     errand, so they share one control and one panel rather than competing for
+				     room in a two-line strip that has to leave the first result on the first
+				     screen. Below the form, not above it. This button says "Edit search", and
+				     the person who pressed it came for the fields.
+
+				     Opening this panel navigates nowhere. The results stay mounted underneath,
+				     with every bed, waiting time and swapped flight the traveller has picked,
+				     because none of that is in the URL. Only choosing a row is a navigation. -->
+				<div class="editor-history">
+					<RecentSearches title="Or pick up a recent search" {currentQuery} />
+				</div>
 			{/if}
 		</div>
 	</div>
@@ -253,6 +270,15 @@
 
 	.editor {
 		margin-top: var(--space-4);
+	}
+
+	/* The rule sits on the child's own section rather than on this wrapper, so a history
+	   with nowhere to send anybody draws no line under the form. `RecentSearches` renders
+	   nothing at all in that case, and a bordered wrapper would still be a border. */
+	.editor-history :global(.recent) {
+		margin-top: var(--space-5);
+		padding-top: var(--space-5);
+		border-top: 1px solid var(--color-border);
 	}
 
 	.editor-inner:focus-visible {
