@@ -37,15 +37,65 @@ import type { IsoCountryCode, IsoCurrencyCode } from './codes';
 export interface FareConversion {
 	/** The rate card's own currency, and the one the ride is actually paid in. */
 	from: IsoCurrencyCode;
-	/** The unconverted bounds, in `from`'s minor units. Kept rather than recomputed: a
-	 * screen that divided the converted figure back would be showing the rate's rounding
-	 * error as though it were the tariff. */
+	/** The unconverted bounds, in `from`'s minor units, covering whoever `FareRange.party`
+	 * says the converted ones do. Kept rather than recomputed: a screen that divided the
+	 * converted figure back would be showing the rate's rounding error as though it were
+	 * the tariff. */
 	fromLowMinorUnits: number;
 	fromHighMinorUnits: number;
 	/** The ECB reference day the rate is for, `YYYY-MM-DD`. Not the day it was fetched and
 	 * not today: this is the claim the ECB made, and it is what dates the conversion. */
 	rateDate: string;
 }
+
+/**
+ * Who a `FareRange`'s bounds cover, and what one head of them costs. Issue #344.
+ *
+ * The owner: "usually in this cases a taxi may be worth it, specially if can be split when
+ * multiple people is traveling." He is right, and the app could not say it, because a
+ * meter charges the car and a bus ticket charges the seat and both were printed in the
+ * same column as though they answered the same question. For one traveller that is roughly
+ * fair. For four it is wrong in the direction that hides the better option.
+ *
+ * A union rather than a per-person pair of numbers, because there are two different facts
+ * here and only one of them is arithmetic:
+ *
+ * | basis | what the bounds are | may a screen divide them |
+ * | --- | --- | --- |
+ * | `per-vehicle` | the whole party's fare, every car it needs | yes, `perPerson*` is that division |
+ * | `unknown` | one vehicle's fare, unmultiplied | **no** |
+ *
+ * `'unknown'` is the fallback rate card (`taxi-rate-table.ts`), which stands in for a
+ * country this app has no tariff for. Whether a taxi there meters the car or sells a seat
+ * is exactly what having no card means, and a shared taxi sold per seat is an ordinary
+ * thing in the places that card covers. So the party size is carried and the arithmetic is
+ * not done, and the screen says so rather than quietly showing one car's fare to four
+ * people.
+ *
+ * Absent on a `FareRange` is a third thing again: nobody named a party size, or the party
+ * is one traveller, where the car's fare and the head's are the same number and a split
+ * would be noise. `stays/pricing.ts`'s `NightlyRate.audience` makes the same call for the
+ * same reason.
+ */
+export type FareParty =
+	| {
+			basis: 'per-vehicle';
+			/** How many travellers the range covers. Always more than one; see above. */
+			people: number;
+			/** How many cars that many people need, at `TAXI_SEATS_PER_VEHICLE`. */
+			vehicles: number;
+			/** What one car costs, which is what the rate card actually describes and what
+			 * one driver's meter will read. Kept rather than recomputed by dividing the
+			 * party figure by `vehicles`: a screen that did that would be showing this
+			 * function's rounding as though it were the tariff. */
+			perVehicleLowMinorUnits: number;
+			perVehicleHighMinorUnits: number;
+			/** The party's fare divided by heads: what each traveller pays if they split it,
+			 * which is the figure that compares with a bus ticket. */
+			perPersonLowMinorUnits: number;
+			perPersonHighMinorUnits: number;
+	  }
+	| { basis: 'unknown'; people: number };
 
 /**
  * A fare nobody quoted: two bounds and enough provenance to judge how much to trust them.
@@ -69,9 +119,19 @@ export interface FareRange {
 	 * bug. This way forgetting costs the provenance line, not the fix.
 	 */
 	currency: IsoCurrencyCode;
-	/** Low and high bounds, in `currency`'s minor units, from applying the matched rate
+	/**
+	 * Low and high bounds, in `currency`'s minor units, from applying the matched rate
 	 * card's low/high flag-down and per-km figures to the route distance, then converting
-	 * if `converted` says so. */
+	 * if `converted` says so.
+	 *
+	 * Issue #344: this is what the WHOLE PARTY pays, every car they need, whenever `party`
+	 * below says `per-vehicle`. Same choice #339 made about the currency and for the same
+	 * reason: a screen that had not heard of party size goes on printing one car's fare
+	 * beside four bus tickets, which is the bug. This way forgetting costs the split line,
+	 * not the figure. It also puts this range on the same footing as every other number on
+	 * the receipt, since `algorithm/build.ts` totals the party's flights
+	 * (`scaleFareForParty`) and the party's room.
+	 */
 	lowMinorUnits: number;
 	highMinorUnits: number;
 	/** The country whose rate card produced this estimate, not necessarily the country the
@@ -88,6 +148,9 @@ export interface FareRange {
 	/** Set only when the bounds above were crossed out of another currency. Issue #339,
 	 * and see `FareConversion` for why the source survives rather than being spent. */
 	converted?: FareConversion;
+	/** Who the bounds above cover, when the caller named a party of more than one. Issue
+	 * #344, and see `FareParty` for what each of its two shapes licenses a screen to do. */
+	party?: FareParty;
 }
 
 /**

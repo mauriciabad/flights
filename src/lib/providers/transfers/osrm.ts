@@ -702,13 +702,14 @@ function routeToTransfer(mode: TransferMode, route: RouteData): Transfer {
 function taxiTransfer(
 	route: RouteData,
 	countryCode: IsoCountryCode | undefined,
-	displayCurrency: IsoCurrencyCode | undefined
+	displayCurrency: IsoCurrencyCode | undefined,
+	travellers: number | undefined
 ): Transfer {
 	const transfer = routeToTransfer('taxi', route);
 	if (countryCode === undefined || route.distanceMeters === undefined) return transfer;
 	return {
 		...transfer,
-		fareEstimate: estimateTaxiFare(route.distanceMeters, countryCode, displayCurrency)
+		fareEstimate: estimateTaxiFare(route.distanceMeters, countryCode, displayCurrency, travellers)
 	};
 }
 
@@ -847,7 +848,7 @@ async function searchTransfersImpl(
 					oldestStoredAt = olderFetchInstant(oldestStoredAt, outcome.storedAt);
 					if (requestedModes.includes('drive')) results.push(routeToTransfer('drive', outcome.value));
 					if (requestedModes.includes('taxi')) {
-						results.push(taxiTransfer(outcome.value, query.countryCode, query.displayCurrency));
+						results.push(taxiTransfer(outcome.value, query.countryCode, query.displayCurrency, query.travellers));
 					}
 				}
 			} catch (error) {

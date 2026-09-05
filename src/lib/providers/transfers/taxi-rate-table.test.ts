@@ -181,3 +181,133 @@ describe('putting the estimate in the traveller\'s currency (issue #339)', () =>
 		expect(fallback.converted?.from).toBe('EUR');
 	});
 });
+
+describe('estimateTaxiFare, priced for the party (issue #344)', () => {
+	/** Narrows to the priced answer for a named party, the way `range` does for a lone one. */
+	function partyRange(distanceMeters: number, countryCode: string, travellers: number): FareRange {
+		const result = estimateTaxiFare(distanceMeters, countryCode, undefined, travellers);
+		if (result.kind !== 'estimate') throw new Error('expected a fare range');
+		return result;
+	}
+
+	it('leaves a lone traveller exactly where it found them', () => {
+		// The car's fare, the party's fare and the head's share are one number, and printing
+		// it three times says nothing. Byte-identical to the pre-#344 answer.
+		expect(partyRange(5000, 'ES', 1)).toEqual(range(5000, 'ES'));
+		expect(partyRange(5000, 'ES', 1).party).toBeUndefined();
+	});
+
+	it('prices one car for four and divides it four ways', () => {
+		const alone = range(5000, 'ES');
+		const four = partyRange(5000, 'ES', 4);
+
+		// Four people fit in one saloon, so the party pays what one traveller would.
+		expect(four.lowMinorUnits).toBe(alone.lowMinorUnits);
+		expect(four.highMinorUnits).toBe(alone.highMinorUnits);
+		expect(four.party).toEqual({
+			basis: 'per-vehicle',
+			people: 4,
+			vehicles: 1,
+			perVehicleLowMinorUnits: alone.lowMinorUnits,
+			perVehicleHighMinorUnits: alone.highMinorUnits,
+			perPersonLowMinorUnits: Math.round(alone.lowMinorUnits / 4),
+			perPersonHighMinorUnits: Math.round(alone.highMinorUnits / 4)
+		});
+	});
+
+	it('the issue\'s own arithmetic: a party of four reads a quarter each', () => {
+		const four = partyRange(5000, 'ES', 4);
+		if (four.party?.basis !== 'per-vehicle') throw new Error('expected a per-vehicle party');
+		// €7.83-€10.88 each against a €31.30-€43.50 car, which is the comparison the owner
+		// asked for and the one the app could not previously express.
+		expect(four.party.perPersonLowMinorUnits * 4).toBeCloseTo(four.lowMinorUnits, -1);
+		expect(four.party.perPersonLowMinorUnits).toBeLessThan(four.lowMinorUnits);
+	});
+
+	it('counts a second car for a party that does not fit in one, and splits both', () => {
+		const alone = range(5000, 'ES');
+		const five = partyRange(5000, 'ES', 5);
+
+		expect(five.lowMinorUnits).toBe(alone.lowMinorUnits * 2);
+		expect(five.highMinorUnits).toBe(alone.highMinorUnits * 2);
+		if (five.party?.basis !== 'per-vehicle') throw new Error('expected a per-vehicle party');
+		expect(five.party.vehicles).toBe(2);
+		// A fifth of two cars, never a fifth of one. Getting this wrong is the direction that
+		// flatters the taxi, which is the whole reason the car count exists.
+		expect(five.party.perPersonLowMinorUnits).toBe(Math.round((alone.lowMinorUnits * 2) / 5));
+		expect(five.party.perPersonLowMinorUnits).toBeGreaterThan(
+			Math.round(alone.lowMinorUnits / 5)
+		);
+	});
+
+	it('keeps the card\'s own per-vehicle figures alongside the party total', () => {
+		const six = partyRange(8000, 'DE', 6);
+		if (six.party?.basis !== 'per-vehicle') throw new Error('expected a per-vehicle party');
+		const alone = range(8000, 'DE');
+		// What one driver's meter reads, so nothing has to divide the party total back out to
+		// find it and show this function's rounding as though it were the tariff.
+		expect(six.party.perVehicleLowMinorUnits).toBe(alone.lowMinorUnits);
+		expect(six.party.perVehicleHighMinorUnits).toBe(alone.highMinorUnits);
+		expect(six.party.vehicles).toBe(2);
+	});
+
+	it('refuses to divide a card whose basis nobody checked', () => {
+		// The fallback card stands for a country with no tariff read, and a shared taxi sold
+		// by the seat is ordinary in much of what it covers. So the party size is carried and
+		// the arithmetic is not done.
+		const four = partyRange(5000, 'ZZ', 4);
+		expect(four.rateSource).toBe('fallback');
+		expect(four.party).toEqual({ basis: 'unknown', people: 4 });
+		// And the bounds stay one car's, unmultiplied.
+		expect(four.lowMinorUnits).toBe(range(5000, 'ZZ').lowMinorUnits);
+	});
+
+	it('carries the party through a currency conversion, or converts nothing at all', () => {
+		const four = estimateTaxiFare(10_700, 'GB', 'EUR', 4);
+		if (four.kind !== 'estimate') throw new Error('expected a fare range');
+		if (four.party?.basis !== 'per-vehicle') throw new Error('expected a per-vehicle party');
+		const sterling = partyRange(10_700, 'GB', 4);
+		if (sterling.party?.basis !== 'per-vehicle') throw new Error('expected a per-vehicle party');
+
+		expect(four.currency).toBe('EUR');
+		// Six figures in euros or six in pounds. A party total in one and a per-head share in
+		// the other is not a comparison, it is two numbers that happen to be adjacent.
+		expect(four.party.perPersonLowMinorUnits).toBeGreaterThan(sterling.party.perPersonLowMinorUnits);
+		expect(four.party.perVehicleLowMinorUnits).toBeGreaterThan(sterling.party.perVehicleLowMinorUnits);
+		expect(four.converted?.fromLowMinorUnits).toBe(sterling.lowMinorUnits);
+	});
+
+	it('leaves the party out of a currency it cannot cross into', () => {
+		// Same degradation #339 chose: the rate card's own currency beats a figure crossed at
+		// a rate nobody has, and the split has to go back with it rather than stand in pounds
+		// under a total in escudos.
+		const noRate = estimateTaxiFare(10_700, 'GB', 'CVE', 4);
+		expect(noRate).toEqual(partyRange(10_700, 'GB', 4));
+	});
+
+	it('ignores the party on the over-distance refusal, which has no fare to split', () => {
+		const refusal = estimateTaxiFare(94_900, 'GB', undefined, 4);
+		expect(refusal.kind).toBe('out-of-range');
+		expect(refusal).toEqual(estimateTaxiFare(94_900, 'GB'));
+	});
+
+	it('never lets a nonsense party size invent a discount', () => {
+		// A zero or a fraction reaching this from a hand-edited URL must price a whole car,
+		// not a fraction of one, and must not divide by zero.
+		expect(estimateTaxiFare(5000, 'ES', undefined, 0)).toEqual(range(5000, 'ES'));
+		expect(estimateTaxiFare(5000, 'ES', undefined, 1.5)).toEqual(range(5000, 'ES'));
+	});
+});
+
+describe('the rate cards themselves', () => {
+	it('every country card says it prices the car, and the fallback says it does not know', () => {
+		// Issue #344 asked for this to be checked per country rather than assumed. If a card
+		// arrives whose tariff prices a seat, this test is where that has to be stated.
+		for (const [countryCode, card] of Object.entries(TAXI_RATE_TABLE)) {
+			expect(card.basis, `${countryCode} must declare what it prices`).toBe('per-vehicle');
+		}
+		const fallback = estimateTaxiFare(5000, 'ZZ', undefined, 2);
+		if (fallback.kind !== 'estimate') throw new Error('expected a fare range');
+		expect(fallback.party?.basis).toBe('unknown');
+	});
+});

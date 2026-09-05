@@ -388,6 +388,18 @@ export interface TransferSearchQuery {
 	 * adapter what to denominate its local guess in.
 	 */
 	displayCurrency?: IsoCurrencyCode;
+	/**
+	 * How many people are making this journey, so a rate-card estimate can say what the
+	 * party pays rather than what one car costs. Issue #344.
+	 *
+	 * The third of the same trio: `countryCode` picks the tariff, `displayCurrency` picks
+	 * the currency, and this picks who the figure covers. All three are properties of the
+	 * journey rather than of the provider, and none of them reaches a request.
+	 *
+	 * Absent means one traveller, which gives the range the app showed before: for a party
+	 * of one the car's fare and the head's share are the same number.
+	 */
+	travellers?: number;
 }
 
 export interface TransferProvider extends ProviderBase {
