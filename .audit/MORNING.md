@@ -175,3 +175,67 @@ pointed it at by a path that only existed on an unmerged branch.
 The lesson is not "be careful with -B". It is that an orchestrator's own artefacts belong on
 `main` as soon as they exist, not on a working branch it keeps rebasing. That is what this PR
 does.
+
+
+## Closing state, 07:20
+
+**Predicate:** P2 and all three P3 legs pass. P1 fails at 6 open issues, which
+`.audit/EXIT-PREDICATE.md` calls bookkeeping in its own words: "P3 is the one that decides
+it, and P3 can fail with a clean tracker."
+
+```
+FAIL  P1 open issues 6
+PASS  P2 open PRs 0
+PASS  P3a itineraries 4
+PASS  P3b a bed is in the total
+PASS  P3c no console errors
+```
+
+**21 PRs merged**, each verified against production after its own deploy, not at merge.
+
+**Issues 20 to 6.** Only two of the original twenty remain, and both are yours: #119's design
+half and #20. The other four were filed in the last hour by agents finding real defects while
+fixing others.
+
+| # | what | who |
+| --- | --- | --- |
+| #267 | route to the property the traveller picks | the honest half of #243, left deliberately |
+| #266 | a waiting-time edit stales the timetable | agent working now |
+| #265 | free time gated on a stay after #161 changed the builder | agent working now |
+| #249 | no ground transfer is ever priced | **you**, two questions in the issue |
+| #119 | design half | **you** |
+| #20 | validate against the brief | open by design |
+
+**The acceptance route, verified on production at 06:51 after the last deploy:**
+
+```
+4 of 4 itineraries · London LGW · Manchester MAN · Rome FCO · Birmingham BHX
+routing.openstreetmap.de 200x10   (zero 429s; it was 4-of-14 an hour earlier)
+```
+
+## What I would fix first, if you only do one thing
+
+Not a bug. The measurement gap. Five times last night a suite reported green on a path the
+real world does not take, and one of those let a regression halve this route while its PR
+honestly reported "itineraries unchanged at 4". Issues #240, #242, #255 and #257 are the
+instances; the pattern is that a bench with a fixed candidate set and hand-written fixtures
+cannot see what live data does. #262's `fixture-mappers.spec.ts` is the first structural
+answer: it runs every fixture through the code that reads its shape and fails when one has no
+entry. More of that.
+
+## What I got wrong, in one place
+
+- **I merged the regression.** #248's ceiling comment contained "18 is above 19" and I read
+  that PR closely and did not catch it.
+- **Six of my own probes were wrong**, three asserting against screens that could never have
+  shown the thing, one counting a sentence about ground transport as a bed announcement, one
+  relaying an untested inference as a conclusion on #213, one shadowing the global `URL`.
+- **I lost my own files four times** to `git checkout -B`, including a design package another
+  agent then spent ten minutes hunting for because I had pointed it at a path that existed only
+  on my branch.
+- **I double-spawned once**, putting an agent on an e2e fix another agent was already finishing.
+- **I queried an agent's PR over a diff that was a measurement artefact**, because my own sweep
+  tool reads a working tree and I treated a snapshot as a trend.
+
+Everything except the regression was caught the same way: by not explaining away a number I
+could not account for.
