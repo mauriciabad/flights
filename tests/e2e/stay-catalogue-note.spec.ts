@@ -61,6 +61,17 @@ test.describe('the stay list says whose catalogue it is (issue #374)', () => {
 			}
 		]);
 
+		// The Vienna fixture's properties carry photo URLs, and the network guard fails the
+		// test for any request no mock answered. Same treatment `stays-map.spec.ts` gives the
+		// same fixture, minus its recording: this spec is about a sentence, not the pictures.
+		await page.context().route('https://photos.fixture.invalid/**', (route) =>
+			route.fulfill({
+				status: 200,
+				contentType: 'image/svg+xml',
+				body: '<svg xmlns="http://www.w3.org/2000/svg" width="4" height="4"><title>FIXTURE</title></svg>'
+			})
+		);
+
 		await page.context().route('https://basemaps.cartocdn.com/**', (route) =>
 			route.fulfill({ status: 200, contentType: 'application/json', body: EMPTY_MAP_STYLE })
 		);
