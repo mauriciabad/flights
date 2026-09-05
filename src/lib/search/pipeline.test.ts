@@ -1118,9 +1118,9 @@ describe('runSearch: falls back to more candidates when the top-ranked ones find
 
 	/** Six fictional "decoy" candidates, all placed at `SLOW`'s real coordinates (this file's
 	 * own verified detour ratio ~1.10 — better than `FAST`'s ~1.23) so every one of them
-	 * outranks `FAST` on `connections.ts`'s own scoring (connectivity and sizeClass are
-	 * identical for every candidate here — one onward destination each, all `medium` —
-	 * leaving detour as the only differentiator). That pushes `FAST` to rank 7, past
+	 * outranks `FAST` on `connections.ts`'s own scoring (sizeClass is identical for every
+	 * candidate here, all `medium`, leaving detour as the differentiator). That pushes
+	 * `FAST` to rank 7, past
 	 * `DEFAULT_MAX_CANDIDATES` (6), even though `FAST` is the only one of the seven whose
 	 * offers actually pair up into a valid itinerary. */
 	const DECOY_CODES = ['ZD1', 'ZD2', 'ZD3', 'ZD4', 'ZD5', 'ZD6'];

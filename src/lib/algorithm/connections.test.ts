@@ -131,9 +131,10 @@ const ZQB = 'ZQB'; // stand-in for Brussels Charleroi
 
 const ROUTES: Record<IataAirportCode, IataAirportCode[]> = {
 	[ZBC]: [ZVI, ZMX, ZQB],
-	// Vienna's higher route count mirrors it being a genuine long-haul hub (Austrian
-	// Airlines), unlike Milan Malpensa or Brussels Charleroi's shorter reach in this
-	// fixture — connectivity should be able to tell those apart.
+	// Vienna's longer list mirrors it being a genuine long-haul hub (Austrian Airlines),
+	// unlike Milan Malpensa or Brussels Charleroi's shorter reach. Nothing ranks on that
+	// any more — issue #381 removed the out-degree component — but the shape is kept
+	// because it is what a real hub's answer looks like.
 	[ZVI]: [ZBC, ZSF, 'JFK', 'DXB', 'HND', 'SYD', 'GRU', 'ORD'],
 	[ZMX]: [ZBC, ZSF],
 	[ZQB]: [ZBC, ZSF],
@@ -322,13 +323,22 @@ describe('findConnectionCandidates', () => {
 	});
 
 	it('respects the configurable cap, keeping only the highest-scoring candidates', async () => {
+		// Asserted against the same search run uncapped rather than against a named city.
+		// Naming one made this a test of the weights as much as of the cap, and it failed
+		// when issue #381 removed the connectivity component — for a city that was still the
+		// top of its own ranking, which is not what this check is for.
+		const uncapped = await findConnectionCandidates(QUERY, {
+			flightProviders: [fixtureProvider()],
+			airportLookup: fixtureLookup
+		});
+		expect(uncapped.length).toBeGreaterThan(1);
+
 		const candidates = await findConnectionCandidates(QUERY, {
 			flightProviders: [fixtureProvider()],
 			airportLookup: fixtureLookup,
 			maxCandidates: 1
 		});
-		expect(candidates).toHaveLength(1);
-		expect(candidates[0]!.airportCode).toBe(ZVI);
+		expect(candidates.map((c) => c.airportCode)).toEqual([uncapped[0]!.airportCode]);
 	});
 
 	it('reports the confirmed candidates the cap dropped, rather than forgetting them (issue #350)', async () => {
@@ -343,11 +353,18 @@ describe('findConnectionCandidates', () => {
 			onCandidatesBeyondCap: (dropped) => beyondCap.push(dropped.map((c) => c.airportCode))
 		});
 
+		const uncapped = await findConnectionCandidates(QUERY, {
+			flightProviders: [fixtureProvider()],
+			airportLookup: fixtureLookup
+		});
+
 		expect(beyondCap).toHaveLength(1);
-		expect(beyondCap[0]).toContain(ZMX);
-		expect(beyondCap[0]).not.toContain(candidates[0]!.airportCode);
-		// Confirmed on both legs, exactly like the one that was kept — the difference between
+		// Everything the uncapped search confirmed, minus the one that was kept. Each of them
+		// passed the same two confirmations the kept one passed, so the difference between
 		// them is the cap and nothing else.
+		expect(beyondCap[0]).toEqual(
+			uncapped.map((c) => c.airportCode).filter((code) => code !== candidates[0]!.airportCode)
+		);
 		expect(beyondCap[0]!.length).toBeGreaterThan(0);
 	});
 

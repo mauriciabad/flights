@@ -125,7 +125,6 @@ export type AirportLookup = (
  * Exposed mainly so a UI or a test can explain *why* a candidate ranked where it did,
  * rather than trusting a single opaque number. */
 export interface ConnectionScoreBreakdown {
-	connectivity: number;
 	sizeClass: number;
 	detour: number | null;
 	/** How evenly this candidate splits the journey, `null` when geography for A, B or C is
@@ -166,7 +165,6 @@ export type ConnectionQuery = Pick<
 >;
 
 export interface ConnectionWeights {
-	connectivity: number;
 	sizeClass: number;
 	detour: number;
 	balance: number;
@@ -331,22 +329,42 @@ export const DEFAULT_MAX_DETOUR_RATIO = 2.5;
 
 /**
  * Detour weighted highest: geographic sanity is the one failure mode the issue names
- * explicitly. Connectivity gets most of the rest, because it measures something this
- * module can actually observe (does this airport have onward routes at all). `sizeClass`
- * gets a smaller share on purpose — see the honest disclaimer on `SIZE_CLASS_SCORES`
- * below for why it isn't trusted with more than that.
+ * explicitly. `sizeClass` gets the smallest share on purpose — see the honest disclaimer
+ * on `SIZE_CLASS_SCORES` below for why it isn't trusted with more than that.
+ *
+ * These are ratios, not shares, and `combineScore` renormalises them, so they do not have
+ * to sum to anything. They summed to 1 while a fourth component, `connectivity`, held 0.4.
+ * It was removed by issue #381 and the other three were left at the numbers they had, so
+ * that removing a term could not double as retuning the ones that stayed. Their order and
+ * their ratios to each other are untouched.
+ *
+ * Connectivity scored `min(1, onwardDestinationsKnown / 20)` and carried the largest
+ * weight in this table, and it separated nothing. Measured over the real bundled datasets
+ * on twelve routes: 1.000 for every candidate on nine of them, including every candidate
+ * on BVC to PFO and BCN to SOF, and on the other three only a handful of airports past
+ * position fifty scored below it. Never a candidate the search kept. The same probe run
+ * against the commit before the vendored route graph landed gives 1.000 for all thirteen
+ * BCN to SOF candidates, so the graph made an old problem visible rather than causing it.
+ *
+ * Widening the saturation point was the obvious repair and is the wrong one. It would
+ * turn the component into "prefer the biggest hub", which is the claim `SIZE_CLASS_SCORES`
+ * below already makes with better data, and which the disclaimer there explains is not the
+ * same as "worth a stopover". The measure was also unfair in the way issue #349 named:
+ * out-degree is how much our snapshot happens to know about an airport, so Aarhus scoring
+ * 0.850 and Vaxjo 0.450 was Wikipedia article length, not a dead end. And by the time a
+ * candidate is scored, a source has already confirmed it flies from the origin and on to
+ * the destination, so "does this airport have onward routes at all" is answered yes by the
+ * candidate existing.
+ *
+ * What should carry that weight instead is an open question with no honest answer in this
+ * repo today. Nothing here knows whether a city is worth a night, and inventing a signal
+ * that says so is the same trap the size disclaimer refuses.
  */
 export const DEFAULT_WEIGHTS: ConnectionWeights = {
-	connectivity: 0.4,
 	sizeClass: 0.15,
 	detour: 0.25,
 	balance: 0.2
 };
-
-/** Onward route counts saturate here: a candidate with 20+ known onward destinations is
- * already "clearly not a dead end", and counting higher than that stops distinguishing
- * anything a traveller would notice. */
-const CONNECTIVITY_SATURATION = 20;
 
 /**
  * Airport size does NOT proxy "somewhere a person would want to spend a few days" — a
@@ -533,29 +551,25 @@ async function unionDirectDestinations(
  * source growing an exact check must never silence another that only has a list, or adding
  * the capability to a single adapter would delete every candidate the others vouched for.
  *
- * `onwardDestinationsKnown` is the largest destination list this call happened to see, and
- * `0` when every source answered exactly — an exact check learns whether one route exists
- * and nothing about how many others do. The caller uses the free bundled out-degree for
- * scoring rather than this, so that a candidate is never ranked by which source confirmed it.
+ * Returns the id of the source that confirmed the pair, or `undefined` if none did. It used
+ * to also report the longest destination list it happened to see on the way, which fed the
+ * connectivity score. Issue #381 removed that component, and with it the only reason a route
+ * check ever counted anything.
  */
 async function confirmDirectRoute(
 	sources: DirectDestinationSource[],
 	origin: IataAirportCode,
 	destination: IataAirportCode
-): Promise<{ sourceId: string | undefined; onwardDestinationsKnown: number }> {
-	let onwardDestinationsKnown = 0;
+): Promise<string | undefined> {
 	for (const source of sources) {
 		if (source.confirmsRoute) {
-			if (await source.confirmsRoute(origin, destination)) {
-				return { sourceId: source.id, onwardDestinationsKnown };
-			}
+			if (await source.confirmsRoute(origin, destination)) return source.id;
 			continue;
 		}
 		const destinations = await source.getDirectDestinations(origin);
-		onwardDestinationsKnown = Math.max(onwardDestinationsKnown, destinations.length);
-		if (destinations.includes(destination)) return { sourceId: source.id, onwardDestinationsKnown };
+		if (destinations.includes(destination)) return source.id;
 	}
-	return { sourceId: undefined, onwardDestinationsKnown };
+	return undefined;
 }
 
 /**
@@ -748,44 +762,34 @@ function bundledDirectRoutesSource(): DirectDestinationSource {
 }
 
 /**
- * Adds the one component only a provider can supply — how many airports the candidate
- * flies on to — to the geography score, and weights the three into the final number.
+ * Weights the geography components into the final number.
  *
- * Called twice per candidate. Once with `outDegree: 0` before any request, to rank the
- * candidates and decide which are worth asking about; once more with the real out-degree
- * for the ones that were asked. A candidate nobody asked about therefore keeps the score
- * it was ranked on, which is the honest one: connectivity genuinely is zero as far as
- * this search ever found out.
+ * Every input is bundled data, so this costs nothing and gives the same answer before and
+ * after a request. Until issue #381 it took a fourth argument, the candidate's out-degree,
+ * and had to be called twice per candidate for that reason — once to rank, once to rescore
+ * whatever the probe learned. Now it is called once.
  */
 function combineScore(
 	geography: CandidateGeographyScore,
-	outDegree: number,
 	weights: ConnectionWeights
 ): ScoredCandidate {
-	const connectivity = Math.min(1, outDegree / CONNECTIVITY_SATURATION);
 	const { sizeClass, detour, balance } = geography;
 
 	// Redistribute the geography weights across the remaining components when they're
 	// unavailable, so a candidate with no known geography isn't penalised twice over
 	// (once for scoring 0 on them, again for that weight being spent on nothing).
 	const usableWeight =
-		weights.connectivity +
 		weights.sizeClass +
 		(detour === null ? 0 : weights.detour) +
 		(balance === null ? 0 : weights.balance);
 	const w = {
-		connectivity: weights.connectivity / usableWeight,
 		sizeClass: weights.sizeClass / usableWeight,
 		detour: detour === null ? 0 : weights.detour / usableWeight,
 		balance: balance === null ? 0 : weights.balance / usableWeight
 	};
 
-	const score =
-		connectivity * w.connectivity +
-		sizeClass * w.sizeClass +
-		(detour ?? 0) * w.detour +
-		(balance ?? 0) * w.balance;
-	return { score, breakdown: { connectivity, sizeClass, detour, balance } };
+	const score = sizeClass * w.sizeClass + (detour ?? 0) * w.detour + (balance ?? 0) * w.balance;
+	return { score, breakdown: { sizeClass, detour, balance } };
 }
 
 /**
@@ -929,7 +933,7 @@ export async function findConnectionCandidates(
 	// Step 2, and the whole of issue #187: rank every candidate on what costs nothing to
 	// know, so the requests in step 3 are spent on the airports most likely to survive.
 	// Geography comes from the bundled dataset, so this pass touches no network at all.
-	const ranked: { code: IataAirportCode; geography: CandidateGeographyScore; rank: number }[] = [];
+	const ranked: { code: IataAirportCode; scored: ScoredCandidate }[] = [];
 
 	for (const code of candidateCodes) {
 		// Forbidden airports are filtered here, not downstream, so a forbidden candidate
@@ -969,18 +973,14 @@ export async function findConnectionCandidates(
 		});
 		if (!geography) continue; // Excluded: detour ratio beyond maxDetourRatio.
 
-		ranked.push({
-			code,
-			geography,
-			// What this candidate scores if it turns out to fly nowhere onward — the worst
-			// case the search can still discover about it, and therefore a floor rather than
-			// a guess. Ranking on it asks the airports whose geography can carry them on
-			// their own first.
-			rank: combineScore(geography, 0, weights).score
-		});
+		// One score per candidate, and the one it keeps. Until issue #381 this was a floor
+		// — the score if the candidate turned out to fly nowhere onward — and step 3
+		// recomputed it once a probe had learned the real out-degree. With connectivity
+		// gone there is nothing left a request can teach the scorer.
+		ranked.push({ code, scored: combineScore(geography, weights) });
 	}
 
-	ranked.sort((a, b) => b.rank - a.rank || a.code.localeCompare(b.code));
+	ranked.sort((a, b) => b.scored.score - a.scored.score || a.code.localeCompare(b.code));
 
 	const candidates: ConnectionCandidate[] = [];
 
@@ -988,7 +988,7 @@ export async function findConnectionCandidates(
 	// out in an order fixed by bundled data alone, which is what makes a reload cheap
 	// (issue #194): the first load caches exactly the set the second load asks for, so the
 	// second asks for nothing.
-	for (const [index, { code, geography }] of ranked.entries()) {
+	for (const [index, { code, scored }] of ranked.entries()) {
 		// `maxRouteProbes` bounds RANKED POSITIONS, which is what `index` is, and not
 		// requests — issue #378, where the constant's own doc comment said requests for a
 		// long time. Past it every source that would cost something is dropped and the
@@ -1004,14 +1004,14 @@ export async function findConnectionCandidates(
 		// docs/ACCEPTANCE.md is about: 21 candidates ranked, Birmingham 20th and
 		// Manchester 21st, and both of them in Ryanair's bundled snapshot as flying to
 		// Pafos. They were the two the ceiling threw away.
-		// Stopping here once `maxCandidates` have confirmed was tried and reverted. It saves
-		// real requests and it silently changes what the cap means: the loop walks in rank
-		// order but the survivors are chosen by score, so stopping early keeps the first six
-		// confirmed rather than the best six, and "respects the configurable cap, keeping
-		// only the highest-scoring candidates" in connections.test.ts fails on exactly that.
-		// The burst is a timing problem and belongs where the timing is, which is
-		// `MIN_GAP_BETWEEN_ROUTE_REQUESTS_MS` in kiwi-public.ts. Bounding the wrong thing
-		// because it happens to reduce the number is how issue #255 lost two cities.
+		// Stopping here once `maxCandidates` have confirmed was tried and reverted, because
+		// the loop walked in rank order while the survivors were chosen by score, so stopping
+		// early kept the first six confirmed rather than the best six. Issue #381 removed the
+		// one component that made those two orders differ, so they now coincide and the
+		// objection no longer applies. Not taken here, because it changes what a search
+		// requests and therefore what the first load caches, which is issue #194's whole
+		// subject and needs its own measurements. What it would save, on `pnpm qa`'s own
+		// scenario: four of its eight route questions come after the sixth confirmation.
 		const withinRequestBudget = index < Math.max(0, maxRouteProbes);
 
 		// Bundled first, always, because it costs nothing and it is complete for what it
@@ -1020,7 +1020,6 @@ export async function findConnectionCandidates(
 		// that Ryanair already reaches Pafos from now settle for zero requests, which is
 		// what pays for the wider candidate set this change produces.
 		const bundledEdges = await unionDirectDestinations(bundledSources, code);
-		let onwardDestinationsKnown = bundledEdges.size;
 		let inboundSourceId = bundledEdges.get(destination);
 		let meteredRequestSpent = false;
 
@@ -1028,9 +1027,7 @@ export async function findConnectionCandidates(
 			// Issue #340: ask the pair question rather than fetching everywhere `code` flies
 			// and checking membership. Same one request, and an answer that is about this
 			// route instead of about what happened to be cheap out of `code` this week.
-			const confirmed = await confirmDirectRoute(freeSources, code, destination);
-			inboundSourceId = confirmed.sourceId;
-			onwardDestinationsKnown = Math.max(onwardDestinationsKnown, confirmed.onwardDestinationsKnown);
+			inboundSourceId = await confirmDirectRoute(freeSources, code, destination);
 		}
 
 		if (
@@ -1057,7 +1054,6 @@ export async function findConnectionCandidates(
 			remainingMeteredBudget -= result.spent;
 			meteredRequestSpent = result.spent > 0;
 			if (result.sourceId) {
-				onwardDestinationsKnown = Math.max(onwardDestinationsKnown, result.destinations.length);
 				inboundSourceId = result.destinations.includes(destination) ? result.sourceId : undefined;
 			}
 		}
@@ -1072,12 +1068,9 @@ export async function findConnectionCandidates(
 		let outboundSourceId = outboundEdges.get(code);
 		if (!outboundSourceId) {
 			if (!withinRequestBudget) continue;
-			const confirmed = await confirmDirectRoute(freeSources, origin, code);
-			if (!confirmed.sourceId) continue;
-			outboundSourceId = confirmed.sourceId;
+			outboundSourceId = await confirmDirectRoute(freeSources, origin, code);
+			if (!outboundSourceId) continue;
 		}
-
-		const scored = combineScore(geography, onwardDestinationsKnown, weights);
 
 		candidates.push({
 			airportCode: code,
