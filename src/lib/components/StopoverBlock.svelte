@@ -96,9 +96,14 @@
 		 * and nothing else), and a caller that has not resolved one must not be forced to
 		 * invent a point. */
 		connectionCoordinates?: Coordinates;
+		/** Whether the bed is drawn with its photographs. False in exactly one place, the
+		 * trip strip's hover panel (issue #307): a media box is a third of that panel's
+		 * height and a tooltip is for a glance. Passed straight through to `PickedBed`,
+		 * which is where the decision is argued. */
+		photos?: boolean;
 	}
 
-	let { itinerary, connectionLabel, connectionCoordinates }: Props = $props();
+	let { itinerary, connectionLabel, connectionCoordinates, photos = true }: Props = $props();
 
 	// `undefined` for a window with no length: a same-day change whose whole gap is eaten
 	// by the waiting rule and the transfers. Three lines about nothing is worse than none.
@@ -231,6 +236,7 @@
 					rate={bedRate}
 					{distanceFromAirport}
 					transfer={{ note: transferLine, mode: toHotel?.mode }}
+					{photos}
 				/>
 			{/key}
 		{:else}
