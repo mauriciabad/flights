@@ -131,6 +131,12 @@ const CHECKS: Record<string, FixtureCheck> = {
 	// bed swap (issues #243, #250). Read at the app's own 50 km radius rather than 25, so
 	// this check fails if the far one ever stops mapping — that property being reachable is
 	// the whole point of the fixture.
+	'hostelworld/properties-vienna-walkable.json': {
+		readBy: 'providers/stays/hostelworld-mapper.ts mapPropertiesToStays',
+		yields: 'some',
+		map: (raw) =>
+			mapPropertiesToStays((raw as { properties?: never[] }).properties, AIRPORT, 25, 1).length
+	},
 	'hostelworld/properties-vienna-two.json': {
 		readBy: 'providers/stays/hostelworld-mapper.ts mapPropertiesToStays',
 		yields: 'some',
