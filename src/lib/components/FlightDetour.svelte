@@ -8,27 +8,30 @@
 	 * line from origin to destination airport would be useful."
 	 *
 	 * The picture is two solid great-circle arcs, origin to connection to destination, over
-	 * one thin dashed arc joining the two ends. The gap between them is the answer, and the
-	 * caption states it in kilometres so the picture is not the only place the fact lives.
+	 * one thin dashed arc joining the two ends. The gap between them is the answer.
 	 *
 	 * ## The dashed arc is not a flight
 	 *
 	 * It is the shortest line that exists between those two airports. No carrier flies it,
-	 * nothing quoted a fare for it, and this itinerary does not contain it. The one job the
-	 * caption has beyond printing a number is saying so: "290 km further than a direct
-	 * flight" names the dashed line as the direct flight the traveller is not taking. This
-	 * codebase already labels a straight-line transfer estimate honestly for the same
-	 * reason, and issue #280 lists that label among the things that work.
+	 * nothing quoted a fare for it, and this itinerary does not contain it. The dash is what
+	 * says so, and `RoutePreview`'s own header records why the two strokes must never be
+	 * tidied into one.
 	 *
-	 * ## Comparable across cards
+	 * ## Issue #305 took the caption off
 	 *
-	 * Two cards for one search share an origin and a destination, so they share a direct
-	 * distance, so "290 km further" and "1,100 km further" are directly comparable down the
-	 * list. That is why the caption prints the extra rather than the total flown: the total
-	 * would be a bigger number carrying less.
+	 * It read "1,718 km further than a direct flight", and the owner asked for it to go:
+	 * "The flight map should not have the text". The picture answers "how far out of the way
+	 * is this" by being a picture, which is the whole reason #280 asked for a drawing
+	 * instead of a number, and the caption was a second answer costing a row on a card that
+	 * has none to spare. The figure is still on the trip's own segments in the timeline.
+	 *
+	 * The same issue took the grey tray away. `--route-preview-bg` is the card's own
+	 * surface here, so what is left is two arcs drawn on the ticket rather than a
+	 * screenshot of a map pasted onto it: "i expect tat it shows the sea white (same as bg
+	 * in parent element)". The endpoint dots keep a ring in that same colour, because a dot
+	 * with no ring reads as a thickening of the line it sits on.
 	 */
 	import RoutePreview from './RoutePreview.svelte';
-	import { formatKilometres } from './itinerary-timeline-format';
 	import type { FlightShape } from '$lib/itinerary-map/previews';
 
 	interface Props {
@@ -36,69 +39,21 @@
 	}
 
 	let { shape }: Props = $props();
-
-	/**
-	 * Under a kilometre of detour is a connection sitting on the direct line, and
-	 * "0 km further than a direct flight" reads as a bug rather than as the good news it
-	 * is. The threshold is a kilometre and not a percentage: a kilometre is below what
-	 * either distance is accurate to anyway, since both are great-circle figures between
-	 * runway coordinates rather than filed flight plans.
-	 */
-	const isEssentiallyDirect = $derived(shape.extraKm < 1);
 </script>
 
 <div class="flight-shape">
-	<div class="flight-shape-picture">
-		<RoutePreview lines={shape.lines} points={shape.points} baseline={shape.directLine} width={120} height={92} />
-	</div>
-	<p class="flight-shape-caption">
-		<span class="flight-shape-key" aria-hidden="true"></span>
-		{#if isEssentiallyDirect}
-			<span class="flight-shape-figure">As straight</span> as a direct flight
-		{:else}
-			<span class="flight-shape-figure">{formatKilometres(shape.extraKm)} further</span> than a
-			direct flight
-		{/if}
-	</p>
+	<RoutePreview lines={shape.lines} points={shape.points} baseline={shape.directLine} width={120} height={92} />
 </div>
 
 <style>
-	.flight-shape {
-		display: flex;
-		align-items: center;
-		gap: var(--space-3);
-	}
-
 	/* Fixed and modest. A route's own proportions swing from nearly east-west to nearly
 	   north-south depending on where it goes, and a box that resized to fit each one would
 	   give every card in the list a different height, which is the one thing a comparison
 	   surface cannot have. `RoutePreview` centres what it cannot fill. */
-	.flight-shape-picture {
+	.flight-shape {
 		flex: none;
 		width: 6.5rem;
-	}
-
-	.flight-shape-caption {
-		margin: 0;
-		color: var(--color-text-muted);
-		font-size: var(--font-size-xs);
-		line-height: 1.4;
-		text-wrap: balance;
-	}
-
-	/* The same dash the picture draws, so the caption identifies which line it is talking
-	   about without a legend row of its own. */
-	.flight-shape-key {
-		display: inline-block;
-		width: 1.25rem;
-		height: 0;
-		margin-right: var(--space-1);
-		border-top: 1px dashed var(--color-text-faint);
-		vertical-align: middle;
-	}
-
-	.flight-shape-figure {
-		color: var(--color-text);
-		font-weight: var(--font-weight-semibold);
+		--route-preview-bg: transparent;
+		--route-preview-ring: var(--color-surface);
 	}
 </style>

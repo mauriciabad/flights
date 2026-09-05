@@ -304,7 +304,19 @@
 	{/snippet}
 
 	<div class="card-main">
-		<PriceLine {itinerary} cityCentre={connectionAirport?.city.coordinates} />
+		<!-- Issue #305, the owner: the flight map "is placed to the left of the Getting
+		     there price breakdown, so space is better used". The two answer the pair of
+		     questions a person asks about a connection, what it costs and how far out of
+		     the way it goes, and side by side they cost one block of card height instead of
+		     two. The detour renders only once the page has resolved the connection airport,
+		     since without it there is no second flight leg to compare, and the receipt then
+		     takes the whole row on its own. -->
+		<div class="card-getting-there">
+			{#if flightShape}
+				<FlightDetour shape={flightShape} />
+			{/if}
+			<PriceLine {itinerary} requiredNights={result.stopover.minimum} />
+		</div>
 
 		<!-- Issue #232: directly under the receipt, because the band is about the figure in
 		     it and a comparison printed anywhere else is a rank with no anchor on screen.
@@ -338,20 +350,8 @@
 			/>
 		</div>
 
-		<!-- Issue #280. Beside the strip on purpose: the strip is the trip's shape in time,
-		     this is its shape in space, and the two questions a person asks about a
-		     connection ("how long does it cost me" and "how far out of the way is it") then
-		     sit next to each other. Renders only once the page has resolved the connection
-		     airport, since without it there is no second flight leg to compare. -->
-		{#if flightShape}
-			<FlightDetour shape={flightShape} />
-		{/if}
-
-		<!-- Under the two previews rather than below the totals, because the brief's own
-		     words are that the preview opens into the full timeline. It sits after #280's
-		     detour rather than between it and the strip: those two are one pair, the trip's
-		     shape in time beside its shape in space, and unfolding a timeline between them
-		     would separate a comparison somebody built on purpose. -->
+		<!-- Under the preview it unfolds, because the brief's own words are that the
+		     preview opens into the full timeline. -->
 		{#if timelineOpen && timeline}
 			<div id={timelineId}>{@render timeline()}</div>
 		{/if}
@@ -532,6 +532,18 @@
 		flex-direction: column;
 		gap: var(--space-4);
 		padding: var(--space-4) var(--space-5);
+	}
+
+	/* Issue #305: the detour drawing and the receipt share one row. The drawing is a fixed
+	   6.5rem (`FlightDetour` owns that, and owns why it must not resize per route), so the
+	   receipt takes what is left and `min-width: 0` is what lets its long labels wrap
+	   inside the column instead of widening it. Top-aligned rather than centred: the
+	   headline is the thing a reader lands on, and it has to sit on the card's own first
+	   line whatever height the receipt below it turns out to be. */
+	.card-getting-there {
+		display: flex;
+		align-items: flex-start;
+		gap: var(--space-4);
 	}
 
 	/* One line, always. On a phone this footer spent three on "ZZ" and "via Ryanair (no

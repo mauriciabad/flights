@@ -19,11 +19,10 @@
  * time and price of each part, and the totals.
  */
 
-import type { Coordinates, IsoCurrencyCode, Itinerary, Money, Stay } from '$lib/domain';
-import { greatCircleDistanceKm, groundFare, unpricedTransferLegs, walkedTransferLegs } from '$lib/domain';
+import type { IsoCurrencyCode, Itinerary, Money, Stay, Transfer } from '$lib/domain';
+import { groundFare, unpricedTransferLegs, walkedTransferLegs } from '$lib/domain';
 import { scaleFareForParty, sumMoney } from '$lib/algorithm/build';
 import { formatDuration, formatLongDuration, formatMoney, formatMoneyRange } from '$lib/format';
-import { formatDistanceKm } from '$lib/stays/distance';
 import { bedNightlyRate } from '$lib/stays/pricing';
 import { freeTimeDays } from './free-time-days';
 
@@ -270,6 +269,66 @@ export interface PricePart {
 	detail?: string;
 }
 
+/**
+ * What this app knows about one ground row's cost. Issue #305's receipt reads one row per
+ * named leg rather than three aggregate rows, so the cost has to travel with the row
+ * instead of being counted into a separate bucket.
+ *
+ * The four cases are `groundFare`'s own four answers narrowed to what a receipt can print.
+ * `beyond-rate-card` and `unquoted` both land on `unknown`, because to a traveller reading
+ * a price they are the same sentence: nobody has given us a number for this ride.
+ */
+export type GroundRowCost =
+	| { kind: 'quoted'; money: Money }
+	| { kind: 'free' }
+	| { kind: 'estimated'; currency: IsoCurrencyCode; lowMinorUnits: number; highMinorUnits: number }
+	| { kind: 'unknown' };
+
+/**
+ * One named ground leg on the receipt, with what it costs.
+ *
+ * The owner named these rows himself: "the other sould be `Rides from and to hotel`
+ * `Ride to destination` `Ride from origin`". The rows they replace were counts under one
+ * word ("Ground, 3 rides"), which told a reader how big the hole was and never which part
+ * of the journey it was in. A traveller who is walking to their hotel and taxiing to the
+ * airport was reading one line that averaged the two.
+ */
+export interface GroundRow {
+	id: 'from-origin' | 'hotel' | 'to-hotel' | 'from-hotel' | 'to-destination';
+	label: string;
+	cost: GroundRowCost;
+}
+
+/**
+ * The bed, as its own group rather than one long line. Issue #305.
+ *
+ * The line it replaces was `Bed, 1 night × €52.85, 37.6 km from centre`, which wrapped to
+ * two lines on a 375px card and put three different kinds of fact in one string. The owner
+ * asked for a group titled Hotel with the rate on the right and the nights inside it.
+ *
+ * The nights split into the ones the flights force and the ones the traveller chose,
+ * because since #230 every stopover opens at its shortest length and the ladder extends
+ * it. "1 required night, 1 extra night" is the only place on the card that says which half
+ * of the bed bill is a choice.
+ *
+ * The distance from the city centre is deliberately gone rather than moved: `PickedBed` in
+ * the unfolded timeline prints the distance from the airport, and the stay picker prints
+ * the distance from the centre beside every property. It was on this line because there
+ * was nowhere else in #224; there is now.
+ */
+export interface HotelGroup {
+	/** "€52.85/night", or "€52.85/night each" when the rate is per person (issue #206). */
+	rate: string;
+	rows: HotelNightsRow[];
+}
+
+export interface HotelNightsRow {
+	id: 'required' | 'extra';
+	/** "1 required night", "2 extra nights". */
+	label: string;
+	money: Money;
+}
+
 export interface PriceBreakdown {
 	parts: PricePart[];
 	total: Money;
@@ -319,25 +378,149 @@ export interface PriceBreakdown {
 	 * The fact here is not an amount, it is that there is no amount to pay.
 	 */
 	walkedTransferCount: number;
+	/**
+	 * Issue #305: the bed as its own titled group, or absent on a trip that books none.
+	 * `parts` no longer carries a `stay` entry; this replaced it, because a group with the
+	 * rate on its header and a row per kind of night is three facts a receipt can align
+	 * down one right edge, and one line of prose was not.
+	 */
+	hotel?: HotelGroup;
+	/**
+	 * Issue #305: one row per named ground leg, in trip order, each carrying what this app
+	 * knows about that leg's cost. The aggregate counts above still exist because
+	 * `totalPriceCaveat` reasons about how much of the trip is unpriced rather than about
+	 * which leg is; these rows are what the receipt prints.
+	 */
+	groundRows: GroundRow[];
+}
+
+/** "€13.00/night", "€13.00/night each", "€44.00/night for 3": issue #206's nightly rate
+ * with the audience `bedNightlyRate` decided, in the "symbol first, /night" shape
+ * AGENTS.md fixes for every rate this app prints. `StopoverBlock` composes the same two
+ * pieces, so the card and the panel can never disagree about the figure. */
+function bedRate(stay: Stay, travellers: number): string {
+	const rate = bedNightlyRate(stay, travellers);
+	const perNight = `${formatMoney(rate.money)}/night`;
+	return rate.audience ? `${perNight} ${rate.audience}` : perNight;
+}
+
+function nightsPhrase(count: number, kind: 'required' | 'extra'): string {
+	return `${count} ${kind} ${count === 1 ? 'night' : 'nights'}`;
 }
 
 /**
- * How far the booked bed is from the middle of the stopover city, straight-line, or
- * `undefined` when either point is unknown. Never the walking or driving distance: those
- * are a routing provider's answer and this is arithmetic on two coordinates, which is
- * exactly why `formatDistanceKm` keeps it to one decimal.
+ * The bed group. Issue #305.
+ *
+ * `requiredNights` is `ScoredResult.stopover.minimum`, the shortest stay this connection's
+ * own flight pairings allow. Everything past it is a night the traveller added from the
+ * ladder, and everything up to it is a night the schedule charges them for whether they
+ * want it or not. A caller that does not know the minimum passes nothing, and every night
+ * reads as required, which is the honest reading of "we do not know that any of these were
+ * chosen".
  */
-function distanceFromCentre(itinerary: Itinerary, cityCentre: Coordinates | undefined): string | undefined {
-	if (!itinerary.stay || !cityCentre) return undefined;
-	return `${formatDistanceKm(greatCircleDistanceKm(itinerary.stay.property.coordinates, cityCentre))} from centre`;
+function buildHotelGroup(stay: Stay, nights: number, travellers: number, requiredNights?: number): HotelGroup {
+	const required = Math.max(0, Math.min(nights, requiredNights ?? nights));
+	const extra = nights - required;
+	const money = (count: number): Money => ({
+		minorUnits: stay.pricePerNight.minorUnits * count,
+		currency: stay.pricePerNight.currency
+	});
+	const rows: HotelNightsRow[] = [];
+	if (required > 0) rows.push({ id: 'required', label: nightsPhrase(required, 'required'), money: money(required) });
+	if (extra > 0) rows.push({ id: 'extra', label: nightsPhrase(extra, 'extra'), money: money(extra) });
+	return { rate: bedRate(stay, travellers), rows };
 }
 
-/** "€13.00", "€13.00 each", "€44.00 for 3": issue #206's nightly rate with the audience
- * `bedNightlyRate` decided. `StopoverBlock` composes the same two pieces into its own
- * "€13.00/night each", so the card and the panel can never disagree about the figure. */
-function bedRate(stay: Stay, travellers: number): string {
-	const rate = bedNightlyRate(stay, travellers);
-	return rate.audience ? `${formatMoney(rate.money)} ${rate.audience}` : formatMoney(rate.money);
+function costOf(transfer: Transfer): GroundRowCost {
+	const fare = groundFare(transfer);
+	switch (fare.kind) {
+		case 'quoted':
+			return { kind: 'quoted', money: fare.price };
+		case 'free':
+			return { kind: 'free' };
+		case 'estimated':
+			return {
+				kind: 'estimated',
+				currency: fare.estimate.currency,
+				lowMinorUnits: fare.estimate.lowMinorUnits,
+				highMinorUnits: fare.estimate.highMinorUnits
+			};
+		case 'beyond-rate-card':
+		case 'unquoted':
+			return { kind: 'unknown' };
+	}
+}
+
+/**
+ * The two hotel-side rides as one cost, or `undefined` when they cannot honestly be added.
+ *
+ * They merge only when both legs are the same kind of answer in the same currency. A walk
+ * out and a taxi back are two different facts, and one row saying either "free" or "about
+ * £12-£19" about the pair would be false in one direction. Those fall back to a row each,
+ * which is why `GroundRow.id` has a `to-hotel` and a `from-hotel` as well as the merged
+ * `hotel`.
+ */
+function mergeHotelCosts(a: GroundRowCost, b: GroundRowCost): GroundRowCost | undefined {
+	if (a.kind !== b.kind) return undefined;
+	if (a.kind === 'free' || a.kind === 'unknown') return a;
+	if (a.kind === 'quoted' && b.kind === 'quoted') {
+		if (a.money.currency !== b.money.currency) return undefined;
+		return { kind: 'quoted', money: { minorUnits: a.money.minorUnits + b.money.minorUnits, currency: a.money.currency } };
+	}
+	if (a.kind === 'estimated' && b.kind === 'estimated') {
+		if (a.currency !== b.currency) return undefined;
+		return {
+			kind: 'estimated',
+			currency: a.currency,
+			lowMinorUnits: a.lowMinorUnits + b.lowMinorUnits,
+			highMinorUnits: a.highMinorUnits + b.highMinorUnits
+		};
+	}
+	return undefined;
+}
+
+/**
+ * The receipt's ground rows, in trip order, named the way the owner named them.
+ *
+ * A leg the trip does not have gets no row, with one exception that is issue #211's:
+ * a stopover with a booked bed and a night to sleep in it still has to reach that bed and
+ * come back, so an absent connection-side leg is a ride nobody could route rather than a
+ * ride the trip does not need. That is the same gate `groundFares` applies to the unpriced
+ * count, and the two are kept in step deliberately: the row saying "not priced" and the
+ * caveat under the total counting it have to describe the same legs.
+ */
+function buildGroundRows(itinerary: Itinerary): GroundRow[] {
+	const rows: GroundRow[] = [];
+
+	if (itinerary.transferToOriginAirport) {
+		rows.push({ id: 'from-origin', label: 'Ride from origin', cost: costOf(itinerary.transferToOriginAirport) });
+	}
+
+	// Issue #211's gate, shared with `groundFares`: a bed to reach is what makes a missing
+	// leg a hole rather than a leg the trip never had.
+	const bedToReach = itinerary.stay !== undefined && itinerary.nightsInConnection > 0;
+	const toHotel = itinerary.transferToHotel;
+	const fromHotel = itinerary.transferToConnectionAirport;
+	if (toHotel || fromHotel || bedToReach) {
+		const toCost: GroundRowCost = toHotel ? costOf(toHotel) : { kind: 'unknown' };
+		const fromCost: GroundRowCost = fromHotel ? costOf(fromHotel) : { kind: 'unknown' };
+		const merged = mergeHotelCosts(toCost, fromCost);
+		if (merged) rows.push({ id: 'hotel', label: 'Rides from and to hotel', cost: merged });
+		else {
+			rows.push({ id: 'to-hotel', label: 'Ride to hotel', cost: toCost });
+			rows.push({ id: 'from-hotel', label: 'Ride from hotel', cost: fromCost });
+		}
+	}
+
+	if (itinerary.transferToDestinationLocation) {
+		rows.push({
+			id: 'to-destination',
+			label: 'Ride to destination',
+			cost: costOf(itinerary.transferToDestinationLocation)
+		});
+	}
+
+	return rows;
 }
 
 /** "3 rides" rather than a bare 3, because a number beside the word "Ground" reads as an
@@ -353,20 +536,18 @@ export function walkCount(walks: number): string {
 	return `${walks} ${walks === 1 ? 'walk' : 'walks'}`;
 }
 
-/** What the bed line can say beyond its own amount, when the caller knows it. */
+/** What the hotel group can say beyond its own amounts, when the caller knows it. */
 export interface PriceBreakdownContext {
 	/**
-	 * The stopover city's hand-checked centre point (`Airport.city.coordinates`, issue
-	 * #162), when one exists. Present, the bed line says how far out the bed is; absent,
-	 * it says nothing rather than measuring against the runway and calling that the
-	 * centre, which is the mistake #196 fixed.
+	 * `ScoredResult.stopover.minimum`: the fewest nights this connection's own flight
+	 * pairings allow. Issue #305 splits the bed rows into the nights the schedule forces
+	 * and the nights the traveller added on top, and this is the line between them.
 	 *
-	 * Issue #224: the owner's two stated reasons for extending a stopover are "if the city
-	 * is interesting and the hotel in the center", and this is the measurable one. It rides
-	 * on the line that already prints what the bed costs, so the card answers "is it worth
-	 * another night here" without spending a row on it.
+	 * Absent, every night reads as required. That is the honest default: without the
+	 * group behind the card there is no way to know that any night was chosen, and calling
+	 * a forced night "extra" would tell a traveller they could drop it.
 	 */
-	cityCentre?: Coordinates;
+	requiredNights?: number;
 }
 
 /**
@@ -404,25 +585,10 @@ export function priceBreakdown(itinerary: Itinerary, context: PriceBreakdownCont
 	);
 	const parts: PricePart[] = [{ id: 'flights', label: 'Flights', money: flights }];
 
-	if (itinerary.stay && itinerary.nightsInConnection > 0) {
-		const nights = itinerary.nightsInConnection;
-		// The nightly rate beside the night count, so the line explains its own total and
-		// answers issue #225's "+x€per night" for accommodation on the card itself rather
-		// than only inside the stay picker.
-		const detail = [
-			`${nights} ${nights === 1 ? 'night' : 'nights'} × ${bedRate(itinerary.stay, itinerary.travellers)}`,
-			distanceFromCentre(itinerary, context.cityCentre)
-		].filter((part): part is string => part !== undefined);
-		parts.push({
-			id: 'stay',
-			label: 'Bed',
-			money: {
-				minorUnits: itinerary.stay.pricePerNight.minorUnits * nights,
-				currency: itinerary.stay.pricePerNight.currency
-			},
-			detail: detail.join(', ')
-		});
-	}
+	const hotel =
+		itinerary.stay && itinerary.nightsInConnection > 0
+			? buildHotelGroup(itinerary.stay, itinerary.nightsInConnection, itinerary.travellers, context.requiredNights)
+			: undefined;
 
 	const groundLegs = [
 		itinerary.transferToOriginAirport?.price,
@@ -450,6 +616,8 @@ export function priceBreakdown(itinerary: Itinerary, context: PriceBreakdownCont
 		missingStay: !itinerary.stay && itinerary.nightsInConnection > 0,
 		unpricedTransferCount: ground.unpricedRides,
 		estimatedGround: ground.estimates,
-		walkedTransferCount: ground.walks
+		walkedTransferCount: ground.walks,
+		hotel,
+		groundRows: buildGroundRows(itinerary)
 	};
 }

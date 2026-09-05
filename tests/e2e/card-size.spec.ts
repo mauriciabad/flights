@@ -143,11 +143,26 @@ test.describe('result card size', () => {
 		await expect(tallest.locator('.price-band')).toBeVisible();
 		await expect(tallest.locator('.flight-shape')).toBeVisible();
 		await expect(tallest.locator('.avoid-badge')).toBeVisible();
-		await expect(tallest.locator('.price-part-label').filter({ hasText: 'Bed' })).toBeVisible();
-		// Two currencies of rate-card estimate and a walked leg, which is every ground row
-		// `priceBreakdown` can print on one receipt at the same time.
-		await expect(tallest.locator('.price-part-amount').filter({ hasText: 'estimate' })).toHaveCount(2);
+		// Issue #305 rebuilt this receipt. The bed is a titled group with its nights inside it
+		// rather than a `Bed` line, and the ground is one named row per leg rather than up to
+		// three rows counting rides by kind, so the guards read the new shape. What they are
+		// guarding is unchanged: that this fixture really is building the worst case, and has
+		// not quietly stopped, which is #298 happening again one level up.
+		await expect(tallest.locator('.price-group .price-part-label').first()).toHaveText('Hotel');
+		// A walked leg and a rated one on the same receipt, which is the pair that proves both
+		// readings of an absent price are being printed (`domain/transfer.ts`).
 		await expect(tallest.locator('.price-part-amount').filter({ hasText: 'free' })).toHaveCount(1);
+		const receipt = await tallest.locator('.price-part').evaluateAll((rows) =>
+			rows.map((row) => {
+				const label = row.querySelector('.price-part-label')?.textContent?.trim();
+				const amount = row.querySelector('.price-part-amount')?.textContent?.trim();
+				return `${label} -> ${amount}`;
+			})
+		);
+		console.log(`worst-case receipt: ${receipt.join(' | ')}`);
+		// Flights, the hotel group's header, at least one nights row and at least two named
+		// ground rows: the longest receipt this app can print.
+		expect(receipt.length).toBeGreaterThanOrEqual(5);
 
 		console.log(`worst-case result cards at 375px: ${heights.join(', ')}px`);
 		expect(Math.max(...heights)).toBeLessThanOrEqual(WORST_CASE_HEIGHT_BUDGET_PX);

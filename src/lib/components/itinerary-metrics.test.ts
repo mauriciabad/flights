@@ -99,8 +99,14 @@ describe('priceBreakdown', () => {
 			makeItinerary({ nightsInConnection: 2, travellers: 3 })
 		]) {
 			const breakdown = priceBreakdown(itinerary);
-			const summed = sumMoney(breakdown.parts[0]!.money, ...breakdown.parts.slice(1).map((part) => part.money));
-			expect(summed).toEqual(breakdown.total);
+			// Issue #305 moved the bed out of `parts` and into its own group, so the receipt
+			// adds up across both. Every row on screen is still in this sum: that is the
+			// property the split must not break.
+			const amounts = [
+				...breakdown.parts.map((part) => part.money),
+				...(breakdown.hotel?.rows ?? []).map((row) => row.money)
+			];
+			expect(sumMoney(amounts[0]!, ...amounts.slice(1))).toEqual(breakdown.total);
 		}
 	});
 
@@ -116,44 +122,49 @@ describe('priceBreakdown', () => {
 		expect(priceBreakdown(sameDay).missingStay).toBe(false);
 	});
 
-	it('says how many nights the bed line covers, and what one of them costs', () => {
-		// Issue #225 asks for the accommodation rate per night beside its total. The count
-		// alone left the traveller dividing one number by another to answer "is another
-		// night here worth it", which is the decision the nights control exists for.
-		const breakdown = priceBreakdown(makeItinerary({ nightsInConnection: 1 }));
-		const stay = breakdown.parts.find((part) => part.id === 'stay');
-		expect(stay?.detail).toBe('1 night × €20.00');
-		expect(priceBreakdown(makeItinerary({ nightsInConnection: 5 })).parts.find((p) => p.id === 'stay')?.detail).toBe(
-			'5 nights × €20.00'
-		);
+	// Issue #305 -------------------------------------------------------------
+
+	it('puts the nightly rate on the hotel group rather than inside a sentence', () => {
+		// The owner asked for "a group with `Hotel` as title and at right `€52.85/night`".
+		// A rate is a rate wherever it is printed, so it reads the way AGENTS.md fixes every
+		// other rate in this app: symbol first, "/night", no padded digits.
+		expect(priceBreakdown(makeItinerary({ nightsInConnection: 1 })).hotel?.rate).toBe('€20.00/night');
 	});
 
-	it('says how far the bed is from the city centre when the dataset knows where that is', () => {
-		// Issue #224: "if the city is interesting and the hotel in the center" are the
-		// owner's two reasons to spend another night somewhere, and this is the measurable
-		// one. It rides on the line that already prices the bed, so it costs the card no row.
-		const itinerary = makeItinerary({ nightsInConnection: 2 });
-		const stay = priceBreakdown(itinerary, {
-			cityCentre: { latitude: itinerary.stay!.property.coordinates.latitude + 0.025, longitude: 0 }
-		}).parts.find((part) => part.id === 'stay');
+	it('splits the nights into the ones the flights force and the ones the traveller added', () => {
+		// Since #230 a stopover opens at its shortest length and the ladder extends it, so
+		// "3 nights" is two different decisions added together. This is the only place on
+		// the card that says which of them a traveller could still drop.
+		const rows = priceBreakdown(makeItinerary({ nightsInConnection: 3 }), { requiredNights: 1 }).hotel?.rows;
 
-		expect(stay?.detail).toBe('2 nights × €20.00, 2.8 km from centre');
+		expect(rows?.map((row) => row.label)).toEqual(['1 required night', '2 extra nights']);
+		expect(rows?.map((row) => row.money.minorUnits)).toEqual([2000, 4000]);
 	});
 
-	it('says nothing about the centre when nobody has checked where the centre is', () => {
-		// Issue #162/#196: most airports in the dataset carry no city point, and measuring
-		// against the runway and calling that the centre is the bug that fix removed.
-		const stay = priceBreakdown(makeItinerary({ nightsInConnection: 2 })).parts.find((p) => p.id === 'stay');
+	it('calls every night required when nobody said which were chosen', () => {
+		// A caller without the group behind the card cannot know that any night was picked,
+		// and calling a forced night "extra" would tell a traveller they can drop it.
+		const rows = priceBreakdown(makeItinerary({ nightsInConnection: 2 })).hotel?.rows;
 
-		expect(stay?.detail).toBe('2 nights × €20.00');
+		expect(rows?.map((row) => row.label)).toEqual(['2 required nights']);
+	});
+
+	it('prints no extra row when the trip is at its shortest length', () => {
+		const rows = priceBreakdown(makeItinerary({ nightsInConnection: 2 }), { requiredNights: 2 }).hotel?.rows;
+
+		expect(rows?.map((row) => row.id)).toEqual(['required']);
+	});
+
+	it('has no hotel group at all when nothing priced a bed', () => {
+		expect(priceBreakdown(withoutStay(makeItinerary({ nightsInConnection: 4 }))).hotel).toBeUndefined();
+		expect(priceBreakdown(makeItinerary({ nightsInConnection: 0 })).hotel).toBeUndefined();
 	});
 
 	// Issue #206 -------------------------------------------------------------
 
 	it('prints one bare rate for one traveller, since per person and per party agree', () => {
-		// "€13.00 each" beside a party of one is noise.
-		const solo = priceBreakdown(makeItinerary({ nightsInConnection: 1, travellers: 1 }));
-		expect(solo.parts.find((part) => part.id === 'stay')?.detail).toBe('1 night × €20.00');
+		// "€13.00/night each" beside a party of one is noise.
+		expect(priceBreakdown(makeItinerary({ nightsInConnection: 1, travellers: 1 })).hotel?.rate).toBe('€20.00/night');
 	});
 
 	it('says who a room rate covers rather than dividing it between them', () => {
@@ -163,7 +174,7 @@ describe('priceBreakdown', () => {
 		// booking one pay for four (docs/PROVIDERS.md). Splitting that by heads would print
 		// a figure no provider ever quoted, which is exactly what issue #206 warned about.
 		const party = priceBreakdown(makeItinerary({ nightsInConnection: 2, travellers: 3 }));
-		expect(party.parts.find((part) => part.id === 'stay')?.detail).toBe('2 nights × €20.00 for 3');
+		expect(party.hotel?.rate).toBe('€20.00/night for 3');
 	});
 
 	it('prints the per-person rate a provider actually quoted, marked as each', () => {
@@ -181,10 +192,10 @@ describe('priceBreakdown', () => {
 			}
 		};
 
-		const stay = priceBreakdown(inADorm).parts.find((part) => part.id === 'stay');
-		expect(stay?.detail).toBe('2 nights × €13.00 each');
-		// And the amount stays the party's, because that is what the total is built from.
-		expect(stay?.money).toEqual({ minorUnits: 7800, currency: 'EUR' });
+		const hotel = priceBreakdown(inADorm).hotel;
+		expect(hotel?.rate).toBe('€13.00/night each');
+		// And the rows stay the party's, because that is what the total is built from.
+		expect(hotel?.rows.map((row) => row.money)).toEqual([{ minorUnits: 7800, currency: 'EUR' }]);
 	});
 
 	it('omits a ground line while no transfer provider prices one', () => {
@@ -506,5 +517,126 @@ describe('priceBreakdown: a ride the rate card can describe', () => {
 			transferToHotel: ratedTaxi(2426, 3830, 'GBP')
 		};
 		expect(itineraryMetrics(trip, ['total-price'])[0]!.note).toBe('excludes a bed and ground transport');
+	});
+});
+
+// Issue #305 -----------------------------------------------------------------
+
+describe('priceBreakdown: the receipt names each ground leg', () => {
+	function ratedTaxi(lowMinorUnits: number, highMinorUnits: number, currency: string): Transfer {
+		return {
+			mode: 'taxi',
+			duration: 22 as Duration,
+			legs: [],
+			fareEstimate: {
+				kind: 'estimate',
+				currency: currency as Money['currency'],
+				lowMinorUnits,
+				highMinorUnits,
+				countryCode: 'GB',
+				rateSource: 'country',
+				citation: 'London black-cab Tariff 1'
+			}
+		};
+	}
+
+	const walk: Transfer = { mode: 'walk', duration: 12 as Duration, legs: [] };
+	const bus: Transfer = { mode: 'transit', duration: 35 as Duration, legs: [] };
+
+	it('folds the two hotel-side rides into the one row the owner named', () => {
+		const trip = {
+			...makeItinerary({ nightsInConnection: 1 }),
+			transferToHotel: ratedTaxi(1200, 1900, 'EUR'),
+			transferToConnectionAirport: ratedTaxi(1200, 1900, 'EUR')
+		};
+
+		expect(priceBreakdown(trip).groundRows).toEqual([
+			{
+				id: 'hotel',
+				label: 'Rides from and to hotel',
+				cost: { kind: 'estimated', currency: 'EUR', lowMinorUnits: 2400, highMinorUnits: 3800 }
+			}
+		]);
+	});
+
+	it('splits the pair when the two legs are different kinds of answer', () => {
+		// A walk out and a taxi back are two facts. One row saying either "free" or a range
+		// about the pair would be false in one direction, which is the whole reason the
+		// aggregate rows this replaced were wrong.
+		const trip = {
+			...makeItinerary({ nightsInConnection: 1 }),
+			transferToHotel: walk,
+			transferToConnectionAirport: ratedTaxi(1200, 1900, 'EUR')
+		};
+
+		expect(priceBreakdown(trip).groundRows).toEqual([
+			{ id: 'to-hotel', label: 'Ride to hotel', cost: { kind: 'free' } },
+			{
+				id: 'from-hotel',
+				label: 'Ride from hotel',
+				cost: { kind: 'estimated', currency: 'EUR', lowMinorUnits: 1200, highMinorUnits: 1900 }
+			}
+		]);
+	});
+
+	it('names the outer legs from the traveller end, in trip order', () => {
+		const trip = {
+			...makeItinerary({ nightsInConnection: 1 }),
+			transferToOriginAirport: bus,
+			transferToDestinationLocation: bus
+		};
+
+		expect(priceBreakdown(trip).groundRows.map((row) => row.label)).toEqual([
+			'Ride from origin',
+			'Rides from and to hotel',
+			'Ride to destination'
+		]);
+	});
+
+	it('gives no row to an outer leg the trip does not have', () => {
+		// Absent because the query carried no origin or destination location, which is a
+		// trip with no such ride rather than a ride nobody could route.
+		expect(priceBreakdown(makeItinerary({ nightsInConnection: 1 })).groundRows.map((row) => row.id)).toEqual([
+			'hotel'
+		]);
+	});
+
+	it('still prints the hotel row when the bed exists and nothing could route to it', () => {
+		// Issue #211: the traveller has to reach that bed and come back whether or not any
+		// provider answered, so the row says "not priced" rather than vanishing.
+		const { transferToHotel: _to, transferToConnectionAirport: _back, ...unrouted } = makeItinerary({
+			nightsInConnection: 3
+		});
+
+		expect(priceBreakdown(unrouted as Itinerary).groundRows).toEqual([
+			{ id: 'hotel', label: 'Rides from and to hotel', cost: { kind: 'unknown' } }
+		]);
+	});
+
+	it('gives a same-day connection no hotel row, because it has no bed to reach', () => {
+		const { transferToHotel: _to, transferToConnectionAirport: _back, ...sameDay } = withoutStay(
+			makeItinerary({ nightsInConnection: 0 })
+		);
+
+		expect(priceBreakdown(sameDay as Itinerary).groundRows).toEqual([]);
+	});
+
+	it('reads a bus as unknown and a walk as free, never as the same thing', () => {
+		// `domain/transfer.ts`'s two readings of an absent price, carried onto the receipt
+		// per row instead of into two counts. This is the distinction issue #249 made and
+		// the one a single "Ground" line could not print.
+		const byBus = {
+			...makeItinerary({ nightsInConnection: 1 }),
+			transferToHotel: bus,
+			transferToConnectionAirport: bus
+		};
+		const onFoot = {
+			...makeItinerary({ nightsInConnection: 1 }),
+			transferToHotel: walk,
+			transferToConnectionAirport: walk
+		};
+
+		expect(priceBreakdown(byBus).groundRows[0]!.cost).toEqual({ kind: 'unknown' });
+		expect(priceBreakdown(onFoot).groundRows[0]!.cost).toEqual({ kind: 'free' });
 	});
 });
