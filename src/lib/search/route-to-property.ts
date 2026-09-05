@@ -32,7 +32,12 @@
  * the journey exist at all.
  */
 
-import type { Coordinates, Duration, Transfer } from "../domain";
+import type {
+  AirportSizeClass,
+  Coordinates,
+  LandingToTransportRule,
+  Transfer,
+} from "../domain";
 import type {
   AvailableKeys,
   ProviderResult,
@@ -43,6 +48,7 @@ import {
   applyLandingBuffer,
   fetchBestTransfer,
   pickBestTransfer,
+  pickLandingToTransportTime,
 } from "./resources";
 import { SourceTracker } from "./provenance";
 import type { RecordProviderCall } from "./provenance";
@@ -55,13 +61,13 @@ export interface RouteToPropertyInput {
   transferProviders: readonly TransferProvider[];
   keys: AvailableKeys;
   signal: AbortSignal;
-  /** `pickLandingToTransportTime(rules, connectionAirport.sizeClass)`, the same padding
-   * `fetchConnectionResources` adds to the leg that starts at a runway. Passed in already
-   * resolved rather than as the rule table, because the caller is a component and the
-   * airport's size class is a thing it already holds. Without it a bed routed here would
-   * arrive several minutes earlier than the identical bed routed by the pipeline, and the
-   * free-time window would disagree with itself depending on which code path produced it. */
-  landingBuffer: Duration;
+  /** The same two inputs `fetchConnectionResources` runs `pickLandingToTransportTime`
+   * over, so the padding on the leg that starts at a runway is picked by one function
+   * rather than by two that could drift. Without it a bed routed here would arrive several
+   * minutes earlier than the identical bed routed by the pipeline, and the free-time window
+   * would disagree with itself depending on which code path produced it. */
+  landingToTransportRules: readonly LandingToTransportRule[];
+  connectionAirportSize: AirportSizeClass;
   /** Where a provider call gets reported. The panel does not feed the search-wide status
    * map (this call happens after the search is over and would make "Ryanair answered
    * twice" wrong), so this exists so a failure has somewhere to go rather than being
@@ -96,7 +102,8 @@ export async function routeToProperty(
     transferProviders,
     keys,
     signal,
-    landingBuffer,
+    landingToTransportRules,
+    connectionAirportSize,
     record,
   } = input;
 
@@ -140,6 +147,10 @@ export async function routeToProperty(
   // Buffered on every candidate and the pick re-derived from the buffered list, which is
   // what `fetchConnectionResources` does and for the same reason: one code path decides
   // which transfer is best, never two that could disagree.
+  const landingBuffer = pickLandingToTransportTime(
+    landingToTransportRules,
+    connectionAirportSize,
+  );
   const transferToHotel = pickBestTransfer(
     toHotel.candidates.map((transfer) =>
       applyLandingBuffer(transfer, landingBuffer, sources),

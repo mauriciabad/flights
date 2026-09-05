@@ -81,7 +81,7 @@ export function propertyOf(group: PropertyStayOptions): Property {
  */
 /** The identity StayPicker.svelte's `{#each}` keys on. Kept beside the grouping so the
  * two cannot drift apart again. */
-function propertyKey(property: Property): string {
+export function propertyKey(property: Property): string {
 	return `${property.name}@${property.coordinates.latitude},${property.coordinates.longitude}`;
 }
 
