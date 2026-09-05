@@ -161,3 +161,35 @@ change.
 The pattern is worth naming, because it is the same one the repo already documents about
 itself: every one of these was an instrument reporting confidently on something it could not
 actually see.
+
+### #237's verification, honestly
+
+**Verified on production:** the fabricated claim is gone. With Hostelworld forced to `503`,
+the page no longer says "the stay providers had nothing near London for these dates". The
+provider strip reads `Hostelworld (no key required) FAILED 6 reqs`. The happy path still
+returns 4 of 4 itineraries with a bed priced. That was the severe half and it holds.
+
+**Not verified by me:** that the provider's verbatim status reaches the rendered page. Seven
+attempts, none of which got `[data-testid="stay-notice"]` to appear. Three reasons, all of
+them correct behaviour rather than bugs:
+
+1. The notice is in `{#snippet stepOptions(segment)}`, rendered only for the timeline row the
+   reader has opened. Two clicks, not one.
+2. `stayIsRelevant` is `nightsInConnection > 0 || stay !== undefined`, so a zero-night flight
+   change shows nothing, correctly.
+3. With every stay provider failing, the builder returns different pairings than it does when
+   beds are priced, so the card with a night is not reliably where I expected it.
+
+The agent that wrote it did read the rendered sentence in its own browser, and
+`no-stays-reason.test.ts` pins the wording. So the evidence is a browser session plus unit
+tests, and not a repeatable check. Filed as **#240**, low severity, small: a `pnpm qa` case
+that forces the 503 and asserts on `[data-testid="stay-provider-failure"]`.
+
+I am recording this as unverified rather than claiming either result. Six of my own
+measurements were wrong tonight and the seventh is not evidence of a defect, only of my
+failing to establish the state.
+
+**A product observation for the owner, not a bug.** The provider's own words are two clicks
+deep: expand the card, then open the free-time row. The strip shows FAILED at the top level so
+nothing is concealed, but someone wondering "why is there no bed?" has to go looking. #191's
+rule is satisfied either way; whether that is the right depth is his call.
