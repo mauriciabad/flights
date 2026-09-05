@@ -73,7 +73,10 @@
 		<!-- One car, drawn once. Taxi is the same silhouette with the roof sign on top,
 		     which is the only thing that tells them apart on a real street either. -->
 		{#if kind === 'taxi'}
-			<rect x="6.1" y="0.9" width="3.8" height="2" rx="0.6" fill="currentColor" stroke="none" />
+			<!-- The roof sign sits ON the roof and is filled solid. Floated above it, or drawn
+			     as an outline, it reads at 15px as a smudge over a car rather than as a taxi,
+			     and the two rows in the picker stop telling themselves apart. -->
+			<rect x="5.7" y="2.5" width="4.6" height="2.4" rx="0.7" fill="currentColor" stroke="none" />
 		{/if}
 		<path d="M2.4 12.2V9.4l1.7-4a1 1 0 0 1 .9-.6h6a1 1 0 0 1 .9.6l1.7 4v2.8" />
 		<path d="M2.4 9.4h11.2" />
