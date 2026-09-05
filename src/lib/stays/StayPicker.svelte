@@ -17,7 +17,7 @@
 	import { formatDistanceKm, haversineDistanceKm } from './distance';
 	import { stayTotalDelta, stayTotalForNights } from './pricing';
 	import { cheapestSelectableOption, isOptionSelectable, rankProperties } from './rank';
-	import { describeNoStays } from './no-stays-reason';
+	import { describeNoStays, type StayProviderOutcome } from './no-stays-reason';
 	import { propertyOf, type PropertyStayOptions } from './types';
 
 	interface Props {
@@ -49,6 +49,13 @@
 		 * only state in which "still looking" is true without either being supplied. */
 		stayProviderConfigured?: boolean;
 		searchDone?: boolean;
+		/** Issue #203: what each stay provider did in this search. Empty means nothing has
+		 * been recorded, which `describeNoStays` reports as such rather than as "they had
+		 * nothing here" — the false claim this prop exists to stop. */
+		stayProviders?: readonly StayProviderOutcome[];
+		/** Whether a registered stay provider is still waiting on a key, so "add a key" is
+		 * offered only where it could change the answer. */
+		hasUnconfiguredStayProvider?: boolean;
 	}
 
 	let {
@@ -60,12 +67,21 @@
 		selected = $bindable(),
 		onchange,
 		stayProviderConfigured = true,
-		searchDone = false
+		searchDone = false,
+		stayProviders = [],
+		hasUnconfiguredStayProvider = false
 	}: Props = $props();
 
-	// Issue #140: why this list is empty, never "not yet". See no-stays-reason.ts.
+	// Issue #140: why this list is empty, never "not yet". Issue #203: and never "they had
+	// nothing here" when what actually happened is that they failed. See no-stays-reason.ts.
 	const noStays = $derived(
-		describeNoStays({ stayProviderConfigured, searchDone, cityName: connectionAirport.city.name })
+		describeNoStays({
+			stayProviderConfigured,
+			searchDone,
+			cityName: connectionAirport.city.name,
+			stayProviders,
+			hasUnconfiguredStayProvider
+		})
 	);
 
 	const ranked = $derived(rankProperties(properties, travellers, females));
@@ -125,14 +141,23 @@
 	{/if}
 {/snippet}
 
+{#snippet stayFailures()}
+	<!-- Issue #203: the failed provider's own sentence and status code, verbatim and
+	     visually apart from ours, so nobody has to guess which half the app wrote. -->
+	{#each noStays.providerFailures as failure (failure)}
+		<p class="stay-failure font-mono" data-testid="stay-provider-failure">{failure}</p>
+	{/each}
+{/snippet}
+
 {#if properties.length === 0}
-	<!-- The action snippet is passed only when there is a control that changes the
-	     outcome, so an empty state with nothing to offer does not render a bare action
-	     slot below its text. -->
+	<!-- Both snippets are passed only when they have something in them, so an empty state
+	     with nothing to offer renders neither a bare action slot nor an evidence rule with
+	     nothing under it. -->
 	<EmptyState
 		title={noStays.title}
 		description={noStays.description}
 		action={noStays.action ? noStaysAction : undefined}
+		evidence={noStays.providerFailures.length > 0 ? stayFailures : undefined}
 	/>
 {:else if nothingBookable}
 	<EmptyState
@@ -236,6 +261,13 @@
 		display: flex;
 		flex-direction: column;
 		gap: var(--space-6);
+	}
+
+	.stay-failure {
+		margin: 0;
+		font-size: var(--font-size-xs);
+		color: var(--color-text-faint);
+		overflow-wrap: anywhere;
 	}
 
 	.stay-open-body {

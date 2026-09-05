@@ -286,6 +286,62 @@ describe('ItineraryTimeline, overnight local-time correctness', () => {
 	});
 });
 
+describe('ItineraryTimeline, the stopover row and the missing bed (issue #185)', () => {
+	/** The same itinerary the other tests use, minus the bed: the default state of a search
+	 * where the stay provider found nothing or could not answer. */
+	function makeBedlessItinerary(): Itinerary {
+		const [itinerary] = buildItineraries({
+			originAirport: origin,
+			destinationAirport: destination,
+			outboundOffers: [
+				makeFlight(
+					'LGW',
+					'VIE',
+					localDateTime('2026-06-01T10:00:00', 'Europe/Vienna', 120),
+					localDateTime('2026-06-01T10:00:00', 'Europe/Vienna', 120),
+					150
+				)
+			],
+			onwardOffers: [
+				makeFlight(
+					'VIE',
+					'IST',
+					localDateTime('2026-06-03T14:00:00', 'Europe/Vienna', 120),
+					localDateTime('2026-06-03T14:00:00', 'Europe/Vienna', 120),
+					90
+				)
+			],
+			connectionAirports: { VIE: connection },
+			connectionResources: { VIE: {} },
+			waitingTimeRules: [{ waitingTime: 120 as Duration }]
+		});
+		return itinerary;
+	}
+
+	// Anchored on the fact rather than one sentence: a check that greps for "No bed priced
+	// yet." passes vacuously the moment somebody rewords it, which has already happened once
+	// in this repo. Whatever this row says, the bed must not be among it — the price line's
+	// chip qualifies the number and the row's own fold carries the reason.
+	it('says nothing about a bed when none was priced', () => {
+		const itinerary = makeBedlessItinerary();
+		expect(itinerary.stay).toBeUndefined();
+		expect(itinerary.nightsInConnection).toBeGreaterThan(0);
+
+		const root = renderTimeline(itinerary);
+		const stopoverRow = root.querySelector('[data-segment="free-time"]');
+		expect(stopoverRow).not.toBeNull();
+		expect(stopoverRow!.textContent).not.toMatch(/bed/i);
+		// The row still carries its own fact, which is the nights it covers.
+		expect(stopoverRow!.textContent).toMatch(/night/i);
+	});
+
+	it('still names the property when a bed was priced, because that is this row\'s own fact', () => {
+		const root = renderTimeline(makeItinerary());
+		const stopoverRow = root.querySelector('[data-segment="free-time"]');
+		expect(stopoverRow!.textContent).toContain('Test Hostel');
+	});
+});
+
 describe('ItineraryTimeline, selection binding for the map (issue #73)', () => {
 	it('clicking a row selects that segment and marks the row selected', () => {
 		const itinerary = makeItinerary();
