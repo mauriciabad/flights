@@ -4,6 +4,8 @@ import { FIXTURE_FLIGHT_NUMBERS, FIXTURE_NAMES, FIXTURE_PRICES } from './support
 import { mockHostelworld, mockKiwiPublic } from './support/providers';
 import { openTimeline } from './support/results-ui';
 import { waitForSearchToSettle } from '../shared/search-wait';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 
 /**
  * Issue #118: the owner's own complaint, verified against a real search end to end
@@ -46,7 +48,21 @@ const EMPTY_MAP_STYLE = JSON.stringify({ version: 8, name: 'empty', sources: {},
 // The IATA codes are the one thing that has to stay real: the app resolves each one
 // against its own OurAirports dataset for coordinates, city and timezone, so a synthetic
 // code returns no itinerary and this test would stop exercising the pipeline.
-const KEF_APT = { lat: 63.985, lon: -22.6056 }; // Keflavík International
+/** Issue #341: a ground leg no longer touches the airport's published point, it touches
+ * the terminal, so the endpoint this test matches on has to be the one the app sends. Read
+ * off the generated table rather than copied, so a regenerated table cannot silently stop
+ * this spec's `isOriginAirportLeg` from recognising the leg it exists to answer — which is
+ * exactly how #341 first broke it: the two points are 1.9 km apart and `roughlyMatches`
+ * allows 0.01 degrees, so the no-geometry mock quietly stopped firing and the leg lost the
+ * "straight-line estimate" caveat this test is about. */
+const TERMINALS = JSON.parse(
+	readFileSync(
+		fileURLToPath(new URL('../../src/lib/data/airport-terminals.generated.json', import.meta.url)),
+		'utf-8'
+	)
+) as Record<string, [number, number]>;
+
+const KEF_APT = { lat: TERMINALS.KEF[0], lon: TERMINALS.KEF[1] }; // Keflavík International's terminal
 const KEF_LOC = { lat: 64.0049, lon: -22.5646 }; // A point inland, ~3 km away
 const OSL_APT = { lat: 60.1939, lon: 11.1004 }; // Oslo Gardermoen
 const OSL_HOTEL = { lat: 60.1712, lon: 11.0669 }; // A stand-in for the connection hotel
