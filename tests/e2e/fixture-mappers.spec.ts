@@ -66,6 +66,20 @@ const AFTER_LANDING: TransitPlanMoment = {
 	arriveBy: false
 };
 
+async function routeThroughOsrm(raw: unknown): Promise<number> {
+	const provider = createOsrmTransferProvider({
+		store: new MemoryCacheStore(),
+		fetchImpl: async () =>
+			new Response(JSON.stringify(raw), { headers: { 'content-type': 'application/json' } })
+	});
+	const result = await provider.searchTransfers(
+		{ from: AIRPORT, to: CITY, modes: ['drive'] },
+		{ signal: new AbortController().signal }
+	);
+	if (!result.ok) throw new Error(`the OSRM adapter refused it: ${result.error.message}`);
+	return result.data.length;
+}
+
 interface FixtureCheck {
 	/** What in `src/` reads a response of this shape. Named so a failure says where to look
 	 * rather than only that something is wrong. */
@@ -129,26 +143,20 @@ const CHECKS: Record<string, FixtureCheck> = {
 			mapOneWayResultToOffers((raw as { data?: { onewayItineraries?: never } }).data?.onewayItineraries)
 				.length
 	},
+	// Both OSRM fixtures go through the whole adapter rather than a mapping function,
+	// because its response parsing lives inside `requestOsrm` and has no pure export. That
+	// is fine here: a `fetchImpl` that always answers with the fixture and a
+	// `MemoryCacheStore` exercise exactly the code path the mocked browser takes, with no
+	// network and no timers.
 	'osrm/route.json': {
-		// Through the whole adapter rather than a mapping function, because OSRM's response
-		// parsing lives inside `requestOsrm` and has no pure export. That is fine here: a
-		// `fetchImpl` that always answers with the fixture and a `MemoryCacheStore` exercise
-		// exactly the code path the mocked browser takes, with no network and no timers.
 		readBy: 'providers/transfers/osrm.ts searchTransfers',
 		yields: 'some',
-		map: async (raw) => {
-			const provider = createOsrmTransferProvider({
-				store: new MemoryCacheStore(),
-				fetchImpl: async () =>
-					new Response(JSON.stringify(raw), { headers: { 'content-type': 'application/json' } })
-			});
-			const result = await provider.searchTransfers(
-				{ from: AIRPORT, to: CITY, modes: ['drive'] },
-				{ signal: new AbortController().signal }
-			);
-			if (!result.ok) throw new Error(`osrm adapter refused it: ${result.error.message}`);
-			return result.data.length;
-		}
+		map: (raw) => routeThroughOsrm(raw)
+	},
+	'osrm/route-long.json': {
+		readBy: 'providers/transfers/osrm.ts searchTransfers',
+		yields: 'some',
+		map: (raw) => routeThroughOsrm(raw)
 	},
 	'ryanair/active-airports.json': {
 		readBy: 'providers/flights/ryanair-mapper.ts buildNetworkSnapshot',
