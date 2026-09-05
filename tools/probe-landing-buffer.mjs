@@ -40,13 +40,19 @@ page.on('pageerror', (e) => console.log('PAGE ERROR', String(e).slice(0, 400)));
 async function reading(label, target) {
 	await page.goto(appOrigin);
 	if (!keepCache) {
-		await page.evaluate(
-			() =>
-				new Promise((r) => {
-					const req = indexedDB.deleteDatabase('flights-cache');
-					req.onsuccess = req.onerror = req.onblocked = () => r();
-				})
-		);
+		// The search cache, and the shell the PWA service worker pinned. Without the second,
+		// a probe run against a fresh build is served the previous build's entry chunk and
+		// dies on a module that is no longer on disk.
+		await page.evaluate(async () => {
+			for (const registration of await navigator.serviceWorker.getRegistrations()) {
+				await registration.unregister();
+			}
+			for (const key of await caches.keys()) await caches.delete(key);
+			await new Promise((r) => {
+				const req = indexedDB.deleteDatabase('flights-cache');
+				req.onsuccess = req.onerror = req.onblocked = () => r();
+			});
+		});
 	}
 	await page.goto(target);
 	await page.waitForFunction(() => !document.body.innerText.includes('still searching'), null, {
@@ -64,12 +70,14 @@ async function reading(label, target) {
 
 	const stripButtons = page.locator('.trip-strip button[aria-label^="Transport"]');
 	for (let i = 0; i < (await stripButtons.count()); i += 1) {
-		await stripButtons.nth(i).click();
-		await page.waitForTimeout(250);
-		const stub = page.locator('.stub-transport:visible').first();
-		if ((await stub.count()) > 0) console.log(`STUB ${i}         :`, flat(await stub.innerText()));
-		await page.keyboard.press('Escape');
-		await page.waitForTimeout(150);
+		await stripButtons.nth(i).hover();
+		await page.waitForTimeout(600);
+		const stub = page.locator('.stub.stub-transport').first();
+		if ((await stub.count()) > 0 && (await stub.isVisible())) {
+			console.log(`STUB ${i}         :`, flat(await stub.innerText()));
+		}
+		await page.mouse.move(0, 0);
+		await page.waitForTimeout(400);
 	}
 
 	await page.getByRole('button', { name: 'Show details' }).first().click();
@@ -89,6 +97,8 @@ async function reading(label, target) {
 	if ((await bed.count()) > 0) {
 		await bed.click();
 		await page.waitForTimeout(300);
+		const note = bed.locator('.picker-landing-buffer');
+		console.log('PICKER NOTE    :', (await note.count()) > 0 ? flat(await note.innerText()) : '(none)');
 		const rows = bed.locator('.picker-row');
 		for (let i = 0; i < (await rows.count()); i += 1) {
 			console.log(`PICKER ROW ${i}   :`, flat(await rows.nth(i).innerText()));
