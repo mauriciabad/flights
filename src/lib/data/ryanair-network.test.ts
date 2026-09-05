@@ -98,7 +98,7 @@ describe('the generated snapshot', () => {
 	});
 
 	/**
-	 * Issue #371. This is a canary on the refresh, not a rule the app leans on — the code
+	 * Issue #371. This is a canary on the refresh, not a rule the app leans on. The code
 	 * handles a half-known airport by proposing it anyway and reporting what it cannot
 	 * price, which the `directDestinationsFrom` tests above pin. The shipped file was whole
 	 * on 2026-09-04 (224 origins, 224 zones, 0 missing), so nothing reaching a traveller

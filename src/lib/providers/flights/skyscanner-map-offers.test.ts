@@ -142,7 +142,7 @@ describe('mapSearchFlightsToOffers', () => {
 		const result = mapSearchFlightsToOffers(unknownAirport, options);
 		expect(result.offers).toEqual([]);
 		// Issue #370: dropped AND named. This itinerary is nonstop, priced, carrier-named
-		// and duration-bearing — the zone is the only thing missing, which is what makes it
+		// and duration-bearing. The zone is the only thing missing, which is what makes it
 		// worth telling skyscanner.ts about rather than counting as an empty route.
 		expect([...result.unresolvedTimeZoneAirports]).toEqual(['XXX']);
 	});

@@ -228,8 +228,8 @@ export function createSkyscannerFlightProvider(
 		// Issue #370: airports that were the one thing standing between a real, nonstop,
 		// priced Skyscanner itinerary and a `FlightOffer`. Tracked across every date in this
 		// call, so `offers.length === 0` at the end can be told apart from "this route
-		// genuinely has nothing" — the distinction #130/#144's provider-answer states carry
-		// to the screen, and the one this adapter was the last of three still losing.
+		// genuinely has nothing". That is the distinction #130/#144's provider-answer states
+		// carry to the screen, and the one this adapter was the last of three still losing.
 		const unresolvedTimeZoneAirports = new Set<string>();
 		/**
 		 * When the first fare response of this call landed, and the age this result is
@@ -333,7 +333,7 @@ export function createSkyscannerFlightProvider(
 				{
 					// `no-time-zone`, not `malformed-response`: Skyscanner's answer parsed fine
 					// and this app's zone table did not. AGENTS.md, "show the error you got,
-					// never the one you assumed" — these are the codes that actually blocked
+					// never the one you assumed": these are the codes that actually blocked
 					// mapping, not a guess at the cause.
 					code: 'no-time-zone',
 					message: `Sky Scrapper returned a real, nonstop itinerary this app could not price: no known time zone for ${airports.join(', ')}`,

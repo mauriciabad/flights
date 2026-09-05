@@ -36,7 +36,7 @@ export interface MapSearchFlightsOptions {
 export interface MapSearchFlightsResult {
 	offers: FlightOffer[];
 	/** IATA codes of airports that were the one thing standing between a real itinerary in
-	 * this response and a mapped `FlightOffer` — right shape, right stop count, price and
+	 * this response and a mapped `FlightOffer`: right shape, right stop count, price and
 	 * duration parsed, carrier named, only the time zone unresolved. Empty when nothing in
 	 * the response was that close. */
 	unresolvedTimeZoneAirports: ReadonlySet<string>;
@@ -86,7 +86,7 @@ function extractItineraries(raw: unknown): unknown[] {
 interface DirectItineraryResult {
 	offer?: FlightOffer;
 	/** Populated only when this itinerary was otherwise fully mappable and the ONLY reason it
-	 * was dropped is a missing time zone — never for one rejected for some other, ordinary
+	 * was dropped is a missing time zone. Never for one rejected for some other, ordinary
 	 * reason, so a caller counting these never mistakes a bundled stopover fare for a real
 	 * nonstop this app could not price. */
 	unresolvedTimeZoneAirports: string[];
