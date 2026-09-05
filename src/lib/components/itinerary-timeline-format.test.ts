@@ -192,12 +192,32 @@ describe('unroutedLegNote', () => {
 		);
 	});
 
+	it('separates a bed nobody has routed to from one no provider could reach (issue #243)', () => {
+		const picked = { hasStay: true, nightsInConnection: 1, transferAnchor: 'unrouted-stay' as const };
+		expect(unroutedLegNote('to-hotel', picked)).toBe(
+			'Nothing routed to this property, so the journey to it is unknown.'
+		);
+		expect(unroutedLegNote('from-hotel', picked)).toBe(
+			'Nothing routed back from this property, so the journey back is unknown.'
+		);
+
+		// The sentence this replaces, still reached when the search DID ask about this
+		// address and no provider could answer (issue #211). Blaming a provider for a
+		// question nobody put to it is the AGENTS.md failure these two must not share.
+		const refused = { hasStay: true, nightsInConnection: 1 };
+		expect(unroutedLegNote('to-hotel', refused)).toBe(
+			'The bed is priced, but no transport provider could route to it.'
+		);
+		expect(unroutedLegNote('to-hotel', picked)).not.toMatch(/provider/i);
+	});
+
 	it('never says "yet" about a leg nothing is coming for (issue #140)', () => {
 		const legs = ['to-hotel', 'from-hotel', 'to-origin-airport', 'to-destination-location'] as const;
 		const contexts = [
 			{ hasStay: false, nightsInConnection: 0 },
 			{ hasStay: false, nightsInConnection: 6 },
-			{ hasStay: true, nightsInConnection: 6 }
+			{ hasStay: true, nightsInConnection: 6 },
+			{ hasStay: true, nightsInConnection: 1, transferAnchor: 'unrouted-stay' as const }
 		];
 		for (const leg of legs) {
 			for (const context of contexts) {

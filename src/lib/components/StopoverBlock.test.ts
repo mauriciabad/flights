@@ -151,6 +151,22 @@ describe('what it says when a fact is missing', () => {
 		expect(render(unrouted)).toContain('The bed is priced, but no transport provider could route to it.');
 	});
 
+	// Issue #243: the traveller picked a property off the stay list, and the search routes
+	// to the one property it picks itself. Nothing was asked about this address, so the
+	// line above it would name a provider that never got the question.
+	it('says nobody routed to a property the traveller picked, rather than blaming a provider', () => {
+		const picked: Itinerary = {
+			...londonStopover(),
+			transferToHotel: undefined,
+			transferAnchor: 'unrouted-stay'
+		};
+		const lines = render(picked);
+		expect(lines).toContain('Nothing routed to this property, so the journey to it is unknown.');
+		expect(lines.join(' ')).not.toMatch(/no transport provider could route/);
+		// The bed itself is still real and still priced; only its journey is unknown.
+		expect(lines).toContain('Test stay');
+	});
+
 	it('still prints a count when the window has no length at all', () => {
 		// `makeItinerary`'s default free-time window opens and closes on the same instant.
 		expect(render(makeItinerary({}))).toContain('No full days');
