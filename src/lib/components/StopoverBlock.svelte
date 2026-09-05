@@ -27,7 +27,8 @@
 	 * - The rate is `stay.pricePerNight` through `formatMoney`, the app's one money edge.
 	 * - The room kind is `ROOM_KIND_LABELS`, the same table the stay picker's tiles use.
 	 * - The transfer's duration, mode and fare are `itinerary.transferToHotel` through
-	 *   `formatDuration`, `transferModeLabel` and `unpricedTransferNote`.
+	 *   `formatDuration`, `transferModeLabel` and `unpricedTransferNote`, and when nothing
+	 *   routed to the bed at all, `unroutedLegNote`.
 	 *
 	 * ## The two format decisions worth naming
 	 *
@@ -53,7 +54,7 @@
 	import { formatDuration, formatMoney } from '$lib/format';
 	import { ROOM_KIND_LABELS } from '$lib/stays';
 	import { freeTimeDays } from './free-time-days';
-	import { transferModeLabel, unpricedTransferNote } from './itinerary-timeline-format';
+	import { transferModeLabel, unpricedTransferNote, unroutedLegNote } from './itinerary-timeline-format';
 
 	interface Props {
 		itinerary: Itinerary;
@@ -77,10 +78,21 @@
 		return `${nights} ${nights === 1 ? 'night' : 'nights'}, ${formatMoney(stay.pricePerNight)}/night`;
 	});
 
-	// "each way" only because this leg is travelled twice, out to the bed and back to the
-	// airport. AGENTS.md records the owner rejecting "/way" for it, which is not English.
+	/**
+	 * "each way" only because this leg is travelled twice, out to the bed and back to the
+	 * airport. AGENTS.md records the owner rejecting "/way" for it, which is not English.
+	 *
+	 * Never absent, because he asked for a block that is "always present in the same
+	 * format". A line that vanishes when nobody could route to the bed would let the block
+	 * quietly change shape at exactly the moment it has something to say, so the unrouted
+	 * case reads `unroutedLegNote`, which is the same sentence the timeline's own transfer
+	 * row prints and already separates "no bed to reach" from "a bed nobody could route to"
+	 * (issues #140 and #211).
+	 */
 	const transferLine = $derived.by(() => {
-		if (!toHotel) return undefined;
+		if (!toHotel) {
+			return unroutedLegNote('to-hotel', { hasStay: Boolean(stay), nightsInConnection: nights });
+		}
 		const fare = toHotel.price
 			? `${formatMoney(toHotel.price)} each way`
 			: unpricedTransferNote(toHotel.mode).toLocaleLowerCase();
@@ -118,9 +130,7 @@
 		{:else}
 			<p class="stopover-room">{noBedLine}</p>
 		{/if}
-		{#if transferLine}
-			<p class="stopover-transfer">{transferLine}</p>
-		{/if}
+		<p class="stopover-transfer">{transferLine}</p>
 	</div>
 </section>
 

@@ -117,6 +117,14 @@ describe('what it says when a fact is missing', () => {
 		expect(render(withoutStay as Itinerary)).toContain('No night spent here, so there is no bed to price');
 	});
 
+	// "The stay block is always present in the same format." A line that disappeared when
+	// nobody could route to the bed would let the block change shape at the moment it has
+	// something to say. #211's sentence, the same one the timeline's transfer row prints.
+	it('keeps the transport line when nothing routed to the bed', () => {
+		const unrouted: Itinerary = { ...londonStopover(), transferToHotel: undefined };
+		expect(render(unrouted)).toContain('The bed is priced, but no transport provider could route to it.');
+	});
+
 	it('still prints a count when the window has no length at all', () => {
 		// `makeItinerary`'s default free-time window opens and closes on the same instant.
 		expect(render(makeItinerary({}))).toContain('No full days');
