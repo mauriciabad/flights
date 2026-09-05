@@ -177,8 +177,8 @@
 			</div>
 		</div>
 
-		{#if stub.offsetNote}
-			<p class="stub-note">{stub.offsetNote}</p>
+		{#if stub.footnote}
+			<p class="stub-note">{stub.footnote}</p>
 		{/if}
 		{#if placement === 'below'}<span class="stub-tail" aria-hidden="true"></span>{/if}
 	</div>
@@ -510,10 +510,15 @@
 	}
 
 	/* The stopover's counterfoil is StopoverBlock, whose top rule would draw a second line
-	   directly under the perforation. */
+	   directly under the perforation, and whose city caption would repeat the title two
+	   lines above it. Both are right on a card and both are noise inside this panel. */
 	.stub-body :global(.stopover) {
 		padding-top: 0;
 		border-top: 0;
+	}
+
+	.stub-body :global(.stopover-label) {
+		display: none;
 	}
 
 	/* The distances sit under the block rather than inside it, so they need the rule the

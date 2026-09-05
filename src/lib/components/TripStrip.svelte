@@ -188,7 +188,12 @@
 	let gestureOnHit = false;
 	let pointerSnapshot: { index: number | null; by: OpenedBy | null } | null = null;
 
-	const panelIndex = $derived(Math.min(activeIndex ?? shownIndex, Math.max(0, targets.length - 1)));
+	const lastTarget = $derived(Math.max(0, targets.length - 1));
+	const panelIndex = $derived(Math.min(activeIndex ?? shownIndex, lastTarget));
+	// Clamped rather than read raw: an itinerary that loses a segment (a nights change
+	// rebuilds the strip) would otherwise leave the one `tabindex="0"` past the end, and
+	// the whole strip would drop out of the tab order.
+	const rovingIndex = $derived(Math.min(focusIndex, lastTarget));
 	const anchor = $derived(activeIndex === null ? undefined : hits[activeIndex]);
 
 	function stopTimers() {
@@ -340,7 +345,7 @@
 				type="button"
 				class={['trip-strip-hit', `trip-strip-hit-${target.kind}`, { 'is-active': activeIndex === index }]}
 				style:grid-column={`${target.from + 1} / ${target.to + 2}`}
-				tabindex={index === focusIndex ? 0 : -1}
+				tabindex={index === rovingIndex ? 0 : -1}
 				aria-label={stubs[index]?.label}
 				aria-expanded={activeIndex === index}
 				aria-describedby={activeIndex === index ? panelId : undefined}
@@ -479,6 +484,10 @@
 		grid-row: 2;
 		position: relative;
 		min-width: 0;
+		/* The cell's own height, so the ring lands on the cell and the button has a box at
+		   all: an empty grid item would otherwise collapse to nothing and only its extended
+		   pseudo-element would be hittable. */
+		height: 1.75rem;
 		padding: 0;
 		border: 0;
 		border-radius: var(--radius-sm);

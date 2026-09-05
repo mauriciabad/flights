@@ -137,14 +137,14 @@ describe('the flight stub', () => {
 
 	it('explains the two clocks when the ends keep different time, which is why 5h 50m reads as 7h 50m', () => {
 		const stub = stubOf(itineraryFor(), 'flight');
-		expect(stub.offsetNote).toBe('Clocks are local. London (UTC+1) is 2h ahead of Boa Vista (UTC-1).');
+		expect(stub.footnote).toBe('Clocks are local. London (UTC+1) is 2h ahead of Boa Vista (UTC-1).');
 	});
 
 	it('says nothing about offsets when both ends keep the same clock', () => {
 		const sameZone = itineraryFor({
 			outboundFlight: flight({ departure: at('2026-10-06T12:40:00', 60), arrival: at('2026-10-06T18:30:00', 60) })
 		});
-		expect(stubOf(sameZone, 'flight').offsetNote).toBeUndefined();
+		expect(stubOf(sameZone, 'flight').footnote).toBeUndefined();
 	});
 
 	it('scales the fare the way build.ts totals it, never printing one adult as the party fare', () => {
@@ -229,7 +229,7 @@ describe('the airport wait stub', () => {
 
 	it('says the wait is the traveller\'s own setting, not a measured queue', () => {
 		const stub = stubOf(itineraryFor(), 'wait');
-		expect(stub.notes[0]?.text).toBe(
+		expect(stub.footnote).toBe(
 			'Your own buffer, not a measured queue. 2h is the setting for this airport, and Show details is where you change it.'
 		);
 	});

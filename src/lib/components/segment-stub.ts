@@ -131,9 +131,12 @@ export interface SegmentStub {
 	start: StubClock;
 	end: StubClock;
 	duration: string;
-	/** The one sentence a traveller needs when the two ends keep different clocks, and the
-	 * reason 12:40pm to 8:30pm can honestly be 5h 50m. Absent when the offsets match. */
-	offsetNote?: string;
+	/** The sentence under the clocks, when the clocks alone would mislead. Two segments
+	 * have one: a flight whose ends keep different time, which is why 12:40pm to 8:30pm is
+	 * honestly 5h 50m, and a wait, whose length is the traveller's own setting rather than
+	 * a measured queue. It sits below the clocks rather than above them because the clocks
+	 * are the loudest thing on the panel and an explanation must not push them down. */
+	footnote?: string;
 	facts: StubFact[];
 	/** The stopover's counterfoil is `StopoverBlock`, which already owns the days, the bed,
 	 * the rate and the transfer line. Writing a second one would grow a second answer. */
@@ -255,7 +258,7 @@ function flightStub(
 		start: clockAt(segment.start, segment.from, startPlace),
 		end: endClock(segment.start, segment.end, clockAt(segment.end, segment.to, endPlace), true),
 		duration: formatDuration(segment.minutes),
-		offsetNote: offsetNote(segment.start, segment.end, startPlace ?? segment.from, endPlace ?? segment.to),
+		footnote: offsetNote(segment.start, segment.end, startPlace ?? segment.from, endPlace ?? segment.to),
 		facts,
 		rendersStopoverBlock: false,
 		label: `Flight, ${title}, ${formatDuration(segment.minutes)}`
@@ -273,21 +276,16 @@ function waitStub(segment: Extract<TripStripSegment, { kind: 'wait' }>, context:
 		eyebrow: EYEBROWS.wait,
 		day: formatCalendarDate(segment.start),
 		title,
-		// AGENTS.md, on never presenting an estimate as a fact. This is the one part of the
-		// schedule the traveller set themselves, so the panel says whose number it is and
-		// where to change it instead of letting it read as a measured queue.
-		notes: [
-			{
-				text: `Your own buffer, not a measured queue. ${formatDuration(segment.minutes)} is the setting for this airport, and Show details is where you change it.`,
-				tone: 'plain'
-			}
-		],
+		notes: [],
 		start: clockAt(segment.start, segment.airport, place),
 		// One place, so the end clock stands alone: printing the same code twice tells a
 		// reader nothing they did not have.
 		end: endClock(segment.start, segment.end, clockAt(segment.end), true),
 		duration: formatDuration(segment.minutes),
-		offsetNote: undefined,
+		// AGENTS.md, on never presenting an estimate as a fact. This is the one part of the
+		// schedule the traveller set themselves, so the panel says whose number it is and
+		// where to change it instead of letting it read as a measured queue.
+		footnote: `Your own buffer, not a measured queue. ${formatDuration(segment.minutes)} is the setting for this airport, and Show details is where you change it.`,
 		facts: [
 			{ label: 'Before', value: `${next.carrier.name} ${next.flightNumber} to ${to}, ${formatClockTime(next.departure)}` }
 		],
@@ -423,7 +421,7 @@ function transportStub(segment: TripStripTransferSegment, context: StubContext):
 		start,
 		end: endClock(segment.start, segment.end, bareEnd, true),
 		duration: formatDuration(segment.minutes),
-		offsetNote: undefined,
+		footnote: undefined,
 		facts,
 		rendersStopoverBlock: false,
 		label: `Transport, ${title}, ${formatDuration(segment.minutes)}`
@@ -462,7 +460,7 @@ function stopoverStub(start: LocalDateTime, end: LocalDateTime, context: StubCon
 		start: clockAt(start, connectionCode, connectionLabel === connectionCode ? undefined : connectionLabel),
 		end: endClock(start, end, clockAt(end), false),
 		duration: free,
-		offsetNote: undefined,
+		footnote: undefined,
 		facts,
 		rendersStopoverBlock: true,
 		label: `Stopover, ${title}, ${free}`
