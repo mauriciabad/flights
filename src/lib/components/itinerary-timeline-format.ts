@@ -11,6 +11,8 @@
  */
 
 import type { Transfer, TransferAnchor, TransferLeg, TransferMode } from '../domain';
+import type { WithheldRoutes } from '../search/types';
+import { formatDuration } from '$lib/format';
 
 export {
 	calendarDayOffset,
@@ -183,6 +185,17 @@ export function unroutedLegNote(
 		/** `Itinerary.transferAnchor`, which is the only one of these that can say a route
 		 * was never asked for rather than asked for and refused (issue #243). */
 		transferAnchor?: TransferAnchor;
+		/**
+		 * Issue #119: what this leg's road rule refused, when it refused anything. Every
+		 * sentence below claims nothing was routed, and this is the one case where that is
+		 * false — a router answered, at 33 hours to cover 157 km, and this app is what
+		 * decided the traveller should not be offered it. Same reasoning as #220's withheld
+		 * notice in `TransportPicker`, in the place a refused DRIVE actually lands: that
+		 * rule usually empties the leg outright, so there is no picker left to say it in.
+		 *
+		 * Ranked BELOW `transferAnchor` on purpose — see the `unrouted-stay` branch.
+		 */
+		withheldRoad?: WithheldRoutes;
 	}
 ): string {
 	if (leg === 'to-hotel' || leg === 'from-hotel') {
@@ -221,6 +234,7 @@ export function unroutedLegNote(
 				? 'Nothing routed into the city for this stopover.'
 				: 'Nothing routed back from the city for this stopover.';
 		}
+		if (context.withheldRoad) return withheldRoadNote(leg, context.withheldRoad);
 		// Issue #211: a bed WAS priced and no transfer provider could route to it. Until
 		// that issue this state could not occur, because `search/resources.ts` deleted the
 		// bed instead and the row above claimed nothing had ever been priced. Naming the bed
@@ -230,5 +244,22 @@ export function unroutedLegNote(
 			? 'The bed is priced, but no transport provider could route to it.'
 			: 'The bed is priced, but no transport provider could route back from it.';
 	}
+	if (context.withheldRoad) return withheldRoadNote(leg, context.withheldRoad);
 	return 'No route came back from the transport providers for this leg.';
+}
+
+/**
+ * The refusal, in the two numbers it was made on. Deliberately does not print
+ * `WithheldRoutes.count`: driving and taxi are one OSRM route wearing two labels
+ * (`providers/transfers/osrm.ts`), so the count here is almost always 2 and "2 routes"
+ * would describe two options where the traveller has one.
+ */
+function withheldRoadNote(leg: UnroutedLeg, withheld: WithheldRoutes): string {
+	const subject =
+		leg === 'to-hotel'
+			? 'The road route in'
+			: leg === 'from-hotel'
+				? 'The road route back'
+				: 'The road route';
+	return `${subject} takes ${formatDuration(withheld.quickest)} to cover ${formatKilometres(withheld.straightLineKm)} in a straight line, so it is not offered.`;
 }

@@ -77,6 +77,7 @@
 		unroutedLegNote
 	} from './itinerary-timeline-format';
 	import type { UnroutedLeg } from './itinerary-timeline-format';
+	import type { WithheldRoutes } from '../search/types';
 	import { freeTimeDays } from './free-time-days';
 	import { ALL_METRIC_IDS } from './itinerary-metrics';
 	import { technicalStopDetail } from './technical-stop-note';
@@ -120,6 +121,14 @@
 		 * label's own line rather than in the HOW MUCH column, where it cost every flight
 		 * and transfer row a third line. */
 		optionMarks?: Partial<Record<ItinerarySegmentId, string>>;
+		/**
+		 * Issue #119: for each leg with no transfer, what `search/resources.ts` refused to
+		 * offer there. Only ever set when a router really did answer and the road rule judged
+		 * the answer implausible, which is the one case every sentence in `unroutedLegNote`
+		 * gets wrong — they all say nothing was routed. Omit it and the rows read exactly as
+		 * they did before.
+		 */
+		withheldRoad?: Partial<Record<UnroutedLeg, WithheldRoutes>>;
 		/** Applied to the row list; the totals block keeps its own fixed class. */
 		class?: string;
 	}
@@ -130,6 +139,7 @@
 		connectionAirport,
 		expansion,
 		optionMarks,
+		withheldRoad,
 		class: className
 	}: Props = $props();
 
@@ -464,10 +474,17 @@
 				<p class="tl-label">
 					{label}<span class="tl-detail-inline tl-detail-absent"
 						>&nbsp;&middot; {unroutedLegNote(leg, {
+<<<<<<< HEAD
 							hasStay: itinerary.stay !== undefined,
 							nightsInConnection: itinerary.nightsInConnection,
 							overnightWait: isOvernightWait(itinerary.freeTime.start, itinerary.freeTime.end),
 							transferAnchor: itinerary.transferAnchor
+=======
+							withheldRoad: withheldRoad?.[leg],
+							hasStay: shown.stay !== undefined,
+							nightsInConnection: shown.nightsInConnection,
+							overnightWait: isOvernightWait(shown.freeTime.start, shown.freeTime.end)
+>>>>>>> e931bc8 (Say a road route was refused, not that nobody could route one)
 						})}</span
 					>{@render optionMark(segment)}
 				</p>

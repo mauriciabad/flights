@@ -222,6 +222,16 @@
 		outerTransferOptions?.transferToDestinationLocation ?? NO_TRANSFER_LEG_OPTIONS
 	);
 
+	// Issue #119: the same four legs again, keyed the way `unroutedLegNote` names them. A
+	// leg whose only road answer was refused has no transfer and therefore no picker, so the
+	// timeline row is the only place left that can say a route came back and was declined.
+	const withheldRoadByLeg = $derived({
+		'to-origin-airport': originAirportTransferOptions.withheldRoad,
+		'to-hotel': hotelTransferOptions.withheldRoad,
+		'from-hotel': connectionAirportTransferOptions.withheldRoad,
+		'to-destination-location': destinationLocationTransferOptions.withheldRoad
+	});
+
 	// Issue #140: is there anything to try? The hint above the timeline claimed there was
 	// on every card, including the ordinary free-tier result with one flight per leg, no
 	// transport options and no stays. `picker-alternatives.ts` counts the rows the pickers
@@ -478,7 +488,14 @@
 	<!-- `bind:itinerary`, not a plain prop: the waiting-time stepper inside the rows edits
 	     the trip, and issue #250 is what happened while that edit lived in a copy only the
 	     timeline could see. -->
-	<ItineraryTimeline bind:itinerary {connectionAirport} bind:selectedSegmentId expansion={stepOptions} {optionMarks} />
+	<ItineraryTimeline
+		bind:itinerary
+		{connectionAirport}
+		bind:selectedSegmentId
+		expansion={stepOptions}
+		{optionMarks}
+		withheldRoad={withheldRoadByLeg}
+	/>
 </div>
 
 <style>

@@ -211,6 +211,44 @@ describe('unroutedLegNote', () => {
 		expect(unroutedLegNote('to-hotel', picked)).not.toMatch(/provider/i);
 	});
 
+	it('says a road route was refused rather than that nobody could route it (issue #119)', () => {
+		// Athens airport to Naxos town, the measured case behind `maxPlausibleRoadMinutes`.
+		// Every other sentence in this function claims nothing was routed, and here something
+		// was: OSRM answered, at 33h, and this app is what declined to offer it.
+		const withheldRoad = { count: 2, quickest: 1980 as Duration, straightLineKm: 156.6 };
+
+		expect(unroutedLegNote('to-hotel', { hasStay: true, nightsInConnection: 1, withheldRoad })).toBe(
+			'The road route in takes 33h to cover 157 km in a straight line, so it is not offered.'
+		);
+		expect(
+			unroutedLegNote('to-destination-location', { hasStay: false, nightsInConnection: 6, withheldRoad })
+		).toBe('The road route takes 33h to cover 157 km in a straight line, so it is not offered.');
+	});
+
+	it('does not print how many routes it refused, because drive and taxi are one route', () => {
+		// OSRM answers both from the same driving lookup, so the count is all but always 2 and
+		// "2 routes" would describe two options where the traveller has one.
+		const note = unroutedLegNote('from-hotel', {
+			hasStay: true,
+			nightsInConnection: 1,
+			withheldRoad: { count: 2, quickest: 1980 as Duration, straightLineKm: 156.6 }
+		});
+		expect(note).not.toMatch(/\b2\b/);
+		expect(note).toBe('The road route back takes 33h to cover 157 km in a straight line, so it is not offered.');
+	});
+
+	it('leaves a nightless connection alone, since there is no hotel leg to route to', () => {
+		// The refusal is true and irrelevant: this traveller is not going to a bed at all, and
+		// the same-day sentence is what they need to read.
+		expect(
+			unroutedLegNote('to-hotel', {
+				hasStay: false,
+				nightsInConnection: 0,
+				withheldRoad: { count: 2, quickest: 1980 as Duration, straightLineKm: 156.6 }
+			})
+		).toBe('Same-day connection, so there is no hotel leg here.');
+	});
+
 	it('never says "yet" about a leg nothing is coming for (issue #140)', () => {
 		const legs = ['to-hotel', 'from-hotel', 'to-origin-airport', 'to-destination-location'] as const;
 		const contexts = [
