@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import type { LocalDateTime, TransitSchedule } from '../domain';
-import { readMissedService } from './transit-schedule';
+import type { Duration, FlightOffer, LocalDateTime, Transfer, TransitSchedule } from '../domain';
+import type { ItineraryParts } from './build';
+import { readMissedService, readStaleSchedule } from './transit-schedule';
 
 function at(local: string): LocalDateTime {
 	return { local, timeZone: 'Europe/Madrid', utcOffsetMinutes: 120 };
@@ -60,5 +61,79 @@ describe('readMissedService', () => {
 
 		expect(missed.gap).toBe(60);
 		expect(missed.outcome).toBe('long-gap');
+	});
+});
+
+function flight(departure: string, arrival: string): FlightOffer {
+	return {
+		carrier: { iataCode: 'FR', name: 'Test Air' },
+		flightNumber: 'FR1',
+		departureAirport: 'BVC',
+		arrivalAirport: 'LGW',
+		departure: at(departure),
+		arrival: at(arrival),
+		priceScope: 'per-person',
+		duration: 300 as Duration,
+		price: { minorUnits: 5000, currency: 'EUR' },
+		baggage: { cabinBagsIncluded: 1, checkedBagsIncluded: 0 },
+		deepLink: 'https://example.test/offer'
+	};
+}
+
+function busTo(plannedFor: LocalDateTime): Transfer {
+	return {
+		mode: 'transit',
+		duration: 41 as Duration,
+		source: 'transitous',
+		transitSchedule: schedule({ plannedFor: { time: plannedFor, arriveBy: true } })
+	};
+}
+
+/** The issue's own trip: a 2h connection buffer before a 3:20pm onward flight, so the
+ * traveller has to be at the connection airport by 1:20pm. */
+function trip(connectionWaitingTime: number): ItineraryParts {
+	return {
+		outboundFlight: flight('2026-10-06T08:00:00', '2026-10-06T11:00:00'),
+		onwardFlight: flight('2026-10-06T15:20:00', '2026-10-06T18:00:00'),
+		originWaitingTime: 120 as Duration,
+		connectionWaitingTime: connectionWaitingTime as Duration,
+		travellers: 1,
+		transferToOriginAirport: busTo(at('2026-10-06T06:00:00')),
+		transferToConnectionAirport: busTo(at('2026-10-06T13:20:00'))
+	};
+}
+
+describe('readStaleSchedule', () => {
+	it('stays quiet while the trip still happens at the moment the timetable was planned for', () => {
+		expect(readStaleSchedule(trip(120), 'transferToConnectionAirport')).toBeUndefined();
+		expect(readStaleSchedule(trip(120), 'transferToOriginAirport')).toBeUndefined();
+	});
+
+	it('reports the new deadline once a waiting-time edit moves it', () => {
+		// Issue #266's repro: push the connection wait from 2h to 700m and the traveller now
+		// has to be at the airport at 3:40am, while the row goes on quoting a 1:20pm timetable.
+		expect(readStaleSchedule(trip(700), 'transferToConnectionAirport')?.local).toBe('2026-10-06T03:40:00');
+	});
+
+	it('leaves the untouched leg alone, so one edit does not discredit the whole trip', () => {
+		expect(readStaleSchedule(trip(700), 'transferToOriginAirport')).toBeUndefined();
+	});
+
+	it('clears itself when the wait goes back, because nothing was flagged to reset', () => {
+		expect(readStaleSchedule(trip(700), 'transferToConnectionAirport')).toBeDefined();
+		expect(readStaleSchedule(trip(120), 'transferToConnectionAirport')).toBeUndefined();
+	});
+
+	it('says nothing about the two legs that start at a runway, whose moment it cannot derive', () => {
+		// Issue #266's second half. `applyLandingBuffer` folds the walk-out time into the
+		// transfer's duration, so the landing-plus-buffer moment is not on the itinerary and
+		// guessing one here would be worse than saying nothing.
+		const parts: ItineraryParts = { ...trip(700), transferToHotel: busTo(at('2026-10-06T11:15:00')) };
+		expect(readStaleSchedule(parts, 'transferToHotel')).toBeUndefined();
+	});
+
+	it('has no opinion on a leg with no timetable at all', () => {
+		const parts: ItineraryParts = { ...trip(700), transferToConnectionAirport: undefined };
+		expect(readStaleSchedule(parts, 'transferToConnectionAirport')).toBeUndefined();
 	});
 });
