@@ -11,8 +11,16 @@
  * off disk, which nothing outside this module ever sees.
  */
 
-import type { Airport, AirportSizeClass, City, Coordinates, Country } from '$lib/domain';
+import type {
+	Airport,
+	AirportSizeClass,
+	City,
+	Coordinates,
+	Country,
+	IataAirportCode
+} from '$lib/domain';
 import { citySearchAliases, cityCentreOf, displayCityName } from './airport-city-names';
+import { loadCityCentres } from './city-centres';
 
 /**
  * One row of the generated dataset: OurAirports filtered to airports with an IATA code
@@ -178,7 +186,10 @@ const COUNTRY_NAME_ALIASES: Readonly<Record<string, readonly string[]>> = {
 	CV: ['Cabo Verde']
 };
 
-function toAirport(row: AirportDatasetRow): Airport {
+function toAirport(
+	row: AirportDatasetRow,
+	generatedCentres: ReadonlyMap<IataAirportCode, Coordinates>
+): Airport {
 	const coordinates: Coordinates = { latitude: row.latitude, longitude: row.longitude };
 	const country: Country = {
 		isoCode: row.countryCode,
@@ -192,10 +203,19 @@ function toAirport(row: AirportDatasetRow): Airport {
 		// Issue #162: this was `coordinates` — the airport's own point, handed over as if
 		// it were the city's. It read fine as long as nothing measured against it, and
 		// two stay cards did, printing "6.0 km from the airport" directly above "6.0 km
-		// from the city centre" for the same hotel. `cityCentreOf` answers `undefined`
-		// for every airport nobody has hand-checked a centre for, and the readers drop
-		// the line rather than restate the airport distance under a second label.
-		coordinates: cityCentreOf(row.iataCode),
+		// from the city centre" for the same hotel.
+		//
+		// Hand-checked first, generated second (issue #198). That order is load-bearing:
+		// the ten curated airports exist because their municipality names a different
+		// place from the city on the ticket, which is exactly where a name-matching rule
+		// is most likely to be wrong — it answers Ferno for Malpensa and Zaventem for
+		// Brussels if you let it. `city-centres.ts` has the whole argument.
+		//
+		// Still `undefined` for about a quarter of the dataset, and that is still the
+		// honest answer rather than "the airport will do": every reader drops the line it
+		// cannot state instead of restating the airport's own position under a second
+		// label.
+		coordinates: cityCentreOf(row.iataCode) ?? generatedCentres.get(row.iataCode),
 		country
 	};
 
@@ -240,7 +260,12 @@ function loadRows(): Promise<AirportDatasetRow[]> {
  * it is still a module import rather than a network request.
  */
 export function loadAirports(): Promise<Airport[]> {
-	airportsPromise ??= loadRows().then((rows) => rows.map(toAirport));
+	// Both chunks in parallel: the centres table is a fifth of the size of the airport
+	// rows, so waiting for it costs nothing, and doing it here rather than inside
+	// `cityCentreOf` keeps that function synchronous for the ten hand-checked entries.
+	airportsPromise ??= Promise.all([loadRows(), loadCityCentres()]).then(([rows, centres]) =>
+		rows.map((row) => toAirport(row, centres))
+	);
 	return airportsPromise;
 }
 

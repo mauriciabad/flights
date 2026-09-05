@@ -908,14 +908,19 @@ describe('DEFAULT_STAY_RADIUS_KM', () => {
 	}
 
 	it('reaches every city this app is willing to name an airport after', async () => {
-		// `data/airport-city-names.ts` is a hand-checked list of the places a connection
-		// actually is, one airport at a time. If a stay search cannot reach the centre of a
-		// city whose name the app prints on the card, the radius is too small. The whole
-		// pitch is "the connection city becomes the trip", and MXP -> Milan at 40.4km is
-		// the furthest of them.
+		// If a stay search cannot reach the centre of a city whose name the app prints on
+		// the card, the radius is too small. The whole pitch is "the connection city becomes
+		// the trip".
+		//
+		// This used to check ten hand-checked airports and now checks about three thousand,
+		// because issue #198 generated the rest from GeoNames — and it earned its keep the
+		// moment it did: the first draft of that rule capped a centre at 60 km from its
+		// runway and this test failed on `BPE -> Qinhuangdao` at 54.5 km. The generator's
+		// cap is now this constant, and this is what holds the two in agreement.
+		// `ISB -> Attock City` at 49.5 km is the furthest that passes.
 		const { loadAirports } = await import('../data/airports');
 		const withCentres = (await loadAirports()).filter((airport) => airport.city.coordinates);
-		expect(withCentres.length).toBeGreaterThan(5); // the table exists at all
+		expect(withCentres.length).toBeGreaterThan(3000);
 
 		for (const airport of withCentres) {
 			expect(

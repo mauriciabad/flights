@@ -65,3 +65,11 @@ MIT.
 The country flags in `static/flags/` are [circle-flags](https://github.com/HatScripts/circle-flags)
 by HatScripts, MIT, vendored by `pnpm run data:flags` for the 234 countries this app has an
 airport in. Its licence sits beside the copies at `static/flags/LICENSE.md`.
+
+`src/lib/data/airports.generated.json` comes from
+[OurAirports](https://ourairports.com/data/), public domain, via `pnpm run data:airports`.
+
+`src/lib/data/city-centres.generated.json` comes from
+[GeoNames](https://www.geonames.org/) `cities1000`, licensed
+[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/), via `pnpm run data:city-centres`.
+Each row names the GeoNames record it came from in `src/lib/data/city-centres.audit.tsv`.

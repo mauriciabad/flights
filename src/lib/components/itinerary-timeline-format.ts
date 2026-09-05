@@ -185,9 +185,12 @@ export function unroutedLegNote(
 			//
 			// #185 asked for this wording to be left alone, on the grounds that #161 would
 			// stop these rows appearing at all by routing to the city centre instead. #161
-			// landed, and they still appear: the centre point comes from #162's hand-checked
-			// dataset, which does not cover LGW, so the acceptance trip's own stopover still
-			// prints this. Measured 2026-09-05 against a production build.
+			// landed and they still appeared, because the centre point came from #162's
+			// hand-checked dataset of ten airports, which did not cover LGW. Issue #198
+			// then generated a centre for about three quarters of the dataset, LGW among
+			// them, so the acceptance trip routes now. This sentence is still reached, and
+			// still has to be right: a quarter of airports have no centre at all, and a
+			// routing provider can fail for one that does.
 			return leg === 'to-hotel'
 				? 'Nothing routed into the city for this stopover.'
 				: 'Nothing routed back from the city for this stopover.';

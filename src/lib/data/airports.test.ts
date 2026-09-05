@@ -3,6 +3,7 @@ import type { Coordinates } from '$lib/domain';
 import {
 	deriveSizeClass,
 	getAirport,
+	loadAirports,
 	searchAirports,
 	sizeClassOf
 } from './airports';
@@ -253,13 +254,65 @@ describe('city coordinates (issue #162)', () => {
 		return 2 * EARTH_RADIUS_KM * Math.asin(Math.min(1, Math.sqrt(h)));
 	}
 
-	it('leaves the city point unset for an airport nobody has checked one for', async () => {
-		// The normal case by a wide margin. `toAirport` used to hand the runway's own
-		// position over as the city's, which is why two stay-card lines printed the same
-		// number under different labels.
-		expect((await getAirport('VIE'))?.city.coordinates).toBeUndefined();
-		expect((await getAirport('LTN'))?.city.coordinates).toBeUndefined();
-		expect((await getAirport('AHO'))?.city.coordinates).toBeUndefined();
+	it('gives the acceptance trip its own stopover centres', async () => {
+		// Issue #198's whole point. `docs/ACCEPTANCE.md`'s trip connects through London,
+		// Manchester, Birmingham and Rome, and before the generated table none of the four
+		// had a centre, so the feature this app is named for rendered as two empty rows on
+		// the one journey the repo uses to decide whether it works.
+		for (const code of ['LGW', 'MAN', 'BHX', 'FCO', 'PFO']) {
+			expect((await getAirport(code))?.city.coordinates, code).toBeDefined();
+		}
+		// The generated point for LGW is GeoNames 2643743, central London.
+		expect((await getAirport('LGW'))?.city.coordinates).toEqual({
+			latitude: 51.5085,
+			longitude: -0.1257
+		});
+	});
+
+	it('says nothing rather than guessing when no city could be resolved', async () => {
+		// Still about a quarter of the dataset, and still the honest answer. Each of these
+		// is a real refusal, not an oversight: the app calls HHN "Frankfurt Hahn", which is
+		// not a city; BSL's municipality is "Bâle / Mulhouse" and DFW's is
+		// "Dallas-Fort Worth", two cities in one string that the rule will not pick between.
+		for (const code of ['HHN', 'BSL', 'DFW']) {
+			expect((await getAirport(code))?.city.coordinates, code).toBeUndefined();
+		}
+	});
+
+	it('lets a hand-checked centre beat the generated one', async () => {
+		// Malpensa is the case the ordering exists for. Its municipality is Ferno, a village
+		// of 6,000 next to the runway, and the app calls the city Milan. `cityCentreOf` is
+		// consulted first, and the generated file deliberately holds no MXP row at all.
+		const malpensa = await getAirport('MXP');
+		expect(malpensa?.city.coordinates).toEqual({ latitude: 45.4642, longitude: 9.1896 });
+	});
+
+	it('never names the marketed city of an airport that is nowhere near it', async () => {
+		// `airport-city-names.ts` refuses to RENAME these, "because each is a real town far
+		// from the city on the ticket". A generated centre could tell the same lie one layer
+		// down by pointing Girona at Barcelona, so this checks the coordinate, not the name.
+		const cases: readonly [string, Coordinates][] = [
+			['GRO', { latitude: 41.3874, longitude: 2.1686 }], // Barcelona
+			['TRF', { latitude: 59.9139, longitude: 10.7522 }], // Oslo
+			['NYO', { latitude: 59.3293, longitude: 18.0686 }] // Stockholm
+		];
+		for (const [code, marketedCity] of cases) {
+			const airport = (await getAirport(code))!;
+			expect(airport.city.coordinates, code).toBeDefined();
+			expect(distanceKm(airport.city.coordinates!, marketedCity), code).toBeGreaterThan(50);
+		}
+	});
+
+	it('never hands back the runway position as the city point, for any airport', async () => {
+		// Issue #162 itself, now checked across the whole dataset rather than the ten
+		// hand-checked rows: a card printing "6.0 km from the airport" above "6.0 km from
+		// the city centre" is the bug, and an identical coordinate is how it comes back.
+		const airports = await loadAirports();
+		const withCentre = airports.filter((airport) => airport.city.coordinates);
+		expect(withCentre.length).toBeGreaterThan(3000);
+		for (const airport of withCentre) {
+			expect(airport.city.coordinates, airport.iataCode).not.toEqual(airport.coordinates);
+		}
 	});
 
 	it('never puts a curated city point on top of the runway, which is the bug itself', async () => {
