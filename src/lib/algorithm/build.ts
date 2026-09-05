@@ -370,12 +370,87 @@ export interface BuildItinerariesInput {
 }
 
 /**
- * Matches every outbound offer against every onward offer that shares its connection
- * airport, and emits one Itinerary per pair that clears the minimum-layover filter and
- * leaves non-negative free time. Order of the result mirrors the order offers were given
- * in — sorting and scoring are issue #14's job (`score.ts`), not this one's.
+ * Why one connection airport ended up with no bookable pairing (issue #324).
+ *
+ * The traveller's question on a map of stopovers is not "did this one work" but "what
+ * would have to change for it to". Those are different answers and this app already knows
+ * which: nothing flies onward is a fact about the route, an onward flight that leaves
+ * before the inbound lands is a fact about the timetable, and a gap shorter than
+ * `minLayoverTime` is a fact about a number the traveller typed and can retype. Collapsing
+ * the three into "no viable combination" hides the only one they can act on.
+ *
+ * A discriminated union rather than a reason string plus optional numbers, because the
+ * numbers are not optional per reason: a layover measurement is meaningless on a
+ * connection nothing flies out of, and a UI holding `closestLayover` for that case would
+ * be printing a zero it invented.
  */
-export function buildItineraries(input: BuildItinerariesInput): Itinerary[] {
+export type ConnectionBlock =
+	/** No dataset entry for the airport, so nowhere to send anybody. Not a fact about
+	 * flying: it is this app saying it does not know the place. */
+	| { reason: 'airport-unknown' }
+	| { reason: 'no-outbound-flight' }
+	| { reason: 'no-onward-flight' }
+	/** Two of this candidate's own parts were quoted in currencies that cannot be added,
+	 * so no total could be stated. `SearchDependencies.currency` asks every provider for
+	 * the same one, which is what makes this rare. */
+	| { reason: 'prices-disagree' }
+	/** Every onward flight leaves before the inbound lands. `closestLayover` is the least
+	 * negative gap, so "the nearest onward flight goes 40 minutes before you land". */
+	| { reason: 'onward-before-arrival'; closestLayover: Duration; minLayoverTime: Duration }
+	/** A gap exists but none of them reaches the traveller's own minimum. */
+	| { reason: 'layover-under-minimum'; closestLayover: Duration; minLayoverTime: Duration }
+	/** The gap clears `minLayoverTime` and still leaves no free time, because getting into
+	 * town, back out, and checked in for the onward flight costs more minutes than the
+	 * layover has. `groundTimeNeeded` is that cost, so the two numbers can be printed
+	 * against each other. */
+	| { reason: 'layover-under-ground-time'; closestLayover: Duration; groundTimeNeeded: Duration };
+
+/** How near a refusal came to being a trip. A pairing that missed by a rule further down
+ * this list is a better explanation than one that missed at the top, so the closest miss
+ * is the one reported: a traveller reading "the gap is 25 minutes, your minimum is 30"
+ * learns something that "nothing flies onward" would have hidden. */
+const BLOCK_CLOSENESS: Record<ConnectionBlock['reason'], number> = {
+	'airport-unknown': 0,
+	'prices-disagree': 1,
+	'no-outbound-flight': 2,
+	'no-onward-flight': 3,
+	'onward-before-arrival': 4,
+	'layover-under-minimum': 5,
+	'layover-under-ground-time': 6
+};
+
+/** Keeps the closest miss, and among two misses of the same kind the one with the longest
+ * gap, which is the pairing that came nearest to working. */
+function closerBlock(current: ConnectionBlock | undefined, candidate: ConnectionBlock): ConnectionBlock {
+	if (!current) return candidate;
+	const difference = BLOCK_CLOSENESS[candidate.reason] - BLOCK_CLOSENESS[current.reason];
+	if (difference !== 0) return difference > 0 ? candidate : current;
+	if ('closestLayover' in candidate && 'closestLayover' in current) {
+		return candidate.closestLayover > current.closestLayover ? candidate : current;
+	}
+	return current;
+}
+
+export interface ConnectionPairings {
+	/** Order mirrors the order offers were given in. Sorting and scoring are `score.ts`'s
+	 * job, not this one's. */
+	itineraries: Itinerary[];
+	/** One entry per airport in `connectionAirports` that produced no itinerary at all. A
+	 * connection that produced even one is absent from here. */
+	blocked: Partial<Record<IataAirportCode, ConnectionBlock>>;
+}
+
+/**
+ * Matches every outbound offer against every onward offer that shares its connection
+ * airport, emits one Itinerary per pair that clears the minimum-layover filter and leaves
+ * non-negative free time, and says why for every connection that emitted none.
+ *
+ * The reasons come from the loop that refuses the pairings rather than from a second pass
+ * over the same offers. That is the whole point of putting them here: a separate
+ * `whyNothingWorked` reading the same inputs would agree with this function exactly once,
+ * on the day it was written, and disagree quietly the first time either rule moved.
+ */
+export function pairConnections(input: BuildItinerariesInput): ConnectionPairings {
 	const minLayoverTime = input.minLayoverTime ?? DEFAULT_MIN_LAYOVER_TIME_MINUTES;
 	const waitingTimeRules = input.waitingTimeRules ?? DEFAULT_WAITING_TIME_RULES;
 	const travellers = input.travellers ?? DEFAULT_TRAVELLERS;
@@ -388,20 +463,49 @@ export function buildItineraries(input: BuildItinerariesInput): Itinerary[] {
 	}
 
 	const itineraries: Itinerary[] = [];
+	const blocked: Partial<Record<IataAirportCode, ConnectionBlock>> = {};
+	const paired = new Set<IataAirportCode>();
+
+	/** Records a refusal against the connection it happened at, keeping the closest one. */
+	function refuse(code: IataAirportCode, block: ConnectionBlock): void {
+		blocked[code] = closerBlock(blocked[code], block);
+	}
+
+	// Every connection starts refused for having nothing arriving at it, and the loop below
+	// overwrites that the moment an outbound offer names it. Starting from the airports the
+	// caller asked about, rather than from the offers, is what lets a connection nobody
+	// flies to appear on a map at all: it has no offers to iterate over, so a loop driven by
+	// offers alone would never mention it.
+	for (const code of Object.keys(input.connectionAirports) as IataAirportCode[]) {
+		refuse(code, { reason: 'no-outbound-flight' });
+	}
 
 	for (const outbound of input.outboundOffers) {
 		const connectionCode = outbound.arrivalAirport;
-		const onwardCandidates = onwardByConnection.get(connectionCode);
 		const connectionAirport = input.connectionAirports[connectionCode];
 		const resources = input.connectionResources[connectionCode];
-		if (!onwardCandidates || !connectionAirport || !resources) continue;
+		if (!connectionAirport || !resources) continue;
+
+		const onwardCandidates = onwardByConnection.get(connectionCode);
+		if (!onwardCandidates) {
+			refuse(connectionCode, { reason: 'no-onward-flight' });
+			continue;
+		}
 
 		for (const onward of onwardCandidates) {
 			// RULE: layover is the raw gap between the two flights — never the airport
 			// waiting-time buffer below. DST-correct because minutesBetween works from each
 			// flight's own already-correct LocalDateTime, not from wall-clock subtraction.
 			const layover = minutesBetween(outbound.arrival, onward.departure);
-			if (layover < minLayoverTime) continue; // hard filter, brief line 37 — never a score penalty
+			if (layover < minLayoverTime) {
+				// hard filter, brief line 37 — never a score penalty
+				refuse(connectionCode, {
+					reason: layover < 0 ? 'onward-before-arrival' : 'layover-under-minimum',
+					closestLayover: layover,
+					minLayoverTime
+				});
+				continue;
+			}
 
 			const originWaitingTime = pickWaitingTime(
 				waitingTimeRules,
@@ -464,8 +568,20 @@ export function buildItineraries(input: BuildItinerariesInput): Itinerary[] {
 			};
 			// Not enough layover for the transfers plus the buffer. Asked before
 			// `deriveItinerary` totals anything, so a discarded pairing is never summed.
-			if (deriveFreeTime(parts).duration < 0) continue;
+			if (deriveFreeTime(parts).duration < 0) {
+				refuse(connectionCode, {
+					reason: 'layover-under-ground-time',
+					closestLayover: layover,
+					groundTimeNeeded: sumDurations(
+						transferToHotel?.duration,
+						transferToConnectionAirport?.duration,
+						connectionWaitingTime
+					)
+				});
+				continue;
+			}
 
+			paired.add(connectionCode);
 			itineraries.push({
 				...parts,
 				...deriveItinerary(parts),
@@ -478,7 +594,14 @@ export function buildItineraries(input: BuildItinerariesInput): Itinerary[] {
 		}
 	}
 
-	return itineraries;
+	for (const code of paired) delete blocked[code];
+	return { itineraries, blocked };
+}
+
+/** `pairConnections` without the refusals. Every caller that only wants the trips, which
+ * is every caller but the connections map, reads this. */
+export function buildItineraries(input: BuildItinerariesInput): Itinerary[] {
+	return pairConnections(input).itineraries;
 }
 
 /** Either buffer, in minutes. Omitting one leaves that side of the itinerary untouched. */
