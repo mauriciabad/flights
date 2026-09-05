@@ -270,9 +270,9 @@ export interface ScoringWeights {
 	assumedNightCostWithoutPricedBed: number;
 
 	/**
-	 * Score charged for each ground leg whose fare nobody quoted. This is issue #204,
-	 * and exactly the same argument `assumedNightCostWithoutPricedBed` above makes, pointed at the
-	 * other cost this app cannot see.
+	 * Score charged for each unpriced ride on a ground leg whose fare nobody quoted. This is
+	 * issue #204, and exactly the same argument `assumedNightCostWithoutPricedBed` above
+	 * makes, pointed at the other cost this app cannot see.
 	 *
 	 * A taxi from the runway to a bed 40km away is not free, it is unknown, and until this
 	 * existed the two ranked identically: `Itinerary.totalPrice` omits an unquoted fare
@@ -285,12 +285,40 @@ export interface ScoringWeights {
 	 * (`domain/transfer.ts`'s `costIsUnknown`), so a bed you can reach on foot beats an
 	 * identical one you cannot, which is the product thesis with a number on it.
 	 *
-	 * 3 is what any unpriced leg costs before it has gone anywhere: a taxi's flag-down, or
+	 * 3 is what any unpriced ride costs before it has gone anywhere: a taxi's flag-down, or
 	 * a bus ticket. It is read off the low column of the EUR cards in
 	 * `providers/transfers/taxi-rate-table.ts` (ES 2.15, PT 2.00, FR 2.60, DE 3.50,
 	 * IT 3.00). `assumedRoadTransferCostPerHour` below is the rest of a taxi fare; a
-	 * `transit` leg is charged this alone, because a train into town costs a ticket, not a
+	 * `transit` ride is charged this alone, because a train into town costs a ticket, not a
 	 * meter.
+	 *
+	 * Charged per RIDE inside the leg, not once per leg, which is the owner's **"no
+	 * transport hoping to change bus or metro line"** given a number. A ride is a
+	 * `TransferLeg` whose mode is not `walk`, so a coach to the edge of town and then a
+	 * metro is two boardings and two tickets, and it now costs twice what the direct metro
+	 * costs. Charged once per leg the two came out identical, and nothing else in the model
+	 * separates them. `Transfer.duration` covers both journeys equally well, and
+	 * `Transfer.mode` says `transit` for each.
+	 *
+	 * Walking inside the leg still costs nothing, for the reason above. A walk to the stop
+	 * is free and that is a fact, so a journey of walk, ride, walk costs one ticket rather
+	 * than three. A leg with an empty `legs` array costs one, because a provider that
+	 * itemised no rides did not thereby give us a free journey.
+	 *
+	 * Transport research measures a "pure transfer penalty" sitting on top of the walking
+	 * and waiting a change costs, and puts it at 4 to 20 equivalent in-vehicle minutes
+	 * across the literature, with a weighted average of 14 and a 13-to-18 range proposed
+	 * for planning (Garcia-Martinez et al., "Transfer penalties in multimodal public
+	 * transport networks", Transportation Research Part A,
+	 * https://www.sciencedirect.com/science/article/abs/pii/S0965856417303117). That
+	 * corroborates the direction and nothing more. This app charges a ticket per ride
+	 * rather than a penalty in minutes, because the score is denominated in money and a
+	 * ticket is a number this module can read off a rate card and defend. The 3 comes from
+	 * the paragraph above. The literature does not set it.
+	 *
+	 * `assumedRoadTransferCostPerHour` below is unaffected. It is charged once against the
+	 * whole leg's `duration` however many rides sit inside it, because it prices distance
+	 * covered and a traveller who changes vehicles has not thereby travelled further.
 	 *
 	 * SCORING ONLY, like the night charge above. It never reaches `Itinerary.totalPrice`.
 	 */
@@ -467,12 +495,16 @@ export function scoreItinerary(
 	// picker swap or a waiting-time edit cannot leave this disagreeing with the trip it
 	// describes. See `unpricedTransferLegs`' own doc comment.
 	const unpricedTransferCost = unpricedTransferLegs(itinerary).reduce((charge, { transfer }) => {
-		// Every unpriced leg costs at least a ticket or a flag-down; only a private
-		// vehicle then keeps charging by the kilometre, which `duration` stands in for.
+		// Every boarding buys its own ticket or flag-down, so a coach then a metro costs
+		// twice a direct metro; the walks between them are free and stay uncounted. A leg
+		// that lists no rides at all is still one fare, never zero.
+		const rides = Math.max(1, transfer.legs.filter((leg) => leg.mode !== 'walk').length);
+		// Only a private vehicle then keeps charging by the kilometre, which `duration`
+		// stands in for, and it charges for the whole leg once however many rides it holds.
 		const road = transfer.mode === 'taxi' || transfer.mode === 'drive';
 		return (
 			charge +
-			weights.assumedUnpricedTransferBaseCost +
+			weights.assumedUnpricedTransferBaseCost * rides +
 			(road ? (weights.assumedRoadTransferCostPerHour * transfer.duration) / 60 : 0)
 		);
 	}, 0);
