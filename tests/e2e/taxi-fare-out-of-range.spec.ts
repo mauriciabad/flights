@@ -68,7 +68,7 @@ test.describe('a transfer longer than the rate cards cover (issue #246)', () => 
 		// withheld.
 		await expect(taxiRow.locator('.row-duration')).toContainText('1h 16m');
 		await expect(taxiRow.locator('.row-duration')).not.toContainText('1h 46m');
-		await expect(detail.locator('.picker-landing-buffer')).toContainText(
+		await expect(customiser(page).locator('.picker-landing-buffer')).toContainText(
 			'Every option here starts 30m after you land'
 		);
 

@@ -193,9 +193,17 @@
 
 	const currentWarnings = $derived(rows.find((row) => row.isSelected)?.result.warnings ?? []);
 
-	/** Issue #290. Read off the leg's own transfer rather than off a row: the buffer belongs
-	 * to the leg, and every candidate on it carries the same one. */
-	const landingBuffer = $derived(landingBufferPickerNote(selected));
+	/**
+	 * Issue #290. Reduced from the rows on screen rather than looked up on the leg, so the
+	 * sentence's "every option here" is a fact about the list it sits above. Rows that
+	 * disagree say nothing at all, which is the honest answer when the padding is not in fact
+	 * shared; in practice they never do, because both pipelines that apply the buffer map
+	 * over the whole candidate list rather than the pick alone.
+	 */
+	const landingBuffer = $derived.by(() => {
+		const buffers = new Set(rows.map((row) => row.transfer.landingBuffer ?? (0 as Duration)));
+		return buffers.size === 1 ? landingBufferPickerNote([...buffers][0]) : undefined;
+	});
 
 	function handleSelect(row: TransferRow) {
 		onselect(row.result);

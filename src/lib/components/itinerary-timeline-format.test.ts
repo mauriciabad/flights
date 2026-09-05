@@ -13,6 +13,7 @@ import {
 	isDifferentCalendarDate,
 	landingBufferFootnote,
 	landingBufferNote,
+	landingBufferPickerNote,
 	staleScheduleFact,
 	staleScheduleNote,
 	summariseTransferLegs,
@@ -525,5 +526,19 @@ describe('the landing buffer, said out loud (issue #290)', () => {
 			'Your own buffer, not a measured queue. 30m is the Landing to transport setting for an airport this size, and the search form is where you change it.'
 		);
 		expect(landingBufferFootnote(taxi(38, 0))).toBeUndefined();
+	});
+});
+
+describe('the buffer a whole picker shares (issue #290)', () => {
+	it('claims "every option" only about a list that agrees', () => {
+		expect(landingBufferPickerNote(30 as Duration)).toBe(
+			'Every option here starts 30m after you land, which is your own landing-to-transport setting. ' +
+				'The times below are the journeys themselves.'
+		);
+	});
+
+	it('says nothing when there is no shared padding to disclose', () => {
+		expect(landingBufferPickerNote(0 as Duration)).toBeUndefined();
+		expect(landingBufferPickerNote(undefined)).toBeUndefined();
 	});
 });

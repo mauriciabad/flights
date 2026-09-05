@@ -11,6 +11,7 @@
  */
 
 import type {
+	Duration,
 	LocalDateTime,
 	Transfer,
 	TransferAnchor,
@@ -144,11 +145,16 @@ export function landingBufferNote(transfer: Transfer): string | undefined {
  * Worth saying at all because the buffer is the same on every candidate. Both pipelines
  * that apply it map over the whole list rather than the pick alone, so it is exactly the
  * part of these numbers that carries no information about which option to take.
+ *
+ * Takes the buffer rather than a transfer, so the caller has to reduce its own rows to one
+ * number first and this sentence cannot claim "every option" about a list it never saw. A
+ * list whose rows disagree passes `undefined` and the picker says nothing, which is the
+ * right answer: the sentence's whole content is that the padding is shared.
  */
-export function landingBufferPickerNote(transfer: Transfer | undefined): string | undefined {
-	if (!transfer?.landingBuffer) return undefined;
+export function landingBufferPickerNote(buffer: Duration | undefined): string | undefined {
+	if (!buffer) return undefined;
 	return (
-		`Every option here starts ${formatDuration(transfer.landingBuffer)} after you land, which is ` +
+		`Every option here starts ${formatDuration(buffer)} after you land, which is ` +
 		`your own landing-to-transport setting. The times below are the journeys themselves.`
 	);
 }
