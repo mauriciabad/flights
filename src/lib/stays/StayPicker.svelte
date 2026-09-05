@@ -11,16 +11,18 @@
 	 */
 	import type { Airport, Money, Stay } from '$lib/domain';
 	import { formatPropertyRating } from '$lib/format';
-	import { Button, Card, EmptyState } from '$lib/components';
+	import { Button, Card, EmptyState, RoutePreview } from '$lib/components';
 	import RoomKindTile from './RoomKindTile.svelte';
 	import StayAlternativeCard from './StayAlternativeCard.svelte';
+	import PhotoCarousel from './PhotoCarousel.svelte';
+	import StaysMapDialog from './StaysMapDialog.svelte';
 	import { stayGenderFitMessage } from './gendered-room-fit';
+	import { describeStayChoices } from './choice';
 	import { formatDistanceKm, haversineDistanceKm } from './distance';
 	import { stayTotalDelta, stayTotalForNights } from './pricing';
 	import { cheapestSelectableOption, isOptionSelectable, rankProperties } from './rank';
 	import { describeNoStays, type StayProviderOutcome } from './no-stays-reason';
 	import { propertyOf, type PropertyStayOptions } from './types';
-	import { originalStayPhoto } from '$lib/providers/stays/original-photo';
 
 	interface Props {
 		/** Every candidate property for this connection, each with its priced room-kind
@@ -106,19 +108,29 @@
 		ranked.find((group) => group.options.some((option) => option.stay === effectiveSelected)) ?? ranked[0]
 	);
 	const openProperty = $derived(openGroup ? propertyOf(openGroup) : undefined);
-	const alternatives = $derived(ranked.filter((group) => group !== openGroup));
 
-	/** Issue #281: the stored URL whose resized form did not load, so the card can retry
-	 * once at the address the provider actually published. Holding the STORED url rather
-	 * than the failing one is what keeps this to a single retry. A failing fallback sets this
-	 * to the same value again instead of flipping back and forth forever, and a different
-	 * property clears it on its own, with no effect to reset it. */
-	let failedPhotoOf = $state<string | undefined>(undefined);
-	const openPhoto = $derived.by(() => {
-		const stored = openProperty?.images[0];
-		if (!stored) return undefined;
-		return stored === failedPhotoOf ? (originalStayPhoto(stored) ?? stored) : stored;
-	});
+	/**
+	 * Every candidate as a row, with what swapping to it would cost measured from the stay
+	 * on screen. Issue #319; `choice.ts` owns the arithmetic and the wording. Derived once
+	 * here rather than per surface, because the list, the map's points and the map's sidebar
+	 * are three renderings of one answer and a second derivation grows a second answer.
+	 */
+	const choices = $derived(
+		describeStayChoices(ranked, {
+			picked: effectiveSelected,
+			connectionAirport: connectionAirport.coordinates,
+			cityCentre: connectionAirport.city.coordinates,
+			nights,
+			travellers,
+			females
+		})
+	);
+	const alternatives = $derived(choices.filter((choice) => choice.group !== openGroup));
+
+	/** The map exists while this is true and not one moment longer, which is issue #280's
+	 * rule about where MapLibre may live. Mounting the dialog creates the only instance on
+	 * the page; unmounting it runs `map.remove()`. */
+	let mapOpen = $state(false);
 
 	/** Whether anything in the whole candidate list is bookable by this group at all -
 	 * false only when every property's only rooms are a women-only or men-only dorm this
@@ -197,24 +209,14 @@
 			{/snippet}
 
 			<div class="stay-open-body">
-				<div class="stay-open-media" aria-hidden={openProperty.images.length === 0 ? true : undefined}>
-					{#if openPhoto}
-						<img
-							src={openPhoto}
-							alt={openProperty.name}
-							loading="lazy"
-							onerror={() => (failedPhotoOf = openProperty.images[0])}
-						/>
-						{#if openProperty.images.length > 1}
-							<span class="stay-open-media-count">1 / {openProperty.images.length}</span>
-						{/if}
-					{:else}
-						<svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-							<path d="M4 20V9l8-5 8 5v11" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" />
-							<path d="M9 20v-6h6v6" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" />
-						</svg>
-					{/if}
-				</div>
+				<!-- Issue #307, "the carrousel for hotel should be used in more places". This box
+				     used to draw the first photograph with a "1 / 2" counter under it and no way
+				     to reach the second: a label promising a picture the page would not show.
+				     Keyed on the property so a swap starts a different hostel at its first
+				     photograph rather than at whichever one the last reader had reached. -->
+				{#key openProperty.name + openProperty.coordinates.latitude}
+					<PhotoCarousel images={openProperty.images} name={openProperty.name} />
+				{/key}
 
 				<div class="stay-open-facts">
 					<!-- Issue #245: "(scale as reported by the source)" is gone with the doubt
@@ -262,18 +264,46 @@
 		{#if alternatives.length > 0}
 			<div class="stay-alternatives">
 				<h3 class="stay-alternatives-heading">Other stays near this connection</h3>
+				<!-- The list is ordered by what the whole stopover costs rather than by the rate
+				     alone (issue #219), so a cheaper bed can sit below a dearer one. Saying so is
+				     cheaper than letting the differences below read as a broken sort. -->
+				<p class="stay-alternatives-note">
+					Cheapest first for this stopover's length, counting the journey out to each. Prices compare
+					against the stay this trip books now.
+				</p>
+
+				<!--
+					Issue #280's architecture, applied to a second map. This picture is an inline
+					`<svg>` with no basemap, no controls and no WebGL: `tools/probe-map-cost.mjs`
+					measured four live MapLibre instances per card settling in 4.5s on a throttled
+					phone and twenty never settling at all, because Chromium evicts the oldest of
+					more than sixteen live contexts. So the list carries a drawing and the dialog
+					carries the map.
+				-->
+				<button type="button" class="stay-map-open" onclick={() => (mapOpen = true)}>
+					<RoutePreview
+						lines={[]}
+						points={[
+							{ coordinates: connectionAirport.coordinates, tone: 'neutral' },
+							...choices.map((choice) => ({ coordinates: choice.property.coordinates, tone: 'stopover' as const }))
+						]}
+						width={320}
+						height={120}
+					/>
+					<span class="stay-map-open-label">
+						Open the map of all {choices.length} stays
+						<span class="stay-map-open-hint">Pick a point to compare it against this one</span>
+					</span>
+				</button>
+
 				<ul class="stay-alternatives-list">
-					{#each alternatives as group (propertyOf(group).name + propertyOf(group).coordinates.latitude + propertyOf(group).coordinates.longitude)}
+					{#each alternatives as choice (choice.key)}
 						<li>
 							<StayAlternativeCard
-								{group}
-								{connectionAirport}
+								{choice}
 								{nights}
-								{travellers}
-								{females}
 								onselect={() => {
-									const cheapest = cheapestSelectableOption(group, travellers, females);
-									if (cheapest) choose(cheapest.stay);
+									if (choice.cheapest) choose(choice.cheapest.stay);
 								}}
 							/>
 						</li>
@@ -282,6 +312,10 @@
 			</div>
 		{/if}
 	</div>
+
+	{#if mapOpen}
+		<StaysMapDialog {choices} {connectionAirport} {nights} onchoose={choose} onclose={() => (mapOpen = false)} />
+	{/if}
 {/if}
 
 <style>
@@ -306,38 +340,11 @@
 		gap: var(--space-4);
 	}
 
-	.stay-open-media {
-		position: relative;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		aspect-ratio: 16 / 9;
-		overflow: hidden;
-		background: var(--color-bg-inset);
-		border-radius: var(--radius-md);
-		color: var(--color-text-faint);
-	}
-
-	.stay-open-media img {
-		width: 100%;
-		height: 100%;
-		object-fit: cover;
-	}
-
-	.stay-open-media svg {
-		width: 3rem;
-		height: 3rem;
-	}
-
-	.stay-open-media-count {
-		position: absolute;
-		right: var(--space-2);
-		bottom: var(--space-2);
-		padding: 0.125rem var(--space-2);
-		background: var(--color-overlay);
-		border-radius: var(--radius-full);
-		color: var(--color-text);
-		font-size: var(--font-size-xs);
+	/* 16/9 rather than the carousel's own 16/10, because the open card's photograph is the
+	   widest thing on this panel and the ratio it reserves is what stops a 2.8 MB image
+	   shoving the room tiles down when it lands. */
+	.stay-open-body :global(.photo-carousel) {
+		--photo-aspect: 16 / 9;
 	}
 
 	.stay-open-facts {
@@ -369,9 +376,60 @@
 	}
 
 	.stay-alternatives-heading {
-		margin-bottom: var(--space-3);
 		font-size: var(--font-size-base);
 		font-weight: var(--font-weight-semibold);
+	}
+
+	.stay-alternatives-note {
+		margin: var(--space-1) 0 var(--space-3);
+		font-size: var(--font-size-xs);
+		line-height: var(--line-height-xs);
+		color: var(--color-text-muted);
+	}
+
+	/* The drawing and its caption side by side, so the picture reads as a control rather
+	   than as a decoration with a button under it. */
+	.stay-map-open {
+		display: grid;
+		grid-template-columns: 8rem minmax(0, 1fr);
+		align-items: center;
+		gap: var(--space-3);
+		width: 100%;
+		min-height: 44px;
+		margin-bottom: var(--space-3);
+		padding: var(--space-2);
+		text-align: left;
+		background: var(--color-surface);
+		border: 1px solid var(--color-border);
+		border-radius: var(--radius-lg);
+		color: var(--color-text);
+		font: inherit;
+		cursor: pointer;
+		touch-action: manipulation;
+		transition: border-color var(--transition-fast);
+	}
+
+	.stay-map-open:hover {
+		border-color: var(--color-border-strong);
+	}
+
+	.stay-map-open:focus-visible {
+		outline: 2px solid var(--color-focus-ring);
+		outline-offset: 2px;
+	}
+
+	.stay-map-open-label {
+		display: flex;
+		flex-direction: column;
+		gap: 0.125rem;
+		font-size: var(--font-size-sm);
+		font-weight: var(--font-weight-medium);
+	}
+
+	.stay-map-open-hint {
+		font-size: var(--font-size-xs);
+		font-weight: var(--font-weight-regular);
+		color: var(--color-text-muted);
 	}
 
 	.stay-alternatives-list {

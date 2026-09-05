@@ -80,7 +80,7 @@ for (const scheme of ['dark', 'light'] as const) {
 
 			const measured = await block.evaluate((el) => {
 				const stay = el.querySelector('.stopover-stay') as HTMLElement | null;
-				const media = el.querySelector('.bed-media') as HTMLElement | null;
+				const media = el.querySelector('.photo-carousel') as HTMLElement | null;
 				const rail = el.querySelector('.bed-rail') as HTMLElement | null;
 				return {
 					stayHeight: stay?.getBoundingClientRect().height ?? 0,

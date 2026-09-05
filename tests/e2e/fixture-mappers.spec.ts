@@ -164,6 +164,18 @@ const CHECKS: Record<string, FixtureCheck> = {
 			return withPhotos.length;
 		}
 	},
+	// Six properties spread across Vienna, each with two photographs, for issue #319's stay
+	// map and its price differences. Read at the app's own 50 km radius, and counted as
+	// stays that carry a photograph rather than as stays, because both halves matter here:
+	// a point on the map needs a property, and the sidebar needs a picture.
+	'hostelworld/properties-vienna-many.json': {
+		readBy: 'providers/stays/hostelworld-mapper.ts mapPropertiesToStays',
+		yields: 'some',
+		map: (raw) =>
+			mapPropertiesToStays((raw as { properties?: never[] }).properties, AIRPORT, 50, 1).filter(
+				(stay) => stay.property.images.length > 0
+			).length
+	},
 	'kiwi-public/one-per-city-empty.json': {
 		readBy: 'providers/flights/kiwi-public-mapper.ts mapOnePerCityResultToDestinations',
 		yields: 'none',

@@ -42,14 +42,28 @@
 	 * at 984 KB, 1930x1085 at 2.02 MB. It is not an image CDN and it has no resize. Passing
 	 * imgix's `w`, `h`, `fit`, `auto` and `dpr` returned output byte-identical to a `?zzz=1`
 	 * control, and there is no backend here to proxy through. So the second photograph is
-	 * fetched when the reader asks for it and never before, which is why `reached` exists
-	 * below. Loading a strip of two on render would cost 5 MB to show one picture.
+	 * fetched when the reader asks for it and never before: loading a strip of two on render
+	 * would cost 5 MB to show one picture.
+	 *
+	 * ## The photographs live next door now
+	 *
+	 * The strip, its arrows, its counter and its one-at-a-time fetching moved to
+	 * `PhotoCarousel.svelte` for issue #307, unchanged, so the picker's open property and
+	 * the stay map's sidebar can show the same thing rather than growing a second one. Both
+	 * facts above still shape it and are argued there.
+	 *
+	 * ## A tooltip gets no photographs
+	 *
+	 * Issue #307, the owner: **"dont show the images inside the toooltip, it is too
+	 * large."** Measured on this branch before the change, the trip strip's hover panel
+	 * stood 542px tall on a 900px viewport and 189px of that was the media box. A tooltip is
+	 * for a glance. So `photos` is false there, and everything else stays: the name, the
+	 * score, the room kind, the women-only tag, the rate, the nights, the distance, the ride.
 	 */
-	import { tick } from 'svelte';
 	import { ModeIcon } from '$lib/components';
 	import type { Property, TransferMode } from '$lib/domain';
 	import { formatPropertyRating } from '$lib/format';
-	import { originalStayPhoto } from '$lib/providers/stays/original-photo';
+	import PhotoCarousel from './PhotoCarousel.svelte';
 
 	interface Props {
 		/** Name, photographs, rating and the women-only restriction. The three after the
@@ -71,120 +85,23 @@
 		 * routed at all, because issue #228 asked for a line that never vanishes. `mode` is
 		 * absent in exactly that unrouted case, and the pictogram goes with it. */
 		transfer: { note: string; mode?: TransferMode };
+		/** Whether to draw the photographs at all. False in the trip strip's hover panel and
+		 * nowhere else (issue #307): a media box is a third of that panel's height, and a
+		 * tooltip is for a glance. Every other fact this block prints is unaffected. */
+		photos?: boolean;
 	}
 
-	let { property, roomKindLabel, nights, rate, distanceFromAirport, transfer }: Props = $props();
-
-	/**
-	 * The second address to try for a photograph, once the first one failed.
-	 *
-	 * `booking-mapper.ts` upgrades Booking's 60x60 thumbnail to a card-sized address, and
-	 * that swap is measured against three photo ids rather than every photo id. A shape it
-	 * guessed wrong about 404s, and this is where it degrades: back to the URL the provider
-	 * actually gave, so the worst case is the thumbnail that shipped before the upgrade
-	 * existed rather than an empty box. `broken` is a photograph that failed with nothing
-	 * left to try.
-	 *
-	 * Booking was the only provider rewriting a URL when this was written. Issue #281 made
-	 * Agoda a second, so the reverse lookup is now `original-photo.ts`'s table and this asks
-	 * it rather than naming a provider.
-	 */
-	let fallbacks = $state<Record<number, string>>({});
-	let broken = $state<Record<number, true>>({});
-	const photos = $derived(
-		property.images.map((original, i) => ({
-			original,
-			src: fallbacks[i] ?? original,
-			broken: broken[i] === true
-		}))
-	);
-
-	/** Which photograph is under the reader's eye, tracked from the scroll position so a
-	 * swipe and a button press cannot disagree about the counter. Reset by the caller
-	 * keying this component on the property: a different bed is a different strip. */
-	let index = $state(0);
-	/** The furthest photograph the reader has actually asked for. Nothing past this has a
-	 * `src`, so nothing past this has been fetched. See the header comment on why a strip
-	 * of two would otherwise cost 5 MB. */
-	let reached = $state(0);
-	let strip = $state<HTMLDivElement>();
-	/** Held so `show` can move focus off an arrow it is about to disable. */
-	let prevButton = $state<HTMLButtonElement>();
-	let nextButton = $state<HTMLButtonElement>();
+	let {
+		property,
+		roomKindLabel,
+		nights,
+		rate,
+		distanceFromAirport,
+		transfer,
+		photos = true
+	}: Props = $props();
 
 	const rating = $derived(property.rating ? formatPropertyRating(property.rating) : undefined);
-	/** Below two there is nothing to page through, so the arrows and the counter are not
-	 * rendered at all rather than rendered inert. */
-	const pageable = $derived(photos.length > 1);
-
-	async function show(next: number) {
-		const wasFocused = document.activeElement;
-		const target = Math.max(0, Math.min(photos.length - 1, next));
-		index = target;
-		if (target > reached) reached = target;
-		// No `behavior` argument on purpose: the strip sets `scroll-behavior: smooth` in
-		// CSS, and app.css's reduced-motion block already forces that back to `auto`
-		// globally. Passing 'smooth' here would step over the reader's stated preference.
-		if (strip && strip.clientWidth > 0) {
-			travellingTo = target;
-			strip.scrollTo({ left: target * strip.clientWidth });
-		}
-
-		// Paging to an end disables the arrow that got you there, and a browser blurs a
-		// button the moment it becomes disabled. A keyboard reader who pressed Next twice
-		// would land on the last photograph with focus dumped back on the document body,
-		// having lost the carousel entirely. Hand focus to the arrow that still works.
-		//
-		// Read before `tick()` because after it the browser has already blurred the button
-		// and `document.activeElement` no longer remembers who was there.
-		await tick();
-		if (wasFocused === nextButton && nextButton?.disabled) prevButton?.focus();
-		else if (wasFocused === prevButton && prevButton?.disabled) nextButton?.focus();
-	}
-
-	/**
-	 * Where `show` last sent the strip, while it is still on its way there.
-	 *
-	 * Two things set `index`: a button, which knows the answer immediately, and the strip's
-	 * own scroll position, which is how a swipe is read. During a smooth programmatic
-	 * scroll they disagree, and the disagreement is visible. Paging from photo 2 back to
-	 * photo 1 sets `index` to 0 at once, then the animation starts from 343px and the first
-	 * scroll events round back to 1. The counter flicks 1 to 2 to 1, and both arrows flick
-	 * disabled with it, which is enough to make a keyboard press land on a control that was
-	 * briefly dead.
-	 *
-	 * So while a programmatic scroll is in flight, the strip's position describes where it
-	 * has got to rather than where the reader wants to be, and it is ignored until it
-	 * arrives. A swipe sets nothing here and is honoured the moment it moves.
-	 */
-	let travellingTo: number | undefined;
-
-	function onStripScroll() {
-		if (!strip || strip.clientWidth === 0) return;
-		if (travellingTo !== undefined) {
-			if (Math.abs(strip.scrollLeft - travellingTo * strip.clientWidth) > 1) return;
-			travellingTo = undefined;
-		}
-		const next = Math.round(strip.scrollLeft / strip.clientWidth);
-		if (next === index) return;
-		index = next;
-		if (next > reached) reached = next;
-	}
-
-	function onStripKeydown(event: KeyboardEvent) {
-		if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
-		event.preventDefault();
-		show(index + (event.key === 'ArrowRight' ? 1 : -1));
-	}
-
-	function onPhotoError(i: number) {
-		const fallback = fallbacks[i] === undefined ? originalStayPhoto(photos[i].original) : undefined;
-		if (fallback) {
-			fallbacks[i] = fallback;
-			return;
-		}
-		broken[i] = true;
-	}
 </script>
 
 <!--
@@ -196,88 +113,14 @@
 	took a screenshot to find.
 -->
 <div class="bed-frame">
-	<div class="bed">
+	<div class={['bed', { 'has-photos': photos && property.images.length > 0 }]}>
 		<!--
-			No media element at all when the provider gave no photograph. A grey box with a
-			building glyph in it says "a picture is missing", and nothing is missing: this
-			property came back without one. The block simply has one less part.
+			No media element at all when the provider gave no photograph, and none in a
+			tooltip. A grey box with a building glyph in it says "a picture is missing", and
+			nothing is missing: this property came back without one.
 		-->
-		{#if photos.length > 0}
-			<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-			<div
-				class="bed-media"
-				role="group"
-				aria-label={`Photos of ${property.name}`}
-				onkeydown={onStripKeydown}
-			>
-				<div class="bed-strip" bind:this={strip} onscroll={onStripScroll}>
-					{#each photos as photo, i (photo.original)}
-						<div class="bed-slide">
-							{#if i <= reached && !photo.broken}
-								<img
-									src={photo.src}
-									alt={pageable
-										? `${property.name}, photo ${i + 1} of ${photos.length}`
-										: property.name}
-									loading="lazy"
-									decoding="async"
-									onerror={() => onPhotoError(i)}
-								/>
-							{/if}
-						</div>
-					{/each}
-				</div>
-
-				{#if pageable}
-					<!-- Real buttons, outside the scroller, so they are ordinary tab stops that
-					     tab out of again. Nothing inside the strip is focusable, which is what
-					     keeps the usual carousel focus trap unreachable here: there is no
-					     off-screen control to fall into. -->
-					<button
-						type="button"
-						class="bed-arrow bed-arrow-prev"
-						bind:this={prevButton}
-						disabled={index === 0}
-						aria-label="Previous photo"
-						onclick={() => show(index - 1)}
-					>
-						<svg viewBox="0 0 16 16" fill="none" aria-hidden="true" focusable="false">
-							<path
-								d="M10 3 5 8l5 5"
-								stroke="currentColor"
-								stroke-width="1.6"
-								stroke-linecap="round"
-								stroke-linejoin="round"
-							/>
-						</svg>
-					</button>
-					<button
-						type="button"
-						class="bed-arrow bed-arrow-next"
-						bind:this={nextButton}
-						disabled={index === photos.length - 1}
-						aria-label="Next photo"
-						onclick={() => show(index + 1)}
-					>
-						<svg viewBox="0 0 16 16" fill="none" aria-hidden="true" focusable="false">
-							<path
-								d="m6 3 5 5-5 5"
-								stroke="currentColor"
-								stroke-width="1.6"
-								stroke-linecap="round"
-								stroke-linejoin="round"
-							/>
-						</svg>
-					</button>
-					<!-- The count is the whole reason a reader knows there is a second picture,
-					     since two photographs do not earn a dot row. `aria-live` because the
-					     number changes on a swipe, which fires no event a screen reader would
-					     otherwise report. -->
-					<p class="bed-count font-mono tabular-nums" aria-live="polite">
-						{index + 1} / {photos.length}
-					</p>
-				{/if}
-			</div>
+		{#if photos}
+			<PhotoCarousel images={property.images} name={property.name} />
 		{/if}
 
 		<div class="bed-facts">
@@ -358,144 +201,25 @@
 		gap: var(--space-3);
 	}
 
+	/* Two columns only when there is a photograph to put in the first one. Without one -
+	   a provider that returned none, or the trip strip's hover panel, which asks for none
+	   (issue #307) - a second track would reserve 13rem of blank and push every fact into
+	   a column half the block's width. */
 	@container (min-width: 26rem) {
-		.bed {
+		/* The photograph is 208px wide in this phase, where two 32px arrows and their insets
+		   swallow 80px of it. Down to 24px, which is still over the 24px WCAG 2.5.8 minimum,
+		   and tight to the edges. The phone keeps the larger target: there the photograph is
+		   343px wide and the finger pressing it is not a mouse pointer. Both arrive as custom
+		   properties, because a component's own class is out of this stylesheet's scope and
+		   inheritance is the way in. */
+		.bed.has-photos {
+			--photo-arrow-size: 1.5rem;
+			--photo-arrow-inset: var(--space-1);
+
 			grid-template-columns: minmax(0, 13rem) minmax(0, 1fr);
 			gap: var(--space-4);
 			align-items: start;
 		}
-
-		/* The photograph is 208px wide in this phase, where two 32px arrows and their insets
-		   swallow 80px of it. Down to 24px, which is still over the 24px WCAG 2.5.8 minimum,
-		   and tight to the edges. The phone keeps the larger target: there the photograph is
-		   343px wide and the finger pressing it is not a mouse pointer. */
-		.bed-arrow {
-			width: 1.5rem;
-			height: 1.5rem;
-		}
-
-		.bed-arrow svg {
-			width: 0.875rem;
-			height: 0.875rem;
-		}
-
-		.bed-arrow-prev {
-			left: var(--space-1);
-		}
-
-		.bed-arrow-next {
-			right: var(--space-1);
-		}
-	}
-
-	.bed-media {
-		position: relative;
-		border-radius: var(--radius-md);
-		/* The strip is what scrolls, so the rounding has to be clipped on this element or
-		   the photograph's square corners sit proud of it. */
-		overflow: hidden;
-		/* Reserved before a byte arrives, which is the whole CLS story: these files run to
-		   2.8 MB and land long after the text does. Without a ratio here the card would
-		   grow by 190px under the reader's thumb the moment the first one decoded. */
-		aspect-ratio: 16 / 10;
-		background: var(--color-bg-inset);
-	}
-
-	.bed-strip {
-		display: flex;
-		height: 100%;
-		overflow-x: auto;
-		scroll-snap-type: x mandatory;
-		scroll-behavior: smooth;
-		/* Swiping past the last photograph must not chain out to the page, which on a phone
-		   is how a horizontal scroller triggers the browser's back gesture and throws the
-		   reader off the results entirely. `SegmentStub`'s own scroller does the same. */
-		overscroll-behavior-x: contain;
-		/* Firefox and Chrome hide it anyway at this height, but a scrollbar drawn across
-		   the bottom of a photograph is a scrollbar drawn across a photograph. */
-		scrollbar-width: none;
-	}
-
-	.bed-strip::-webkit-scrollbar {
-		display: none;
-	}
-
-	.bed-slide {
-		flex: 0 0 100%;
-		height: 100%;
-		scroll-snap-align: center;
-	}
-
-	.bed-slide img {
-		display: block;
-		width: 100%;
-		height: 100%;
-		/* `cover`, not `contain`: Booking's `max1024x768` is a bounding box rather than a
-		   crop, so one property arrives 1024x768 and the next 768x768. Letting the file
-		   pick the shape would give every card a different height. */
-		object-fit: cover;
-	}
-
-	.bed-arrow {
-		position: absolute;
-		top: 50%;
-		display: grid;
-		place-items: center;
-		width: 2rem;
-		height: 2rem;
-		margin: 0;
-		padding: 0;
-		transform: translateY(-50%);
-		border: 1px solid var(--color-border);
-		border-radius: var(--radius-full);
-		/* Opaque, not a translucent scrim: a translucent control over a photograph has the
-		   contrast of whichever photograph it lands on, and these are strangers' holiday
-		   pictures. An opaque chip is legible over all of them. */
-		background: var(--color-bg-elevated);
-		color: var(--color-text);
-		cursor: pointer;
-		/* The pair `TripStrip` uses on its own tap targets: no 300ms wait for a double-tap
-		   that a photograph strip has no use for, and no grey flash over the picture. */
-		touch-action: manipulation;
-		-webkit-tap-highlight-color: transparent;
-		transition: background-color var(--transition-fast);
-	}
-
-	.bed-arrow:hover:not(:disabled) {
-		background: var(--color-surface-hover);
-	}
-
-	.bed-arrow:disabled {
-		/* Colour, never opacity, which is the treatment AGENTS.md names: an arrow at the end
-		   of the strip still has to be readable as an arrow. */
-		color: var(--color-text-faint);
-		cursor: default;
-	}
-
-	.bed-arrow svg {
-		width: 1rem;
-		height: 1rem;
-	}
-
-	.bed-arrow-prev {
-		left: var(--space-2);
-	}
-
-	.bed-arrow-next {
-		right: var(--space-2);
-	}
-
-	.bed-count {
-		position: absolute;
-		right: var(--space-2);
-		bottom: var(--space-2);
-		margin: 0;
-		padding: 2px var(--space-2);
-		border-radius: var(--radius-full);
-		background: var(--color-bg-elevated);
-		font-size: 0.625rem;
-		font-weight: var(--font-weight-medium);
-		color: var(--color-text-muted);
 	}
 
 	.bed-facts {
