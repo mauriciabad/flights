@@ -63,7 +63,11 @@ if (!keepCache) {
 }
 
 await page.goto(url);
-await page.waitForFunction(() => !document.body.innerText.includes('still searching'), null, { timeout: 180_000 });
+// Issue #388. "still searching" is absent before a search starts as well as after one has
+// finished, so waiting for it to go away is a wait satisfied by absence, which is #337.
+// `data-search-phase` is written from a snapshot carrying `done`, so `settled` is evidence
+// the search actually happened.
+await page.locator('[data-search-phase="settled"]').waitFor({ state: 'attached', timeout: 180_000 });
 
 const cardCount = await page.locator('.result-card').count();
 console.log(`cards: ${cardCount}`);
@@ -73,7 +77,11 @@ if (cardCount === 0) {
 	process.exit(1);
 }
 
-await page.getByRole('button', { name: 'Show details' }).first().click();
+// Issue #278 removed the "Show details" button; the strip's own caption unfolds a card now,
+// the same handle `tests/e2e/support/results-ui.ts` reaches for. Issue #388: this probe waited
+// on a control that had not existed for weeks, and a probe that cannot open a card reports an
+// empty card rather than a broken probe.
+await page.locator('.result-card').first().locator('.trip-strip-unfold').click();
 const detail = page.locator('.result-detail').first();
 await detail.waitFor({ timeout: 30_000 });
 
@@ -93,7 +101,13 @@ async function reading(label) {
 		const row = detail.locator(`[data-segment="${segment}"]`);
 		return (await row.count()) > 0 ? flat(await row.first().innerText()) : '(row absent)';
 	};
-	const totals = flat(await detail.locator('.itinerary-timeline-totals').first().innerText());
+	// Issue #388. `.itinerary-timeline-totals` has not existed for some time; `MetricRail`
+	// carries these figures now, as a `dl` of `.metric-label` and `.metric-value` pairs.
+	// The old selector did not report a missing block, it timed out after 30 seconds, so a
+	// probe that had gone stale looked like an app that had hung.
+	const rail = page.locator('.metric-rail').first();
+	const totals =
+		(await rail.count()) > 0 ? flat(await rail.innerText()) : '(no metric rail on the page)';
 	console.log(`\n----- ${label} -----`);
 	console.log('BLOCK    :', block);
 	console.log('TO-BED   :', await rowText('transfer-to-hotel'));

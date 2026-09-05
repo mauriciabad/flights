@@ -62,12 +62,16 @@ if (!keepCache) {
 }
 
 await page.goto(url);
-await page.waitForFunction(() => !document.body.innerText.includes('still searching'), null, { timeout: 180_000 });
+// Issue #388. "still searching" is absent before a search starts as well as after one has
+// finished, so waiting for it to go away is a wait satisfied by absence, which is #337.
+// `data-search-phase` is written from a snapshot carrying `done`, so `settled` is evidence
+// the search actually happened.
+await page.locator('[data-search-phase="settled"]').waitFor({ state: 'attached', timeout: 180_000 });
 // The search settling is not the same event as the page holding still: a refetch repaints
 // in place. One quiet second before anything is read.
 await page.waitForLoadState('networkidle').catch(() => {});
 await page.waitForTimeout(1000);
-await page.waitForFunction(() => !document.body.innerText.includes('still searching'), null, { timeout: 60_000 });
+await page.locator('[data-search-phase="settled"]').waitFor({ state: 'attached', timeout: 60_000 });
 
 const cardCount = await page.locator('.result-card').count();
 console.log(`cards: ${cardCount}`);

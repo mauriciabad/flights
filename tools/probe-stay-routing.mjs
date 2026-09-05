@@ -59,8 +59,16 @@ if (!keepCache) {
 }
 
 await page.goto(url);
-await page.waitForFunction(() => !document.body.innerText.includes('still searching'), null, { timeout: 180_000 });
-await page.getByRole('button', { name: 'Show details' }).first().click();
+// Issue #388. "still searching" is absent before a search starts as well as after one has
+// finished, so waiting for it to go away is a wait satisfied by absence, which is #337.
+// `data-search-phase` is written from a snapshot carrying `done`, so `settled` is evidence
+// the search actually happened.
+await page.locator('[data-search-phase="settled"]').waitFor({ state: 'attached', timeout: 180_000 });
+// Issue #278 removed the "Show details" button; the strip's own caption unfolds a card now,
+// the same handle `tests/e2e/support/results-ui.ts` reaches for. Issue #388: this probe waited
+// on a control that had not existed for weeks, and a probe that cannot open a card reports an
+// empty card rather than a broken probe.
+await page.locator('.result-card').first().locator('.trip-strip-unfold').click();
 const detail = page.locator('.result-detail').first();
 await detail.waitFor({ timeout: 30_000 });
 
