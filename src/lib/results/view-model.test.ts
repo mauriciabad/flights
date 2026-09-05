@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { describePriceFreshness } from './view-model';
+import { describePriceFreshness, describeSources } from './view-model';
 import { makeScoredResult } from './test-support';
+import type { ProvenancePart } from './types';
 
 describe('describePriceFreshness', () => {
 	it('renders a just-fetched price as plain and unflagged', () => {
@@ -53,5 +54,80 @@ describe('describePriceFreshness', () => {
 		expect(display.tone).toBe('warning');
 		expect(display.label).toContain('days ago');
 		expect(display.label).toContain('Quota used up for now.');
+	});
+});
+
+describe('describeSources', () => {
+	const NOW = Date.parse('2026-10-14T12:00:00.000Z');
+	const minutesAgo = (minutes: number) => new Date(NOW - minutes * 60_000).toISOString();
+
+	const part = (
+		overrides: Partial<ProvenancePart> & Pick<ProvenancePart, 'providerLabel' | 'fetchedAt'>
+	): ProvenancePart => ({
+		part: 'outboundFlight',
+		providerId: 'ryanair',
+		...overrides
+	});
+
+	it('says nothing at all when no part carries a tracked source', () => {
+		expect(describeSources([], NOW)).toBeUndefined();
+	});
+
+	it('keeps the one-age sentence when every source was fetched in the same search', () => {
+		const text = describeSources(
+			[
+				part({ providerLabel: 'Ryanair (no key required)', fetchedAt: minutesAgo(0) }),
+				part({ providerLabel: 'OSRM (walking & driving)', fetchedAt: minutesAgo(0) })
+			],
+			NOW
+		);
+		expect(text).toBe('via Ryanair (no key required) & OSRM (walking & driving), fetched this minute');
+	});
+
+	// Issue #289, measured on a real page: with the cache aged past every flight TTL and
+	// reloaded, Kiwi, Ryanair and Hostelworld all came back 0 minutes old and the footer
+	// still read "fetched 3 hours ago". The 3 hours belonged to an OSRM road route, whose
+	// own TTL is 30 days, so nothing ever refetched it and the number could only get worse.
+	// A price this app retrieved a minute ago must never be printed at a road route's age.
+	it('never prints the age of a road route over a fare this app just retrieved', () => {
+		const text = describeSources(
+			[
+				part({ providerLabel: 'Kiwi.com (no key required)', fetchedAt: minutesAgo(0) }),
+				part({ providerLabel: 'OSRM (walking & driving)', part: 'transferToHotel', providerId: 'osrm', fetchedAt: minutesAgo(180) })
+			],
+			NOW
+		);
+		expect(text).toBe(
+			'via Kiwi.com (no key required), fetched this minute; OSRM (walking & driving), fetched 3 hours ago'
+		);
+	});
+
+	it('groups every source that shares an age, freshest group first', () => {
+		const text = describeSources(
+			[
+				part({ providerLabel: 'Ryanair (no key required)', fetchedAt: minutesAgo(180) }),
+				part({ providerLabel: 'Kiwi.com (no key required)', fetchedAt: minutesAgo(0) }),
+				part({ providerLabel: 'Hostelworld (no key required)', part: 'stay', fetchedAt: minutesAgo(0) })
+			],
+			NOW
+		);
+		expect(text).toBe(
+			'via Kiwi.com (no key required) & Hostelworld (no key required), fetched this minute; Ryanair (no key required), fetched 3 hours ago'
+		);
+	});
+
+	// Both legs come from one provider and only one of them was refetched. The provider is
+	// named once, at the age of its oldest contribution: a source is as fresh as the least
+	// fresh thing it gave this card, and printing it twice would say the card has two
+	// Kiwis on it.
+	it('names a provider once, at the age of the oldest part it supplied', () => {
+		const text = describeSources(
+			[
+				part({ providerLabel: 'Kiwi.com (no key required)', fetchedAt: minutesAgo(0) }),
+				part({ providerLabel: 'Kiwi.com (no key required)', part: 'onwardFlight', fetchedAt: minutesAgo(120) })
+			],
+			NOW
+		);
+		expect(text).toBe('via Kiwi.com (no key required), fetched 2 hours ago');
 	});
 });

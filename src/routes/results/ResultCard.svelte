@@ -68,12 +68,11 @@
 	import { buildFlightShape } from '$lib/itinerary-map/previews';
 	import type { Airport, Itinerary } from '$lib/domain';
 	import type { ItinerarySegmentId } from '$lib/itinerary-map/segment-id';
-	import { formatAge } from '$lib/format';
 	import { oneAdultFlightsTotal, placeInBand } from '$lib/results/price-band';
 	import type { PriceHistory } from '$lib/results/price-band';
 	import { connectionAirportCode } from '$lib/results/types';
 	import type { ScoredResult } from '$lib/results/types';
-	import { describePriceFreshness } from '$lib/results/view-model';
+	import { describePriceFreshness, describeSources } from '$lib/results/view-model';
 	import { technicalStopDetail, technicalStopLabel } from '$lib/components/technical-stop-note';
 	import PriceBand from './PriceBand.svelte';
 
@@ -207,21 +206,13 @@
 	// resolves, which is the same reason `connectionLabel` falls back to the bare code.
 	const connectionCountry = $derived(connectionAirport?.country.name);
 
-	// Provenance: distinct provider labels behind this price, and the OLDEST of their
-	// fetch times, the same "oldest part wins" reasoning `types.ts`'s freshness
-	// derivation uses, so this footer's age never reads fresher than the badge above it.
-	const providerLabels = $derived(Array.from(new Set(result.price.parts.map((part) => part.providerLabel))));
-	const oldestFetchedAt = $derived(
-		result.price.parts.length > 0
-			? Math.min(...result.price.parts.map((part) => new Date(part.fetchedAt).getTime()))
-			: undefined
-	);
-	const fetchedAgo = $derived(oldestFetchedAt !== undefined ? formatAge(Date.now() - oldestFetchedAt) : undefined);
+	// Provenance, issue #289: every source behind this price, each at its own age. They do
+	// not share a TTL, so one "fetched N ago" over all of them printed the age of whatever
+	// had the longest one. `describeSources` owns the wording and is tested against it.
+	//
 	// One string for both the footer text and its `title`: the footer is a single line
 	// and this end of it ellipsises on a phone, so the full sentence is one hover away.
-	const sourceText = $derived(
-		`via ${providerLabels.join(' & ')}${fetchedAgo ? `, fetched ${fetchedAgo}` : ''}`
-	);
+	const sourceText = $derived(describeSources(result.price.parts, Date.now()));
 
 	// Both carriers, deduped: a single-airline itinerary should say the airline once. The
 	// strip already shows each leg's mark, so this row is the names, in the footer where
@@ -388,7 +379,11 @@
 					<span class="technical-stop" title={note.detail}>{note.label}</span>
 				{/each}
 			</span>
-			<span class="provenance-source" title={sourceText}>{sourceText}</span>
+			<!-- Absent, not empty, when no part of this itinerary carries a tracked source:
+			     the row used to render a bare "via" with nothing after it. -->
+			{#if sourceText}
+				<span class="provenance-source" title={sourceText}>{sourceText}</span>
+			{/if}
 		</p>
 	{/snippet}
 </Card>
