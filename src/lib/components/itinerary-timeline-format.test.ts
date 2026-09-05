@@ -220,6 +220,11 @@ describe('unroutedLegNote', () => {
 		expect(unroutedLegNote('to-hotel', { hasStay: true, nightsInConnection: 1, withheldRoad })).toBe(
 			'The road route in takes 33h to cover 157 km in a straight line, so it is not offered.'
 		);
+		// And with no bed priced either, where the row would otherwise say "Nothing routed
+		// into the city for this stopover" about a route that came back.
+		expect(unroutedLegNote('to-hotel', { hasStay: false, nightsInConnection: 1, withheldRoad })).toBe(
+			'The road route in takes 33h to cover 157 km in a straight line, so it is not offered.'
+		);
 		expect(
 			unroutedLegNote('to-destination-location', { hasStay: false, nightsInConnection: 6, withheldRoad })
 		).toBe('The road route takes 33h to cover 157 km in a straight line, so it is not offered.');

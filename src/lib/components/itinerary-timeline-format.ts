@@ -216,6 +216,12 @@ export function unroutedLegNote(
 				? 'Overnight wait, so there is no hotel leg here.'
 				: 'Same-day connection, so there is no hotel leg here.';
 		}
+		// Above the two "nothing routed" sentences below, and above #211's, because it
+		// contradicts all three. "Nothing routed into the city" is as false as "no transport
+		// provider could route to it" when a router answered at 33 hours and this app refused
+		// the answer. Below the nightless branch, though: that traveller is not going to a
+		// bed at all, and the refusal is true and irrelevant to them.
+		if (context.withheldRoad) return withheldRoadNote(leg, context.withheldRoad);
 		if (!context.hasStay) {
 			// Issue #185: the row's own fact and nothing else. It used to open with "No bed
 			// priced for this stopover", which was true but was also the third and sixth of
@@ -234,7 +240,6 @@ export function unroutedLegNote(
 				? 'Nothing routed into the city for this stopover.'
 				: 'Nothing routed back from the city for this stopover.';
 		}
-		if (context.withheldRoad) return withheldRoadNote(leg, context.withheldRoad);
 		// Issue #211: a bed WAS priced and no transfer provider could route to it. Until
 		// that issue this state could not occur, because `search/resources.ts` deleted the
 		// bed instead and the row above claimed nothing had ever been priced. Naming the bed
