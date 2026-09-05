@@ -13,9 +13,11 @@ import {
 	formatTimeDelta,
 	formatUtcOffset,
 	formatWeekday,
+	formatWeekdayAndDay,
 	formatWeekdayLong,
 	isDifferentCalendarDate
 } from './format';
+import { timeFormat } from './settings/time-format.svelte';
 
 function at(local: string, timeZone = 'Europe/Vienna', utcOffsetMinutes = 120): LocalDateTime {
 	return { local, timeZone, utcOffsetMinutes };
@@ -29,12 +31,60 @@ describe('formatClockTime', () => {
 		// 00:30 whatever the machine rendering it thinks the time is. `TZ` is not set for
 		// this suite, so this would drift if anything here went through a real `Date`
 		// without pinning UTC.
-		expect(formatClockTime(at('2026-10-06T00:30:00'))).toBe('00:30');
-		expect(formatClockTime(at('2026-10-06T23:50:00', 'Pacific/Auckland', 780))).toBe('23:50');
+		expect(formatClockTime(at('2026-10-06T00:30:00'), '24h')).toBe('00:30');
+		expect(formatClockTime(at('2026-10-06T23:50:00', 'Pacific/Auckland', 780), '24h')).toBe('23:50');
 	});
 
 	it('falls back to the raw string rather than throwing on a shape the domain never promises', () => {
-		expect(formatClockTime(at('not-a-datetime'))).toBe('not-a-datetime');
+		expect(formatClockTime(at('not-a-datetime'), '24h')).toBe('not-a-datetime');
+		expect(formatClockTime(at('not-a-datetime'), '12h')).toBe('not-a-datetime');
+	});
+
+	// Issue #229. The owner asked for am/pm and, in the same breath, "i dont like pad
+	// digits, anywhere in ui".
+	it('writes am/pm with no leading zero on the hour', () => {
+		expect(formatClockTime(at('2026-10-12T09:05:00'), '12h')).toBe('9:05am');
+		expect(formatClockTime(at('2026-10-09T21:10:00'), '12h')).toBe('9:10pm');
+		expect(formatClockTime(at('2026-10-06T23:50:00'), '12h')).toBe('11:50pm');
+	});
+
+	it('names midnight and noon as twelve, not as zero', () => {
+		// The pair a bare `hour % 12` renders as "0:15am" and "0:15pm". Both are on screen
+		// here for any overnight stopover, since #215 splits the day at local midnight.
+		expect(formatClockTime(at('2026-10-06T00:15:00'), '12h')).toBe('12:15am');
+		expect(formatClockTime(at('2026-10-06T12:15:00'), '12h')).toBe('12:15pm');
+		expect(formatClockTime(at('2026-10-06T00:00:00'), '12h')).toBe('12am');
+		expect(formatClockTime(at('2026-10-06T12:00:00'), '12h')).toBe('12pm');
+	});
+
+	it('drops a zero minute entirely, the way the owner wrote it', () => {
+		// "Sun 11 until 4am" on #228, in the same block as "Fri 9 until 4:55am".
+		expect(formatClockTime(at('2026-10-11T04:00:00'), '12h')).toBe('4am');
+		expect(formatClockTime(at('2026-10-11T04:55:00'), '12h')).toBe('4:55am');
+	});
+
+	it('keeps the departure-board padding in 24-hour form', () => {
+		// Not an oversight about padded digits: 24-hour is the departure-board convention,
+		// and a traveller who switches to it is asking for that convention.
+		expect(formatClockTime(at('2026-10-12T09:05:00'), '24h')).toBe('09:05');
+		expect(formatClockTime(at('2026-10-11T04:00:00'), '24h')).toBe('04:00');
+	});
+
+	it('follows the saved preference when no format is passed', () => {
+		const noon = at('2026-10-06T13:45:00');
+		timeFormat.reset();
+		expect(formatClockTime(noon)).toBe('1:45pm');
+		timeFormat.set('24h');
+		expect(formatClockTime(noon)).toBe('13:45');
+		timeFormat.reset();
+		expect(formatClockTime(noon)).toBe('1:45pm');
+	});
+});
+
+describe('formatWeekdayAndDay', () => {
+	it('names the day the way the free-time block does, with no month and no padded day', () => {
+		expect(formatWeekdayAndDay(at('2026-10-09T21:10:00'))).toBe('Fri 9');
+		expect(formatWeekdayAndDay(at('2026-10-12T09:05:00'))).toBe('Mon 12');
 	});
 });
 
