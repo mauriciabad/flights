@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Airport, Duration, FlightOffer, Itinerary, LocalDateTime, Money, Transfer } from '../domain';
-import { TRIP_STRIP_SCALE, splitFreeTimeAtLocalMidnight, sqrtShares, tripStrip } from './trip-strip';
+import { TRIP_STRIP_SCALE, segmentIdOf, splitFreeTimeAtLocalMidnight, sqrtShares, tripStrip } from './trip-strip';
 
 function at(local: string): LocalDateTime {
 	return { local, timeZone: 'Europe/Vienna', utcOffsetMinutes: 120 };
@@ -428,5 +428,52 @@ describe('tripStrip', () => {
 			makeItinerary({ departs: '2026-10-06T08:00:00', outboundMinutes: 120, stopoverMinutes: 360, onwardMinutes: 120, waiting: 0 })
 		);
 		expect(strip.segments[0]).toMatchObject({ kind: 'wait', minutes: 0, share: 0 });
+	});
+});
+
+describe('segmentIdOf', () => {
+	// Every ground leg present, so the strip has one segment of each kind on each side of
+	// the stopover and the two waits and two flights have to be told apart by position
+	// rather than by anything stored on them.
+	const strip = tripStrip(
+		makeItinerary({
+			departs: '2026-10-06T08:00:00',
+			outboundMinutes: 120,
+			stopoverMinutes: 2000,
+			onwardMinutes: 120,
+			toOriginAirport: transfer('taxi', 30),
+			toCity: transfer('transit', 40),
+			toAirport: transfer('transit', 40),
+			toDestination: transfer('walk', 15)
+		})
+	);
+
+	it('names every segment in the vocabulary the map and the timeline already share', () => {
+		expect(strip.segments.map((_, index) => segmentIdOf(strip, index))).toEqual([
+			'transfer-to-origin-airport',
+			'origin-waiting',
+			'outbound-flight',
+			'transfer-to-hotel',
+			'free-time',
+			'free-time',
+			'transfer-to-connection-airport',
+			'connection-waiting',
+			'onward-flight',
+			'transfer-to-destination-location'
+		]);
+	});
+
+	it('tells the two waits apart by which flight they precede, not by the airport code', () => {
+		// The reason this needs saying: a trip that returns through the airport it left
+		// from would give both waits the same code, and reading the code would collapse
+		// them into one selection.
+		const waits = strip.segments.flatMap((segment, index) => (segment.kind === 'wait' ? [segmentIdOf(strip, index)] : []));
+		expect(waits).toEqual(['origin-waiting', 'connection-waiting']);
+	});
+
+	it('gives every free-time day the one stopover id, so a run of cells selects one thing', () => {
+		const free = strip.segments.flatMap((segment, index) => (segment.kind === 'free' ? [segmentIdOf(strip, index)] : []));
+		expect(free.length).toBeGreaterThan(1);
+		expect(new Set(free)).toEqual(new Set(['free-time']));
 	});
 });
