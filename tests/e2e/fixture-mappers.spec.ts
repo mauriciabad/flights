@@ -168,6 +168,14 @@ const CHECKS: Record<string, FixtureCheck> = {
 		yields: 'some',
 		map: (raw) => routeThroughOsrm(raw)
 	},
+	// The adapter accepts this one and issue #119's rule in `search/resources.ts` then
+	// throws its answer away. Both facts have to hold for the spec that uses it to mean
+	// anything: a fixture the adapter could not read would be refused for the wrong reason.
+	'osrm/route-implausible.json': {
+		readBy: 'providers/transfers/osrm.ts searchTransfers',
+		yields: 'some',
+		map: (raw) => routeThroughOsrm(raw)
+	},
 	'ryanair/active-airports.json': {
 		readBy: 'providers/flights/ryanair-mapper.ts buildNetworkSnapshot',
 		yields: 'some',
