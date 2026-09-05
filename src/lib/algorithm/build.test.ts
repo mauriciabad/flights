@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { overnightWaitNote } from '$lib/results/stopover-nights';
 import type {
 	Airport,
 	City,
@@ -773,6 +774,23 @@ describe('buildItineraries — a short overnight is a wait, not a stay (issue #2
 		// Door to door is untouched: those minutes are real either way, and only their name
 		// changed.
 		expect(itinerary.times.total).toBe(120 + 150 + 240 + 120 + 90);
+	});
+
+	it('never says a bed is not worth it and plans two rides to it in the same breath', () => {
+		// The sharpest form of issue #365, because the card was printing both at once. On
+		// production, three centimetres apart on one card: "Overnight wait, 4h 26m, too short
+		// to be worth a bed", and then "Transfer to Owls Hostel (straight-line estimate)",
+		// "Rides from and to hotel", and a 47-minute metro drawn on the map. The traveller
+		// spent 2h 24m of a 4h 26m gap commuting to a bed the app itself had refused.
+		//
+		// Driven through the real builder and the real sentence, so this cannot pass on a
+		// component that merely stopped rendering something.
+		const itinerary = overnight('2026-10-06T23:00:00', '2026-10-07T05:00:00');
+
+		expect(overnightWaitNote(itinerary)).toMatch(/too short to be worth a bed/);
+		expect(itinerary.transferToHotel).toBeUndefined();
+		expect(itinerary.transferToConnectionAirport).toBeUndefined();
+		expect(itinerary.transferAnchor).toBeUndefined();
 	});
 
 	it('keeps free time when the ride goes into town rather than to a bed', () => {
