@@ -93,6 +93,12 @@ function pickerRow(page: Page, flightNumber: string) {
 	return customiser(page).locator('.picker-row').filter({ hasText: flightNumber });
 }
 
+/** Takes a row. The radio inside it is `visually-hidden` and the label it sits in swallows
+ * the pointer, so the label is what a traveller actually presses and what a spec must. */
+async function takeRow(page: Page, flightNumber: string) {
+	await pickerRow(page, flightNumber).click();
+}
+
 test.describe('the departure date has a ladder, and the onward flight follows the outbound', () => {
 	test('a rung for every day the stopover can be flown on, priced against the trip shown', async ({
 		page
@@ -139,7 +145,7 @@ test.describe('the departure date has a ladder, and the onward flight follows th
 		await expect(row.locator('.row-price')).toHaveCount(1);
 		await expect(row.locator('.row-companion')).toContainText('different onward flight');
 
-		await row.locator('input[type="radio"]').click();
+		await takeRow(page, OUT_B);
 
 		await pickTimelineSegment(page, 'onward-flight');
 		await expect(pickerRow(page, ONW_2)).toContainText('Current pick');
@@ -155,8 +161,8 @@ test.describe('the departure date has a ladder, and the onward flight follows th
 		// change event, so the pin is taken by going away and coming back. Both are real
 		// trips through the same city at different lengths.
 		await pickTimelineSegment(page, 'onward-flight');
-		await pickerRow(page, ONW_2).locator('input[type="radio"]').click();
-		await pickerRow(page, ONW_1).locator('input[type="radio"]').click();
+		await takeRow(page, ONW_2);
+		await takeRow(page, ONW_1);
 
 		await pickTimelineSegment(page, 'outbound-flight');
 		await expect(panel.getByTestId('onward-pin')).toContainText(ONW_1);
