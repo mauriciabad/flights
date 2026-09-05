@@ -242,6 +242,13 @@ exists in neither that branch nor `origin/main`. So when the suite has to have m
 *your* build, run `CI=1 E2E_PORT=<pick one> pnpm test:e2e`. It starts its own server and fails loudly if the
 port is taken, instead of quietly testing someone else's work.
 
+Those servers do not go away on their own. On the morning of 2026-09-05 there were fourteen
+still listening, every one of them from an agent that had finished the day before, and each
+one is a port `reuseExistingServer` can silently attach to. `node tools/stale-servers.mjs`
+lists the ones this project left behind with their ages, and `--kill` ends anything older
+than 90 minutes. Run it before a suite you need to trust, and kill your own when you are
+done rather than leaving them for whoever comes next.
+
 ## Scratch files are shared, so name yours after yourself
 
 A dozen agents run at once and the scratchpad directory is one directory. An agent drafting

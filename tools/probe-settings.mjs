@@ -1,0 +1,11 @@
+import { chromium } from '@playwright/test';
+const origin = process.env.LAYOVER_ORIGIN ?? 'https://flights.mauri.app';
+const browser = await chromium.launch();
+const page = await (await browser.newContext()).newPage();
+await page.goto(`${origin}/settings/`, { waitUntil: 'domcontentloaded' });
+await page.waitForTimeout(4000);
+const text = await page.evaluate(() => document.body.innerText);
+const cards = [...text.matchAll(/^(FLIGHT|STAY|TRANSFER)\n(.+)$/gm)].map((m) => `${m[1]}: ${m[2]}`);
+console.log('CARDS IN SETTINGS:\n' + cards.join('\n'));
+console.log('\nmentions Kiwi:', /kiwi/i.test(text));
+await browser.close();
