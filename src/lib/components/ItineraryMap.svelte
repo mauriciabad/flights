@@ -65,6 +65,7 @@
 		SEGMENT_LINE_COLOR,
 		type ColorScheme
 	} from '$lib/itinerary-map/style';
+	import { iconMarkup } from './icon-markup';
 	import EmptyState from './EmptyState.svelte';
 	import Skeleton from './Skeleton.svelte';
 
@@ -187,19 +188,18 @@
 	 * Issue #118: the owner's complaint was literally "markers for start hotel and end"
 	 * being indistinguishable from an airport — so these three get a compact icon glyph
 	 * inside a plain circle (`.itinerary-marker-pin` below), rather than the airport
-	 * pill's elongated shape and IATA-code text. Static, hand-rolled markup rather than
-	 * an icon-library import: this codebase already draws its few icons this way
-	 * (`EmptyState.svelte`, `Chip.svelte`) with no icon dependency at all, and three more
-	 * glyphs isn't reason enough to add one. `currentColor` picks up the tone colour
-	 * `.itinerary-marker-pin`'s CSS sets, exactly like those two components' own icons.
+	 * pill's elongated shape and IATA-code text.
+	 *
+	 * Strings rather than `<Icon>` because MapLibre owns the marker element and this
+	 * component fills it with `innerHTML`; `iconMarkup` is that, and its test holds it to
+	 * whatever `Icon.svelte` renders. Issue #326: they were hand-drawn on a 16-unit grid
+	 * until then, which meant the timeline's stopover night and the map pin under it were
+	 * two different beds on two grids at two stroke weights.
 	 */
 	const MARKER_ICONS: Record<Exclude<ItineraryMarkerKind, 'airport'>, string> = {
-		// A simple house/roofline: the trip's own starting point.
-		start: `<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8.5 8 3l5 5.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" fill="none"/><path d="M4.5 7.5V13a.8.8 0 0 0 .8.8h5.4a.8.8 0 0 0 .8-.8V7.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>`,
-		// A bed: where the free time in the connection city is actually spent.
-		stay: `<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 13V5.5A1.5 1.5 0 0 1 3.5 4H6a1.5 1.5 0 0 1 1.5 1.5V8" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" fill="none"/><path d="M2 9h11a1.5 1.5 0 0 1 1.5 1.5V13" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" fill="none"/><path d="M2 13v-1.2M14 13v-1.7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>`,
-		// A flag: the trip's final destination.
-		end: `<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 14V2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M4 3h8l-2.5 2.5L12 8H4" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" fill="none"/></svg>`
+		start: iconMarkup('home'),
+		stay: iconMarkup('bed'),
+		end: iconMarkup('flag')
 	};
 
 	function shortLabelFor(label: string): string {

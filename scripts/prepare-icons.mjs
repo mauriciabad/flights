@@ -36,11 +36,13 @@ import { fileURLToPath } from 'node:url';
  * line added rather than a reshuffle.
  */
 const ICON_NAMES = {
+	'adjustments-horizontal': 'the results filter-and-sort toggle',
 	'alert-triangle': 'ErrorState, severity warning',
 	'arrow-right': 'FlightPicker, departure to arrival',
 	'arrows-up-down': 'SearchForm, swap origin and destination',
-	bed: 'ModeIcon, the stopover night',
+	bed: 'ModeIcon and the ItineraryMap marker, the stopover night',
 	bus: 'ModeIcon, public transport',
+	'calendar-month': 'the flexible-dates link on the results page',
 	car: 'ModeIcon, driving',
 	check: 'a chosen option: the nights rung, the time format, the currency',
 	'chevron-down': 'Select, a menu that opens downwards',
@@ -50,9 +52,11 @@ const ICON_NAMES = {
 	'circle-x': 'ErrorState, severity error',
 	clock: 'ModeIcon, the airport wait',
 	ferry: 'ModeIcon, a transit transfer that rides the water',
-	home: 'a property with no photograph',
+	flag: 'ItineraryMap, the marker on where the trip ends',
+	home: 'a property with no photograph, and the ItineraryMap marker on where the trip starts',
 	'info-circle': 'ErrorState severity info, and a room-tile caveat',
 	maximize: 'GroundLegPreviews, open the full map',
+	pencil: 'SearchSummaryBar, edit this search',
 	plane: 'ModeIcon, the flight',
 	settings: 'the app header settings link',
 	'shield-check': 'the settings privacy banner',
