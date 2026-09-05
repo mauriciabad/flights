@@ -282,6 +282,13 @@ test.describe("the tooltip's photographs (issue #307)", () => {
 	test('the hover panel keeps every fact and loses the media box', async ({ page }) => {
 		await openStays(page);
 
+		// Off the strip first. `openStays` reaches this fixture by CLICKING this same target,
+		// which leaves the pointer sitting on it, and a `hover()` that does not move the mouse
+		// fires no `pointerenter`, so the panel never opens. It passed before #305 and #310
+		// only because clicking shifted the layout enough to slide the strip under a
+		// stationary cursor; the card is shorter and the page wider now, so it does not. A
+		// person moves the pointer away and back, and this is that gesture.
+		await page.mouse.move(0, 0);
 		await page.locator('.trip-strip-hit-stopover').first().hover();
 		const stub = page.locator('[role="tooltip"]').first();
 		await expect(stub).toBeVisible();
