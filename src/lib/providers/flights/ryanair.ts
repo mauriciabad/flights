@@ -41,7 +41,7 @@
  * (src/lib/data/ryanair-network.ts), so a cold search now spends nothing at all on routes.
  */
 
-import { defineCacheKey, getDefaultStore, staleWhileRevalidate } from '../../cache';
+import { defineCacheKey, getDefaultStore, revalidationSettled, staleWhileRevalidate } from '../../cache';
 import type { CacheKey, CacheStore, StaleWhileRevalidateResult } from '../../cache';
 import { directDestinationsFrom, loadBundledRyanairNetwork, newerSnapshot } from '../../data/ryanair-network';
 import type { RyanairNetworkSnapshot } from '../../data/ryanair-network';
@@ -618,6 +618,7 @@ function createRyanairFlightProvider(options: RyanairProviderOptions = {}): Flig
 			// results already on screen.
 			if (error && offers.length === 0) return;
 			await writeCache(store, cacheKey, offers);
+			revalidationSettled(RYANAIR_PROVIDER_ID);
 		} catch {
 			// A background refresh that fails changes nothing the user can see. The cached
 			// fares and their age stay exactly as they were, and the next search tries again.
@@ -665,10 +666,11 @@ function createRyanairFlightProvider(options: RyanairProviderOptions = {}): Flig
 			if (revalidated) {
 				// Past its TTL, so refresh it behind the answer rather than instead of it.
 				// Not awaited on purpose: awaiting is the wait this whole change removes.
-				// The fresher fares land in the cache for the next search or reload, not
-				// into the page currently rendering — in-place replacement needs a second
-				// snapshot from the pipeline, which `results/stream-order.ts`'s
-				// `insertStable` is already built for and nothing yet triggers.
+				// When it lands it announces itself (`cache/revalidation.ts`), the results
+				// page runs the search again off the warmed cache, and the second snapshot
+				// replaces this card in place through `results/stream-order.ts`. Issue #293:
+				// until that existed the fresher fares reached the next reload and never the
+				// page that was already on screen asking for them.
 				void revalidateFares(query, ctx, store, cacheKey);
 			}
 			return {

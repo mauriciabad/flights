@@ -24,6 +24,7 @@
 	import { goto } from '$app/navigation';
 	import { base } from '$app/paths';
 	import { page } from '$app/state';
+	import { onRevalidationSettled } from '$lib/cache';
 	import { Button, Card, EmptyState, ErrorState, Skeleton } from '$lib/components';
 	import { getAirport } from '$lib/data/airports';
 	import { DEFAULT_SEARCH_CURRENCY } from '$lib/domain';
@@ -248,6 +249,29 @@
 	const recordedToLedger = new Set<string>();
 	const sequenceByConnection = new Map<string, number>();
 	let nextSequence = 1;
+	/**
+	 * Issue #293: a background revalidation has landed since this page last read the cache,
+	 * so the fetch times and prices on screen are behind what the app is holding.
+	 *
+	 * Not `$state`, and the refresh it schedules is not an `$effect`. An effect that both
+	 * read this flag and called `consumeSearch` would read and write `searchesInFlight` on
+	 * its own call stack, which is #87's `effect_update_depth_exceeded` exactly. The two
+	 * places a refresh can become due are both plain function bodies instead: the moment an
+	 * announcement arrives, and the moment the last search in flight finishes.
+	 */
+	let revalidationPending = false;
+	/**
+	 * How many background refreshes are running. Counted apart from `searchesInFlight`, and
+	 * not `$state`, because a refresh is not a search a traveller is waiting on: nothing on
+	 * screen is missing while it runs, so "still searching" and the reserve-space skeleton
+	 * have nothing to say about it. Counting them together flashed "still searching" nine
+	 * times at a finished page, because a warm reload's revalidations arrive over about
+	 * twenty-five seconds rather than together.
+	 */
+	let refreshesInFlight = 0;
+	/** The current query's controller, so a refresh started outside the search effect is
+	 * still cancelled by navigating away from the query it belongs to. */
+	let searchController: AbortController | undefined;
 
 	function sequenceFor(code: string): number {
 		let sequence = sequenceByConnection.get(code);
@@ -411,8 +435,12 @@
 	 * guarantee `stream-order.ts` provides applies here exactly as it does to the
 	 * initial free-tier stream.
 	 */
-	async function consumeSearch(stream: AsyncGenerator<SearchSnapshot>, options: { trackWidenOptions: boolean }) {
-		searchesInFlight += 1;
+	async function consumeSearch(
+		stream: AsyncGenerator<SearchSnapshot>,
+		options: { trackWidenOptions: boolean; background?: boolean }
+	) {
+		if (options.background) refreshesInFlight += 1;
+		else searchesInFlight += 1;
 		try {
 			for await (const snapshot of stream) {
 				providerStatuses = { ...providerStatuses, ...snapshot.providers };
@@ -452,9 +480,72 @@
 				outerTransferOptions = snapshot.outerTransferOptions;
 			}
 		} finally {
-			searchesInFlight -= 1;
+			if (options.background) refreshesInFlight -= 1;
+			else searchesInFlight -= 1;
+			refreshAfterRevalidation();
 		}
 	}
+
+	/**
+	 * Issue #293: runs the search a second time off the cache a background revalidation has
+	 * just warmed, so the fetch times and prices on the cards become the ones the app is
+	 * actually holding.
+	 *
+	 * Every adapter that serves a cached answer past its TTL refetches behind it, and until
+	 * this existed the fresher value reached the next reload and never the page that had
+	 * asked for it. `tools/probe-card-age.mjs` against a real build: 76 provider responses
+	 * land inside 3 seconds, every Kiwi, Ryanair and Hostelworld entry comes back 0 minutes
+	 * old, and the cards go on saying "fetched 3 hours ago" for as long as you watch them.
+	 * The brief's third rule is "stale first, then fresh ... update in place", and this is
+	 * the half that was missing.
+	 *
+	 * It reads the cache, not the network. What a revalidation has just written is inside its
+	 * own TTL again, so the adapters hand it back without refetching: the probe measures the
+	 * flight and stay providers at zero requests across every refresh in a run.
+	 *
+	 * How often it runs is set by what lands, not by a timer. A warm reload's revalidations do
+	 * not arrive together, and Transitous answers one leg at a time over about twenty-five
+	 * seconds whether or not anything is refreshing (6 requests after the page went quiet
+	 * without this function, 8 with it). Every landing is a card that can now say something
+	 * truer, so every landing gets a run, and a run that finds nothing changed costs a cache
+	 * read and rewrites the same numbers. It terminates because an announcement follows a
+	 * write that made its own entry fresh, and the stale entries are a set every round shrinks.
+	 *
+	 * Held until nothing else is streaming. A refresh racing the search it is refreshing would
+	 * merge two readings of the same cache into one list for no gain, and announcements that
+	 * arrive while one is running are coalesced into the run that follows.
+	 *
+	 * Its own `createTransitLookupBudget()` rather than the query's. That ration caps what one
+	 * pass may ask a volunteer-run service, and the previous pass has spent some or all of it.
+	 * Handing over the remainder would make the refreshed card LOSE transit legs the traveller
+	 * can already see (`'budget-spent'`), which is a worse answer than the one it replaces.
+	 * The new ration buys cache reads, since it asks the legs the pass before it just
+	 * answered.
+	 */
+	function refreshAfterRevalidation(): void {
+		if (!revalidationPending || searchesInFlight > 0 || refreshesInFlight > 0) return;
+		const activeQuery = query;
+		const controller = searchController;
+		if (!activeQuery || !controller || controller.signal.aborted) return;
+		revalidationPending = false;
+		void consumeSearch(
+			runSearch(activeQuery, deps(), {
+				signal: controller.signal,
+				transitLookupBudget: createTransitLookupBudget()
+			}),
+			{ trackWidenOptions: true, background: true }
+		);
+	}
+
+	/** Issue #293. Not an `$effect` around the refresh itself, deliberately: see
+	 * `revalidationPending`. This one only registers the listener and hands Svelte the
+	 * unsubscribe. */
+	$effect(() =>
+		onRevalidationSettled(() => {
+			revalidationPending = true;
+			refreshAfterRevalidation();
+		})
+	);
 
 	/** Runs the free tier once per distinct `query`, `runSearch` has no code path to a
 	 * metered provider at all, so this alone never spends a request. */
@@ -469,6 +560,8 @@
 		primarySearchDone = false;
 		sequenceByConnection.clear();
 		nextSequence = 1;
+		// Issue #293: yesterday's revalidation has nothing to say about this query's cards.
+		revalidationPending = false;
 		// A new query is an unrelated search: yesterday's connection codes have no business
 		// staying open, selected, or carrying an edit against whatever streams in next.
 		openTimelineId = null;
@@ -503,12 +596,18 @@
 		// later writes (from inside the `for await` loop, resumed after a real await) are
 		// naturally outside any effect's tracking already and need no wrapping.
 		const controller = new AbortController();
+		searchController = controller;
 		untrack(() =>
 			consumeSearch(runSearch(activeQuery, deps(), { signal: controller.signal, transitLookupBudget }), {
 				trackWidenOptions: true
 			})
 		);
-		return () => controller.abort();
+		return () => {
+			controller.abort();
+			// Issue #293: a refresh reads this to find out whether the query it would be
+			// refreshing is still the one on screen.
+			if (searchController === controller) searchController = undefined;
+		};
 	});
 
 	/** An explicit sort-mode change re-sorts everything gathered so far, a deliberate

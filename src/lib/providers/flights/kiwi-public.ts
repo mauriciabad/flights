@@ -44,7 +44,7 @@
  *    describe a flight nobody sells. See kiwi-public-queries.ts.
  */
 
-import { defineCacheKey, getDefaultStore, readCachedEntry } from '../../cache';
+import { defineCacheKey, getDefaultStore, readCachedEntry, revalidationSettled } from '../../cache';
 import type { CacheKey, CacheStore } from '../../cache';
 import type { FlightOffer, IataAirportCode, IsoCalendarDate, IsoCurrencyCode } from '../../domain';
 import type {
@@ -386,6 +386,7 @@ function createKiwiPublicFlightProvider(options: KiwiPublicProviderOptions = {})
 			// would turn a background refresh into a silent loss of what is on screen.
 			if (error && offers.length === 0) return;
 			await writeCache(store, cacheKey, offers);
+			revalidationSettled(KIWI_PUBLIC_PROVIDER_ID);
 		} catch {
 			// Changes nothing the user can see; the next search tries again.
 		} finally {
@@ -529,6 +530,7 @@ function createKiwiPublicFlightProvider(options: KiwiPublicProviderOptions = {})
 			);
 			if (error && destinations.length === 0) return;
 			await writeCache(store, cacheKey, destinations);
+			revalidationSettled(KIWI_PUBLIC_PROVIDER_ID);
 		} catch {
 			// The expired graph stays exactly as it was; the next search tries again.
 		} finally {

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { MemoryCacheStore } from '../../cache';
+import { MemoryCacheStore, onRevalidationSettled } from '../../cache';
 import activeAirportsFixture from './fixtures/active-airports.json';
 import cheapestPerDayFixture from './fixtures/cheapest-per-day-bcn-stn.json';
 import scheduleFixture from './fixtures/schedule-bcn-stn.json';
@@ -329,6 +329,56 @@ describe('searchOffers', () => {
 			const next = await provider.searchOffers(query, { signal: new AbortController().signal });
 			expect(next.requestsUsed).toBe(0);
 			expect(Date.now() - Date.parse(next.source.fetchedAt)).toBeLessThan(60_000);
+		});
+
+		it('announces the refresh so a page rendered from the old fares can read the new ones', async () => {
+			// Issue #293. Without this the fresher fares reach the next reload and never the
+			// page that asked for them: `routes/results/+page.svelte` runs the search again
+			// off the warmed cache when it hears this, and that second snapshot is what moves
+			// a card's "fetched N ago" off the value it painted with.
+			const store = new MemoryCacheStore();
+			const provider = createRyanairFlightProvider({ store, fetchImpl: fixtureFetch() });
+			const keys = await keysIn(store, () =>
+				provider.searchOffers(query, { signal: new AbortController().signal })
+			);
+			await ageStoredEntriesBy(store, 2 * 60 * 60_000, keys);
+
+			const heard: string[] = [];
+			const stop = onRevalidationSettled((providerId) => heard.push(providerId));
+			try {
+				await provider.searchOffers(query, { signal: new AbortController().signal });
+				await vi.waitFor(() => expect(heard).toContain('ryanair'));
+			} finally {
+				stop();
+			}
+		});
+
+		it('says nothing when the refresh failed, since the cache still holds what is on screen', async () => {
+			const store = new MemoryCacheStore();
+			let failFares = false;
+			const fetchImpl = fixtureFetch({
+				'https://services-api.ryanair.com/farfnd': () =>
+					failFares
+						? new Response(null, { status: 503 })
+						: new Response(JSON.stringify(cheapestPerDayFixture), { status: 200 })
+			});
+			const provider = createRyanairFlightProvider({ store, fetchImpl });
+			const keys = await keysIn(store, () =>
+				provider.searchOffers(query, { signal: new AbortController().signal })
+			);
+			await ageStoredEntriesBy(store, 2 * 60 * 60_000, keys);
+			failFares = true;
+
+			const heard: string[] = [];
+			const stop = onRevalidationSettled((providerId) => heard.push(providerId));
+			try {
+				const callsBefore = fetchCallCount;
+				await provider.searchOffers(query, { signal: new AbortController().signal });
+				await vi.waitFor(() => expect(fetchCallCount).toBeGreaterThan(callsBefore));
+				expect(heard).toEqual([]);
+			} finally {
+				stop();
+			}
 		});
 
 		it('does not refresh when the caller has no request budget left', async () => {

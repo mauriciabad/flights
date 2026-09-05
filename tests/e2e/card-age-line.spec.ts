@@ -21,9 +21,14 @@ import { mockAllKeylessProviders, mockHostelworld, routeRyanairFlights } from '.
  * and reloads. The old footer printed 3 hours over all of it, including fares an hour old.
  *
  * What this does NOT check is the card following a refetch that lands while it is on screen.
- * That needs a second snapshot out of the search pipeline, which `searchOffers` in
- * `providers/flights/ryanair.ts` already documents as built for and untriggered, and it is not
- * something the footer can fix from where it sits.
+ * That is issue #293, and `card-refetch-age.spec.ts` next door owns it.
+ *
+ * #293 is also why the bed's own source stops answering here. A Hostelworld bed is cached for
+ * an hour, so a bed aged three hours is expired, and since #293 the refetch behind it reaches
+ * the card: every source went fresh, the split this spec exists to measure closed, and the
+ * spec failed on a page that was doing exactly the right thing. Holding a source at an age is
+ * therefore a matter of it having nothing to refresh WITH, not of picking a number. A provider
+ * that is briefly down is the honest way to say that, and it is the one this spec needs.
  */
 
 const EMPTY_MAP_STYLE = JSON.stringify({ version: 8, name: 'empty', sources: {}, layers: [] });
@@ -116,6 +121,14 @@ test.describe('issue #289: the footer ages each source separately', () => {
 		expect(clause(cold, 'Ryanair')).toBe(clause(cold, 'Hostelworld'));
 
 		expect(await backdateCache(page, 'hostelworld', BED_AGE_HOURS)).toBeGreaterThan(0);
+
+		// Registered after the mock above, so Playwright gives it first refusal: from here the
+		// bed cannot be refreshed, and its three hours stay three hours for the reload to
+		// print. Only the properties endpoint, so the city index behind it still resolves and
+		// the stopover keeps its bed.
+		await page.context().route('https://api.m.hostelworld.com/2.2/cities/**', (route) =>
+			route.fulfill({ status: 503, contentType: 'application/json', body: '{}' })
+		);
 
 		await page.reload();
 		await expect(page.getByText('still searching')).toHaveCount(0, { timeout: 20_000 });

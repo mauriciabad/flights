@@ -14,7 +14,7 @@
  */
 
 import type { CacheKey, CacheStore } from '../../cache';
-import { defineCacheKey, getDefaultStore, readCachedEntry } from '../../cache';
+import { defineCacheKey, getDefaultStore, readCachedEntry, revalidationSettled } from '../../cache';
 import type { Transfer, TransitPlanMoment } from '../../domain';
 import { greatCircleDistanceKm } from '../../domain';
 import type {
@@ -97,6 +97,7 @@ export function createTransitousTransferProvider(
 				greatCircleDistanceKm(query.from, query.to)
 			);
 			await writeCacheEntry(store, cacheKey, transfer ? [transfer] : [], Date.now());
+			revalidationSettled(TRANSITOUS_PROVIDER_ID);
 		} catch {
 			// A malformed or failed refresh leaves the held schedule exactly as it was. The
 			// next search tries again; overwriting it with nothing would turn a background
