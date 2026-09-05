@@ -228,8 +228,13 @@ export async function mockBookingCom(target: Routable, fixture = 'booking/hotels
 /**
  * Kiwi.com's public GraphQL endpoint, the second keyless flight source. Needs no key.
  *
- * Both of its queries hit the same URL and are told apart by `?featureName=`, so this
- * registers two routes rather than one. Both fixtures are deliberately EMPTY: every
+ * Its queries hit the same URL and are told apart by `?featureName=`, so this registers a
+ * route each rather than one. Issue #340 added a third, `DirectRouteCheckQuery`, which asks
+ * whether one airport flies to another; it reuses the one-way document, so it is answered
+ * with the one-way fixture. Leaving it unregistered is not neutral: the network guard blocks
+ * it, Chromium reports `ERR_BLOCKED_BY_CLIENT`, and every spec that asserts a clean console
+ * fails for a reason that has nothing to do with what it tests. All fixtures are
+ * deliberately EMPTY: every
  * existing spec asserts against Ryanair-shaped results, and answering with real Kiwi
  * itineraries would change their itinerary counts for reasons that have nothing to do with
  * what they are testing. An empty-but-well-formed response is the honest "this provider
@@ -251,6 +256,11 @@ export async function mockKiwiPublic(
 		target,
 		'https://api.skypicker.com/umbrella/v2/graphql?featureName=OnePerCityItinerariesQuery*',
 		onePerCityFixture
+	);
+	await mockJson(
+		target,
+		'https://api.skypicker.com/umbrella/v2/graphql?featureName=DirectRouteCheckQuery*',
+		oneWayFixture
 	);
 }
 
