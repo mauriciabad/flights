@@ -14,12 +14,21 @@
 	 * what the source imports and what a visitor downloads, and this app has no backend, so
 	 * every byte it ships is a byte somebody waits for.
 	 *
-	 * ## Sizing, and why this sets none
+	 * ## Sizing
 	 *
-	 * `1em`, so an icon dropped beside a line of text is that text's size and needs no rule
-	 * at all. Every caller that wants a different one sets `width` and `height` on it from
-	 * its own stylesheet, which is what they all did before this existed. Those rules need
-	 * `:global(...)` now, because the `<svg>` lives in this component rather than in theirs.
+	 * `1em` by default, so an icon dropped beside a line of text is that text's size and
+	 * needs no rule at all. There are two ways to change it and the difference is not
+	 * cosmetic:
+	 *
+	 * - Set `--icon-size` on the icon or anything above it. Preferred, and the only one that
+	 *   works from a component whose root element IS the icon, like `ModeIcon`.
+	 * - Set `width` and `height` on it, which is what every caller did before this existed
+	 *   and what they still do. Those rules need `:global(...)` now, since the `<svg>` lives
+	 *   here rather than in the caller, AND they need a scoped ancestor in the selector:
+	 *   Svelte adds its scoping class to `.icon` below, so a bare `:global(.my-icon)` at one
+	 *   class LOSES to it and the icon silently renders at 1em. That is not hypothetical, it
+	 *   is what `.mode-icon-md` did until a browser measurement caught it at 16px where the
+	 *   stylesheet plainly said 18.
 	 *
 	 * ## `aria-hidden` by default, on purpose
 	 *
@@ -66,8 +75,8 @@
 
 <style>
 	.icon {
-		width: 1em;
-		height: 1em;
+		width: var(--icon-size, 1em);
+		height: var(--icon-size, 1em);
 		flex-shrink: 0;
 	}
 </style>

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { transferIconKind, VEHICLE_FAMILY } from './mode-icon';
+import { legIconKind, transferIconKind, VEHICLE_FAMILY } from './mode-icon';
 import { TRANSIT_MODE_LABELS } from '$lib/providers/transfers/transitous-mapper';
 import type { Duration, Transfer, TransferLeg } from '$lib/domain';
 
@@ -53,6 +53,17 @@ describe('transferIconKind', () => {
 
 	it('stays generic when the transfer is nothing but walking to a stop', () => {
 		expect(transferIconKind(transit(WALK, WALK))).toBe('transit');
+	});
+
+	it('is as specific about one leg as the leg allows, because a leg is one ride', () => {
+		// The picker's step list prints "Bus 46 to Aeroport BCN (TMB)" a line at a time, so
+		// there is nothing left to disagree with it.
+		expect(legIconKind(ride('Train'))).toBe('transit-rail');
+		expect(legIconKind(ride('Ferry'))).toBe('transit-ferry');
+		expect(legIconKind(ride('Bus'))).toBe('transit');
+		expect(legIconKind(ride('Funicular'))).toBe('transit');
+		expect(legIconKind(ride(undefined))).toBe('transit');
+		expect(legIconKind(WALK)).toBe('walk');
 	});
 
 	/**

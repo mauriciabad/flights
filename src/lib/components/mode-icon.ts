@@ -82,29 +82,41 @@ const FAMILY_KIND = {
 	water: 'transit-ferry'
 } as const satisfies Record<string, ModeIconKind>;
 
-/** The legs that are a ride rather than the walk to and from a stop. A transit transfer
- *  almost always opens and closes with a walk, and neither says anything about the vehicle
- *  in the middle. */
-function rides(legs: readonly TransferLeg[]): TransferLeg[] {
-	return legs.filter((leg) => leg.mode !== 'walk');
+/**
+ * The glyph for one leg. A leg is the bottom of the tree — one ride, one vehicle — so this
+ * is as specific as the app ever gets, and the transport picker's step list is the one
+ * place that can use it: it prints "Bus 46 to Aeroport BCN (TMB)" a line at a time.
+ *
+ * `transit` back means the same three silences every time: the provider named no vehicle,
+ * it named one this set has no icon for, or the leg is not transit at all and its own mode
+ * is the answer.
+ */
+export function legIconKind(leg: TransferLeg): ModeIconKind {
+	if (leg.mode !== 'transit') return leg.mode;
+	const family = leg.vehicle ? VEHICLE_FAMILY[leg.vehicle] : undefined;
+	return family ? FAMILY_KIND[family] : 'transit';
 }
 
 /**
- * The glyph for one ground transfer, as specific as the app can honestly be about it.
+ * The glyph for one whole ground transfer, as specific as the app can honestly be about it.
  *
- * Not a component prop or a `$derived` in three places, because the same answer belongs on
- * the trip strip, in the timeline rail and on a picker row, and three copies of this rule
- * is how they would come to disagree about the same journey.
+ * Not a `$derived` in three components, because the same answer belongs on the trip strip,
+ * in the timeline rail and on a picker row, and three copies of this rule is how they come
+ * to disagree about the same journey.
+ *
+ * The walking legs are dropped first: a transit transfer almost always opens and closes
+ * with the walk to and from a stop, and neither says anything about the vehicle in the
+ * middle. What is left has to agree, or the transfer keeps the plain transit mark.
  */
 export function transferIconKind(transfer: Transfer): ModeIconKind {
 	if (transfer.mode !== 'transit') return transfer.mode;
 
-	const families = rides(transfer.legs).map((leg) => (leg.vehicle ? VEHICLE_FAMILY[leg.vehicle] : undefined));
-	const [first] = families;
-	// `undefined` covers three different silences and all of them mean the same thing here:
-	// no rides at all (a `Transfer` cached before legs were populated), a provider that did
-	// not name the vehicle, and a vehicle no icon in this set depicts. `some` then catches
-	// the mixture, since a second family never equals the first.
-	if (first === undefined || families.some((family) => family !== first)) return 'transit';
-	return FAMILY_KIND[first];
+	const kinds = transfer.legs.filter((leg) => leg.mode !== 'walk').map(legIconKind);
+	const [first] = kinds;
+	// No rides at all is a transit answer with nothing under it — a `Transfer` cached before
+	// its legs were populated. `some` then catches the mixture, since a second family never
+	// equals the first, and a leg that came back generic drags a specific one back to
+	// generic for exactly that reason.
+	if (first === undefined || kinds.some((kind) => kind !== first)) return 'transit';
+	return first;
 }

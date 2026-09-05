@@ -67,7 +67,10 @@
 
 <style>
 	/* `:global` throughout: the `<svg>` is `Icon.svelte`'s element, not one this component's
-	   scoping class lands on. */
+	   scoping class lands on. `--icon-size` rather than `width`, and that is load-bearing
+	   rather than a preference — this component has no element of its own to hang a scoped
+	   ancestor off, so a `width` here would be a one-class selector losing to `Icon`'s own
+	   scoped `.icon`, and the rail would draw at 16px while this file said 18. */
 	:global(.mode-icon) {
 		/* An icon beside a line of text sits on the text's own baseline-ish centre. Without
 		   this it hangs below it, since an inline SVG's box is a line box like any other. */
@@ -75,13 +78,11 @@
 	}
 
 	:global(.mode-icon-sm) {
-		width: 0.9375rem;
-		height: 0.9375rem;
+		--icon-size: 0.9375rem;
 	}
 
 	:global(.mode-icon-md) {
-		width: 1.125rem;
-		height: 1.125rem;
+		--icon-size: 1.125rem;
 		vertical-align: 0;
 	}
 </style>

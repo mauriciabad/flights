@@ -80,6 +80,9 @@
 	import { segmentIdOf, tripStrip } from './trip-strip';
 	import type { TripStripFreeSegment, TripStripTransferSegment } from './trip-strip';
 	import AirlineLogo from './AirlineLogo.svelte';
+	import Icon from './Icon.svelte';
+	import ModeIcon from './ModeIcon.svelte';
+	import { transferIconKind } from './mode-icon';
 	import SegmentStub from './SegmentStub.svelte';
 
 	interface Props {
@@ -412,6 +415,13 @@
 					<span class="trip-strip-stamp trip-strip-stamp-logo">
 						<AirlineLogo iataCode={segment.carrier.iataCode} name={segment.carrier.name} {deprioritized} />
 					</span>
+				{:else if segment.kind === 'transfer'}
+					<!-- Issue #322: the flight cell says who is flying you, so the ground cell says
+					     what is carrying you, in the same slot under the same rule. How specific
+					     the icon is allowed to be is `mode-icon.ts`'s decision, not this file's. -->
+					<span class="trip-strip-stamp trip-strip-stamp-mode">
+						<ModeIcon kind={transferIconKind(segment.transfer)} />
+					</span>
 				{:else if segment.kind === 'free'}
 					<span class="trip-strip-stamp trip-strip-stamp-day font-mono">{weekdayStamp(segment)}</span>
 				{/if}
@@ -488,9 +498,7 @@
 					{/if}
 					<span class="visually-hidden">, {expanded ? 'hide' : 'show'} the full timeline</span>
 				</span>
-				<svg class={['trip-strip-chevron', { 'is-open': expanded }]} viewBox="0 0 16 16" aria-hidden="true" focusable="false">
-					<path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
-				</svg>
+				<Icon name="chevron-down" class={['trip-strip-chevron', { 'is-open': expanded }]} />
 			</button>
 		{:else}
 			<span class="trip-strip-caption trip-strip-caption-mid">
@@ -705,10 +713,11 @@
 	   teal is what the stopover is, and the chevron takes the accent because accent is what
 	   is interactive everywhere else in this app. Without it the control reads as a caption:
 	   a phone has no hover to discover it with, and colour alone would be the only signal. */
-	.trip-strip-chevron {
+	/* `:global` throughout for the icons: the `<svg>` is `Icon.svelte`'s element, not one
+	   this component's scoping class lands on. */
+	.trip-strip-unfold :global(.trip-strip-chevron) {
 		width: 0.85rem;
 		height: 0.85rem;
-		flex-shrink: 0;
 		align-self: center;
 		color: var(--color-accent);
 		transition:
@@ -716,11 +725,11 @@
 			color var(--transition-fast);
 	}
 
-	.trip-strip-unfold:hover .trip-strip-chevron {
+	.trip-strip-unfold:hover :global(.trip-strip-chevron) {
 		color: var(--color-accent-hover);
 	}
 
-	.trip-strip-chevron.is-open {
+	.trip-strip-unfold :global(.trip-strip-chevron.is-open) {
 		transform: rotate(180deg);
 	}
 
@@ -747,6 +756,29 @@
 		.trip-strip-stamp-logo {
 			display: flex;
 		}
+	}
+
+	/* The mode icon (issue #322) is the ground cell's answer to the airline logo, so it
+	   appears under the same rule and hides for the same reason: a clipped mark is worse
+	   than none. Its own threshold rather than the logo's, because the two marks are
+	   different widths and the threshold is only ever about clipping — the logo is 20px in
+	   a 28px cell, this is 15px, and 20px leaves it the same air on each side. That matters
+	   here: a ground leg is drawn on the square root of its minutes, so on a two-night
+	   stopover its cell is 10 to 22px depending on the width of the screen, and a threshold
+	   copied from the logo would hide the icon on every one of them. Measured at BCN to TLL:
+	   22.5px and 15.2px at 1280, 14.5px and 9.8px at 375, so the longer leg carries its icon
+	   on a desktop and the strip stays a plain seam where there is genuinely no room. */
+	@container (min-width: 1.25rem) {
+		.trip-strip-stamp-mode {
+			display: flex;
+		}
+	}
+
+	/* Knocked out of the band rather than drawn on it. The transfer cell is a solid
+	   `--color-border-strong` seam, which in both palettes is the mid tone furthest from
+	   the page, so the page's own background is what has contrast against it. */
+	.trip-strip-stamp-mode {
+		color: var(--color-bg);
 	}
 
 	@container (min-width: 1.875rem) {

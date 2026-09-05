@@ -12,7 +12,7 @@ export { default as Card } from './Card.svelte';
 export { default as AirlineLogo } from './AirlineLogo.svelte';
 export { default as ModeIcon } from './ModeIcon.svelte';
 export type { ModeIconKind } from './mode-icon';
-export { transferIconKind } from './mode-icon';
+export { legIconKind, transferIconKind } from './mode-icon';
 export { default as TimeCell } from './TimeCell.svelte';
 export { default as TripStrip } from './TripStrip.svelte';
 export { default as StopoverBlock } from './StopoverBlock.svelte';
