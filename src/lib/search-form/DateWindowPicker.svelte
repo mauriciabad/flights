@@ -24,6 +24,7 @@
 	 * calendar you can only use with a mouse is worse than the four boxes it replaced.
 	 */
 	import { tick, untrack } from 'svelte';
+	import { Icon } from '$lib/components';
 	import { addDays, datesInMonth, monthLabel, weekdayIndex } from '$lib/flexible-dates';
 	import type { IsoCalendarDate } from '$lib/domain';
 	import {
@@ -228,27 +229,11 @@
 		<div class="paging">
 			<button type="button" class="page-months" onclick={() => scrollMonths(-1)}>
 				<span class="visually-hidden">Show earlier months</span>
-				<svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-					<path
-						d="M15 5l-7 7 7 7"
-						stroke="currentColor"
-						stroke-width="2"
-						stroke-linecap="round"
-						stroke-linejoin="round"
-					/>
-				</svg>
+				<Icon name="chevron-left" />
 			</button>
 			<button type="button" class="page-months" onclick={() => scrollMonths(1)}>
 				<span class="visually-hidden">Show later months</span>
-				<svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-					<path
-						d="M9 5l7 7-7 7"
-						stroke="currentColor"
-						stroke-width="2"
-						stroke-linecap="round"
-						stroke-linejoin="round"
-					/>
-				</svg>
+				<Icon name="chevron-right" />
 			</button>
 		</div>
 	</div>
@@ -609,7 +594,7 @@
 			background-color var(--transition-fast);
 	}
 
-	.page-months svg {
+	.page-months :global(svg) {
 		width: 1rem;
 		height: 1rem;
 	}

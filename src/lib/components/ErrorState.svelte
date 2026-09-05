@@ -28,6 +28,7 @@
 
 <script lang="ts">
 	import type { Snippet } from 'svelte';
+	import Icon from './Icon.svelte';
 
 	type Severity = 'error' | 'warning' | 'info';
 
@@ -78,28 +79,11 @@
 		{#if icon}
 			{@render icon()}
 		{:else if severity === 'warning'}
-			<svg viewBox="0 0 24 24" fill="none">
-				<path
-					d="M12 3l10 18H2L12 3z"
-					stroke="currentColor"
-					stroke-width="2"
-					stroke-linejoin="round"
-				/>
-				<line x1="12" y1="10" x2="12" y2="14" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
-				<circle cx="12" cy="17.3" r="1" fill="currentColor" />
-			</svg>
+			<Icon name="alert-triangle" />
 		{:else if severity === 'info'}
-			<svg viewBox="0 0 24 24" fill="none">
-				<circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2" />
-				<line x1="12" y1="11" x2="12" y2="16" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
-				<circle cx="12" cy="7.7" r="1" fill="currentColor" />
-			</svg>
+			<Icon name="info-circle" />
 		{:else}
-			<svg viewBox="0 0 24 24" fill="none">
-				<circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2" />
-				<line x1="9" y1="9" x2="15" y2="15" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
-				<line x1="15" y1="9" x2="9" y2="15" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
-			</svg>
+			<Icon name="circle-x" />
 		{/if}
 	</div>
 	<div class="error-state-body">
@@ -137,7 +121,8 @@
 		height: 1.5rem;
 	}
 
-	.error-state-icon svg {
+	/* `:global`: the `<svg>` is `Icon.svelte`'s, or a caller's own `icon` snippet. */
+	.error-state-icon :global(svg) {
 		width: 100%;
 		height: 100%;
 	}

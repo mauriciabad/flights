@@ -12,6 +12,7 @@
 	 */
 	import { onMount } from 'svelte';
 	import { base } from '$app/paths';
+	import { Icon } from '$lib/components';
 	import { buildSearchQuery } from '$lib/search-form/model';
 	import { searchParamsToFields } from '$lib/search-form/url-codec';
 	import { searchHistory } from './store.svelte';
@@ -69,14 +70,7 @@
 						onclick={() => searchHistory.remove(row.query)}
 						aria-label={`Forget the search ${row.summary.label}`}
 					>
-						<svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-							<path
-								d="M6 6l12 12M18 6L6 18"
-								stroke="currentColor"
-								stroke-width="2"
-								stroke-linecap="round"
-							/>
-						</svg>
+						<Icon name="x" />
 					</button>
 				</li>
 			{/each}
@@ -196,7 +190,7 @@
 		border-radius: var(--radius-md);
 	}
 
-	.recent-remove svg {
+	.recent-remove :global(svg) {
 		width: 1.125rem;
 		height: 1.125rem;
 	}

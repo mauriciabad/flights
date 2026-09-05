@@ -86,7 +86,7 @@
 	import { technicalStopDetail } from './technical-stop-note';
 	import AirlineLogo from './AirlineLogo.svelte';
 	import ModeIcon from './ModeIcon.svelte';
-	import type { ModeIconKind } from './ModeIcon.svelte';
+	import { transferIconKind, type ModeIconKind } from './mode-icon';
 	import MetricRail from './MetricRail.svelte';
 	import TimeCell from './TimeCell.svelte';
 	import WaitingTimeStepper from './WaitingTimeStepper.svelte';
@@ -447,7 +447,10 @@
 				</span>
 			{/if}
 		</span>
-		<span class="tl-rail">{@render marker(transfer?.mode ?? 'walk', 'muted')}</span>
+		<!-- Issue #322: the row beside this one already prints "Train" or "Bus, then metro",
+		     so a generic transit mark over a leg the app has named is the app disagreeing
+		     with itself. `mode-icon.ts` decides when it may be that specific. -->
+		<span class="tl-rail">{@render marker(transfer ? transferIconKind(transfer) : 'walk', 'muted')}</span>
 		<div class="tl-content">
 			{#if transfer}
 				<!-- Issue #220: one summary, not every leg's full description joined by commas.

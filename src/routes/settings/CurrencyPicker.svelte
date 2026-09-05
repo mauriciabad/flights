@@ -19,7 +19,7 @@
 	 * telling the truth. The store hydrates synchronously when the module first runs in the
 	 * browser, so a saved non-default currency is correct on the first paint too.
 	 */
-	import { Card } from '$lib/components';
+	import { Card, Icon } from '$lib/components';
 	import { DEFAULT_SEARCH_CURRENCY } from '$lib/domain';
 	import { keyStore } from '$lib/keys';
 	import { currencyOptions } from '$lib/settings/currencies';
@@ -62,16 +62,7 @@
 						<span class="currency-symbol" aria-hidden="true">{option.symbol}</span>
 						<span class="currency-code">{option.code}</span>
 						<span class="currency-name">{option.name}</span>
-						<svg class="currency-check" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
-							<path
-								d="M3 8.4l3.2 3.2L13 5"
-								fill="none"
-								stroke="currentColor"
-								stroke-width="2"
-								stroke-linecap="round"
-								stroke-linejoin="round"
-							/>
-						</svg>
+						<Icon name="check" class="currency-check" />
 					</span>
 				</label>
 			{/each}
@@ -235,7 +226,7 @@
 	}
 
 	/* The redundant, non-colour signal for the chosen tile. */
-	.currency-check {
+	.currency-body :global(.currency-check) {
 		position: absolute;
 		top: var(--space-2);
 		right: var(--space-2);
@@ -245,7 +236,7 @@
 		color: var(--color-accent);
 	}
 
-	.currency-input:checked + .currency-body .currency-check {
+	.currency-input:checked + .currency-body :global(.currency-check) {
 		opacity: 1;
 	}
 

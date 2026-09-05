@@ -37,6 +37,7 @@
 	import { MAX_TRANSIT_LOOKUPS_PER_SEARCH } from '../search/transit-schedule';
 	import Button from './Button.svelte';
 	import ModeIcon from './ModeIcon.svelte';
+	import { legIconKind, transferIconKind } from './mode-icon';
 	import {
 		formatCalendarDate,
 		formatClockTime,
@@ -318,7 +319,7 @@
 						     stays because a picture of a bus does not say "public transport" to
 						     everyone, and a screen reader gets the word alone (`ModeIcon` is always
 						     aria-hidden). -->
-						<ModeIcon kind={row.transfer.mode} />
+						<ModeIcon kind={transferIconKind(row.transfer)} />
 						{transferModeLabel(row.transfer.mode)}
 					</span>
 					<span class="row-duration">
@@ -372,7 +373,7 @@
 										{legStep.departure ? formatClockTime(legStep.departure) : ''}
 									</span>
 									<span class="step-what">
-										<ModeIcon kind={legStep.mode} class="step-icon" />
+										<ModeIcon kind={legIconKind(legStep)} class="step-icon" />
 										{legStep.description ?? transferModeLabel(legStep.mode)}</span
 									>
 									<span class="step-duration font-mono tabular-nums">{formatDuration(legStep.duration)}</span>

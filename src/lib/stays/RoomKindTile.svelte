@@ -6,6 +6,7 @@
 	 * itinerary total immediately" means in practice; StayPicker.svelte owns the actual
 	 * switch, this component only renders one option and reports a click.
 	 */
+	import { Icon } from '$lib/components';
 	import { formatMoney, stayTotalForNights } from './pricing';
 	import { ROOM_KIND_LABELS } from './room-kind';
 	import type { StayOption } from './types';
@@ -46,11 +47,7 @@
 	<span class="room-tile-total font-mono tabular-nums">{formatMoney(total)} &middot; {nightsLabel}</span>
 	{#if caveat}
 		<span class="room-tile-caveat">
-			<svg viewBox="0 0 16 16" fill="none" aria-hidden="true" focusable="false">
-				<circle cx="8" cy="8" r="6.25" stroke="currentColor" stroke-width="1.4" />
-				<path d="M8 7.25v3.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
-				<circle cx="8" cy="5.1" r="0.9" fill="currentColor" />
-			</svg>
+			<Icon name="info-circle" />
 			{caveat}
 		</span>
 	{/if}
@@ -127,8 +124,7 @@
 		color: var(--color-warning);
 	}
 
-	.room-tile-caveat svg {
-		flex-shrink: 0;
+	.room-tile-caveat :global(svg) {
 		width: 0.9rem;
 		height: 0.9rem;
 		margin-top: 0.1rem;

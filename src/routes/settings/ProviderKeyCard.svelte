@@ -11,7 +11,7 @@
 	 * this component does not hardcode that.
 	 */
 	import { keyStore } from '$lib/keys';
-	import { Button, Card, ErrorState, Input } from '$lib/components';
+	import { Button, Card, ErrorState, Icon, Input } from '$lib/components';
 	import type { ProviderIssueReason } from '$lib/components';
 	import { getProviderQuotaSnapshot } from '$lib/providers/budget';
 	import type { ProviderQuotaSnapshot } from '$lib/providers/budget';
@@ -290,16 +290,7 @@
 	{#if result !== undefined}
 		{#if result.ok}
 			<p class="provider-card-success" role="status">
-				<svg viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
-					<circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2" />
-					<path
-						d="M8 12.5l2.5 2.5L16 9.5"
-						stroke="currentColor"
-						stroke-width="2"
-						stroke-linecap="round"
-						stroke-linejoin="round"
-					/>
-				</svg>
+				<Icon name="circle-check" />
 				{result.message}
 			</p>
 		{:else}
@@ -473,7 +464,7 @@
 		font-weight: var(--font-weight-medium);
 	}
 
-	.provider-card-success svg {
+	.provider-card-success :global(svg) {
 		width: 1.25rem;
 		height: 1.25rem;
 		flex-shrink: 0;

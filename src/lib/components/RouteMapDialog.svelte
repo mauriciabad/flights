@@ -38,6 +38,7 @@
 	 * Body scroll is locked while open. The dialog's margin leaves the page visible at the
 	 * edges, and a background that scrolls under a modal reads as the modal sliding.
 	 */
+	import Icon from './Icon.svelte';
 	import { ItineraryMap } from '$lib/components';
 	import type { Itinerary } from '$lib/domain';
 	import type { ItinerarySegmentId } from '$lib/itinerary-map/segment-id';
@@ -102,9 +103,7 @@
 				class="route-dialog-close"
 				onclick={(event) => event.currentTarget.closest('dialog')?.close()}
 			>
-				<svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
-					<path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
-				</svg>
+				<Icon name="x" />
 				Close
 			</button>
 		</div>
@@ -205,7 +204,7 @@
 		-webkit-tap-highlight-color: transparent;
 	}
 
-	.route-dialog-close svg {
+	.route-dialog-close :global(svg) {
 		width: 0.875rem;
 		height: 0.875rem;
 	}

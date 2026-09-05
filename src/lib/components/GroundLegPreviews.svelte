@@ -22,6 +22,7 @@
 	 * instances per card walks a five-card results page into Chromium's sixteen-context
 	 * ceiling and blanks the first card.
 	 */
+	import Icon from './Icon.svelte';
 	import RouteMapDialog from './RouteMapDialog.svelte';
 	import RoutePreview from './RoutePreview.svelte';
 	import type { Itinerary } from '$lib/domain';
@@ -75,16 +76,7 @@
 				<button type="button" class="ground-leg" onclick={() => open(preview.focusSegmentId)}>
 					<span class="ground-leg-frame">
 						<RoutePreview lines={preview.lines} points={preview.points} width={120} height={88} />
-						<svg class="ground-leg-expand" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
-							<path
-								d="M6 2H2v4M10 2h4v4M6 14H2v-4M10 14h4v-4"
-								fill="none"
-								stroke="currentColor"
-								stroke-width="1.6"
-								stroke-linecap="round"
-								stroke-linejoin="round"
-							/>
-						</svg>
+						<Icon name="maximize" class="ground-leg-expand" />
 					</span>
 					<span class="ground-leg-label">{preview.label}</span>
 					<!-- The accessible name is the visible label plus this, never an aria-label
@@ -158,7 +150,7 @@
 	   ends its stroke in the bottom-right corner, and the glyph sat on top of the endpoint
 	   dot there. Every corner can hold a line, so the glyph clears its own space instead of
 	   hoping for an empty one. */
-	.ground-leg-expand {
+	.ground-leg-frame :global(.ground-leg-expand) {
 		position: absolute;
 		top: 0;
 		right: 0;
@@ -196,8 +188,8 @@
 		color: var(--color-text);
 	}
 
-	.ground-leg:hover .ground-leg-expand,
-	.ground-leg:focus-visible .ground-leg-expand {
+	.ground-leg:hover :global(.ground-leg-expand),
+	.ground-leg:focus-visible :global(.ground-leg-expand) {
 		color: var(--color-accent);
 		opacity: 1;
 	}
@@ -214,7 +206,7 @@
 
 	@media (prefers-reduced-motion: reduce) {
 		.ground-leg,
-		.ground-leg-expand {
+		.ground-leg-frame :global(.ground-leg-expand) {
 			transition: none;
 		}
 

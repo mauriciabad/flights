@@ -17,6 +17,7 @@
 	 * `WaitingTimeRule[]`/`LandingToTransportRule[]` directly, so this one component
 	 * serves both of the brief's tiered controls - the parent converts at the edges.
 	 */
+	import { Icon } from '$lib/components';
 	import type { AirportSizeClass, FlightLengthClass } from '$lib/domain';
 	import { createRow, type TieredRuleRow } from './tiered-rules';
 
@@ -142,9 +143,7 @@
 						aria-label="Remove this rule"
 						onclick={() => removeRow(row.id)}
 					>
-						<svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
-							<path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
-						</svg>
+						<Icon name="x" />
 					</button>
 				{/if}
 			</li>
@@ -263,7 +262,7 @@
 		color: var(--color-danger);
 	}
 
-	.tiered-remove svg {
+	.tiered-remove :global(svg) {
 		width: 0.875rem;
 		height: 0.875rem;
 	}

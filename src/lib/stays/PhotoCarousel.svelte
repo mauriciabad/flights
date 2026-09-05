@@ -43,6 +43,7 @@
 	 * about any of them.
 	 */
 	import { tick } from 'svelte';
+	import { Icon } from '$lib/components';
 	import { originalStayPhoto } from '$lib/providers/stays/original-photo';
 
 	interface Props {
@@ -194,15 +195,7 @@
 				aria-label="Previous photo"
 				onclick={() => show(index - 1)}
 			>
-				<svg viewBox="0 0 16 16" fill="none" aria-hidden="true" focusable="false">
-					<path
-						d="M10 3 5 8l5 5"
-						stroke="currentColor"
-						stroke-width="1.6"
-						stroke-linecap="round"
-						stroke-linejoin="round"
-					/>
-				</svg>
+				<Icon name="chevron-left" />
 			</button>
 			<button
 				type="button"
@@ -212,15 +205,7 @@
 				aria-label="Next photo"
 				onclick={() => show(index + 1)}
 			>
-				<svg viewBox="0 0 16 16" fill="none" aria-hidden="true" focusable="false">
-					<path
-						d="m6 3 5 5-5 5"
-						stroke="currentColor"
-						stroke-width="1.6"
-						stroke-linecap="round"
-						stroke-linejoin="round"
-					/>
-				</svg>
+				<Icon name="chevron-right" />
 			</button>
 			<!-- The count is the whole reason a reader knows there is a second picture, since
 			     two photographs do not earn a dot row. `aria-live` because the number changes
@@ -317,7 +302,7 @@
 		cursor: default;
 	}
 
-	.photo-arrow svg {
+	.photo-arrow :global(svg) {
 		width: calc(var(--photo-arrow-size, 2rem) / 2);
 		height: calc(var(--photo-arrow-size, 2rem) / 2);
 	}
