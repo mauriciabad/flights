@@ -87,7 +87,7 @@ import {
 	pickBestTransfer,
 	pickLandingToTransportTime,
 	ROAD_TRANSFER_MODES,
-	withheldRoadFor
+	withheldTransfersFor
 } from './resources';
 import { createTransitLookupBudget, fetchTransitSchedules } from './transit-schedule';
 import type { TransitLookupBudget } from './transit-schedule';
@@ -209,13 +209,13 @@ async function fetchOuterTransfers(
 		transferToOriginAirportOptions: query.originLocation
 			? {
 					candidates: originOutcome?.candidates ?? [],
-					withheldRoad: withheldRoadFor(originOutcome)
+					withheld: withheldTransfersFor(originOutcome)
 				}
 			: NO_TRANSFER_LEG_OPTIONS,
 		transferToDestinationLocationOptions: query.destinationLocation
 			? {
 					candidates: destinationCandidates,
-					withheldRoad: withheldRoadFor(destinationOutcome)
+					withheld: withheldTransfersFor(destinationOutcome)
 				}
 			: NO_TRANSFER_LEG_OPTIONS
 	};
@@ -619,11 +619,11 @@ async function processCandidate(input: ProcessCandidateInput): Promise<Candidate
 			transferOptions: {
 				transferToHotel: {
 					candidates: resources.transferToHotelCandidates,
-					withheldRoad: resources.transferToHotelWithheldRoad
+					withheld: resources.transferToHotelWithheld
 				},
 				transferToConnectionAirport: {
 					candidates: resources.transferToConnectionAirportCandidates,
-					withheldRoad: resources.transferToConnectionAirportWithheldRoad
+					withheld: resources.transferToConnectionAirportWithheld
 				}
 			}
 		};
@@ -667,14 +667,17 @@ const NO_OUTER_TRANSFER_OPTIONS: OuterTransferOptions = {
  * instead of collapsing to one pick each). `outerTransferOptionsRef` is a mutable holder
  * (not a map — there is only ever one value, computed once) so a caller can update it in
  * place the moment `fetchOuterTransfers` resolves and have every snapshot from then on pick
- * up the new value, the same way the maps below are read live rather than passed by value. */
+ * up the new value, the same way the maps below are read live rather than passed by value.
+ * `confirmedBeyondCapRef` (issue #350) is the same kind of holder, written once when
+ * candidate discovery reports what its cap dropped. */
 function makeSnapshotFn(
 	results: ItineraryResult[],
 	providerStatus: Map<ProviderId, ProviderStatus>,
 	stayCandidatesByConnection: Map<IataAirportCode, Stay[]>,
 	transferOptionsByConnection: Map<IataAirportCode, ConnectionTransferOptions>,
 	blockedConnections: Map<IataAirportCode, ConnectionBlock>,
-	outerTransferOptionsRef: { current: OuterTransferOptions }
+	outerTransferOptionsRef: { current: OuterTransferOptions },
+	confirmedBeyondCapRef: { current: IataAirportCode[] }
 ) {
 	let sequence = 0;
 	return function snapshot(
@@ -696,6 +699,7 @@ function makeSnapshotFn(
 			transferOptionsByConnection: Object.fromEntries(transferOptionsByConnection),
 			blockedConnections: Object.fromEntries(blockedConnections),
 			outerTransferOptions: outerTransferOptionsRef.current,
+			confirmedBeyondCap: confirmedBeyondCapRef.current,
 			hasDirectRoute
 		};
 	};
@@ -837,13 +841,15 @@ export async function* runSearch(
 	const transferOptionsByConnection = new Map<IataAirportCode, ConnectionTransferOptions>();
 	const blockedConnections = new Map<IataAirportCode, ConnectionBlock>();
 	const outerTransferOptionsRef = { current: NO_OUTER_TRANSFER_OPTIONS };
+	const confirmedBeyondCapRef = { current: [] as IataAirportCode[] };
 	const snapshot = makeSnapshotFn(
 		results,
 		providerStatus,
 		stayCandidatesByConnection,
 		transferOptionsByConnection,
 		blockedConnections,
-		outerTransferOptionsRef
+		outerTransferOptionsRef,
+		confirmedBeyondCapRef
 	);
 
 	const { originAirport, destinationAirport } = await resolveOuterAirports(query, resolveAirport);
@@ -898,6 +904,13 @@ export async function* runSearch(
 			// make, so without this the status panel had nothing to report at all.
 			onProviderResult: record,
 			maxCandidates: options.maxCandidates,
+			// Issue #350: the only one of this file's three discovery calls that reports its
+			// drops. The other two run at a deliberately larger cap for their own reasons
+			// (the #115 fallback sweep, and widenSearch re-deriving a ranking a traveller has
+			// already been shown), so what THEY drop is not what the results page is showing.
+			onCandidatesBeyondCap: (beyondCap) => {
+				confirmedBeyondCapRef.current = beyondCap.map((candidate) => candidate.airportCode);
+			},
 			signal
 			// meteredRequestBudget intentionally omitted (default 0): this is the line that
 			// guarantees stage 1 spends nothing, even as connections.ts's own last-resort
@@ -1179,13 +1192,15 @@ export async function* widenSearch(
 	const transferOptionsByConnection = new Map<IataAirportCode, ConnectionTransferOptions>();
 	const blockedConnections = new Map<IataAirportCode, ConnectionBlock>();
 	const outerTransferOptionsRef = { current: NO_OUTER_TRANSFER_OPTIONS };
+	const confirmedBeyondCapRef = { current: [] as IataAirportCode[] };
 	const snapshot = makeSnapshotFn(
 		results,
 		providerStatus,
 		stayCandidatesByConnection,
 		transferOptionsByConnection,
 		blockedConnections,
-		outerTransferOptionsRef
+		outerTransferOptionsRef,
+		confirmedBeyondCapRef
 	);
 
 	const { originAirport, destinationAirport } = await resolveOuterAirports(query, resolveAirport);

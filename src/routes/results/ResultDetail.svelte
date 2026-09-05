@@ -42,7 +42,8 @@
 	 * through the callback and there is still exactly one of it.
 	 */
 	import type { Airport, Duration } from '$lib/domain';
-	import type { ConnectionTransferOptions, ItineraryGroup, OuterTransferOptions } from '$lib/search';
+	import type { ConnectionTransferOptions, ItineraryGroup, OuterTransferOptions, WithheldTransfers } from '$lib/search';
+	import type { UnroutedLeg } from '$lib/components/itinerary-timeline-format';
 	import type { ItinerarySegmentId } from '$lib/itinerary-map/segment-id';
 	import { GroundLegPreviews, ItineraryTimeline, StopoverBlock } from '$lib/components';
 	import { buildItineraryMapModel } from '$lib/itinerary-map/segments';
@@ -103,11 +104,17 @@
 	// Issue #119: the same four legs again, keyed the way `unroutedLegNote` names them. A
 	// leg whose only road answer was refused has no transfer and therefore no picker, so the
 	// timeline row is the only place left that can say a route came back and was declined.
-	const withheldRoadByLeg = $derived({
-		'to-origin-airport': outerTransferOptions?.transferToOriginAirport?.withheldRoad,
-		'to-hotel': transferOptions?.transferToHotel?.withheldRoad,
-		'from-hotel': transferOptions?.transferToConnectionAirport?.withheldRoad,
-		'to-destination': outerTransferOptions?.transferToDestinationLocation?.withheldRoad
+	//
+	// Annotated rather than inferred, which is what caught the last key here being
+	// `'to-destination'`: `UnroutedLeg` calls that leg `'to-destination-location'`, so the
+	// destination-side refusal was written under a name the timeline never looks up and the
+	// row it belongs to fell back to "no route came back". An inferred object literal reaches
+	// a `Partial<Record<...>>` prop without complaint, so nothing said so.
+	const withheldByLeg = $derived<Partial<Record<UnroutedLeg, WithheldTransfers>>>({
+		'to-origin-airport': outerTransferOptions?.transferToOriginAirport?.withheld,
+		'to-hotel': transferOptions?.transferToHotel?.withheld,
+		'from-hotel': transferOptions?.transferToConnectionAirport?.withheld,
+		'to-destination-location': outerTransferOptions?.transferToDestinationLocation?.withheld
 	});
 
 	// Issue #140: is there anything to try? The hint below claimed there was on every card,
@@ -210,7 +217,7 @@
 		{connectionAirport}
 		bind:selectedSegmentId={() => selectedSegmentId, onSelectSegment}
 		{optionMarks}
-		withheldRoad={withheldRoadByLeg}
+		withheld={withheldByLeg}
 	/>
 </div>
 

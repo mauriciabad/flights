@@ -307,6 +307,37 @@ describe('findConnectionCandidates', () => {
 		expect(candidates[0]!.airportCode).toBe(ZVI);
 	});
 
+	it('reports the confirmed candidates the cap dropped, rather than forgetting them (issue #350)', async () => {
+		// The cap stays exactly where it is — each candidate kept costs two metered fare
+		// searches downstream. What changes is that the caller can now tell "we found one" from
+		// "we found several and are pricing one", which nothing on screen could distinguish.
+		const beyondCap: IataAirportCode[][] = [];
+		const candidates = await findConnectionCandidates(QUERY, {
+			flightProviders: [fixtureProvider()],
+			airportLookup: fixtureLookup,
+			maxCandidates: 1,
+			onCandidatesBeyondCap: (dropped) => beyondCap.push(dropped.map((c) => c.airportCode))
+		});
+
+		expect(beyondCap).toHaveLength(1);
+		expect(beyondCap[0]).toContain(ZMX);
+		expect(beyondCap[0]).not.toContain(candidates[0]!.airportCode);
+		// Confirmed on both legs, exactly like the one that was kept — the difference between
+		// them is the cap and nothing else.
+		expect(beyondCap[0]!.length).toBeGreaterThan(0);
+	});
+
+	it('says nothing when the cap never filled', async () => {
+		const beyondCap: unknown[] = [];
+		await findConnectionCandidates(QUERY, {
+			flightProviders: [fixtureProvider()],
+			airportLookup: fixtureLookup,
+			maxCandidates: 99,
+			onCandidatesBeyondCap: (dropped) => beyondCap.push(dropped)
+		});
+		expect(beyondCap).toEqual([]);
+	});
+
 	it('defaults the cap to DEFAULT_MAX_CANDIDATES', async () => {
 		expect(DEFAULT_MAX_CANDIDATES).toBeGreaterThan(0);
 		const candidates = await findConnectionCandidates(QUERY, {

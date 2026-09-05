@@ -35,7 +35,7 @@
 	// picker and the timeline row cannot disagree about what a dead spot is.
 	import { NORMAL_WAIT_THRESHOLD_MINUTES, readMissedService } from '../algorithm/transit-schedule';
 	import type { MissedService } from '../algorithm/transit-schedule';
-	import type { TransitLegAnswer } from '../search/types';
+	import type { TransitLegAnswer, WithheldTransfers } from '../search/types';
 	import { MAX_TRANSIT_LOOKUPS_PER_SEARCH } from '../search/transit-schedule';
 	import Button from './Button.svelte';
 	import ModeIcon from './ModeIcon.svelte';
@@ -51,6 +51,7 @@
 		formatTimeDelta,
 		isDifferentCalendarDate,
 		landingBufferPickerNote,
+		refusedRouteSentence,
 		summariseTransferLegs,
 		transferModeLabel,
 		transferFareNote
@@ -87,6 +88,23 @@
 		 */
 		transitAnswer?: TransitLegAnswer;
 		/**
+		 * Issue #347: what this leg's plausibility rules refused. Only the walking half is
+		 * read here, and only when no walking row is on offer, which is exactly when a
+		 * traveller cannot tell "this bed is not walkable" from "nobody measured a walk".
+		 *
+		 * That gap is the normal case rather than a corner. A walk over the 45-minute cap
+		 * almost always sits beside a driving route well under its own, so the leg is routed,
+		 * the timeline shows the drive, and `unroutedLegNote` never runs. #348 measured why it
+		 * matters: at Gatwick the published airport point is 1.4 km from the terminal with the
+		 * runway in between, and a 32-minute walk was routed as 1h 13m and dropped. #348 fixed
+		 * that for 3,096 airports and 653 have no terminal in OpenStreetMap to move to, so the
+		 * same refusal still happens and this is where it gets said.
+		 *
+		 * The road half is deliberately not read here. When the road rule fires it empties the
+		 * leg, so there is no picker left to say it in, and the timeline row is its home.
+		 */
+		withheld?: WithheldTransfers;
+		/**
 		 * Issue #267: run a timetable lookup for this leg, when there is one worth running
 		 * and the traveller asks for it. Given only while asking would tell them something
 		 * they do not already know, so the button appears exactly when the notice above it
@@ -108,6 +126,7 @@
 		referenceMoment,
 		referenceLabel = 'the reference time',
 		transitAnswer,
+		withheld,
 		oncheckTransit,
 		transitChecking = false,
 		minLayoverTime,
@@ -262,6 +281,23 @@
 				return `A public transport route was found${when}, but it is not among the options here.`;
 			}
 		}
+	});
+
+	/**
+	 * Issue #347: the walking equivalent of the notice above, and the same rule for when to
+	 * show it — only when this leg has no walking row, because a walk on offer says
+	 * everything already.
+	 *
+	 * Two numbers rather than one, because together they are what a traveller can act on. A
+	 * walk refused at 1h 13m over 1.4 km is not a bed that is too far, it is a route measured
+	 * from the wrong side of a runway, and somebody standing in the terminal can see that and
+	 * decide to look for themselves. This app cannot tell those two apart, so it says what it
+	 * measured and stops there.
+	 */
+	const walkNotice = $derived.by<string | undefined>(() => {
+		if (!withheld?.walk) return undefined;
+		if (rows.some((row) => row.transfer.mode === 'walk')) return undefined;
+		return `Walking was checked. ${refusedRouteSentence('The route that came back', withheld.walk)}`;
 	});
 
 	function isNoServiceGap(row: TransferRow): boolean {
@@ -544,6 +580,10 @@
 			</label>
 		{/each}
 	</div>
+
+	{#if walkNotice}
+		<p class="transit-notice" data-testid="walk-notice">{walkNotice}</p>
+	{/if}
 
 	{#if transitNotice}
 		<p class="transit-notice" data-testid="transit-notice" data-transit-answer={transitAnswer?.answer}>

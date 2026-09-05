@@ -16,7 +16,7 @@
 import { formatDuration } from '../format';
 import type { ConnectionBlock } from '../algorithm/build';
 import type { ConnectionOnMap, ConnectionState, UnpricedParts } from './model';
-import type { ItineraryTransferLeg } from '../domain';
+import type { IataAirportCode, ItineraryTransferLeg } from '../domain';
 
 /** One refusal, split so a panel can lead with the short form and a map point can use it as
  * an accessible name, without either of them re-deriving the other. */
@@ -111,7 +111,10 @@ function joinWithAnd(parts: readonly string[]): string {
  * whole point of the screen and a single total would hide the three connections that
  * exist and do not work.
  */
-export function summariseConnections(counts: Record<ConnectionState, number>): string {
+export function summariseConnections(
+	counts: Record<ConnectionState, number>,
+	confirmedBeyondCap: readonly IataAirportCode[] = []
+): string {
 	const parts: string[] = [];
 	const priced = counts.bookable + counts['part-priced'];
 	if (priced > 0) parts.push(`${priced} with a trip`);
@@ -119,7 +122,34 @@ export function summariseConnections(counts: Record<ConnectionState, number>): s
 	if (counts.pending > 0) parts.push(`${counts.pending} still being looked at`);
 	if (parts.length === 0) return 'No connection airports considered yet.';
 	const total = priced + counts.blocked + counts.pending;
-	return `${total} connection ${total === 1 ? 'airport' : 'airports'} considered: ${joinWithAnd(parts)}.`;
+	const considered = `${total} connection ${total === 1 ? 'airport' : 'airports'} considered: ${joinWithAnd(parts)}.`;
+	return confirmedBeyondCap.length === 0
+		? considered
+		: `${considered} ${describeBeyondCap(confirmedBeyondCap)}`;
+}
+
+/**
+ * Issue #350: the stopovers this search confirmed and stopped short of pricing.
+ *
+ * Every airport here passed both of the checks the ones on the map passed — a source says
+ * the origin flies there, and a source says something flies onward — and then the candidate
+ * cap filled. On the acceptance route `BVC -> PFO` that is nine confirmed and six kept, with
+ * Munich, Orly, Gatwick and Amsterdam among the four the map used to say nothing about.
+ *
+ * Codes, not city names. This sentence lists what is NOT on the map, so there is no point on
+ * screen for a name to sit beside, and every other row here already carries its code. It is
+ * also the version that stays honest without a lookup: an airport this app cannot place is
+ * left off the map entirely, and naming a city for it would be inventing the one fact the
+ * omission is about.
+ *
+ * Deliberately says nothing about why the cap exists. It is a real limit and a right one —
+ * each candidate kept costs two metered fare searches downstream — but a traveller cannot
+ * act on that, and a screen that explains its own budget every time is the noise that makes
+ * the sentences beside it stop being read.
+ */
+function describeBeyondCap(codes: readonly IataAirportCode[]): string {
+	const verb = codes.length === 1 ? 'was' : 'were';
+	return `${codes.length} more ${codes.length === 1 ? 'airport' : 'airports'} ${verb} confirmed on both flights and not priced: ${joinWithAnd([...codes])}.`;
 }
 
 /**

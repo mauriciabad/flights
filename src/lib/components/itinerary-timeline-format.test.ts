@@ -221,18 +221,18 @@ describe('unroutedLegNote', () => {
 		// Athens airport to Naxos town, the measured case behind `maxPlausibleRoadMinutes`.
 		// Every other sentence in this function claims nothing was routed, and here something
 		// was: OSRM answered, at 33h, and this app is what declined to offer it.
-		const withheldRoad = { count: 2, quickest: 1980 as Duration, straightLineKm: 156.6 };
+		const withheld = { road: { count: 2, quickest: 1980 as Duration, straightLineKm: 156.6 } };
 
-		expect(unroutedLegNote('to-hotel', { hasStay: true, nightsInConnection: 1, withheldRoad })).toBe(
+		expect(unroutedLegNote('to-hotel', { hasStay: true, nightsInConnection: 1, withheld })).toBe(
 			'The road route in takes 33h to cover 157 km in a straight line, so it is not offered.'
 		);
 		// And with no bed priced either, where the row would otherwise say "Nothing routed
 		// into the city for this stopover" about a route that came back.
-		expect(unroutedLegNote('to-hotel', { hasStay: false, nightsInConnection: 1, withheldRoad })).toBe(
+		expect(unroutedLegNote('to-hotel', { hasStay: false, nightsInConnection: 1, withheld })).toBe(
 			'The road route in takes 33h to cover 157 km in a straight line, so it is not offered.'
 		);
 		expect(
-			unroutedLegNote('to-destination-location', { hasStay: false, nightsInConnection: 6, withheldRoad })
+			unroutedLegNote('to-destination-location', { hasStay: false, nightsInConnection: 6, withheld })
 		).toBe('The road route takes 33h to cover 157 km in a straight line, so it is not offered.');
 	});
 
@@ -242,14 +242,47 @@ describe('unroutedLegNote', () => {
 		const note = unroutedLegNote('from-hotel', {
 			hasStay: true,
 			nightsInConnection: 1,
-			withheldRoad: { count: 2, quickest: 1980 as Duration, straightLineKm: 156.6 }
+			withheld: { road: { count: 2, quickest: 1980 as Duration, straightLineKm: 156.6 } }
 		});
 		expect(note).not.toMatch(/\b2\b/);
 		expect(note).toBe('The road route back takes 33h to cover 157 km in a straight line, so it is not offered.');
 	});
 
+	it('says a walk was refused rather than that nobody could route it (issue #347)', () => {
+		// Gatwick's own numbers before #348: the published airport point is 1.4 km from the
+		// terminal with a runway between them, so a 32-minute walk routed as 1h 13m and was
+		// dropped. 653 airports have no terminal in OpenStreetMap for #348 to move onto, so
+		// this still happens, and the two numbers side by side are what let a traveller see
+		// the walk was measured from the wrong place.
+		const withheld = { walk: { count: 1, quickest: 73 as Duration, straightLineKm: 1.4 } };
+
+		expect(unroutedLegNote('to-hotel', { hasStay: true, nightsInConnection: 1, withheld })).toBe(
+			'The walk in takes 1h 13m to cover 1 km in a straight line, so it is not offered.'
+		);
+		expect(unroutedLegNote('from-hotel', { hasStay: true, nightsInConnection: 1, withheld })).toBe(
+			'The walk back takes 1h 13m to cover 1 km in a straight line, so it is not offered.'
+		);
+		expect(
+			unroutedLegNote('to-origin-airport', { hasStay: false, nightsInConnection: 0, withheld })
+		).toBe('The walk takes 1h 13m to cover 1 km in a straight line, so it is not offered.');
+	});
+
+	it('leads with the refused drive when both were refused', () => {
+		// A walk over 45 minutes is what a drive of 33 hours implies, so printing both would
+		// spend the second clause restating the first.
+		const note = unroutedLegNote('to-hotel', {
+			hasStay: true,
+			nightsInConnection: 1,
+			withheld: {
+				road: { count: 2, quickest: 1980 as Duration, straightLineKm: 156.6 },
+				walk: { count: 1, quickest: 2400 as Duration, straightLineKm: 156.6 }
+			}
+		});
+		expect(note).toBe('The road route in takes 33h to cover 157 km in a straight line, so it is not offered.');
+	});
+
 	it('lets a property nobody routed win over a refusal about a different one', () => {
-		// Both facts can be true at once and they are about different addresses. `withheldRoad`
+		// Both facts can be true at once and they are about different addresses. `withheld`
 		// describes the leg the SEARCH routed, to the property the search picked; once the
 		// traveller has moved to another one, `transferAnchor` is 'unrouted-stay' and that
 		// refusal is about somewhere they are no longer looking at. Printing it here would be
@@ -259,7 +292,7 @@ describe('unroutedLegNote', () => {
 			hasStay: true,
 			nightsInConnection: 1,
 			transferAnchor: 'unrouted-stay' as const,
-			withheldRoad: { count: 2, quickest: 1980 as Duration, straightLineKm: 156.6 }
+			withheld: { road: { count: 2, quickest: 1980 as Duration, straightLineKm: 156.6 } }
 		};
 
 		expect(unroutedLegNote('to-hotel', both)).toBe(
@@ -278,7 +311,7 @@ describe('unroutedLegNote', () => {
 			unroutedLegNote('to-hotel', {
 				hasStay: false,
 				nightsInConnection: 0,
-				withheldRoad: { count: 2, quickest: 1980 as Duration, straightLineKm: 156.6 }
+				withheld: { road: { count: 2, quickest: 1980 as Duration, straightLineKm: 156.6 } }
 			})
 		).toBe('Same-day connection, so there is no hotel leg here.');
 	});

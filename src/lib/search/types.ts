@@ -261,18 +261,35 @@ export interface ItineraryResult {
  */
 export interface TransferLegOptions {
 	candidates: Transfer[];
-	/**
-	 * Issue #119: the driving and taxi routes `isPlausibleTransfer` refused for this leg,
-	 * kept rather than dropped on the floor, for the same reason #220 keeps the refused
-	 * buses. When the road rule fires it usually empties the leg outright — a route slow
-	 * enough to trip it is far enough that walking was never asked for either — and the
-	 * timeline's unrouted row would otherwise say "no transport provider could route to it"
-	 * about a leg a provider did route, at 33 hours, which this app then declined to show.
-	 *
-	 * Absent on nearly every leg. It fills only when a router answered with a journey nobody
-	 * could take.
-	 */
-	withheldRoad?: WithheldRoutes;
+	/** What `isPlausibleTransfer` refused on this leg, by mode. Absent modes were either
+	 * never answered or answered plausibly. */
+	withheld?: WithheldTransfers;
+}
+
+/**
+ * One leg's refusals, split by the mode whose rule made them, because each mode's refusal
+ * is a different sentence in a different place.
+ *
+ * `road` (issue #119) is the driving and taxi routes the road rule refused. When that rule
+ * fires it usually empties the leg outright, so the timeline's unrouted row is where it
+ * lands, and without it that row says "no transport provider could route to it" about a leg
+ * a provider did route, at 33 hours.
+ *
+ * `walk` (issue #347) is the walking routes the flat 45-minute cap refused. This one rarely
+ * empties a leg: a walk that trips the cap normally sits beside a driving route that did
+ * not, so the leg is routed and the traveller is simply never told a walk was considered.
+ * #348 moved every transfer's start onto a real terminal, and 653 airports in the dataset
+ * have no terminal mapped in OpenStreetMap at all, so at those the walk is still measured
+ * from the runway reference point and can be refused for a bed that is a few minutes away.
+ * The duration and the distance together are what let a traveller see that — 1h 13m to
+ * cover 1.4 km is a routing artefact, and it reads as one.
+ *
+ * Both are absent on nearly every leg. They fill only when a router answered with a journey
+ * this app then declined to show.
+ */
+export interface WithheldTransfers {
+	road?: WithheldRoutes;
+	walk?: WithheldRoutes;
 }
 
 /** The two connection-side legs' alternatives for one candidate airport (connection airport
@@ -387,6 +404,20 @@ export interface SearchSnapshot {
 	 * present from the first snapshot onward. Useful on its own before any flight has
 	 * resolved: a UI can show "considering Vienna, Milan, ..." immediately. */
 	candidates: ConnectionCandidate[];
+	/**
+	 * Issue #350: stopovers `findConnectionCandidates` confirmed on both legs and then did
+	 * not return, because `maxCandidates` was already full. Codes only, and deliberately not
+	 * `ConnectionCandidate[]`: these are airports this search will not price, and a field
+	 * shaped like `candidates` above is one a future reader feeds to the build loop by
+	 * accident.
+	 *
+	 * The cap is right — each candidate kept costs two metered fare searches downstream — so
+	 * this is not a smaller cap waiting to be raised. It is the difference between "six
+	 * stopovers exist" and "six is how many we priced", which is a claim the results page was
+	 * making without having checked it. Empty on almost every search, and on every search
+	 * whose candidate discovery found fewer airports than the cap.
+	 */
+	confirmedBeyondCap: IataAirportCode[];
 	/** Every itinerary built and scored so far, grouped by stopover and sorted best-first by
 	 * group. Replaces the previous snapshot's value entirely (see module doc comment). */
 	itineraryGroups: ItineraryGroup[];

@@ -124,6 +124,40 @@ describe('summariseConnections', () => {
 			'No connection airports considered yet.'
 		);
 	});
+
+	it('names the stopovers the cap dropped, instead of counting only what it kept (issue #350)', () => {
+		// The acceptance route's own numbers: nine confirmed, six kept. Munich, Orly, Gatwick
+		// and Amsterdam were all checked on both flights, and the map used to say nothing
+		// about any of them, which reads exactly like "we found six and there are six".
+		expect(
+			summariseConnections({ bookable: 4, 'part-priced': 1, blocked: 1, pending: 0 }, [
+				'MUC',
+				'ORY',
+				'LGW',
+				'AMS'
+			])
+		).toBe(
+			'6 connection airports considered: 5 with a trip and 1 without one. ' +
+				'4 more airports were confirmed on both flights and not priced: MUC, ORY, LGW and AMS.'
+		);
+	});
+
+	it('says nothing extra on the searches where the cap never filled', () => {
+		// Which is nearly all of them, and the reason this sentence is allowed to exist at
+		// all: a caveat that appears on every screen is one nobody reads by the third search.
+		expect(summariseConnections({ bookable: 2, 'part-priced': 0, blocked: 0, pending: 0 }, [])).toBe(
+			'2 connection airports considered: 2 with a trip.'
+		);
+	});
+
+	it('keeps one dropped stopover in the singular', () => {
+		expect(
+			summariseConnections({ bookable: 1, 'part-priced': 0, blocked: 0, pending: 0 }, ['EMA'])
+		).toBe(
+			'1 connection airport considered: 1 with a trip. ' +
+				'1 more airport was confirmed on both flights and not priced: EMA.'
+		);
+	});
 });
 
 describe('pointLabel', () => {

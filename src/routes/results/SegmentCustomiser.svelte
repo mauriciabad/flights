@@ -62,7 +62,8 @@
 		TransitLegAnswer,
 		TransitLegAnswers,
 		TransitLookupBudget,
-		TransitScheduleOutcome
+		TransitScheduleOutcome,
+		WithheldTransfers
 	} from '$lib/search';
 	import {
 		SourceTracker,
@@ -463,7 +464,7 @@
 			nightsInConnection: itinerary.nightsInConnection,
 			overnightWait: isOvernightWait(itinerary.freeTime.start, itinerary.freeTime.end),
 			transferAnchor: itinerary.transferAnchor,
-			withheldRoad: withheldRoadByLeg[leg]
+			withheld: withheldByLeg[leg]
 		});
 	}
 
@@ -479,11 +480,11 @@
 	const endsAtDestinationAirport = $derived(!itinerary.destinationLocation);
 
 	/** The four legs keyed the way `unroutedLegNote` names them. */
-	const withheldRoadByLeg = $derived<Partial<Record<UnroutedLeg, (typeof originAirportTransferOptions)['withheldRoad']>>>({
-		'to-origin-airport': originAirportTransferOptions.withheldRoad,
-		'to-hotel': hotelTransferOptions.withheldRoad,
-		'from-hotel': connectionAirportTransferOptions.withheldRoad,
-		'to-destination-location': destinationLocationTransferOptions.withheldRoad
+	const withheldByLeg = $derived<Partial<Record<UnroutedLeg, WithheldTransfers>>>({
+		'to-origin-airport': originAirportTransferOptions.withheld,
+		'to-hotel': hotelTransferOptions.withheld,
+		'from-hotel': connectionAirportTransferOptions.withheld,
+		'to-destination-location': destinationLocationTransferOptions.withheld
 	});
 
 	/** The heading for a segment the strip draws no cell for. Both are places rather than
@@ -510,6 +511,7 @@
 		{legField}
 		{itinerary}
 		alternatives={options.candidates}
+		withheld={options.withheld}
 		{transitAnswer}
 		{referenceMoment}
 		{referenceLabel}

@@ -34,7 +34,9 @@ export type {
 	WidenOption,
 	WidenRequest,
 	WidenTarget,
-	WidenTier
+	WidenTier,
+	WithheldRoutes,
+	WithheldTransfers
 } from './types';
 
 /** Issue #267: routing the two in-city legs for a bed the pipeline never picked, so the

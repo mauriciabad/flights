@@ -1203,6 +1203,51 @@ describe('runSearch: falls back to more candidates when the top-ranked ones find
 		// even queries when the happy path already worked.
 		expect(free.listDirectDestinations).toHaveBeenCalledTimes(2); // ORIGIN, then FAST (for its own onward edge)
 	});
+
+	it('names the confirmed stopovers the cap left out, on every snapshot (issue #350)', async () => {
+		// Seven airports confirmed on both flights, six kept. The seventh is a real stopover
+		// that was checked and dropped, and until this the page had no way to say so: a search
+		// that found seven and a search that found six looked identical on screen.
+		const airports = airportsWithDecoys();
+		const free = createFakeFlightProvider({
+			id: 'free-flights',
+			routes: { [ORIGIN]: [...DECOY_CODES, FAST], ...Object.fromEntries([...DECOY_CODES, FAST].map((code) => [code, [DEST]])) },
+			offerBuilder: offerBuilderWithBackwardsDecoys
+		});
+		const registry = new ProviderRegistry([free.provider, createFakeStayProvider({ id: 'stays' }), createFakeTransferProvider()]);
+		const deps: SearchDependencies = {
+			registry,
+			keys: {},
+			resolveAirport: (code) => airports[code],
+			currency: 'EUR'
+		};
+
+		const snapshots = await drain(runSearch(BASE_QUERY, deps));
+
+		const kept = snapshots[0]!.candidates.map((c) => c.airportCode);
+		const dropped = snapshots[0]!.confirmedBeyondCap;
+		expect(kept).toHaveLength(6);
+		expect(dropped).toHaveLength(1);
+		// Disjoint by construction: a candidate is either being priced or it is not.
+		expect(kept).not.toContain(dropped[0]);
+		expect([...DECOY_CODES, FAST]).toContain(dropped[0]);
+		// Carried forward, not only on the snapshot that discovered it. The results page reads
+		// whichever snapshot it last received.
+		expect(snapshots.at(-1)!.confirmedBeyondCap).toEqual(dropped);
+	});
+
+	it('leaves the list empty when discovery found fewer airports than the cap', async () => {
+		const free = createFakeFlightProvider({
+			id: 'free-flights',
+			routes: { [ORIGIN]: [FAST], [FAST]: [DEST] },
+			offerBuilder: standardOfferBuilder
+		});
+		const registry = new ProviderRegistry([free.provider, createFakeStayProvider({ id: 'stays' }), createFakeTransferProvider()]);
+		const deps: SearchDependencies = { registry, keys: {}, resolveAirport, currency: 'EUR' };
+
+		const snapshots = await drain(runSearch(BASE_QUERY, deps));
+		expect(snapshots.at(-1)!.confirmedBeyondCap).toEqual([]);
+	});
 });
 
 describe('widenSearch', () => {
