@@ -205,6 +205,113 @@ describe('FlightPicker', () => {
 	});
 });
 
+/**
+ * Issue #317, measured on production at 1280x900 on
+ * `flights.mauri.app/results/?arr=2026-10-12&dep=2026-10-06&from=BCN&to=PFO`: thirteen rows
+ * over four dates, and not one of them printed a date. The same flight number, VY6500 at
+ * 7:20am, appeared four times at EUR 55, 41, 67 and 82, and the only thing separating those
+ * rows was a relative offset buried at the end of each one ("23h earlier", "49h later").
+ */
+describe('FlightPicker: which day a row is on (issue #317)', () => {
+	it('stamps every row with its departure date once the list crosses a day boundary', () => {
+		const itinerary = baseItinerary();
+		// Two days after the 1 June pick, which is the shape production had: the same clock
+		// reading on a different date.
+		const nextDay = localDateTime('2026-06-02T10:00:00');
+		const alternative = makeFlight('FR104', nextDay, nextDay, 150, 5000);
+
+		const root = mountPicker({ itinerary, alternatives: [alternative], onselect: () => {} });
+
+		const dates = [...root.querySelectorAll('.row-date')].map((node) => node.textContent?.trim());
+		expect(dates).toEqual(['Mon 1', 'Tue 2']);
+	});
+
+	it('says nothing about dates when every row is on the same day', () => {
+		const itinerary = baseItinerary();
+		const sameDay = localDateTime('2026-06-01T10:40:00');
+		const alternative = makeFlight('FR105', sameDay, sameDay, 150, 6200);
+
+		const root = mountPicker({ itinerary, alternatives: [alternative], onselect: () => {} });
+
+		expect(root.querySelectorAll('.row-date')).toHaveLength(0);
+	});
+
+	it('stamps an arrival that lands on a later date than its own departure', () => {
+		const itinerary = baseItinerary();
+		const lateDeparture = localDateTime('2026-06-02T23:30:00');
+		const nextMorning = localDateTime('2026-06-03T01:30:00');
+		const alternative = makeFlight('FR106', lateDeparture, nextMorning, 120, 5000);
+
+		const root = mountPicker({ itinerary, alternatives: [alternative], onselect: () => {} });
+
+		const rows = root.querySelectorAll('.picker-row');
+		expect(rows[1]?.querySelector('.tl-note-plusday')?.textContent).toContain('+1');
+		expect(rows[0]?.querySelector('.tl-note-plusday')).toBeNull();
+	});
+});
+
+/**
+ * Issue #317's second half. Production printed "+EUR 200.01 . 53h 10m later" on a row whose
+ * own next line read "The onward flight leaves before this one lands, so there is no
+ * connection to make." Six of the thirteen rows were priced that way.
+ *
+ * Prompt 007 settled the principle on a different absurd option, an eleven-hour walk priced
+ * at zero: "dont even show this", because "it makes the panel look unserious and buries the
+ * real choices".
+ */
+describe('FlightPicker: what an unusable row may claim (issue #317)', () => {
+	function rowWithNoConnection() {
+		const itinerary = baseItinerary();
+		// Onward departs 11:30 on 1 June; this alternative lands two days later.
+		const daysLate = localDateTime('2026-06-03T11:15:00');
+		return { itinerary, alternative: makeFlight('FR107', daysLate, daysLate, 175, 7500) };
+	}
+
+	it('prices no row the app has already ruled out', () => {
+		const { itinerary, alternative } = rowWithNoConnection();
+
+		const root = mountPicker({ itinerary, alternatives: [alternative], onselect: () => {} });
+
+		const ruledOut = [...root.querySelectorAll('.picker-row')].find((row) =>
+			row.textContent?.includes('no connection to make')
+		);
+		expect(ruledOut).toBeDefined();
+		expect(ruledOut?.querySelector('.row-price')).toBeNull();
+		expect(ruledOut?.querySelector('.delta-text')).toBeNull();
+		expect(ruledOut?.textContent).not.toMatch(/€/);
+	});
+
+	it('greys the row rather than deleting it, so the flight is still known to exist', () => {
+		const { itinerary, alternative } = rowWithNoConnection();
+
+		const root = mountPicker({ itinerary, alternatives: [alternative], onselect: () => {} });
+
+		const ruledOut = [...root.querySelectorAll('.picker-row')].find((row) =>
+			row.textContent?.includes('no connection to make')
+		);
+		expect(ruledOut?.className).toContain('is-unusable');
+		expect(ruledOut?.textContent).toContain('FR107');
+		// Still selectable. AGENTS.md leaves an impossible pick with the traveller rather
+		// than blocking it, and the onward leg is what they would change next.
+		expect(ruledOut?.querySelector('input[type="radio"]')).not.toBeNull();
+	});
+
+	it('keeps the price and the delta on a tight layover, which is a trip you can still take', () => {
+		const itinerary = baseItinerary();
+		// A 15-minute gap: under the traveller's own 30-minute minimum, above zero.
+		const tight = localDateTime('2026-06-01T11:15:00');
+		const alternative = makeFlight('FR108', tight, tight, 175, 6200);
+
+		const root = mountPicker({ itinerary, alternatives: [alternative], onselect: () => {} });
+
+		const warned = [...root.querySelectorAll('.picker-row')].find((row) =>
+			row.textContent?.includes('minimum layover')
+		);
+		expect(warned?.querySelector('.row-price')).not.toBeNull();
+		expect(warned?.querySelector('.delta-text')?.textContent).toContain('+€12.00');
+	});
+});
+
 describe('FlightPicker: widen options (issue #56 cost awareness)', () => {
 	it('shows the request cost for a calendar-tier widen before the traveller commits to it', () => {
 		const itinerary = baseItinerary();
