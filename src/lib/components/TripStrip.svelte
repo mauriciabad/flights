@@ -75,10 +75,10 @@
 	/** A free-time piece as a wall-clock reading: the date it falls on, plus the clock
 	 * readings at whichever ends are not midnight. */
 	function freeTitle(segment: TripStripFreeSegment): string {
-		const day = formatCalendarDate({ ...itinerary.freeTime.start, local: segment.start });
+		const day = formatCalendarDate(segment.start);
 		if (segment.wholeDay) return `All of ${day} free in ${stopoverName}`;
-		const from = segment.startsAtMidnight ? '' : ` from ${formatClockTime({ ...itinerary.freeTime.start, local: segment.start })}`;
-		const until = segment.endsAtMidnight ? ' until midnight' : ` until ${formatClockTime({ ...itinerary.freeTime.end, local: segment.end })}`;
+		const from = segment.startsAtMidnight ? '' : ` from ${formatClockTime(segment.start)}`;
+		const until = segment.endsAtMidnight ? ' until midnight' : ` until ${formatClockTime(segment.end)}`;
 		return `${day}${from}${until}: ${formatDuration(segment.minutes)} free in ${stopoverName}`;
 	}
 
@@ -111,7 +111,7 @@
 	}
 
 	function weekdayStamp(segment: TripStripFreeSegment): string {
-		return formatWeekday({ ...itinerary.freeTime.start, local: segment.start });
+		return formatWeekday(segment.start);
 	}
 
 	const TRANSFER_MODE_PHRASES = { walk: 'on foot', transit: 'by public transport', taxi: 'by taxi', drive: 'by car' } as const;
@@ -119,10 +119,10 @@
 	/** One spoken clause per free piece: "Monday from 09:40", "all Tuesday", "Thursday
 	 * until 13:15". The shape the owner asked for by name: nights, not a duration. */
 	function freeClause(segment: TripStripFreeSegment): string {
-		const weekday = formatWeekdayLong({ ...itinerary.freeTime.start, local: segment.start });
+		const weekday = formatWeekdayLong(segment.start);
 		if (segment.wholeDay) return `all ${weekday}`;
-		if (segment.startsAtMidnight) return `${weekday} until ${formatClockTime({ ...itinerary.freeTime.end, local: segment.end })}`;
-		if (segment.endsAtMidnight) return `${weekday} from ${formatClockTime({ ...itinerary.freeTime.start, local: segment.start })}`;
+		if (segment.startsAtMidnight) return `${weekday} until ${formatClockTime(segment.end)}`;
+		if (segment.endsAtMidnight) return `${weekday} from ${formatClockTime(segment.start)}`;
 		return `${formatDuration(segment.minutes)} on ${weekday}`;
 	}
 
