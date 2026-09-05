@@ -39,16 +39,15 @@
 	 *
 	 * ## No `$effect`, and nothing async outside a handler
 	 *
-	 * `routePickedProperty` writes `$state` and awaits a fetch. As an `$effect` that is
+	 * `routeBedForDraft` writes `$state` and awaits a fetch. As an `$effect` that is
 	 * AGENTS.md's own trap, the one that froze every search in #87. It runs from a click
-	 * and from nowhere else.
+	 * and from nowhere else, and `results/pick-bed.ts` says so where it is defined.
 	 */
 	import { base } from '$app/paths';
 	import type { Airport, Duration, Itinerary, Stay } from '$lib/domain';
 	import { DEFAULT_LANDING_TO_TRANSPORT_RULES } from '$lib/domain';
 	import type { ItinerarySegmentId } from '$lib/itinerary-map/segment-id';
 	import { recomputeItineraryWaitingTimes } from '$lib/algorithm/build';
-	import { recomputeItinerarySelection } from '$lib/algorithm/recompute-selection';
 	import { FlightPicker, Skeleton, StopoverNights, TransportPicker, WaitingTimeStepper, freeTimeDays } from '$lib/components';
 	import { segmentStubFor } from '$lib/components/segment-stub';
 	import { unroutedLegNote } from '$lib/components/itinerary-timeline-format';
@@ -69,13 +68,12 @@
 		SourceTracker,
 		TRANSIT_LEGS_TO_A_PROPERTY,
 		fetchTransitSchedules,
-		pickLandingToTransportTime,
-		routeToProperty
+		pickLandingToTransportTime
 	} from '$lib/search';
 	import { keyStore } from '$lib/keys';
 	import { getProviderRegistry, hasUnconfiguredStayProvider, hasUsableStayProvider } from '$lib/results/provider-setup';
-	import { createSearchDependencies } from '$lib/results/search-dependencies';
-	import type { ItineraryDraft, PropertyRouteState } from '$lib/results/itinerary-draft.svelte';
+	import { applyBedToDraft, routeBedForDraft } from '$lib/results/pick-bed';
+	import type { ItineraryDraft } from '$lib/results/itinerary-draft.svelte';
 	import type { StopoverLengthOption } from '$lib/results/types';
 	import { StayPicker, describeNoStays, groupByProperty, isSameProperty, propertyKey } from '$lib/stays';
 	import type { StayProviderOutcome } from '$lib/stays';
@@ -274,66 +272,13 @@
 	 *
 	 * The search's own transfers travel with the swap only when the traveller lands back on
 	 * the property the pipeline routed to. Everything else is honestly unrouted until
-	 * `routePickedProperty` below has asked.
+	 * `routeBedForDraft` has asked, which since issue #367 is the same pair of functions the
+	 * results page runs when a nights change moves the bed.
 	 */
 	function applyStaySelection(stay: Stay) {
 		const routed = isSameProperty(stay.property, draft.routedProperty);
-		applyStayWithJourney(stay, routed ? draft.routedJourney : draft.routingFor(stay));
-		void routePickedProperty(stay);
-	}
-
-	/** Writes one bed and whatever journey is known for it. Every branch goes through here
-	 * rather than through its own `recomputeItinerarySelection` call, so a routed answer
-	 * and an unrouted one cannot rebuild the trip two different ways. `transferToHotel:
-	 * undefined` is what makes the panel say "Nothing routed to this property":
-	 * `recomputeItinerarySelection` sets `transferAnchor: 'unrouted-stay'` from exactly
-	 * that (issue #264). */
-	function applyStayWithJourney(stay: Stay, routing: PropertyRouteState) {
-		const journey = routing.kind === 'routed' ? routing : undefined;
-		draft.apply(
-			recomputeItinerarySelection(
-				itinerary,
-				{
-					staySelection: {
-						stay,
-						transferToHotel: journey?.transferToHotel,
-						transferToConnectionAirport: journey?.transferToConnectionAirport
-					}
-				},
-				minLayoverTime
-			)
-		);
-	}
-
-	/**
-	 * Issue #267. The search routes to the one property it picks and to no other, so until
-	 * this ran, picking any other bed could only ever say the journey to it was unknown.
-	 * This asks OSRM the same question the pipeline asks, for the bed just tapped.
-	 *
-	 * `routingGeneration` is bumped on every pick and a resolved route only reaches the
-	 * trip while its own generation is current. Without that, tapping bed A then bed B and
-	 * having A's slower route land second would put A's journey under B's name, which is
-	 * #243's defect reintroduced through the back door by the fix for it. The answer is
-	 * banked either way: it cost a request, it is true about that property, and tapping
-	 * back to it is then instant.
-	 */
-	async function routePickedProperty(stay: Stay) {
-		const key = propertyKey(stay.property);
-		if (isSameProperty(stay.property, draft.routedProperty)) return;
-		const known = draft.propertyRouting.get(key);
-		if (known && known.kind !== 'unrouted') return;
-		if (!connectionAirport) return;
-
-		const generation = ++draft.routingGeneration;
-		draft.propertyRouting.set(key, { kind: 'routing' });
-
-		const routing = await routeOnce(stay, connectionAirport);
-		draft.propertyRouting.set(key, routing);
-		// Superseded: the traveller picked something else while this was in the queue. The
-		// answer is banked above and dropped here, never written onto whatever bed is on
-		// screen now.
-		if (generation !== draft.routingGeneration) return;
-		if (routing.kind === 'routed') applyStayWithJourney(stay, routing);
+		applyBedToDraft(draft, stay, routed ? draft.routedJourney : draft.routingFor(stay), minLayoverTime);
+		if (connectionAirport) void routeBedForDraft(draft, stay, connectionAirport, minLayoverTime);
 	}
 
 	/**
@@ -357,7 +302,7 @@
 	 * refuses the claim and answers `not-asked` / `budget-spent`, which the picker already
 	 * knows how to say. The request is never sent.
 	 *
-	 * A handler, never an `$effect`, for the same reason `routePickedProperty` is one.
+	 * A handler, never an `$effect`, for the same reason `routeBedForDraft` is one.
 	 */
 	async function checkTransitForPickedProperty() {
 		const stay = itinerary.stay;
@@ -372,7 +317,7 @@
 
 		const outcome = await checkTransitOnce(airport, budget);
 		draft.transitChecks.set(key, { kind: 'checked', answers: outcome.answers });
-		// Same guard as `routePickedProperty`, and the same counter on purpose. Pressing
+		// Same guard as `routeBedForDraft`, and the same counter on purpose. Pressing
 		// this while that bed's road route is still in flight abandons the road route,
 		// because a road answer landing second would rebuild the stay selection and wipe the
 		// bus this just paid two requests for. The road route stays banked under its own
@@ -427,45 +372,6 @@
 			answer: 'failed',
 			error: { code: 'unknown', message: error instanceof Error ? error.message : String(error) }
 		};
-	}
-
-	async function routeOnce(stay: Stay, airport: Airport): Promise<PropertyRouteState> {
-		const controller = new AbortController();
-		try {
-			return await routeToProperty({
-				connectionCoordinates: airport.coordinates,
-				propertyCoordinates: stay.property.coordinates,
-				transferProviders: getProviderRegistry().ofKind('transfer'),
-				keys: keyStore.availableKeys,
-				signal: controller.signal,
-				landingToTransportRules: DEFAULT_LANDING_TO_TRANSPORT_RULES,
-				connectionAirportSize: airport.sizeClass,
-				// Issue #356: the two arguments that decide whether this ride carries a fare
-				// at all. Without the country `osrm.ts` hands back a taxi with no estimate,
-				// so a swapped bed was being compared against the search's own bed with a
-				// price on one side and nothing on the other, and the unpriced one looked
-				// cheaper than it is.
-				connectionCountryCode: airport.country.isoCode,
-				// Through `createSearchDependencies` rather than a second
-				// `keyStore.currency ?? DEFAULT_SEARCH_CURRENCY` written here. That function
-				// IS the app's answer to "what currency is this search in", and issue #158
-				// moved it out of a component closure precisely because a copy living in one
-				// could not be tested and was wrong. Read live, the way the keys two lines up
-				// are, so a currency picked in settings in another tab reaches this tap.
-				displayCurrency: createSearchDependencies(keyStore.availableKeys, keyStore.currency)
-					.currency,
-				// The trip's own party rather than the `travellers` prop, which is the search
-				// query's and can be absent. Every other figure on this panel is already the
-				// one `itinerary.travellers` describes.
-				travellers: itinerary.travellers,
-				// Deliberately dropped rather than folded into `SearchSnapshot.providers`:
-				// this call happens after the search is over, and counting it there would
-				// change a provider row the traveller reads as "what this search did".
-				record: () => {}
-			});
-		} catch (error) {
-			return { kind: 'failed', message: error instanceof Error ? error.message : String(error) };
-		}
 	}
 
 	// `describeNoStays` titles are headings, and one of them ("Looking for stays in X…")
