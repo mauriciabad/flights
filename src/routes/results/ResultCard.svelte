@@ -88,6 +88,7 @@
 		TripStrip
 	} from '$lib/components';
 	import { CARD_METRIC_IDS } from '$lib/components/itinerary-metrics';
+	import { formatWeekdayAndDay } from '$lib/format';
 	import { buildItineraryMapModel } from '$lib/itinerary-map/segments';
 	import { buildFlightShape } from '$lib/itinerary-map/previews';
 	import type { Airport, Itinerary } from '$lib/domain';
@@ -325,6 +326,30 @@
 					></span
 				>
 			</span>
+			<!-- The owner: "the result card should show the departure and arrival dates. now
+			     it doesn't show it anywhere when collapsed". It did not. The strip stamps a
+			     weekday on a free day and the timeline carries full dates, but both of those
+			     are inside the fold, so a collapsed card said which cities and what price
+			     and never which days.
+
+			     A `.route` item rather than a row of its own, because `.route` already wraps
+			     and this costs no card height on a desktop card and one wrap on a phone.
+			     Each end reads in its own place's local time, per the owner's rule that every
+			     time on this page belongs to the place it names, so a red-eye landing after
+			     midnight says the day the traveller actually arrives. -->
+			<span class="route-dates font-mono tabular-nums"
+				><!--
+				Non-breaking spaces inside the hidden words on purpose. A trailing space at the
+				end of an element's text is collapsed away, and the accessible name came out
+				"DepartsWed 16" and "arrivesThu 17" when it was an ordinary one. #318 is the
+				same seam read the other way: there, indentation between two elements put a
+				space in front of a comma.
+				--><span class="visually-hidden">Departs&nbsp;</span>{formatWeekdayAndDay(
+					itinerary.outboundFlight.departure
+				)}<span class="route-dates-arrow" aria-hidden="true">→</span><span class="visually-hidden"
+					>,&nbsp;arrives&nbsp;</span
+				>{formatWeekdayAndDay(itinerary.onwardFlight.arrival)}</span
+			>
 			{#if isDeprioritized || showFreshness}
 				<span class="header-badges">
 					{#if isDeprioritized}
@@ -533,6 +558,16 @@
 	/* Issue #318: the band's own on-surface muted token, not the page's. The neutral
 	   --color-text-faint is 3.58:1 on the warm header band in dark mode, against 4.5:1 for
 	   16px semibold text. */
+	.route-dates {
+		font-size: var(--font-size-sm);
+		color: var(--color-text-muted);
+		white-space: nowrap;
+	}
+
+	.route-dates-arrow {
+		margin: 0 var(--space-1);
+	}
+
 	.route-arrow {
 		color: var(--color-accent-muted-text);
 	}
