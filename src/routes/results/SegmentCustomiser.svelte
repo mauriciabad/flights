@@ -236,14 +236,28 @@
 		};
 	});
 
-	/** Offered once per property, and only for a bed the search never asked about. The
+	/** Issue #385: this bed's lookup is running, and the panel says so. */
+	const transitChecking = $derived(transitCheckState?.kind === 'checking');
+
+	/**
+	 * Offered once per property, and only for a bed the search never asked about. The
 	 * search's own bed already has its timetable, and a second lookup for it would spend two
-	 * requests to learn what is on screen. */
+	 * requests to learn what is on screen.
+	 *
+	 * Issue #385: "once" means until an answer exists, not until the press. Gating on
+	 * `transitCheckState === undefined` unmounted the button the instant
+	 * `checkTransitForPickedProperty` wrote `{ kind: 'checking' }`, which is synchronous and
+	 * therefore happens before the traveller's finger leaves it. What they saw was the one
+	 * control in this app that spends a request vanish, over a notice still saying nobody
+	 * had looked anything up, for the two round trips it takes Transitous to answer. The
+	 * offer cannot be taken twice regardless: `Button` disables itself while `loading`, and
+	 * `checkTransitForPickedProperty` refuses a second claim on a key it already holds.
+	 */
 	const canCheckTransit = $derived(
 		swappedToAnotherProperty &&
 			transitLookupBudget !== undefined &&
 			connectionAirport !== undefined &&
-			transitCheckState === undefined
+			transitCheckState?.kind !== 'checked'
 	);
 
 	// The same expression the banner above the results list uses (`StayKeyNotice`), so the
@@ -497,7 +511,9 @@
 	referenceMoment?: Itinerary['outboundFlight']['arrival'],
 	referenceLabel?: string,
 	/** Issue #267: offered on the two in-city legs alone, and only for a bed the search
-	 * never asked Transitous about. */
+	 * never asked Transitous about. `transitChecking` rides along from the component scope
+	 * rather than through a ninth positional parameter; one lookup covers both in-city legs,
+	 * and on a leg with no offer the picker never reads it. */
 	oncheckTransit?: () => void
 )}
 	<TransportPicker
@@ -511,6 +527,7 @@
 		{referenceLabel}
 		{minLayoverTime}
 		{oncheckTransit}
+		{transitChecking}
 		onselect={(recomputed) => draft.apply(recomputed)}
 	/>
 {/snippet}
