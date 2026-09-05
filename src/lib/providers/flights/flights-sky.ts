@@ -411,11 +411,15 @@ function createFlightsSkyFlightProvider(
 		// invent our own" — the airport codes named here are exactly the ones that blocked
 		// mapping, not a guess at the cause.
 		if (offers.length === 0 && unresolvedTimeZoneAirports.size > 0) {
-			const codes = [...unresolvedTimeZoneAirports].sort().join(', ');
+			const airports = [...unresolvedTimeZoneAirports].sort();
 			return fail(
 				{
-					code: 'malformed-response',
-					message: `Flights Sky returned a real, nonstop itinerary this app could not price: no known time zone for ${codes}`
+					// Issue #359: `no-time-zone`, not `malformed-response`. Flights Sky's answer
+					// was well formed; this app's zone table was not, and the difference is what
+					// keeps the map from printing "Nothing flies here" over a priced flight.
+					code: 'no-time-zone',
+					message: `Flights Sky returned a real, nonstop itinerary this app could not price: no known time zone for ${airports.join(', ')}`,
+					airports
 				},
 				requestsUsed
 			);

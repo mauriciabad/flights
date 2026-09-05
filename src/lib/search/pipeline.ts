@@ -68,7 +68,14 @@ import type {
 	StayProvider,
 	TransferProvider
 } from '../providers/types';
-import { flattenOk, flightCostAwareSources, meteredRequestsUsed, pickMeteredWithinBudget, stayCostAwareSources } from './cost-aware';
+import {
+	flattenOk,
+	flightCostAwareSources,
+	meteredRequestsUsed,
+	pickMeteredWithinBudget,
+	stayCostAwareSources,
+	untimedAirports
+} from './cost-aware';
 import { groupItineraryResults } from './group';
 import {
 	estimatePriceCalendarWidenCost,
@@ -335,7 +342,17 @@ function sourcesForItinerary(itinerary: Itinerary, sources: SourceTracker): Itin
 type FetchLegsFn = (
 	outboundQuery: FlightSearchQuery,
 	onwardQuery: FlightSearchQuery
-) => Promise<{ outboundOffers: FlightOffer[]; onwardOffers: FlightOffer[] }>;
+) => Promise<{
+	outboundOffers: FlightOffer[];
+	onwardOffers: FlightOffer[];
+	/** Issue #359: airports a source had a sellable fare for on the day and this app could
+	 * not put a clock on, so #93's rule dropped it. Absent or empty means the list above is
+	 * short because nothing flies, which is a different thing to tell a traveller. Optional
+	 * because the calendar-discovered candidate below supplies offers it already holds and
+	 * has no provider results to report. */
+	outboundUntimedAirports?: readonly IataAirportCode[];
+	onwardUntimedAirports?: readonly IataAirportCode[];
+}>;
 
 interface ProcessCandidateInput {
 	candidate: ConnectionCandidate;
@@ -492,13 +509,25 @@ async function processCandidate(input: ProcessCandidateInput): Promise<Candidate
 		input.currency
 	);
 
-	const { outboundOffers, onwardOffers } = await input.fetchLegs(outboundQuery, onwardQuery);
+	const { outboundOffers, onwardOffers, outboundUntimedAirports, onwardUntimedAirports } = await input.fetchLegs(
+		outboundQuery,
+		onwardQuery
+	);
 
 	if (input.signal.aborted) return empty;
-	// Nothing flies this way, so nothing below is worth asking about. See this function's
-	// own comment for what asking anyway cost.
-	if (outboundOffers.length === 0) return blockedBy({ reason: 'no-outbound-flight' });
-	if (onwardOffers.length === 0) return blockedBy({ reason: 'no-onward-flight' });
+	// No offers on a leg, so nothing below is worth asking about. See this function's own
+	// comment for what asking anyway cost.
+	//
+	// Issue #359: an empty list is not always the same fact. A source that found a priced,
+	// numbered flight this app could not date has not found nothing, and "Nothing flies
+	// here" would be a false sentence about a real flight. Per leg, not combined, because
+	// one provider can fail to time a leg that another provider still supplies offers for.
+	if (outboundOffers.length === 0) {
+		return blockedBy(outboundUntimedAirports?.length ? { reason: 'timezone-unknown' } : { reason: 'no-outbound-flight' });
+	}
+	if (onwardOffers.length === 0) {
+		return blockedBy(onwardUntimedAirports?.length ? { reason: 'timezone-unknown' } : { reason: 'no-onward-flight' });
+	}
 
 	// Issue #94: `resources` itself is never `undefined` — a missing stay degrades
 	// `resources.stay` to `undefined` rather than dropping the candidate, so having no
@@ -1026,7 +1055,12 @@ export async function* runSearch(
 			runCostAwareSearch(flightCostAwareSources(allFlightProviders, outboundQuery, deps.keys, signal, sources, record)),
 			runCostAwareSearch(flightCostAwareSources(allFlightProviders, onwardQuery, deps.keys, signal, sources, record))
 		]);
-		return { outboundOffers: flattenOk(outboundResult), onwardOffers: flattenOk(onwardResult) };
+		return {
+			outboundOffers: flattenOk(outboundResult),
+			onwardOffers: flattenOk(onwardResult),
+			outboundUntimedAirports: untimedAirports(outboundResult),
+			onwardUntimedAirports: untimedAirports(onwardResult)
+		};
 	};
 
 	const candidateInputBase: Omit<ProcessCandidateInput, 'candidate'> = {
@@ -1334,7 +1368,12 @@ export async function* widenSearch(
 			});
 			budget.remaining -= meteredRequestsUsed(onwardResult);
 
-			return { outboundOffers: flattenOk(outboundResult), onwardOffers: flattenOk(onwardResult) };
+			return {
+				outboundOffers: flattenOk(outboundResult),
+				onwardOffers: flattenOk(onwardResult),
+				outboundUntimedAirports: untimedAirports(outboundResult),
+				onwardUntimedAirports: untimedAirports(onwardResult)
+			};
 		};
 
 		const outcome = await processCandidate({

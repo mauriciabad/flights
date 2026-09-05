@@ -191,6 +191,8 @@ function toIssueReason(error: ProviderError): ProviderIssueReason {
 			return 'down';
 		case 'cancelled':
 		case 'malformed-response':
+		// Issue #359: nothing a saved key can fix, so it never reads as an invalid key.
+		case 'no-time-zone':
 			return 'unknown';
 		case 'unknown':
 			return looksLikeInvalidKey(error) ? 'invalid-key' : 'unknown';

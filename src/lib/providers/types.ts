@@ -170,6 +170,13 @@ export type ProviderError =
 	 * so a caller fanning out with Promise.all never has one cancelled leg take the whole
 	 * search down with it. */
 	| { code: 'cancelled'; message: string }
+	/** Issue #359: a source answered with a real, sellable flight on the day and this app
+	 * could not put a clock on it, because it knows no time zone for the airports named here.
+	 * Issue #93's rule refuses to guess an offset, and an empty offer list would read as
+	 * "nothing flies". Deliberately not `malformed-response`: the provider's answer was well
+	 * formed, this app's zone table was not, and AGENTS.md's rule is to report the failure we
+	 * actually had rather than one we assumed. */
+	| { code: 'no-time-zone'; message: string; airports: readonly IataAirportCode[] }
 	/** Anything else. Kept as an explicit last case rather than letting adapters throw for
 	 * the unmodelled remainder, so "one provider failing must never fail a search" holds
 	 * even for a failure mode nobody has seen yet. */

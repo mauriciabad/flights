@@ -233,6 +233,62 @@ describe('searchOffers', () => {
 		expect(result).toMatchObject({ ok: true, data: [] });
 	});
 
+	/**
+	 * Issue #359. Ryanair sells the flight, names it, and prices it; this app's own airport
+	 * snapshot has no zone for STN, so #93's rule refuses to date it. The old answer was an
+	 * empty ok list, indistinguishable from a route with no service, which the connections
+	 * map then printed as "Nothing flies here" over a real flight.
+	 */
+	describe('a sellable fare this app has no time zone for', () => {
+		/** The real active-airports fixture with STN's zone taken out, so the fares and the
+		 * timetable stay exactly as captured and the zone is the only thing missing. */
+		function airportsWithoutStanstedZone(): Response {
+			const airports = structuredClone(activeAirportsFixture) as { iataCode: string; timeZone?: string }[];
+			for (const airport of airports) if (airport.iataCode === 'STN') delete airport.timeZone;
+			return new Response(JSON.stringify(airports), { status: 200 });
+		}
+
+		const withoutStanstedZone = () =>
+			fixtureFetch({
+				'https://www.ryanair.com/api/views/locate/3/airports/en/active': airportsWithoutStanstedZone
+			});
+
+		it('reports no-time-zone naming the airport, rather than an empty ok result', async () => {
+			const provider = createRyanairFlightProvider({ store: new MemoryCacheStore(), fetchImpl: withoutStanstedZone() });
+
+			const result = await provider.searchOffers(query, { signal: new AbortController().signal });
+
+			expect(result.ok).toBe(false);
+			if (result.ok) return;
+			expect(result.error.code).toBe('no-time-zone');
+			if (result.error.code !== 'no-time-zone') return;
+			expect(result.error.airports).toEqual(['STN']);
+			expect(result.error.message).toContain('STN');
+		});
+
+		// `readCachedEntry`'s caller serves an entry at any age (issue #147), so an empty
+		// list written here would outlive the missing zone and keep answering "no flights"
+		// long after the snapshot refresh learned where STN is.
+		it('caches no empty fare list, which would re-serve the gap it found today forever', async () => {
+			const store = new MemoryCacheStore();
+			const written: unknown[] = [];
+			const realSet = store.set.bind(store);
+			store.set = async (entry) => {
+				written.push(entry.value);
+				return realSet(entry);
+			};
+			const provider = createRyanairFlightProvider({ store, fetchImpl: withoutStanstedZone() });
+
+			const result = await provider.searchOffers(query, { signal: new AbortController().signal });
+
+			expect(result.ok).toBe(false);
+			// The raw fares, the timetable and the snapshot are all still worth keeping —
+			// only the offer list this app could not build must not be written.
+			expect(written.length).toBeGreaterThan(0);
+			expect(written.some((value) => Array.isArray(value) && value.length === 0)).toBe(false);
+		});
+	});
+
 	it('serves the second identical call from cache, spending no requests', async () => {
 		const store = new MemoryCacheStore();
 		const fetchImpl = fixtureFetch();

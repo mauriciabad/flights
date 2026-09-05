@@ -202,6 +202,11 @@ export function describeProviderError(error: ProviderError): { reason: ProviderI
 			return { reason: 'quota-exceeded', message: error.message };
 		case 'network-error':
 			return { reason: 'down', message: error.message };
+		// Issue #359: `unknown` rather than `down`, because the provider is not down. It
+		// answered with a sellable flight and this app's own zone table could not date it,
+		// and `ProviderIssueReason` has no word for that. The message says which airports,
+		// which is the part a traveller and a maintainer can both act on.
+		case 'no-time-zone':
 		case 'malformed-response':
 		case 'cancelled':
 		case 'unknown':

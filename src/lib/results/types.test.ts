@@ -148,6 +148,7 @@ describe('describeProviderError', () => {
 			{ code: 'network-error', message: 'm' } as const,
 			{ code: 'malformed-response', message: 'm' } as const,
 			{ code: 'cancelled', message: 'm' } as const,
+			{ code: 'no-time-zone', message: 'm', airports: ['BVC'] } as const,
 			{ code: 'unknown', message: 'm' } as const
 		];
 		for (const error of codes) {

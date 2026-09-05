@@ -98,11 +98,15 @@ function timeableAirports(): Set<string> {
  * The response that differed was a fifth one nobody was looking at: `active-airports`, which
  * is where this adapter reads every airport's IANA zone, and BER was not in it.
  *
- * From there it is quiet the whole way down. `ryanair-mapper.ts` drops a fare whose origin or
- * destination has no zone, because issue #93 decided that a wrong UTC offset silently moves
- * an overnight connection by a night. `processCandidate` then sees zero outbound offers and
- * blocks the candidate as `no-outbound-flight`, whose sentence since issue #340 is "Nothing
- * flies here". Nothing logs, nothing fails, and the reason on screen is untrue.
+ * From there it was quiet the whole way down. `ryanair-mapper.ts` drops a fare whose origin
+ * or destination has no zone, because issue #93 decided that a wrong UTC offset silently
+ * moves an overnight connection by a night. `processCandidate` then saw zero outbound offers
+ * and blocked the candidate as `no-outbound-flight`, whose sentence since issue #340 is
+ * "Nothing flies here". Nothing logged, nothing failed, and the reason on screen was untrue.
+ *
+ * Issue #359 carries the reason through instead, so the same fixture now reads "A flight here
+ * could not be timed". That is a true sentence, and this check still earns its place: a spec
+ * that writes a fare wants the fare, not a refusal of either kind.
  *
  * The fares fixture and the airport list are two halves of one answer and a spec only writes
  * the first, so the second is the half that gets forgotten. Throwing here names the airport

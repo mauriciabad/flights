@@ -18,6 +18,7 @@ import type {
 	FlightProvider,
 	FlightSearchQuery,
 	ProviderContext,
+	ProviderError,
 	ProviderId,
 	ProviderResult,
 	ProviderSource,
@@ -187,6 +188,10 @@ function createFakeFlightProvider(options: {
 	costPerQuery?: number | ((query: FlightSearchQuery) => number);
 	routes: Record<string, string[]>;
 	offerBuilder?: (query: FlightSearchQuery) => FlightOffer[] | Promise<FlightOffer[]>;
+	/** Issue #359: lets one leg answer with a real provider error while the other still
+	 * produces offers, which is the only way a `no-time-zone` refusal reaches
+	 * `processCandidate` per leg rather than failing the whole fixture. */
+	failureBuilder?: (query: FlightSearchQuery) => ProviderError | undefined;
 	alwaysFails?: boolean;
 }): FlightFixture {
 	const needsKey = options.needsKey ?? false;
@@ -205,6 +210,8 @@ function createFakeFlightProvider(options: {
 				requestsUsed: 0
 			};
 		}
+		const failure = options.failureBuilder?.(query);
+		if (failure) return { ok: false, error: failure, source: source(options.id), requestsUsed: 1 };
 		const data = options.offerBuilder ? await options.offerBuilder(query) : [];
 		return { ok: true, data, source: source(options.id), requestsUsed: 1 };
 	});
@@ -1634,5 +1641,48 @@ describe('runSearch: a provider that answers with nothing is still a provider th
 		expect(final.providers['free-flights' as ProviderId]?.okCallsWithData).toBeGreaterThan(0);
 		expect(final.providers['second-free-flights' as ProviderId]).toMatchObject({ okCallsWithData: 0 });
 		expect(final.providers['second-free-flights' as ProviderId]?.okCalls).toBeGreaterThan(0);
+	});
+});
+
+/**
+ * Issue #359. An empty offer list is two different facts and the connections map prints a
+ * sentence for each: "Nothing flies here" when no source found a flight, and "A flight here
+ * could not be timed" when one did and this app had no time zone to date it with. Before
+ * this, both arrived as `no-outbound-flight` and the map said the false one.
+ */
+describe('runSearch: a leg with no offers says which kind of nothing it found', () => {
+	function searchWith(outbound: Pick<Parameters<typeof createFakeFlightProvider>[0], 'offerBuilder' | 'failureBuilder'>) {
+		const flights = createFakeFlightProvider({
+			id: 'free-flights',
+			routes: { [ORIGIN]: [FAST], [FAST]: [DEST] },
+			offerBuilder: (query) => (query.origin === ORIGIN ? [] : standardOfferBuilder(query)),
+			...outbound
+		});
+		const registry = new ProviderRegistry([
+			flights.provider,
+			createFakeStayProvider({ id: 'stays' }),
+			createFakeTransferProvider()
+		]);
+		const deps: SearchDependencies = { registry, keys: {}, resolveAirport, currency: 'EUR' };
+		return drain(runSearch(BASE_QUERY, deps));
+	}
+
+	it('blocks with timezone-unknown when the source had a fare it could not date', async () => {
+		const final = (
+			await searchWith({
+				failureBuilder: (query) =>
+					query.origin === ORIGIN
+						? { code: 'no-time-zone', message: `no time zone for ${query.destination}`, airports: [query.destination] }
+						: undefined
+			})
+		).at(-1)!;
+
+		expect(final.blockedConnections[FAST]).toEqual({ reason: 'timezone-unknown' });
+	});
+
+	it('blocks with no-outbound-flight when the source genuinely found nothing', async () => {
+		const final = (await searchWith({})).at(-1)!;
+
+		expect(final.blockedConnections[FAST]).toEqual({ reason: 'no-outbound-flight' });
 	});
 });

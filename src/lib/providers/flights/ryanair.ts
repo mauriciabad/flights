@@ -483,7 +483,15 @@ function createRyanairFlightProvider(options: RyanairProviderOptions = {}): Flig
 		ctx: ProviderContext,
 		store: CacheStore,
 		limits: { maxRequests: number | undefined; allowSnapshotRefresh: boolean }
-	): Promise<{ offers: FlightOffer[]; requestsUsed: number; error?: RyanairFetchError }> {
+	): Promise<{
+		offers: FlightOffer[];
+		requestsUsed: number;
+		error?: RyanairFetchError;
+		/** Issue #359: airports a fare was sellable out of or into and this app had no zone
+		 * for, gathered across every month the window touches so one bad month cannot hide
+		 * behind another's offers. */
+		unresolvedTimeZoneAirports: ReadonlySet<IataAirportCode>;
+	}> {
 		let requestsUsed = 0;
 		/** `undefined` keeps ProviderContext.maxRequests' own "no caller-imposed cap"
 		 * meaning all the way down to `resolveNetworkSnapshot`, rather than smuggling an
@@ -563,7 +571,9 @@ function createRyanairFlightProvider(options: RyanairProviderOptions = {}): Flig
 
 		// Skipped outright when no month came back: a zone table with nothing to date is a
 		// request spent on nothing.
-		if (months.length === 0) return { offers: [], requestsUsed, error: firstError };
+		if (months.length === 0) {
+			return { offers: [], requestsUsed, error: firstError, unresolvedTimeZoneAirports: new Set() };
+		}
 
 		// The timezone table, last, with whatever budget the fares left. Every offer needs
 		// both airports' zones to become a `LocalDateTime` at all (AGENTS.md "Timezones"),
@@ -579,21 +589,22 @@ function createRyanairFlightProvider(options: RyanairProviderOptions = {}): Flig
 		requestsUsed += snapshotRequestsUsed;
 
 		const offers: FlightOffer[] = [];
+		const unresolvedTimeZoneAirports = new Set<IataAirportCode>();
 		for (const { year, month, fares } of months) {
 			const schedule = schedulesByMonth.get(`${year}-${month}`);
 			if (!schedule) continue;
-			offers.push(
-				...mapDailyFaresToFlightOffers(fares, buildScheduleIndex(schedule, year, month), {
-					origin: query.origin,
-					destination: query.destination,
-					timeZoneByIataCode: snapshot.timeZonesByIataCode,
-					earliestDeparture: query.earliestDeparture,
-					latestDeparture: query.latestDeparture
-				})
-			);
+			const mapped = mapDailyFaresToFlightOffers(fares, buildScheduleIndex(schedule, year, month), {
+				origin: query.origin,
+				destination: query.destination,
+				timeZoneByIataCode: snapshot.timeZonesByIataCode,
+				earliestDeparture: query.earliestDeparture,
+				latestDeparture: query.latestDeparture
+			});
+			offers.push(...mapped.offers);
+			for (const code of mapped.unresolvedTimeZoneAirports) unresolvedTimeZoneAirports.add(code);
 		}
 
-		return { offers, requestsUsed, error: firstError };
+		return { offers, requestsUsed, error: firstError, unresolvedTimeZoneAirports };
 	}
 
 	async function revalidateFares(
@@ -608,7 +619,7 @@ function createRyanairFlightProvider(options: RyanairProviderOptions = {}): Flig
 			// `allowSnapshotRefresh: false` so this never triggers a network snapshot
 			// refresh of its own: this is a background task nobody is waiting for, and it
 			// can map its fares against whatever timezone table is already to hand.
-			const { offers, error } = await fetchOffers(query, ctx, store, {
+			const { offers, error, unresolvedTimeZoneAirports } = await fetchOffers(query, ctx, store, {
 				maxRequests: undefined,
 				allowSnapshotRefresh: false
 			});
@@ -617,6 +628,10 @@ function createRyanairFlightProvider(options: RyanairProviderOptions = {}): Flig
 			// the cached answer would turn a background refresh into a silent loss of the
 			// results already on screen.
 			if (error && offers.length === 0) return;
+			// Issue #359, for the same reason: a fare Ryanair still sells and this app could
+			// not date is not the route going quiet either, and the zone table it needs is a
+			// snapshot that refreshes on its own schedule.
+			if (offers.length === 0 && unresolvedTimeZoneAirports.size > 0) return;
 			await writeCache(store, cacheKey, offers);
 			revalidationSettled(RYANAIR_PROVIDER_ID);
 		} catch {
@@ -692,7 +707,7 @@ function createRyanairFlightProvider(options: RyanairProviderOptions = {}): Flig
 			return { ok: true, data: [], source: source(), requestsUsed: 0 };
 		}
 
-		const { offers, requestsUsed, error } = await fetchOffers(query, ctx, store, {
+		const { offers, requestsUsed, error, unresolvedTimeZoneAirports } = await fetchOffers(query, ctx, store, {
 			maxRequests: ctx.maxRequests,
 			allowSnapshotRefresh: true
 		});
@@ -704,6 +719,29 @@ function createRyanairFlightProvider(options: RyanairProviderOptions = {}): Flig
 		// `cheapestPerDay` says that with a month of `unavailable` rows, not an HTTP error.
 		if (offers.length === 0 && error) {
 			return { ok: false, error: toProviderError(error), source: source(), requestsUsed };
+		}
+
+		// Issue #359: Ryanair sold a flight on a day in this window, named it, priced it, and
+		// this app could not say when it lands. An empty ok result here would reach the
+		// connections map as "Nothing flies here", which is a false sentence about a real
+		// flight, so say which airports blocked it instead.
+		//
+		// Returned before `writeCache` deliberately. `FARES_TTL_MS` is an hour, but
+		// `readCachedEntry`'s caller above serves an entry at any age (issue #147), so
+		// caching this empty array would re-serve today's missing zone forever — including
+		// after the network snapshot refreshes and this app finally knows the airport.
+		if (offers.length === 0 && unresolvedTimeZoneAirports.size > 0) {
+			const airports = [...unresolvedTimeZoneAirports].sort();
+			return {
+				ok: false,
+				error: {
+					code: 'no-time-zone',
+					message: `Ryanair had a fare and a flight number for ${query.origin} to ${query.destination} on a day in this window, and this app has no time zone for ${airports.join(', ')}, so it could not say when the flight lands.`,
+					airports
+				},
+				source: source(),
+				requestsUsed
+			};
 		}
 
 		await writeCache(store, cacheKey, offers);
