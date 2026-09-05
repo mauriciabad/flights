@@ -508,9 +508,7 @@
 		const activeQuery = query;
 		if (!activeQuery || !primarySearchDone || stillSearching) return;
 
-		const stopovers = [...new Set(results.map((result) => connectionAirportCode(result.itinerary)))]
-			.sort()
-			.map((code) => code as IataAirportCode);
+		const stopovers = [...new Set(results.map((result) => connectionAirportCode(result.itinerary)))].sort();
 		if (stopovers.length === 0) return;
 
 		const currency = keyStore.currency ?? DEFAULT_SEARCH_CURRENCY;
