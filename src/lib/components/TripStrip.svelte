@@ -425,7 +425,18 @@
 </script>
 
 <div class={['trip-strip', { 'is-quiet': deprioritized }]} role="group" aria-label={summary}>
-	<div class="trip-strip-track" style:grid-template-columns={template}>
+	<!-- Issue #318: `toolbar`, because this is a roving-tabindex composite and without a role
+	     on the container nothing tells a screen-reader user that six of the seven steps are
+	     reached with the arrow keys rather than with Tab. The arrow keys already work; this
+	     is the attribute that says so. `toolbar` rather than `tablist`, because these are
+	     controls that act on the trip, not tabs selecting one panel of several. -->
+	<div
+		class="trip-strip-track"
+		role="toolbar"
+		aria-label="Steps of this trip, use the arrow keys"
+		aria-orientation="horizontal"
+		style:grid-template-columns={template}
+	>
 		<span class="trip-strip-code trip-strip-code-start font-mono" style:grid-column={originColumn}
 			>{itinerary.originAirport.iataCode}</span
 		>
@@ -521,12 +532,15 @@
 				<span class="trip-strip-unfold-text">
 					{#if nights > 0}
 						<strong class="trip-strip-nights font-mono tabular-nums">{nights}</strong>
-						{nights === 1 ? 'night' : 'nights'} in {stopoverName}
-					{:else}
-						<strong class="trip-strip-nights font-mono tabular-nums">{formatLongDuration(itinerary.freeTime.duration)}</strong>
-						in {stopoverName}
-					{/if}
-					<span class="visually-hidden">, {expanded ? 'hide' : 'show'} the full timeline</span>
+						{nights === 1 ? 'night' : 'nights'} in {stopoverName}{:else}<strong
+							class="trip-strip-nights font-mono tabular-nums"
+							>{formatLongDuration(itinerary.freeTime.duration)}</strong
+						>
+						in {stopoverName}{/if}<!--
+					Issue #318: no whitespace between the name and the comma. The indentation
+					between two elements is a text node, and it put a space in front of the
+					comma in the accessible name: "8h 22m in Napoli , show the full timeline".
+					--><span class="visually-hidden">, {expanded ? 'hide' : 'show'} the full timeline</span>
 				</span>
 				<Icon name="chevron-down" class={['trip-strip-chevron', { 'is-open': expanded }]} />
 			</button>

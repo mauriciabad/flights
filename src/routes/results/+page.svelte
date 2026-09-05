@@ -1143,8 +1143,13 @@
 		// Issue #308: `preventScroll`, because focusing an element scrolls it into view by
 		// default and the panel is the second thing that was moving the page under a
 		// traveller who only tapped a segment. The panel is sticky at the top of its own
-		// column on the only width where it is focused at all, so it is already on screen.
-		panelEl?.focus({ preventScroll: true });
+		// column, and the sheet is fixed to the foot of the viewport, so both are already on
+		// screen when they are focused.
+		//
+		// Issue #318: the sheet too, not only the desktop rail. Focus stayed on the trigger
+		// button outside the sheet, so nothing announced that a panel had opened, which is
+		// half of why a bare `<aside>` was not enough.
+		(panelEl ?? sheetEl)?.focus({ preventScroll: true });
 	}
 
 	function restoreFocus() {
@@ -1605,8 +1610,13 @@
 							<h2 class="results-customise-title">Customise</h2>
 							{#if customisingResult}
 								{@render customiseSubject()}
+								<!-- Issue #318: "Done", on both surfaces, because both call the same
+								     function and it discards nothing the traveller chose. "Clear"
+								     next to a panel of pickers reads as "throw my edits away", and
+								     `closeCustomiser` only drops which segment is selected; the
+								     drafts survive. Two words for one action was the defect. -->
 								<button type="button" class="customise-close" onclick={closeCustomiser}>
-									Clear
+									Done
 								</button>
 							{/if}
 						</div>
@@ -1623,14 +1633,19 @@
      never makes the card taller, and non-modal so the price it changes stays readable
      above it. Capped well under half the screen, because a sheet that covered the strip
      the traveller just tapped would take away the thing that made the tap mean something.
-     `<aside>` rather than `role="dialog"`: it is a complementary panel beside the page,
-     not a thing to be trapped in. -->
+
+     Issue #318: `role="dialog"` and no `aria-modal`. The `<aside>` this replaced was chosen
+     so the sheet would not be a thing to be trapped in, and it still is not: focus can leave
+     it, the page behind stays readable, and Escape closes it. What the bare `<aside>` did not
+     do was tell a screen-reader user that anything had opened, because focus stayed on the
+     button outside it. A non-modal dialog says what this is without trapping anybody. -->
 {#if sheetIsOpen}
 	<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 	<aside
 		bind:this={sheetEl}
 		class="customise-sheet"
 		{...{ [BOTTOM_SHEET_ATTRIBUTE]: '' }}
+		role="dialog"
 		aria-label="Customise the selected trip"
 		tabindex="-1"
 		style:translate={sheetDragY > 0 ? `0 ${sheetDragY}px` : undefined}
@@ -1648,7 +1663,7 @@
 		</div>
 		<div class="customise-sheet-head">
 			{@render customiseSubject()}
-			<button type="button" class="customise-close" onclick={closeCustomiser}>Close</button>
+			<button type="button" class="customise-close" onclick={closeCustomiser}>Done</button>
 		</div>
 		<div class="customise-sheet-body">
 			{@render customisePanel()}
@@ -2138,6 +2153,10 @@
 		border-top: 2px dashed var(--color-border-strong);
 		border-radius: var(--radius-xl) var(--radius-xl) 0 0;
 		box-shadow: var(--shadow-lg);
+		/* Issue #318: scrolling to the bottom of the sheet used to chain into scrolling the
+		   page behind it, so the card the sheet is about slid away under a finger that was
+		   only trying to reach the last picker. */
+		overscroll-behavior: contain;
 		transition: translate var(--transition-base);
 	}
 

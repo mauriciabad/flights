@@ -530,8 +530,11 @@
 		color: var(--color-text-muted);
 	}
 
+	/* Issue #318: the band's own on-surface muted token, not the page's. The neutral
+	   --color-text-faint is 3.58:1 on the warm header band in dark mode, against 4.5:1 for
+	   16px semibold text. */
 	.route-arrow {
-		color: var(--color-text-faint);
+		color: var(--color-accent-muted-text);
 	}
 
 	/* The badges ride in the header rather than beside the price: they are facts about the

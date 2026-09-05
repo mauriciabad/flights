@@ -234,7 +234,10 @@ test.describe('tapping a segment on a phone', () => {
 
 		await flight.tap();
 		await expect(sheet).toBeVisible();
-		await sheet.getByRole('button', { name: 'Close' }).tap();
+		// Issue #318: "Done", not "Close". The desktop rail said "Clear" and this said
+		// "Close" for the same call, and the summary bar's own collapse control on this page
+		// is already the "Close" button.
+		await sheet.getByRole('button', { name: 'Done' }).tap();
 		await expect(sheet).toBeHidden();
 
 		await flight.tap();

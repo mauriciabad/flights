@@ -37,6 +37,23 @@ export function stopoverLengthLabel(nights: number): string {
 }
 
 /**
+ * The same length, counted rather than named, for the ladder of lengths a traveller picks
+ * from.
+ *
+ * Issue #318: six rungs read "1 night" to "6 nights" and the seventh read "Flight change",
+ * which is the only one not counting nights and which collides with the booking sense of
+ * the phrase. A ladder is a series, and the rung that means "do not stay" is 0 nights.
+ *
+ * `stopoverLengthLabelFor` still names the trip everywhere the card describes one, because
+ * issue #231's distinction between a flight change and an overnight wait is about what kind
+ * of trip this is, not about how long the traveller asked to stay. The ladder keeps it in
+ * the rung's spoken description instead.
+ */
+export function stopoverLadderLengthLabel(nights: number): string {
+	return `${nights} ${nights === 1 ? 'night' : 'nights'}`;
+}
+
+/**
  * The same label, told apart by which kind of nightless trip this is.
  *
  * Issue #231 split zero in two. A same-day connection lands and leaves before midnight and
@@ -156,9 +173,13 @@ export function stopoverLadder(
 		const isCurrent = option.nights === shown.nightsInConnection;
 		const deltaMinorUnits = option.itinerary.totalPrice.minorUnits - shown.totalPrice.minorUnits;
 		const currency = option.itinerary.totalPrice.currency;
-		// Issue #231: `...LabelFor`, not `...Label`, so a rung whose trip crosses a midnight
-		// it cannot sleep through reads "Overnight wait" rather than "Flight change".
-		const label = stopoverLengthLabelFor(option.itinerary);
+		// Issue #318: the rung counts nights, so the series reads 0, 1, 2 rather than breaking
+		// on the one option that matters most. Issue #231's reading of a nightless trip is not
+		// lost: it goes into the spoken description below, after the visible words, which is
+		// the order WCAG 2.5.3 asks for.
+		const label = stopoverLadderLengthLabel(option.nights);
+		const kind =
+			option.nights === 0 ? `, ${stopoverLengthLabelFor(option.itinerary).toLowerCase()}` : '';
 		const delta = isCurrent ? undefined : formatMoneyDelta(deltaMinorUnits, currency);
 		return {
 			nights: option.nights,
@@ -168,8 +189,8 @@ export function stopoverLadder(
 			...(delta === undefined ? {} : { delta }),
 			isCurrent,
 			description: isCurrent
-				? `${label} in ${connectionLabel}, the trip shown`
-				: `${label} in ${connectionLabel}, ${delta}`
+				? `${label} in ${connectionLabel}${kind}, the trip shown`
+				: `${label} in ${connectionLabel}${kind}, ${delta}`
 		};
 	});
 }

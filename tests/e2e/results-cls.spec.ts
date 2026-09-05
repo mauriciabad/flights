@@ -2,6 +2,7 @@ import { test, expect } from './support/fixtures';
 import type { Page } from './support/fixtures';
 import { FIXTURE_FLIGHT_NUMBERS, FIXTURE_PRICES } from './support/fixture-markers';
 import { mockAllKeylessProviders, routeRyanairFlights } from './support/providers';
+import { waitForSearchToSettle } from '../shared/search-wait';
 
 /**
  * Whether the results page holds still while it fills. Issue #314.
@@ -203,11 +204,11 @@ test.describe('the results page holds still while it fills', () => {
 			await page.setViewportSize({ width, height });
 			await page.goto(SEARCH_URL);
 
-			await expect(page.getByText('still searching')).toHaveCount(0, { timeout: 30_000 });
+			await waitForSearchToSettle(page, { timeout: 30_000 });
 			await expect(page.locator('.result-card').first()).toBeVisible();
 			// The page goes on moving after the last card lands: a background revalidation
 			// (#293) re-renders cards in place, and issue #314's largest production shift
-			// arrived 25 seconds in. Measuring at "still searching went away" would miss it.
+			// arrived 25 seconds in. Measuring at the moment the search settles would miss it.
 			await page.waitForTimeout(5_000);
 
 			const { total, moved } = await readLayoutShift(page);
