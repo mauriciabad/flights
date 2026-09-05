@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import type { Airport, City, Country, Duration, FlightFarePriceScope, FlightOffer, LocalDateTime, Stay, Transfer } from '../domain';
 import { buildItineraries, recomputeItineraryWaitingTimes, type BuildItinerariesInput } from './build';
-import { diffFlightOffers, diffTransfers, recomputeItinerarySelection } from './recompute-selection';
+import {
+	diffFlightOffers,
+	diffTransfers,
+	recomputeItinerarySelection,
+	selectionIsUnusable
+} from './recompute-selection';
 
 const country: Country = { isoCode: 'AT', name: 'Austria' };
 const city: City = { name: 'Vienna', coordinates: { latitude: 48.2, longitude: 16.37 }, country };
@@ -178,6 +183,56 @@ describe('recomputeItinerarySelection: connection time', () => {
 		expect(result.itinerary.freeTime.duration).toBeLessThan(0);
 		expect(result.itinerary.nightsInConnection).toBe(0);
 		expect(result.itinerary.transferToConnectionAirport).toBe(veryLongTransfer);
+	});
+});
+
+/**
+ * Issue #317. Production printed "+EUR 200.01 . 53h 10m later" on a row whose next line
+ * read "The onward flight leaves before this one lands, so there is no connection to make."
+ * The delta is arithmetic on two real fares and it describes a trip nobody can take, which
+ * is what this predicate exists to stop a picker doing.
+ */
+describe('selectionIsUnusable', () => {
+	it('is true for flights in the wrong order, which no control on the panel repairs', () => {
+		const itinerary = baseItinerary();
+		const landsAfterOnwardLeft = localDateTime('2026-06-03T21:10:00');
+		const tooLate = makeFlight('LGW', 'VIE', landsAfterOnwardLeft, landsAfterOnwardLeft, 175);
+
+		const result = recomputeItinerarySelection(itinerary, { outboundFlight: tooLate });
+
+		expect(result.warnings[0]?.code).toBe('flights-out-of-order');
+		expect(selectionIsUnusable(result)).toBe(true);
+	});
+
+	it('is false for a layover under the traveller\'s own minimum, which is a trip you can take', () => {
+		const itinerary = baseItinerary();
+		const laterArrival = localDateTime('2026-06-01T10:25:00');
+		const tight = makeFlight('LGW', 'VIE', laterArrival, laterArrival, 175);
+
+		const result = recomputeItinerarySelection(itinerary, { outboundFlight: tight });
+
+		expect(result.warnings[0]?.code).toBe('layover-too-short');
+		expect(selectionIsUnusable(result)).toBe(false);
+	});
+
+	it('is false when the transfers overrun, which the waiting-time stepper can still fix', () => {
+		const itinerary = baseItinerary();
+		const veryLongTransfer = makeTransfer(10_000);
+
+		const result = recomputeItinerarySelection(itinerary, { transferToConnectionAirport: veryLongTransfer });
+
+		expect(result.warnings.map((warning) => warning.code)).toContain('insufficient-connection-time');
+		expect(selectionIsUnusable(result)).toBe(false);
+	});
+
+	it('is false for a pick with nothing wrong with it', () => {
+		const itinerary = baseItinerary();
+		const earlierArrival = localDateTime('2026-06-01T09:30:00');
+		const earlier = makeFlight('LGW', 'VIE', earlierArrival, earlierArrival, 120);
+
+		expect(selectionIsUnusable(recomputeItinerarySelection(itinerary, { outboundFlight: earlier }))).toBe(
+			false
+		);
 	});
 });
 

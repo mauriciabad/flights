@@ -30,14 +30,17 @@
 	import {
 		diffFlightOffers,
 		recomputeItinerarySelection,
+		selectionIsUnusable,
 		type RecomputedSelection
 	} from '../algorithm/recompute-selection';
 	import {
+		calendarDayOffset,
 		formatClockTime,
 		formatDuration,
 		formatMoney,
 		formatMoneyDelta,
-		formatTimeDelta
+		formatTimeDelta,
+		formatWeekdayAndDay
 	} from './itinerary-timeline-format';
 	import { describeFlightOptions } from './flight-picker-summary';
 	// Shared with ResultDetail's "is there anything to swap" check (issue #140), so the
@@ -80,6 +83,13 @@
 		isSelected: boolean;
 		delta: ReturnType<typeof diffFlightOffers> | null;
 		result: RecomputedSelection;
+		/** Issue #317: no money on a row that is not a trip. See `selectionIsUnusable`. */
+		isUnusable: boolean;
+		/** Whole days between this flight's own departure and arrival calendars, so a
+		 * landing after midnight is stamped rather than left to read as the same evening.
+		 * Each side is read in its own airport's local calendar, which is the date printed
+		 * on the board the traveller is standing in front of. */
+		arrivalDayOffset: number;
 	}
 
 	const rows = $derived.by<FlightRow[]>(() => {
@@ -99,10 +109,28 @@
 				flight,
 				isSelected,
 				delta: isSelected ? null : diffFlightOffers(selected, flight),
-				result
+				result,
+				isUnusable: selectionIsUnusable(result),
+				arrivalDayOffset: calendarDayOffset(flight.departure, flight.arrival)
 			};
 		});
 	});
+
+	/**
+	 * Issue #317: whether a row has to say which day it is on.
+	 *
+	 * Production listed thirteen flights over four dates and printed a clock reading on
+	 * every one of them and nothing else, so `7:20am` appeared four times at four prices
+	 * and the only way to tell those rows apart was to add "49h later" to the current
+	 * pick's departure and round. The date is a fact the component already holds.
+	 *
+	 * Only when the list actually crosses a day. A single-day list already has its date in
+	 * the caption above ("13 flights on 6 Oct"), and stamping it on every row there would
+	 * be the same word thirteen times.
+	 */
+	const spansSeveralDates = $derived(
+		new Set(rows.map((row) => row.flight.departure.local.slice(0, 10))).size > 1
+	);
 
 	// Issue #137: how wide this list actually is, stated rather than left to be inferred
 	// from its length. Derived from `rows` (the deduplicated, current-pick-included list the
@@ -149,7 +177,16 @@
 	{/if}
 	<div role="radiogroup" aria-label={legLabel} class="picker-list">
 		{#each rows as row (flightKey(row.flight))}
-			<label class={['picker-row', { 'is-selected': row.isSelected, 'has-warning': row.result.warnings.length > 0 }]}>
+			<label
+				class={[
+					'picker-row',
+					{
+						'is-selected': row.isSelected,
+						'has-warning': row.result.warnings.length > 0,
+						'is-unusable': row.isUnusable
+					}
+				]}
+			>
 				<input
 					type="radio"
 					name={groupName}
@@ -158,19 +195,40 @@
 					onchange={() => handleSelect(row)}
 				/>
 				<span class="row-schedule">
+					{#if spansSeveralDates}
+						<span class="row-date">{formatWeekdayAndDay(row.flight.departure)}</span>
+					{/if}
 					<span class="font-mono tabular-nums row-time">{formatClockTime(row.flight.departure)}</span>
 					<Icon name="arrow-right" class="row-arrow" />
-					<span class="font-mono tabular-nums row-time">{formatClockTime(row.flight.arrival)}</span>
+					<span class="font-mono tabular-nums row-time">
+						{formatClockTime(row.flight.arrival)}
+						{#if row.arrivalDayOffset !== 0}
+							<span class="tl-note-plusday font-mono tabular-nums"
+								>{row.arrivalDayOffset > 0 ? '+' : ''}{row.arrivalDayOffset}<span class="visually-hidden">
+									{row.arrivalDayOffset === 1
+										? 'day later'
+										: row.arrivalDayOffset === -1
+											? 'day earlier'
+											: 'days'}</span
+								></span
+							>
+						{/if}
+					</span>
 				</span>
 				<span class="row-meta">
 					<span class="row-carrier">{row.flight.carrier.iataCode} {row.flight.flightNumber}</span>
 					<span class="row-duration font-mono tabular-nums">{formatDuration(row.flight.duration)}</span>
 				</span>
-				<span class="row-price font-mono tabular-nums">{formatMoney(row.flight.price)}</span>
+				<!-- Issue #317: money for a trip that does not exist. The row itself stays,
+				     greyed, because the flight is real and the traveller reaches it by moving
+				     the onward leg or the stopover length. -->
+				{#if !row.isUnusable}
+					<span class="row-price font-mono tabular-nums">{formatMoney(row.flight.price)}</span>
+				{/if}
 				<span class="row-delta">
 					{#if row.isSelected}
 						<span class="row-current">Current pick</span>
-					{:else if row.delta}
+					{:else if row.delta && !row.isUnusable}
 						<span class="delta-text" class:is-cheaper={((row.delta.priceDeltaMinorUnits ?? 0) < 0)}>
 							{row.delta.currencyMismatch
 								? formatMoney(row.flight.price)
@@ -287,11 +345,62 @@
 		box-shadow: inset 3px 0 0 var(--color-warning);
 	}
 
+	/* Colour, never opacity. app.css: "reduced opacity on a dark background loses contrast
+	   fast", and `--color-text-deprioritized` is the token it points every agent at for
+	   greying an option out. The row is still legible, still clickable and still says what
+	   flight it is; it has simply stopped claiming to be a price you can compare. */
+	.picker-row.is-unusable .row-schedule,
+	.picker-row.is-unusable .row-meta {
+		color: var(--color-text-deprioritized);
+	}
+
+	/* Nothing to hold, so nothing to reserve. Half the rows on the reference search are
+	   unusable, and 5rem of empty column on each of them is a hole down the list. */
+	.picker-row.is-unusable .row-delta {
+		min-width: 0;
+	}
+
 	.row-schedule {
 		display: flex;
 		align-items: center;
 		gap: var(--space-2);
 		font-size: var(--font-size-sm);
+	}
+
+	/* Issue #317's whole fix, and it costs the row no height: the date rides in the cell
+	   the clocks already occupy rather than taking a line or a day heading of its own.
+	   Quieter than the times on purpose, so the column still scans as a timetable and the
+	   date answers "which one is this" without competing to be read first. `formatWeekday-
+	   AndDay` gives "Tue 6", the shape the owner wrote the free-time block in on #228, with
+	   no padded day and no month: the caption directly above already names the month. */
+	.row-date {
+		flex-shrink: 0;
+		min-width: 3.25rem;
+		font-family: var(--font-mono);
+		font-size: var(--font-size-xs);
+		font-weight: var(--font-weight-medium);
+		color: var(--color-text-muted);
+	}
+
+	.row-time {
+		display: flex;
+		align-items: center;
+		gap: var(--space-1);
+		white-space: nowrap;
+	}
+
+	/* The same stamp TimeCell puts on a timeline arrival, class name included, so a landing
+	   after midnight reads identically wherever this app draws one. Without it a dated row
+	   would actively mislead: "Tue 2  11:30pm to 1:30am" is a Wednesday arrival. Redefined
+	   here rather than inherited, because Svelte scopes a component's CSS and a rule this
+	   file does not carry would not reach this element. */
+	.tl-note-plusday {
+		padding: 0 var(--space-1);
+		border-radius: var(--radius-sm);
+		background: var(--color-warning-bg);
+		color: var(--color-warning);
+		font-size: 0.625rem;
+		font-weight: var(--font-weight-bold);
 	}
 
 	.row-schedule :global(.row-arrow) {
@@ -455,11 +564,21 @@
 	   that hosts it declares `container-type: inline-size`, and it is the only thing that
 	   renders this component. */
 	@container (max-width: 32rem) {
+		/* The schedule pairs with the fare and the flight number with the comparison, which
+		   is the opposite of how this two-line layout started.
+
+		   Issue #317 forced the swap. The date adds 52px to a line that already held two
+		   clocks and an arrow, and beside a delta as long as "+€17.00 · 9h 55m earlier" the
+		   300px rail #278 put this picker in ran out at "10:25pm". Measured on a real build
+		   at 375, 768 and 1280, the arrival clock sat under the delta at every one, while
+		   the row height and `scrollWidth` both looked fine. Rebalancing costs no height,
+		   since both lines already exist and each pair's shorter half moves to the line with
+		   room for it. `tools/probe-flight-picker-dates.mjs --width` is what measures it. */
 		.picker-row {
 			grid-template-columns: 1fr auto;
 			grid-template-areas:
-				'schedule delta'
-				'meta price';
+				'schedule price'
+				'meta delta';
 		}
 
 		.row-schedule {
@@ -468,6 +587,7 @@
 
 		.row-delta {
 			grid-area: delta;
+			min-width: 0;
 		}
 
 		.row-meta {

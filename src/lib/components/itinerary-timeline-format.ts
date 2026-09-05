@@ -35,6 +35,7 @@ export {
 	formatPropertyRating,
 	formatTimeDelta,
 	formatUtcOffset,
+	formatWeekdayAndDay,
 	isDifferentCalendarDate
 } from '$lib/format';
 

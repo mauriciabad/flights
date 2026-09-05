@@ -96,6 +96,41 @@ export interface RecomputedSelection {
 }
 
 /**
+ * Whether a warning still leaves a journey, or takes the last one away.
+ *
+ * Two of the three are measured against numbers the traveller chose and can move without
+ * leaving the panel the warning is printed on. `layover-too-short` is measured against
+ * their own minimum layover; `insufficient-connection-time` against their own waiting-time
+ * buffer and the ground legs they can swap two rows up. Both describe a trip that exists
+ * and is tight, so both keep their price.
+ *
+ * `flights-out-of-order` is not that. It is two clock readings subtracted, the onward
+ * flight leaving before this one lands, and nothing on this screen moves it. The traveller
+ * has to pick a different onward flight or a longer stopover first, and until they do,
+ * every number derived from the pairing is a number about a trip nobody can take.
+ *
+ * A `Record` rather than a list, so adding a fourth code is a compile error here rather
+ * than a row that quietly starts pricing itself again.
+ */
+const WARNING_LEAVES_A_JOURNEY: Record<ItineraryWarningCode, boolean> = {
+	'layover-too-short': true,
+	'insufficient-connection-time': true,
+	'flights-out-of-order': false
+};
+
+/**
+ * Issue #317: true when this pick is not a trip, so nothing may price it.
+ *
+ * Here rather than in `FlightPicker` because this module is what raises the warning, and
+ * the rule about what a warning permits has to live beside the code that decides a warning
+ * is due. Split across two files they drift, and the drift shows up as a price delta on an
+ * itinerary the app already ruled out.
+ */
+export function selectionIsUnusable(selection: RecomputedSelection): boolean {
+	return selection.warnings.some((warning) => !WARNING_LEAVES_A_JOURNEY[warning.code]);
+}
+
+/**
  * Applies `overrides` to `itinerary` and recomputes every derived field that could change:
  * free time (real start/end, not only a duration), nights in connection, the itinerary
  * total price and the times breakdown. Never silently drops an impossible result: a
