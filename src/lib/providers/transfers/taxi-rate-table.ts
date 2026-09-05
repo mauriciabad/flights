@@ -1,4 +1,5 @@
 import type { FareEstimate, FareRange, IsoCountryCode, IsoCurrencyCode } from '../../domain';
+import { canConvert, convertMinorUnits, exchangeRateProvenance } from '$lib/data/exchange-rates';
 
 /**
  * A per-country taxi rate card, and the arithmetic that turns a driving distance into a
@@ -205,17 +206,64 @@ const FALLBACK_TAXI_RATE_CARD: TaxiRateCard = {
 export const MAX_RATED_TAXI_DISTANCE_KM = 30;
 
 /**
+ * Puts a rate-card range into the currency the traveller picked, or gives it back
+ * untouched. Issue #339.
+ *
+ * Both bounds convert or neither does, which is what `canConvert` is checked for up front:
+ * a low bound in euros beside a high bound in pounds is not a range, it is two numbers
+ * that happen to be adjacent. The same reason `sumMoney` throws on a currency mix.
+ *
+ * The refusal path is deliberately the pre-#339 behaviour rather than an error or a blank.
+ * No rate for this pair, or rates too old to stand behind, and the traveller reads the
+ * rate card's own currency, which is the one figure this app can defend. See
+ * `data/exchange-rates.ts` for what "too old" is and why it is a liveness check rather
+ * than a precision one.
+ */
+function inTravellerCurrency(range: FareRange, displayCurrency: IsoCurrencyCode | undefined): FareRange {
+	if (displayCurrency === undefined || displayCurrency === range.currency) return range;
+	if (!canConvert(range.currency, displayCurrency)) return range;
+	const low = convertMinorUnits(range.lowMinorUnits, range.currency, displayCurrency);
+	const high = convertMinorUnits(range.highMinorUnits, range.currency, displayCurrency);
+	if (low === undefined || high === undefined) return range;
+
+	return {
+		...range,
+		currency: displayCurrency,
+		lowMinorUnits: low,
+		highMinorUnits: high,
+		converted: {
+			from: range.currency,
+			fromLowMinorUnits: range.lowMinorUnits,
+			fromHighMinorUnits: range.highMinorUnits,
+			rateDate: exchangeRateProvenance().referenceDate
+		}
+	};
+}
+
+/**
  * Turns a route distance into a taxi fare range for the country it falls in, or into a
  * refusal when the ride is longer than the cards describe. Pure and synchronous on purpose
  * — it is arithmetic over a static table, not a lookup that needs caching or network access
- * the way the OSRM route it is normally fed by does.
+ * the way the OSRM route it is normally fed by does. Issue #339's conversion keeps that
+ * property: `data/exchange-rates.ts` is thirty numbers imported statically, so this is
+ * still one function over two tables.
  *
  * Brief line 77 / issue #9: "aprox prices" for the transport floor when transit is dead;
  * AGENTS.md "never present an estimate as a fact" is why the priced result is a range with
  * its `rateSource` and `citation` attached rather than a single `Money`, and why the
  * over-distance result is nothing at all rather than a wider range.
+ *
+ * `displayCurrency` is the currency the traveller picked, and passing it is what stops the
+ * receipt reading `£115.04-£182.84` under a euro total (issue #339). Omitting it gives the
+ * rate card's own currency, which is what every test that does not care about conversion
+ * wants and what the app showed before. The out-of-range refusal never converts, because
+ * it carries no money to convert.
  */
-export function estimateTaxiFare(distanceMeters: number, countryCode: IsoCountryCode): FareEstimate {
+export function estimateTaxiFare(
+	distanceMeters: number,
+	countryCode: IsoCountryCode,
+	displayCurrency?: IsoCurrencyCode
+): FareEstimate {
 	if (!(distanceMeters >= 0)) {
 		throw new Error(`estimateTaxiFare requires a non-negative distance, got ${distanceMeters}`);
 	}
@@ -235,13 +283,16 @@ export function estimateTaxiFare(distanceMeters: number, countryCode: IsoCountry
 		};
 	}
 
-	return {
-		kind: 'estimate',
-		currency,
-		lowMinorUnits: Math.round(flagDownMinorUnits[0] + perKmMinorUnits[0] * distanceKm),
-		highMinorUnits: Math.round(flagDownMinorUnits[1] + perKmMinorUnits[1] * distanceKm),
-		countryCode,
-		rateSource,
-		citation
-	};
+	return inTravellerCurrency(
+		{
+			kind: 'estimate',
+			currency,
+			lowMinorUnits: Math.round(flagDownMinorUnits[0] + perKmMinorUnits[0] * distanceKm),
+			highMinorUnits: Math.round(flagDownMinorUnits[1] + perKmMinorUnits[1] * distanceKm),
+			countryCode,
+			rateSource,
+			citation
+		},
+		displayCurrency
+	);
 }

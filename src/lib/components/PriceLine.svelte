@@ -54,12 +54,29 @@
 	 *
 	 * Issue #249, and issue #305 changed only how they read. The estimate is a range by
 	 * construction, and collapsing it to a point to fit a `Money` invents the precision the
-	 * range exists to refuse. Its currency is the ride's country's, not the search's, so a
-	 * GBP taxi against a EUR trip is the mix `sumMoney` throws on and issue #152 was about.
-	 * And `totalPrice` is read by `results/sort.ts`'s cheapest-first and
-	 * `results/filters.ts`'s max-price filter, so a guess in there quietly decides which
+	 * range exists to refuse. And `totalPrice` is read by `results/sort.ts`'s cheapest-first
+	 * and `results/filters.ts`'s max-price filter, so a guess in there quietly decides which
 	 * trips a traveller never sees. Removing the ESTIMATE label is presentation; moving the
 	 * number into the total would be none of those things and must not happen.
+	 *
+	 * ## Issue #339 changed the currency, and nothing else
+	 *
+	 * The owner read `Rides from and to hotel  £115.04-£182.84` under a euro total. The
+	 * rate card is written in the ride's country's currency and there was no converter in
+	 * the app, so those pounds were true and unusable: a figure that cannot be held against
+	 * the number three lines above it.
+	 *
+	 * The estimate now arrives already in the traveller's currency, converted at the ECB
+	 * reference rate vendored by `data/exchange-rates.ts`, the same way every other price
+	 * on this card is in that currency because the search asked the provider for it. This
+	 * component prints what it is given and adds one line: the range the rate card actually
+	 * quoted, in the currency the driver actually charges. That line is the honesty half.
+	 * A euro figure alone would read as a quote, and it is a rate card applied to a
+	 * distance and then crossed at a rate of some age.
+	 *
+	 * What did NOT change: the estimate is still outside `totalPrice`, `costIsUnknown`
+	 * still returns true for it, and a mixed-currency total is still impossible, because
+	 * nothing converted here is a `Money` and none of it reaches `sumMoney` (issue #152).
 	 */
 	import type { Itinerary } from '$lib/domain';
 	import { formatMoney, formatMoneyRange } from '$lib/format';
@@ -168,6 +185,19 @@
 						<span class="price-part-amount font-mono tabular-nums"
 							>{formatMoneyRange(row.cost.lowMinorUnits, row.cost.highMinorUnits, row.cost.currency)}</span
 						>
+						{#if row.cost.converted}
+							{@const source = row.cost.converted}
+							<!-- Issue #339. The converted figure is the one a traveller compares with
+							     the total; this is the one they hand over at the taxi rank, and it is
+							     also what stops the euro range reading as a quote. Its own line, after
+							     the amount and inside the same row, so the receipt's right-hand column
+							     of figures stays a column you can add. -->
+							<span class="price-part-source">
+								from <span class="font-mono tabular-nums"
+									>{formatMoneyRange(source.fromLowMinorUnits, source.fromHighMinorUnits, source.from)}</span
+								>
+							</span>
+						{/if}
 					{:else if row.cost.kind === 'free'}
 						<span class="price-part-amount">free</span>
 					{:else}
@@ -272,6 +302,22 @@
 		flex-shrink: 0;
 		margin-left: auto;
 		font-weight: var(--font-weight-medium);
+		color: var(--color-text-muted);
+	}
+
+	/* Issue #339's "from £73.73-£116.46", under the converted amount and hard to the same
+	   right edge. `flex-basis: 100%` puts it on its own line inside the row's existing wrap
+	   rather than in a second flex row, so the amount above it keeps the right-hand column
+	   every other figure on the receipt lines up in.
+
+	   Same size and same `--color-text-muted` as the amount it qualifies, rather than a
+	   step fainter. `--color-text-faint` measures 4.19:1 on `--color-surface`, under AA,
+	   and this is a currency a traveller is being told to expect at a taxi rank, which is
+	   the wrong line on the card to make hard to read. The hierarchy comes from the lighter
+	   weight and the word "from" instead. */
+	.price-part-source {
+		flex-basis: 100%;
+		text-align: right;
 		color: var(--color-text-muted);
 	}
 

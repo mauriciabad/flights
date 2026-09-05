@@ -19,7 +19,7 @@
  * time and price of each part, and the totals.
  */
 
-import type { IsoCurrencyCode, Itinerary, Money, Stay, Transfer } from '$lib/domain';
+import type { FareConversion, IsoCurrencyCode, Itinerary, Money, Stay, Transfer } from '$lib/domain';
 import { groundFare, unpricedTransferLegs, walkedTransferLegs } from '$lib/domain';
 import { scaleFareForParty, sumMoney } from '$lib/algorithm/build';
 import { formatDuration, formatLongDuration, formatMoney, formatMoneyRange } from '$lib/format';
@@ -296,7 +296,17 @@ export interface PricePart {
 export type GroundRowCost =
 	| { kind: 'quoted'; money: Money }
 	| { kind: 'free' }
-	| { kind: 'estimated'; currency: IsoCurrencyCode; lowMinorUnits: number; highMinorUnits: number }
+	| {
+			kind: 'estimated';
+			currency: IsoCurrencyCode;
+			lowMinorUnits: number;
+			highMinorUnits: number;
+			/** What this range was before it was put into the traveller's currency, when it
+			 * was put into it at all. Issue #339: the receipt prints the converted figure,
+			 * because that is the one a traveller can hold against the total above it, and
+			 * names the original underneath, because that is the one the driver charges. */
+			converted?: FareConversion;
+	  }
 	| { kind: 'unknown' };
 
 /**
@@ -458,7 +468,8 @@ function costOf(transfer: Transfer): GroundRowCost {
 				kind: 'estimated',
 				currency: fare.estimate.currency,
 				lowMinorUnits: fare.estimate.lowMinorUnits,
-				highMinorUnits: fare.estimate.highMinorUnits
+				highMinorUnits: fare.estimate.highMinorUnits,
+				converted: fare.estimate.converted
 			};
 		case 'beyond-rate-card':
 		case 'unquoted':
@@ -484,11 +495,26 @@ function mergeHotelCosts(a: GroundRowCost, b: GroundRowCost): GroundRowCost | un
 	}
 	if (a.kind === 'estimated' && b.kind === 'estimated') {
 		if (a.currency !== b.currency) return undefined;
+		// Issue #339: and not if they were converted out of different currencies either. The
+		// two hotel-side legs are the same ride in reverse, so in practice they share a rate
+		// card; a pair that did not could not honestly print one "from GBP" line, and a
+		// merged row that dropped the source would be the converted figure standing alone
+		// with nothing saying what it came from.
+		if (a.converted?.from !== b.converted?.from) return undefined;
 		return {
 			kind: 'estimated',
 			currency: a.currency,
 			lowMinorUnits: a.lowMinorUnits + b.lowMinorUnits,
-			highMinorUnits: a.highMinorUnits + b.highMinorUnits
+			highMinorUnits: a.highMinorUnits + b.highMinorUnits,
+			converted:
+				a.converted && b.converted
+					? {
+							from: a.converted.from,
+							fromLowMinorUnits: a.converted.fromLowMinorUnits + b.converted.fromLowMinorUnits,
+							fromHighMinorUnits: a.converted.fromHighMinorUnits + b.converted.fromHighMinorUnits,
+							rateDate: a.converted.rateDate
+						}
+					: undefined
 		};
 	}
 	return undefined;

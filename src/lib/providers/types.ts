@@ -333,6 +333,25 @@ export interface TransferSearchQuery {
 	 * asked about, and one search asks about legs in two different countries.
 	 */
 	countryCode?: IsoCountryCode;
+	/**
+	 * The currency the traveller picked, which a rate-card estimate is converted into
+	 * before it reaches a screen. Issue #339.
+	 *
+	 * Beside `countryCode` because the two answer the halves of one question. The country
+	 * picks which tariff describes this ride; this picks which currency the traveller can
+	 * read it in. Both are properties of the journey rather than of the provider, and one
+	 * search asks about legs in two countries whose cards are written in two currencies.
+	 *
+	 * Absent means no conversion, and the estimate comes back in the rate card's own
+	 * currency. That is what the app did before #339 and it stays the honest fallback:
+	 * `data/exchange-rates.ts` refuses a pair it has no rate for, and the pounds a
+	 * Birmingham cab really charges beat a euro figure crossed at a rate nobody has.
+	 *
+	 * Never sent to OSRM. It never reaches a request at all, because no transfer provider
+	 * in this codebase quotes a fare (see `osrm.ts`'s own header); it only tells the
+	 * adapter what to denominate its local guess in.
+	 */
+	displayCurrency?: IsoCurrencyCode;
 }
 
 export interface TransferProvider extends ProviderBase {

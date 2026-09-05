@@ -734,6 +734,11 @@ export async function fetchConnectionResources(
           to: destination,
           modes: [...ROAD_TRANSFER_MODES],
           countryCode: input.connectionCountryCode,
+          // Issue #339. The same currency the stay fetch above is given and the flight
+          // adapters are given, so the rate-card estimate on this leg reads in the one the
+          // traveller picked instead of the one the ride's country happens to use. It is
+          // not sent to OSRM; no transfer provider quotes a fare.
+          displayCurrency: input.currency,
         },
         input.transferProviders,
         input.keys,
@@ -747,6 +752,11 @@ export async function fetchConnectionResources(
           to: input.connectionCoordinates,
           modes: [...ROAD_TRANSFER_MODES],
           countryCode: input.connectionCountryCode,
+          // Issue #339. The same currency the stay fetch above is given and the flight
+          // adapters are given, so the rate-card estimate on this leg reads in the one the
+          // traveller picked instead of the one the ride's country happens to use. It is
+          // not sent to OSRM; no transfer provider quotes a fare.
+          displayCurrency: input.currency,
         },
         input.transferProviders,
         input.keys,

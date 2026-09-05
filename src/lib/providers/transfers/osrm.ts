@@ -42,6 +42,7 @@ import type {
 	Duration,
 	FareEstimate,
 	IsoCountryCode,
+	IsoCurrencyCode,
 	Transfer,
 	TransferLeg,
 	TransferMode
@@ -698,10 +699,17 @@ function routeToTransfer(mode: TransferMode, route: RouteData): Transfer {
  * No estimate without a distance. `findTransfersToMany` caches duration-only entries, and
  * rating a ride whose length nobody measured would be a rate card multiplied by a guess.
  */
-function taxiTransfer(route: RouteData, countryCode: IsoCountryCode | undefined): Transfer {
+function taxiTransfer(
+	route: RouteData,
+	countryCode: IsoCountryCode | undefined,
+	displayCurrency: IsoCurrencyCode | undefined
+): Transfer {
 	const transfer = routeToTransfer('taxi', route);
 	if (countryCode === undefined || route.distanceMeters === undefined) return transfer;
-	return { ...transfer, fareEstimate: estimateTaxiFare(route.distanceMeters, countryCode) };
+	return {
+		...transfer,
+		fareEstimate: estimateTaxiFare(route.distanceMeters, countryCode, displayCurrency)
+	};
 }
 
 // ---------------------------------------------------------------------------
@@ -838,7 +846,9 @@ async function searchTransfersImpl(
 					if (outcome.requestMade) requestsUsed++;
 					oldestStoredAt = olderFetchInstant(oldestStoredAt, outcome.storedAt);
 					if (requestedModes.includes('drive')) results.push(routeToTransfer('drive', outcome.value));
-					if (requestedModes.includes('taxi')) results.push(taxiTransfer(outcome.value, query.countryCode));
+					if (requestedModes.includes('taxi')) {
+						results.push(taxiTransfer(outcome.value, query.countryCode, query.displayCurrency));
+					}
 				}
 			} catch (error) {
 				failures.push(error);
