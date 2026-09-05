@@ -44,19 +44,18 @@
 	// The dialog has no `open` prop: rendering it opens it and dropping it closes it, so
 	// this one variable is the whole state and the MapLibre instance inside it lives
 	// exactly as long as the dialog does.
-	let openTitle = $state<string | undefined>();
+	let mapOpen = $state(false);
 
 	/**
-	 * The heading is the short label, not the leg's full sentence. Joining two legs' own
-	 * labels produced "Transfer to Vienna (straight-line estimate). Transfer to VIE
-	 * (straight-line estimate)" across three lines of a phone's dialog header, which is a
-	 * heading nobody reads and a caveat printed twice. The full sentence still reaches
-	 * everyone: it is this button's accessible name, and `ItineraryMap`'s own status line
-	 * prints it under the map the moment the dialog opens.
+	 * Tapping a preview frames the dialog's map on that leg and nothing more. It used to
+	 * hand the dialog a heading too, and issue #286 took that away: the dialog now lets a
+	 * traveller move between the trip's legs, so a heading naming whichever tile opened it
+	 * goes stale the moment they do. `RouteMapDialog` names the journey instead, and which
+	 * leg is on screen is answered by the map's own status line, live, under the map.
 	 */
-	function open(title: string, segmentId: ItinerarySegmentId | null): void {
+	function open(segmentId: ItinerarySegmentId | null): void {
 		selectedSegmentId = segmentId;
-		openTitle = title;
+		mapOpen = true;
 	}
 </script>
 
@@ -66,14 +65,14 @@
 	     traveller with no way to a map at all. One button, no picture: there is nothing
 	     honest to draw here, and drawing the flights instead would put a thumbnail under a
 	     label that promises ground transport. -->
-	<button type="button" class="ground-leg is-fallback" onclick={() => open('The whole route', null)}>
+	<button type="button" class="ground-leg is-fallback" onclick={() => open(null)}>
 		Open the route map
 	</button>
 {:else}
 	<ul class="ground-legs-row">
 		{#each previews as preview (preview.id)}
 			<li class="ground-legs-item">
-				<button type="button" class="ground-leg" onclick={() => open(preview.label, preview.focusSegmentId)}>
+				<button type="button" class="ground-leg" onclick={() => open(preview.focusSegmentId)}>
 					<span class="ground-leg-frame">
 						<RoutePreview lines={preview.lines} points={preview.points} width={120} height={88} />
 						<svg class="ground-leg-expand" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
@@ -99,13 +98,8 @@
 	</ul>
 {/if}
 
-{#if openTitle !== undefined}
-	<RouteMapDialog
-		{itinerary}
-		title={openTitle}
-		bind:selectedSegmentId
-		onclose={() => (openTitle = undefined)}
-	/>
+{#if mapOpen}
+	<RouteMapDialog {itinerary} bind:selectedSegmentId onclose={() => (mapOpen = false)} />
 {/if}
 
 <style>

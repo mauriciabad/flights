@@ -438,3 +438,41 @@ export function findSegment(
 ): ItinerarySegment | undefined {
 	return model.segments.find((segment) => segment.id === id);
 }
+
+/** One ground leg a traveller can point the map at. */
+export interface GroundLegStep {
+	id: ItinerarySegmentId;
+	/** The short name, deliberately the timeline's own words for the same row, so the
+	 *  control and the row it highlights are not two vocabularies for one journey.
+	 *  `previews.ts` captions its thumbnails from the same three of these. */
+	label: string;
+}
+
+const GROUND_LEG_STEPS: readonly GroundLegStep[] = [
+	{ id: 'transfer-to-origin-airport', label: 'To the airport' },
+	{ id: 'transfer-to-hotel', label: 'To the stopover' },
+	{ id: 'transfer-to-connection-airport', label: 'To the connection airport' },
+	{ id: 'transfer-to-destination-location', label: 'To the destination' }
+];
+
+/**
+ * The ground legs this trip has, in travel order, drawn or not (issue #286).
+ *
+ * #280 moved the map into a dialog reached by tapping a frozen preview, and a leg with no
+ * geometry gets no preview to tap — the owner's own rule, and the right one. That closed
+ * the only way to select a leg the map cannot draw, so `absentSegmentNotes` and the
+ * "Nothing to draw." half of `itineraryMapStatus` became unreachable: the sentence still
+ * existed, still passed its tests, and no traveller could get to it. A timeline row cannot
+ * reopen it either, because a modal makes the page behind it inert.
+ *
+ * The filter is the model's own invariant, not a second rule: a step belongs here when the
+ * model either draws it or explains it, which is exactly what `absentSegmentNotes`
+ * promises. A leg the itinerary never had (no origin location, so nothing was ever routed
+ * or explained) is neither, and stays off the list rather than offering a traveller a
+ * journey they are not on.
+ */
+export function groundLegSteps(model: ItineraryMapModel): GroundLegStep[] {
+	return GROUND_LEG_STEPS.filter(
+		(step) => findSegment(model, step.id) !== undefined || model.absentSegmentNotes[step.id] !== undefined
+	);
+}

@@ -49,6 +49,7 @@
 		allCoordinates,
 		buildItineraryMapModel,
 		findSegment,
+		groundLegSteps,
 		type ItineraryMapModel,
 		type ItineraryMarkerKind
 	} from '$lib/itinerary-map/segments';
@@ -111,6 +112,12 @@
 	// "every selectable step gets a real sentence" promise is checked in a unit test
 	// rather than only by looking at the page.
 	const status = $derived(model ? itineraryMapStatus(model, selectedSegmentId) : undefined);
+
+	// Issue #286: the ground legs of this trip, drawn or not, so the status line above can
+	// be pointed at a leg with nothing to draw. Inside the dialog #280 moved this map into,
+	// this is the only way to reach one: the timeline is behind a modal and inert, and a leg
+	// with no geometry has no preview to tap.
+	const steps = $derived(model ? groundLegSteps(model) : []);
 
 	// Resolves the one thing an Itinerary never names directly (see segments.ts's own
 	// doc comment). Re-runs if the itinerary prop itself is swapped out from above
@@ -649,6 +656,26 @@
 			</p>
 		{/if}
 	</div>
+	<!--
+		Issue #286. Every ground leg the trip has, drawn or not, because the ones with
+		nothing to draw are the whole reason this row exists: pressing one leaves the camera
+		where it is and makes the line above read "Nothing to draw." and then why. The button
+		says only the leg's name — a map owes no announcement about a leg nobody asked it
+		about, and the sentence is the answer to a press, not a warning printed beside it.
+	-->
+	{#if steps.length > 0}
+		<div class="map-steps" role="group" aria-label="Legs of this trip">
+			{#each steps as step (step.id)}
+				<button
+					type="button"
+					class="map-step"
+					class:is-current={selectedSegmentId === step.id}
+					aria-current={selectedSegmentId === step.id ? 'true' : undefined}
+					onclick={() => (selectedSegmentId = step.id)}>{step.label}</button
+				>
+			{/each}
+		</div>
+	{/if}
 </div>
 
 <style>
@@ -836,6 +863,82 @@
 
 	.map-status-reset:active {
 		background: var(--color-surface);
+	}
+
+	/* Under the caption, not beside it: the sentence answers the press, so it reads in that
+	   order. `flex: none` for the same reason the bar has it — the dialog imposes a height
+	   and the canvas is what may give pixels back, never the controls. */
+	.map-steps {
+		display: flex;
+		flex: none;
+		flex-wrap: wrap;
+		gap: var(--space-2);
+	}
+
+	/* `Chip`'s pill, at the map bar's own muted weight. Not `Chip` itself: that component
+	   carries facet counts, a remove button and four tones this row has no use for. */
+	.map-step {
+		position: relative;
+		height: 1.75rem;
+		padding-inline: var(--space-3);
+		border: 1px solid var(--color-border-strong);
+		border-radius: var(--radius-full);
+		background: var(--color-surface);
+		color: var(--color-text-muted);
+		font-family: inherit;
+		font-size: var(--font-size-xs);
+		font-weight: var(--font-weight-semibold);
+		line-height: 1;
+		cursor: pointer;
+		transition:
+			background-color var(--transition-fast),
+			border-color var(--transition-fast),
+			color var(--transition-fast);
+	}
+
+	/* `Chip.chip-toggle::after`'s trick, and its reasoning: the pill stays 28px so a row of
+	   four does not tower over the map it captions, while the real hit target is the 44px
+	   WCAG 2.5.5 asks for. Width stays at 100% so it never reaches into the neighbour. */
+	.map-step::after {
+		content: '';
+		position: absolute;
+		inset: 50% 0 auto 0;
+		height: 2.75rem;
+		transform: translateY(-50%);
+	}
+
+	.map-step:hover {
+		border-color: var(--color-accent);
+		background: var(--color-surface-hover);
+		color: var(--color-text);
+	}
+
+	/* The inset ring rather than a 2px border, so picking a leg cannot reflow the row under
+	   the finger that just picked it. */
+	.map-step.is-current {
+		border-color: var(--color-accent);
+		background: var(--color-accent-muted);
+		color: var(--color-accent);
+		box-shadow: inset 0 0 0 1px var(--color-accent);
+	}
+
+	.map-step:focus-visible {
+		outline: 2px solid var(--color-focus-ring);
+		outline-offset: 2px;
+	}
+
+	.map-step:active {
+		transform: scale(0.97);
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.map-step {
+			transition: none;
+		}
+
+		.map-step:active {
+			transform: none;
+		}
 	}
 
 	.itinerary-map-legend {

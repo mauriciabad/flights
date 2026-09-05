@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Airport, Duration, FlightOffer, Itinerary, LocalDateTime, Stay, Transfer } from '$lib/domain';
-import { allCoordinates, buildItineraryMapModel, findSegment } from './segments';
+import { allCoordinates, buildItineraryMapModel, findSegment, groundLegSteps } from './segments';
+import { itineraryMapStatus } from './status';
 import type { ItinerarySegmentId } from './segment-id';
 import { unroutedLegNote } from '$lib/components/itinerary-timeline-format';
 import { boundsOfCoordinates } from './geo';
@@ -606,5 +607,71 @@ describe('point precision (issue #141)', () => {
 
 		const points = model.segments.filter((s) => s.kind === 'point');
 		expect(points.filter((p) => p.precision !== 'exact').map((p) => p.id)).toEqual([]);
+	});
+});
+
+describe('groundLegSteps (issue #286: reaching a leg the map cannot draw)', () => {
+	function withBothEnds(overrides: Partial<Itinerary> = {}): Itinerary {
+		return {
+			...baseItinerary(),
+			originLocation: { label: 'Home', coordinates: { latitude: 40.42, longitude: -3.7 } },
+			transferToOriginAirport: transfer(),
+			destinationLocation: { label: 'Office', coordinates: { latitude: 59.44, longitude: 24.75 } },
+			transferToDestinationLocation: transfer(),
+			...overrides
+		};
+	}
+
+	it('lists every ground leg of the trip, in travel order', () => {
+		const model = buildItineraryMapModel(withBothEnds(), connectionAirport);
+
+		expect(groundLegSteps(model).map((step) => step.id)).toEqual([
+			'transfer-to-origin-airport',
+			'transfer-to-hotel',
+			'transfer-to-connection-airport',
+			'transfer-to-destination-location'
+		]);
+	});
+
+	it('offers a leg nobody routed, which is the only way left to reach its note', () => {
+		const model = buildItineraryMapModel(
+			withBothEnds({
+				stay: undefined,
+				transferToHotel: undefined,
+				transferToConnectionAirport: undefined,
+				nightsInConnection: 2
+			}),
+			connectionAirport
+		);
+
+		const ids = groundLegSteps(model).map((step) => step.id);
+		expect(ids).toContain('transfer-to-hotel');
+		expect(findSegment(model, 'transfer-to-hotel')).toBeUndefined();
+	});
+
+	it('leaves out a leg the trip does not have, rather than offering a journey nobody is on', () => {
+		const model = buildItineraryMapModel(baseItinerary(), connectionAirport);
+
+		expect(groundLegSteps(model).map((step) => step.id)).toEqual([
+			'transfer-to-hotel',
+			'transfer-to-connection-airport'
+		]);
+	});
+
+	// The load-bearing one. #141 made "every id is either drawn or explained" a property of
+	// the model; this makes "every leg you can press answers with a sentence" a property of
+	// the control, so a step added here without a note fails in vitest rather than in a
+	// traveller's dialog.
+	it('answers every leg it offers with a real sentence, drawn or not', () => {
+		for (const itinerary of [
+			withBothEnds(),
+			withBothEnds({ stay: undefined, transferToHotel: undefined, transferToConnectionAirport: undefined, nightsInConnection: 2 }),
+			withBothEnds({ transferToOriginAirport: undefined, transferToDestinationLocation: undefined })
+		]) {
+			const model = buildItineraryMapModel(itinerary, connectionAirport);
+			for (const step of groundLegSteps(model)) {
+				expect(itineraryMapStatus(model, step.id).text, `${step.id} answered with nothing`).not.toBe('');
+			}
+		}
 	});
 });

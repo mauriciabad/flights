@@ -45,13 +45,6 @@
 	interface Props {
 		itinerary: Itinerary;
 		/**
-		 * Heading, and the dialog's accessible name. Short: the leg's name, not its sentence.
-		 * The full sentence with its "(straight-line estimate)" caveat reaches the reader
-		 * twice without being here, as the accessible name of the button that opened this and
-		 * as `ItineraryMap`'s own status line under the map.
-		 */
-		title: string;
-		/**
 		 * The selection this map shares with `ItineraryTimeline`, one `ItinerarySegmentId`
 		 * meaning the same thing on both sides (`segment-id.ts` documents that contract in
 		 * full). Bound rather than copied so a marker click inside the dialog leaves the
@@ -65,9 +58,23 @@
 		onclose: () => void;
 	}
 
-	let { itinerary, title, selectedSegmentId = $bindable(null), onclose }: Props = $props();
+	let { itinerary, selectedSegmentId = $bindable(null), onclose }: Props = $props();
 
 	const headingId = $props.id();
+
+	/**
+	 * The journey, not the leg that opened this (issue #286).
+	 *
+	 * It was the leg's name until the map inside gained a way to move between them, at which
+	 * point a heading fixed at whichever thumbnail was tapped described the wrong thing the
+	 * moment a traveller used that. It is also the dialog's accessible name, which a screen
+	 * reader announces once on open and never again, so a value that changes underneath it
+	 * would be announced wrong or not at all. Which leg is on screen is `ItineraryMap`'s own
+	 * status line, live, directly under the map.
+	 */
+	const heading = $derived(
+		`Route map: ${itinerary.originAirport.city.name} to ${itinerary.destinationAirport.city.name}`
+	);
 
 	function openAsModal(element: HTMLDialogElement) {
 		const trigger = document.activeElement instanceof HTMLElement ? document.activeElement : undefined;
@@ -89,7 +96,7 @@
 <dialog {@attach openAsModal} class="route-dialog" aria-labelledby={headingId} {onclose}>
 	<div class="route-dialog-shell">
 		<div class="route-dialog-head">
-			<h2 id={headingId} class="route-dialog-title">{title}</h2>
+			<h2 id={headingId} class="route-dialog-title">{heading}</h2>
 			<button
 				type="button"
 				class="route-dialog-close"
@@ -168,9 +175,9 @@
 		border-bottom: 1px solid var(--color-border);
 	}
 
-	/* A leg's own sentence runs long ("Transfer to Wombat's City Hostel (straight-line
-	   estimate)"). Two lines on a phone, never a truncation that hides the caveat, which is
-	   always the last thing in the string. */
+	/* Two city names and a prefix run long on a phone. Two lines rather than a truncation:
+	   the destination is the half that would be cut, and a route map headed "Route map:
+	   Barcelona to…" names only where the traveller started. */
 	.route-dialog-title {
 		margin: 0;
 		font-size: var(--font-size-sm);

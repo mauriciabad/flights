@@ -259,8 +259,11 @@ test.describe('frozen route previews (issue #280)', () => {
 		// The map's own status line names what it is showing, and it is the leg the button
 		// carried rather than the whole route.
 		await expect(dialog.locator('.map-status')).not.toContainText('Showing the whole route');
-		// The heading names the leg the button named; the caveat-bearing sentence is under
-		// the map, in the status line asserted above.
-		await expect(dialog.getByRole('heading')).toHaveText('The stopover');
+		// The heading names the journey, not the leg (issue #286: the map inside can be moved
+		// between legs, and a heading fixed at the thumbnail that opened it would then be
+		// describing something else). Which leg is on screen is the status line above and the
+		// pressed leg button below it.
+		await expect(dialog.getByRole('heading')).toHaveText('Route map: Barcelona to Tallinn');
+		await expect(dialog.locator('.map-step[aria-current="true"]')).toHaveText('To the stopover');
 	});
 });
