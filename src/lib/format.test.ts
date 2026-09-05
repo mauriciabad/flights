@@ -106,6 +106,16 @@ describe('formatLongDuration', () => {
 		expect(formatLongDuration(1440 as Duration)).toBe('1d');
 		expect(formatLongDuration(4560 as Duration)).toBe('3d 4h');
 	});
+
+	// Issue #217, seen on a real card as "2d 24h". Taking whole days out first and rounding
+	// the leftover afterwards let the leftover round up to 24, which is a day nobody added.
+	it('carries a remainder that rounds up to a whole day into the day count', () => {
+		expect(formatLongDuration((2 * 1440 + 23 * 60 + 50) as Duration)).toBe('3d');
+	});
+
+	it('leaves a remainder that rounds down where it is', () => {
+		expect(formatLongDuration((2 * 1440 + 23 * 60 + 29) as Duration)).toBe('2d 23h');
+	});
 });
 
 describe('formatMoney', () => {

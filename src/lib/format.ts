@@ -141,12 +141,18 @@ export function formatDuration(duration: Duration | number): string {
  * used where the number really can run past a day, which in this app is total door-to-door
  * time and a multi-night stopover's free time. Below 24 hours it is exactly
  * `formatDuration`, so a short trip never suddenly renders in a different shape.
+ *
+ * Rounds to whole hours before splitting, not after. Issue #217 was the other order: it
+ * took the whole days out and then rounded what was left, so a remainder of 23h 30m or
+ * more rounded to 24 and printed "2d 24h" on a real card. Rounding first puts that carry
+ * in the day count, where a reader would put it.
  */
 export function formatLongDuration(duration: Duration | number): string {
 	const totalMinutes = Math.round(duration);
 	if (totalMinutes < 24 * 60) return formatDuration(totalMinutes);
-	const days = Math.floor(totalMinutes / (24 * 60));
-	const hours = Math.round((totalMinutes % (24 * 60)) / 60);
+	const totalHours = Math.round(totalMinutes / 60);
+	const days = Math.floor(totalHours / 24);
+	const hours = totalHours % 24;
 	return hours === 0 ? `${days}d` : `${days}d ${hours}h`;
 }
 
