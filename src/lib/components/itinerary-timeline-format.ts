@@ -10,9 +10,16 @@
  * the providers came back with no route for it.
  */
 
-import type { Transfer, TransferAnchor, TransferLeg, TransferMode } from '../domain';
+import type {
+	LocalDateTime,
+	Transfer,
+	TransferAnchor,
+	TransferLeg,
+	TransferMode,
+	TransitPlanMoment
+} from '../domain';
 import type { WithheldRoutes } from '../search/types';
-import { formatDuration } from '$lib/format';
+import { formatClockTime, formatDuration } from '$lib/format';
 
 export {
 	calendarDayOffset,
@@ -274,4 +281,38 @@ function withheldRoadNote(leg: UnroutedLeg, withheld: WithheldRoutes): string {
 				? 'The road route back'
 				: 'The road route';
 	return `${subject} takes ${formatDuration(withheld.quickest)} to cover ${formatKilometres(withheld.straightLineKm)} in a straight line, so it is not offered.`;
+}
+
+/**
+ * Issue #266: what a transit row says once the moment its timetable was planned for has
+ * stopped being the moment the traveller is making that journey.
+ *
+ * The two kinds of leg fail in opposite directions and cannot share a sentence. A leg that
+ * ends at a departure gate has a deadline that a waiting-time edit moves, so what changed
+ * is when the traveller has to be there. A leg that starts at a runway has a landing that
+ * a flight swap moves, so what changed is when they get out of the terminal. Printing the
+ * deadline wording over a runway leg would tell somebody who has just landed that they are
+ * late for a bus they were never catching.
+ *
+ * Here rather than in the markup so the branch has one home and a test can read it without
+ * a Svelte runtime.
+ */
+function staleScheduleClause(plannedFor: TransitPlanMoment, happensAt: LocalDateTime): string {
+	return plannedFor.arriveBy
+		? `you now need to be there by ${formatClockTime(happensAt)}`
+		: `you now leave the airport at ${formatClockTime(happensAt)}`;
+}
+
+/** The timeline row's own sentence, which has the width for the consequence as well. */
+export function staleScheduleNote(plannedFor: TransitPlanMoment, happensAt: LocalDateTime): string {
+	return (
+		`Timetable planned for ${formatClockTime(plannedFor.time)}, and ` +
+		`${staleScheduleClause(plannedFor, happensAt)}, so these departures are not the ones to catch.`
+	);
+}
+
+/** The same fact as a segment stub's "If you miss it" value, where the label carries the
+ * question and the value only has room for the answer. */
+export function staleScheduleFact(plannedFor: TransitPlanMoment, happensAt: LocalDateTime): string {
+	return `Planned for ${formatClockTime(plannedFor.time)}, and ${staleScheduleClause(plannedFor, happensAt)}`;
 }

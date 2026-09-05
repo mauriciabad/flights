@@ -126,6 +126,8 @@ function mountPicker(props: {
 	taxiFareEstimate?: TaxiFareEstimate;
 	referenceMoment?: LocalDateTime;
 	transitAnswer?: TransitLegAnswer;
+	oncheckTransit?: () => void;
+	transitChecking?: boolean;
 	onselect?: (result: RecomputedSelection) => void;
 }) {
 	target = document.createElement('div');
@@ -141,6 +143,8 @@ function mountPicker(props: {
 			referenceMoment: props.referenceMoment,
 			referenceLabel: 'you land',
 			transitAnswer: props.transitAnswer,
+			oncheckTransit: props.oncheckTransit,
+			transitChecking: props.transitChecking,
 			onselect: props.onselect ?? (() => {})
 		}
 	});
@@ -533,6 +537,27 @@ describe('TransportPicker: telling "no service" from "nobody asked" (issue #135)
 		expect(text).not.toContain('No public transport data for this area');
 	});
 
+	it('says the timetable belongs to another bed, once the traveller swaps property (issue #267)', () => {
+		// `routeToProperty` asks road modes only, so a swapped bed gets a real road journey
+		// to the right address and no bus times at all. Left silent, "Taxi, 1h 27m" reads as
+		// a claim that a taxi is how you get there.
+		const itinerary = baseItinerary({ mode: 'taxi', duration: 87 as Duration, legs: [] });
+
+		const text = normalizedText(
+			mountPicker({
+				itinerary,
+				alternatives: roadOnly,
+				transitAnswer: { answer: 'not-asked', reason: 'other-property' }
+			})
+		);
+
+		expect(text).toContain('Road journey only');
+		expect(text).toContain('not looked up for this property');
+		// The budget wording would name a ration this swap never touched.
+		expect(text).not.toContain('already used its timetable lookups');
+		expect(text).not.toContain('No public transport data for this area');
+	});
+
 	it('says a route came back and was refused, with the numbers it was refused on (issue #220)', () => {
 		const itinerary = baseItinerary({ mode: 'walk', duration: 316 as Duration, legs: [] });
 
@@ -570,6 +595,48 @@ describe('TransportPicker: telling "no service" from "nobody asked" (issue #135)
 		);
 
 		expect(text).toContain('429: Transitous responded 429: slow down');
+	});
+
+	it('offers the lookup and names what it costs before it is pressed (issue #267)', () => {
+		const itinerary = baseItinerary({ mode: 'taxi', duration: 87 as Duration, legs: [] });
+		let pressed = 0;
+
+		const root = mountPicker({
+			itinerary,
+			alternatives: roadOnly,
+			transitAnswer: { answer: 'not-asked', reason: 'other-property' },
+			oncheckTransit: () => {
+				pressed += 1;
+			}
+		});
+
+		const text = normalizedText(root);
+		// The count is on the row before the press, not reported afterwards. Transitous is
+		// run by volunteers and the traveller is the one authorising the requests.
+		expect(text).toContain('2 timetable lookups, of the 12 this search may spend');
+
+		const button = [...root.querySelectorAll('button')].find((element) =>
+			element.textContent?.includes('Check public transport')
+		);
+		expect(button).toBeDefined();
+		button?.click();
+		flushSync();
+		expect(pressed).toBe(1);
+	});
+
+	it('offers no lookup when the caller has none to run', () => {
+		// The notice stands alone, exactly as it did before the button existed: an
+		// affordance that cannot do anything is worse than no affordance.
+		const itinerary = baseItinerary({ mode: 'taxi', duration: 87 as Duration, legs: [] });
+
+		const root = mountPicker({
+			itinerary,
+			alternatives: roadOnly,
+			transitAnswer: { answer: 'not-asked', reason: 'other-property' }
+		});
+
+		expect(normalizedText(root)).toContain('Road journey only');
+		expect(normalizedText(root)).not.toContain('Check public transport');
 	});
 
 	it('stays quiet when a transit option is actually on offer', () => {

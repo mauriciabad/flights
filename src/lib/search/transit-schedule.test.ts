@@ -24,6 +24,7 @@ import type {
 import type { ProviderContext, ProviderId, ProviderResult, TransferProvider, TransferSearchQuery } from '../providers/types';
 import { SourceTracker } from './provenance';
 import {
+	TRANSIT_LEGS_TO_A_PROPERTY,
 	createTransitLookupBudget,
 	createUnboundedTransitLookupBudget,
 	fetchTransitSchedules,
@@ -234,6 +235,55 @@ describe('planTransitLegs', () => {
 			destinationLandingBuffer: 15 as Duration
 		});
 		expect(plans.map((plan) => plan.field)).toEqual(['transferToOriginAirport', 'transferToDestinationLocation']);
+	});
+
+	it('asks about only the legs a caller names, so a bed swap costs two lookups not four', () => {
+		// Issue #267. The detail panel's on-demand check is about the two legs the swap
+		// moved; the outer two keep the timetables the search already fetched for them.
+		const itinerary = shortStopoverItinerary();
+		const everyLeg = planTransitLegs({
+			itinerary,
+			connectionCoordinates: CONNECTION_COORDINATES,
+			connectionLandingBuffer: 30 as Duration,
+			destinationLandingBuffer: 15 as Duration
+		});
+		const namedLegs = planTransitLegs({
+			itinerary,
+			connectionCoordinates: CONNECTION_COORDINATES,
+			connectionLandingBuffer: 30 as Duration,
+			destinationLandingBuffer: 15 as Duration,
+			fields: TRANSIT_LEGS_TO_A_PROPERTY
+		});
+
+		expect(everyLeg.map((plan) => plan.field)).toEqual([
+			'transferToHotel',
+			'transferToConnectionAirport'
+		]);
+		expect(namedLegs.map((plan) => plan.field)).toEqual([
+			'transferToHotel',
+			'transferToConnectionAirport'
+		]);
+		// The restriction bites on a trip that has the outer legs too.
+		const withOuterLegs = planTransitLegs({
+			itinerary: { ...itinerary, destinationLocation: tripItinerary().destinationLocation },
+			connectionCoordinates: CONNECTION_COORDINATES,
+			connectionLandingBuffer: 30 as Duration,
+			destinationLandingBuffer: 15 as Duration,
+			fields: TRANSIT_LEGS_TO_A_PROPERTY
+		});
+		expect(withOuterLegs.map((plan) => plan.field)).not.toContain('transferToDestinationLocation');
+	});
+
+	it('leaves a runway leg unplanned when nobody supplied that airport’s walk-out time', () => {
+		// A caller asking about one end of the trip should not have to invent a buffer for
+		// the other, and a made-up buffer would be a made-up journey moment.
+		const plans = planTransitLegs({
+			itinerary: tripItinerary(),
+			connectionCoordinates: CONNECTION_COORDINATES,
+			connectionLandingBuffer: 30 as Duration
+		});
+
+		expect(plans.map((plan) => plan.field)).toEqual(['transferToOriginAirport']);
 	});
 });
 

@@ -72,6 +72,7 @@
 		formatLongDuration,
 		formatMoney,
 		formatPropertyRating,
+		staleScheduleNote,
 		transferDetailLine,
 		unpricedTransferNote,
 		unroutedLegNote
@@ -442,10 +443,12 @@
 
 {#snippet transferRow(field: TransitLegField, label: string, segment: ItinerarySegmentId, leg: UnroutedLeg)}
 	{@const transfer = itinerary[field]}
-	<!-- Issue #266: the timetable on this leg was fetched for one moment, and a waiting-time
-	     edit moves that moment without being able to refetch. `readStaleSchedule` returns the
-	     moment the leg happens at NOW when the two have parted company, and the row then says
-	     what it was planned for instead of printing departures for a trip nobody is taking. -->
+	<!-- Issue #266: the timetable on this leg was fetched for one moment, and an edit moves
+	     that moment without being able to refetch. A waiting-time change does it to a leg that ends
+	     at a gate, a flight swap on one that starts at a runway. `readStaleSchedule` returns
+	     the moment the leg happens at NOW when the two have parted company, and the row then
+	     says what it was planned for instead of printing departures for a trip nobody is
+	     taking. -->
 	{@const staleAt = readStaleSchedule(itinerary, field)}
 	<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 	<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
@@ -483,10 +486,7 @@
 				{#if transfer.mode === 'transit' && transfer.transitSchedule}
 					{@const schedule = transfer.transitSchedule}
 					{#if staleAt}
-						<p class="tl-note tl-note-warning">
-							Timetable planned for {formatClockTime(schedule.plannedFor.time)}. You now need to be there by
-							{formatClockTime(staleAt)}, so these departures are not the ones to catch.
-						</p>
+						<p class="tl-note tl-note-warning">{staleScheduleNote(schedule.plannedFor, staleAt)}</p>
 					{:else}
 						{@const missed = readMissedService(schedule)}
 						{#if missed.outcome === 'last-in-time'}

@@ -53,17 +53,25 @@ export function readMissedService(schedule: TransitSchedule): MissedService {
  * The moment a leg's transit lookup is planned for, read off the trip as it stands now.
  *
  * The two `arriveBy` legs are deadlines to be at a gate, so the moment is the flight's
- * departure minus the pre-boarding buffer the traveller chose — both of which are on the
- * itinerary, which is what lets `readStaleSchedule` below answer with no history at all.
+ * departure minus the pre-boarding buffer the traveller chose. Both are on the itinerary,
+ * which is what lets `readStaleSchedule` below answer with no history at all.
  *
- * `undefined` for the two legs that start at a runway. Their moment is the landing plus
- * that airport's walk-out time, and `applyLandingBuffer` folds that buffer into the
- * transfer's duration where nothing downstream can read it back. That is issue #266's
- * second half, and it needs the moment carried through a recompute rather than derived
- * here.
+ * The two runway legs are the opposite: the traveller is free from the landing plus that
+ * airport's walk-out time. The landing is on the itinerary; the walk-out time is on the
+ * transfer, because `applyLandingBuffer` records the minutes it adds instead of only
+ * spending them on the duration. That was issue #266's second half, and recording the
+ * number is the whole fix. It makes the moment derivable here rather than something a
+ * recompute has to carry forward, so a runway leg heals itself exactly the way a deadline
+ * leg does.
  *
- * The single derivation of these two moments: `search/transit-schedule.ts`'s
- * `planTransitLegs` asks the same question before a lookup, and asks it here.
+ * `undefined` for a runway leg whose transfer never went through `applyLandingBuffer`.
+ * Nothing says how long that airport takes to walk out of, and inventing a number would
+ * put a made-up moment in front of a traveller.
+ *
+ * The single derivation of these moments: `search/transit-schedule.ts`'s `planTransitLegs`
+ * asks the same question before a lookup, and asks it here. It cannot ask about the two
+ * runway legs, since at that point there is no answered transfer to read a buffer off, so
+ * it passes the airports' own buffers in and this reads them back afterwards.
  */
 export function transitLegMoment(parts: ItineraryParts, field: TransitLegField): TransitPlanMoment | undefined {
 	if (field === 'transferToOriginAirport') {
@@ -72,7 +80,14 @@ export function transitLegMoment(parts: ItineraryParts, field: TransitLegField):
 	if (field === 'transferToConnectionAirport') {
 		return { time: addLocalMinutes(parts.onwardFlight.departure, -parts.connectionWaitingTime), arriveBy: true };
 	}
-	return undefined;
+	// Each runway leg reads its OWN flight: the hotel-bound one starts at the connection
+	// landing, the destination one at the onward landing. A swap of one flight must not
+	// discredit the timetable that belongs to the other.
+	const landing =
+		field === 'transferToHotel' ? parts.outboundFlight.arrival : parts.onwardFlight.arrival;
+	const buffer = parts[field]?.landingBuffer;
+	if (buffer === undefined) return undefined;
+	return { time: addLocalMinutes(landing, buffer), arriveBy: false };
 }
 
 /**
@@ -83,6 +98,8 @@ export function transitLegMoment(parts: ItineraryParts, field: TransitLegField):
  * A traveller who pushes the connection wait from 2h to 700m moves the deadline eleven
  * hours earlier, and the row went on reading "Last departure that still gets you there by
  * 1:20pm" — a real sentence about a real timetable, for a trip nobody is taking any more.
+ * A flight swap does the same to the two runway legs from the other end, moving the
+ * landing the ride into town starts from.
  *
  * Derived rather than flagged, so it clears itself: drag the wait back to 2h and the two
  * moments agree again, with nothing to reset. Wall clocks are compared, not instants,

@@ -115,6 +115,17 @@ export interface TransitLegPlan {
 	from: Coordinates;
 	to: Coordinates;
 	moment: TransitPlanMoment;
+	/**
+	 * The walk-out time this leg's `moment` was built from, for a leg that starts at a
+	 * runway, so whatever answers the plan can pad the journey by the same number the
+	 * question was asked with. Absent on a leg that ends at a departure gate, which is
+	 * already covered by the pre-boarding buffer and must never be padded again.
+	 *
+	 * Carried on the plan rather than looked up again from the input, so "this leg needs
+	 * padding" and "here is the padding" are one fact. They used to be two, and the second
+	 * one could be missing while the first said yes.
+	 */
+	landingBuffer?: Duration;
 }
 
 export interface PlanTransitLegsInput {
@@ -126,11 +137,33 @@ export interface PlanTransitLegsInput {
 	/** `pickLandingToTransportTime` for the connection airport: how long after touchdown the
 	 * traveller can realistically be at a stop. Already folded into `transferToHotel`'s
 	 * duration by `applyLandingBuffer`, and needed separately here because the question is
-	 * "from when", not "how long". */
-	connectionLandingBuffer: Duration;
+	 * "from when", not "how long".
+	 *
+	 * Optional since issue #267, and a runway leg with no buffer is not planned at all. A
+	 * caller asking about one leg should not have to invent a number for an airport it is
+	 * not asking about, and a made-up buffer would be a made-up journey moment. */
+	connectionLandingBuffer?: Duration;
 	/** The same, for the destination airport. */
-	destinationLandingBuffer: Duration;
+	destinationLandingBuffer?: Duration;
+	/**
+	 * Issue #267: ask about these legs and no others. Absent means every leg the itinerary
+	 * has, which is what a search asks.
+	 *
+	 * The detail panel asks about the two in-city legs alone. A bed swap moves those two to
+	 * an address nobody holds a timetable for and leaves the outer two exactly as they
+	 * were, so re-asking all four would spend two lookups on legs the swap never touched.
+	 * Against a volunteer-run service rationed to `MAX_TRANSIT_LOOKUPS_PER_SEARCH` per
+	 * search, that is the difference between a traveller's deliberate question costing 2
+	 * and costing 4.
+	 */
+	fields?: readonly TransitLegField[];
 }
+
+/** The two legs a bed swap moves: issue #267's on-demand check asks about exactly these. */
+export const TRANSIT_LEGS_TO_A_PROPERTY: readonly TransitLegField[] = [
+	'transferToHotel',
+	'transferToConnectionAirport'
+];
 
 /**
  * Every transit question this itinerary raises, each with the moment that makes it
@@ -156,12 +189,17 @@ export function planTransitLegs(input: PlanTransitLegsInput): TransitLegPlan[] {
 	}
 
 	if (itinerary.stay && input.connectionCoordinates) {
-		plans.push({
-			field: 'transferToHotel',
-			from: input.connectionCoordinates,
-			to: itinerary.stay.property.coordinates,
-			moment: { time: addLocalMinutes(itinerary.outboundFlight.arrival, input.connectionLandingBuffer), arriveBy: false }
-		});
+		// Only the runway leg needs the buffer. The ride back to the airport is a deadline
+		// and derives its own moment, so it is still planned when nobody supplied one.
+		if (input.connectionLandingBuffer !== undefined) {
+			plans.push({
+				field: 'transferToHotel',
+				from: input.connectionCoordinates,
+				to: itinerary.stay.property.coordinates,
+				moment: { time: addLocalMinutes(itinerary.outboundFlight.arrival, input.connectionLandingBuffer), arriveBy: false },
+				landingBuffer: input.connectionLandingBuffer
+			});
+		}
 		const connectionMoment = transitLegMoment(itinerary, 'transferToConnectionAirport');
 		if (connectionMoment) {
 			plans.push({
@@ -173,16 +211,17 @@ export function planTransitLegs(input: PlanTransitLegsInput): TransitLegPlan[] {
 		}
 	}
 
-	if (itinerary.destinationLocation) {
+	if (itinerary.destinationLocation && input.destinationLandingBuffer !== undefined) {
 		plans.push({
 			field: 'transferToDestinationLocation',
 			from: itinerary.destinationAirport.coordinates,
 			to: itinerary.destinationLocation.coordinates,
-			moment: { time: addLocalMinutes(itinerary.onwardFlight.arrival, input.destinationLandingBuffer), arriveBy: false }
+			moment: { time: addLocalMinutes(itinerary.onwardFlight.arrival, input.destinationLandingBuffer), arriveBy: false },
+			landingBuffer: input.destinationLandingBuffer
 		});
 	}
 
-	return plans;
+	return input.fields ? plans.filter((plan) => input.fields!.includes(plan.field)) : plans;
 }
 
 export interface FetchTransitSchedulesInput extends PlanTransitLegsInput {
@@ -254,9 +293,13 @@ export async function fetchTransitSchedules(input: FetchTransitSchedulesInput): 
 		// Only a leg that starts at a runway gets the landing buffer, the same rule
 		// `resources.ts` follows and for the same reason: a leg ending at a departure gate
 		// is already covered by the pre-boarding waiting time and would double-count it.
-		const buffered = startsAtARunway(plan.field)
-			? found.map((transfer) => applyLandingBuffer(transfer, bufferFor(plan.field, input), input.sources))
-			: found;
+		// The plan carries the number it was asked with, so the answer is padded by exactly
+		// the minutes the question assumed and there is nothing to look up a second time.
+		const landingBuffer = plan.landingBuffer;
+		const buffered =
+			landingBuffer === undefined
+				? found
+				: found.map((transfer) => applyLandingBuffer(transfer, landingBuffer, input.sources));
 		overrides[plan.field] = pickShortest(buffered);
 	}
 
@@ -345,14 +388,6 @@ function readWithheld(refused: {
 	straightLineKm: number;
 }): WithheldRoutes | undefined {
 	return summariseWithheldRoutes(refused.rejected, refused.straightLineKm, ['transit']);
-}
-
-function startsAtARunway(field: TransitLegField): boolean {
-	return field === 'transferToHotel' || field === 'transferToDestinationLocation';
-}
-
-function bufferFor(field: TransitLegField, input: PlanTransitLegsInput): Duration {
-	return field === 'transferToHotel' ? input.connectionLandingBuffer : input.destinationLandingBuffer;
 }
 
 /** Among transit options for one leg, the quickest — the same tie-break `pickBestTransfer`

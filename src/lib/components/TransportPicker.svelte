@@ -33,7 +33,9 @@
 	import { readMissedService } from '../algorithm/transit-schedule';
 	import type { MissedService } from '../algorithm/transit-schedule';
 	import type { TransitLegAnswer } from '../search/types';
+	import { MAX_TRANSIT_LOOKUPS_PER_SEARCH } from '../search/transit-schedule';
 	import type { TaxiFareEstimate } from '../providers/transfers/taxi-rate-table';
+	import Button from './Button.svelte';
 	import ModeIcon from './ModeIcon.svelte';
 	import {
 		formatCalendarDate,
@@ -83,6 +85,16 @@
 		 * empty. Omit it and the picker simply says nothing, same as before.
 		 */
 		transitAnswer?: TransitLegAnswer;
+		/**
+		 * Issue #267: run a timetable lookup for this leg, when there is one worth running
+		 * and the traveller asks for it. Given only while asking would tell them something
+		 * they do not already know, so the button appears exactly when the notice above it
+		 * says the timetable belongs to a different bed. Omit it and the notice stands
+		 * alone, which is what it did before this existed.
+		 */
+		oncheckTransit?: () => void;
+		/** A lookup started by `oncheckTransit` is in flight. */
+		transitChecking?: boolean;
 		minLayoverTime?: Duration;
 		onselect: (result: RecomputedSelection) => void;
 	}
@@ -96,9 +108,17 @@
 		referenceMoment,
 		referenceLabel = 'the reference time',
 		transitAnswer,
+		oncheckTransit,
+		transitChecking = false,
 		minLayoverTime,
 		onselect
 	}: Props = $props();
+
+	/** The cost, named before the button is pressed rather than after. Two `/plan`
+	 * requests, one per direction, out of `MAX_TRANSIT_LOOKUPS_PER_SEARCH` for the whole
+	 * search. The owner should never be surprised by a request he did not know he was
+	 * authorising, and Transitous is run by volunteers. */
+	const TRANSIT_CHECK_REQUESTS = 2;
 
 	const uid = $props.id();
 	const groupName = `transport-picker-${uid}`;
@@ -207,6 +227,12 @@
 				return `Public transport could not be checked${when}: ${httpStatus ? `${httpStatus}: ` : ''}${error?.message ?? 'the lookup failed'}`;
 			}
 			case 'not-asked':
+				// Issue #267: three different reasons nobody asked, and a traveller can act
+				// on only one of them. Naming the property one is what stops a road-only
+				// answer reading as "a taxi is how you get there".
+				if (transitAnswer.reason === 'other-property') {
+					return `Road journey only. Public transport was not looked up for this property: the timetable belongs to the bed the search picked.`;
+				}
 				return transitAnswer.reason === 'budget-spent'
 					? `Public transport was not checked for this option: this search had already used its timetable lookups.`
 					: `Public transport was not checked: no timetable provider is available.`;
@@ -447,6 +473,20 @@
 		<p class="transit-notice" data-testid="transit-notice" data-transit-answer={transitAnswer?.answer}>
 			{transitNotice}
 		</p>
+		<!-- Issue #267: the one case where the traveller can do something about the notice
+		     above. Pressing it is what authorises the requests, and the count is on the row
+		     before the press rather than reported afterwards. -->
+		{#if oncheckTransit}
+			<div class="transit-check">
+				<Button variant="secondary" size="sm" loading={transitChecking} onclick={oncheckTransit}>
+					Check public transport
+				</Button>
+				<span class="transit-check-cost"
+					>{TRANSIT_CHECK_REQUESTS} timetable lookups, of the {MAX_TRANSIT_LOOKUPS_PER_SEARCH} this
+					search may spend</span
+				>
+			</div>
+		{/if}
 	{/if}
 
 	{#if currentWarnings.length > 0}
@@ -738,6 +778,23 @@
 		border-left: 2px solid var(--color-border-strong);
 		font-size: var(--font-size-xs);
 		color: var(--color-text-muted);
+	}
+
+	/* Sits under the notice it answers, sharing its left rule so the two read as one
+	   block: here is what is missing, and here is what asking for it costs. Wraps rather
+	   than truncating, because the cost is the half that must survive a narrow screen. */
+	.transit-check {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: var(--space-2);
+		padding: 0 var(--space-3) var(--space-2);
+		border-left: 2px solid var(--color-border-strong);
+	}
+
+	.transit-check-cost {
+		font-size: var(--font-size-xs);
+		color: var(--color-text-faint);
 	}
 
 	.taxi-citation {

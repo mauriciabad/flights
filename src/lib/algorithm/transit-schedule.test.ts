@@ -89,8 +89,23 @@ function busTo(plannedFor: LocalDateTime): Transfer {
 	};
 }
 
+/** A leg that starts at a runway, carrying the walk-out time `applyLandingBuffer` folded
+ * into its duration. `landingBuffer` is what lets the moment be re-derived from the
+ * flight's arrival after a swap. */
+function busFrom(plannedFor: LocalDateTime, landingBuffer: number): Transfer {
+	return {
+		mode: 'transit',
+		duration: (35 + landingBuffer) as Duration,
+		landingBuffer: landingBuffer as Duration,
+		legs: [],
+		transitSchedule: schedule({ plannedFor: { time: plannedFor, arriveBy: false } })
+	};
+}
+
 /** The issue's own trip: a 2h connection buffer before a 3:20pm onward flight, so the
- * traveller has to be at the connection airport by 1:20pm. */
+ * traveller has to be at the connection airport by 1:20pm. The outbound lands at 11am and
+ * the onward at 6pm, so the two runway legs were planned for 11:30am (a 30-minute walk-out
+ * at a large connection airport) and 6:15pm (15 minutes at a small destination one). */
 function trip(connectionWaitingTime: number): ItineraryParts {
 	return {
 		outboundFlight: flight('2026-10-06T08:00:00', '2026-10-06T11:00:00'),
@@ -99,7 +114,9 @@ function trip(connectionWaitingTime: number): ItineraryParts {
 		connectionWaitingTime: connectionWaitingTime as Duration,
 		travellers: 1,
 		transferToOriginAirport: busTo(at('2026-10-06T06:00:00')),
-		transferToConnectionAirport: busTo(at('2026-10-06T13:20:00'))
+		transferToHotel: busFrom(at('2026-10-06T11:30:00'), 30),
+		transferToConnectionAirport: busTo(at('2026-10-06T13:20:00')),
+		transferToDestinationLocation: busFrom(at('2026-10-06T18:15:00'), 15)
 	};
 }
 
@@ -107,6 +124,8 @@ describe('readStaleSchedule', () => {
 	it('stays quiet while the trip still happens at the moment the timetable was planned for', () => {
 		expect(readStaleSchedule(trip(120), 'transferToConnectionAirport')).toBeUndefined();
 		expect(readStaleSchedule(trip(120), 'transferToOriginAirport')).toBeUndefined();
+		expect(readStaleSchedule(trip(120), 'transferToHotel')).toBeUndefined();
+		expect(readStaleSchedule(trip(120), 'transferToDestinationLocation')).toBeUndefined();
 	});
 
 	it('reports the new deadline once a waiting-time edit moves it', () => {
@@ -124,11 +143,51 @@ describe('readStaleSchedule', () => {
 		expect(readStaleSchedule(trip(120), 'transferToConnectionAirport')).toBeUndefined();
 	});
 
-	it('says nothing about the two legs that start at a runway, whose moment it cannot derive', () => {
-		// Issue #266's second half. `applyLandingBuffer` folds the walk-out time into the
-		// transfer's duration, so the landing-plus-buffer moment is not on the itinerary and
-		// guessing one here would be worse than saying nothing.
-		const parts: ItineraryParts = { ...trip(700), transferToHotel: busTo(at('2026-10-06T11:15:00')) };
+	it('leaves both runway legs alone on a waiting-time edit, which cannot move a landing', () => {
+		// The whole reason the runway half needed a different mechanism: 700 minutes of
+		// connection buffer moves the deadline legs and neither of these.
+		expect(readStaleSchedule(trip(700), 'transferToHotel')).toBeUndefined();
+		expect(readStaleSchedule(trip(700), 'transferToDestinationLocation')).toBeUndefined();
+	});
+
+	it('reports the new landing moment once a flight swap moves the outbound arrival', () => {
+		// Issue #266's second half. Pick an outbound that lands at 1pm instead of 11am and
+		// the traveller is out of the terminal at 1:30pm, while the row goes on listing the
+		// departures behind 11:30am.
+		const parts: ItineraryParts = {
+			...trip(120),
+			outboundFlight: flight('2026-10-06T10:00:00', '2026-10-06T13:00:00')
+		};
+		expect(readStaleSchedule(parts, 'transferToHotel')?.local).toBe('2026-10-06T13:30:00');
+		// One swap, one stale leg. The destination-side timetable is about a different flight.
+		expect(readStaleSchedule(parts, 'transferToDestinationLocation')).toBeUndefined();
+	});
+
+	it('reports the new landing moment on the destination leg, at its own airport buffer', () => {
+		const parts: ItineraryParts = {
+			...trip(120),
+			onwardFlight: flight('2026-10-06T15:20:00', '2026-10-06T19:40:00')
+		};
+		expect(readStaleSchedule(parts, 'transferToDestinationLocation')?.local).toBe('2026-10-06T19:55:00');
+	});
+
+	it('clears the runway leg too when the flight goes back, since nothing was flagged', () => {
+		const swapped: ItineraryParts = {
+			...trip(120),
+			outboundFlight: flight('2026-10-06T10:00:00', '2026-10-06T13:00:00')
+		};
+		expect(readStaleSchedule(swapped, 'transferToHotel')).toBeDefined();
+		expect(readStaleSchedule(trip(120), 'transferToHotel')).toBeUndefined();
+	});
+
+	it('says nothing about a runway leg whose transfer never carried a landing buffer', () => {
+		// A `Transfer` that never went through `applyLandingBuffer` has no walk-out time to
+		// re-derive the moment from, and guessing one would be worse than saying nothing.
+		const parts: ItineraryParts = {
+			...trip(120),
+			outboundFlight: flight('2026-10-06T10:00:00', '2026-10-06T13:00:00'),
+			transferToHotel: { ...busFrom(at('2026-10-06T11:30:00'), 30), landingBuffer: undefined }
+		};
 		expect(readStaleSchedule(parts, 'transferToHotel')).toBeUndefined();
 	});
 

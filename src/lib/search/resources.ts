@@ -358,16 +358,25 @@ export function pickLandingToTransportTime(
  * value is a new object (this never mutates a provider's own `Transfer`), so without
  * re-tagging, `sourceFor` would report "unknown" for a value that really did come from a
  * specific provider, just with its duration padded afterward.
+ *
+ * Issue #266: the buffer is recorded on the returned transfer as well as spent on its
+ * duration. A leg that starts at a runway happens at the flight's arrival plus this
+ * number, and once a flight swap moves that arrival, the only way to notice that a
+ * timetable was planned for the old landing is to still have the number. It is recorded
+ * even at zero, which is a different fact from a leg nobody applied the rule to.
  */
 export function applyLandingBuffer(
   transfer: Transfer,
   buffer: Duration,
   sources: SourceTracker,
 ): Transfer {
-  if (buffer <= 0) return transfer;
+  // A negative rule would shorten a journey the provider measured. Refused since this
+  // function existed; now it is refused explicitly rather than by returning early.
+  const applied = (buffer > 0 ? buffer : 0) as Duration;
   const adjusted: Transfer = {
     ...transfer,
-    duration: (transfer.duration + buffer) as Duration,
+    duration: (transfer.duration + applied) as Duration,
+    landingBuffer: applied,
   };
   const source = sources.sourceFor(transfer);
   if (source) sources.attach(adjusted, source);

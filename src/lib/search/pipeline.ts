@@ -998,7 +998,11 @@ export async function* runSearch(
 		// Issue #135: one ration for the whole search, same reasoning as the line above.
 		// Transitous is free, so this is not about money — it is about not turning one click
 		// into a dozen requests against a volunteer-run server.
-		transitLookupBudget: createTransitLookupBudget(),
+		//
+		// Issue #267: the caller may hold it, because the search is no longer the only thing
+		// that spends timetable lookups. The detail panel's on-demand check draws from this
+		// same object, so twelve is twelve however it is spent.
+		transitLookupBudget: options.transitLookupBudget ?? createTransitLookupBudget(),
 		transferToOriginAirport,
 		transferToDestinationLocation,
 		sources,
@@ -1131,8 +1135,10 @@ export async function* widenSearch(
 	// Issue #148: one ration for this whole confirm run, shared across every target the
 	// traveller confirmed — see its use below for why the confirm tier is rationed too.
 	const stayLookupBudget = createStayLookupBudget();
-	// Issue #135: same per-search ration for the confirm tier as the free one.
-	const transitLookupBudget = createTransitLookupBudget();
+	// Issue #135: same per-search ration for the confirm tier as the free one. Issue #267:
+	// the caller may hold it, so a widen and the detail panel's on-demand check draw from
+	// one object rather than one each.
+	const transitLookupBudget = options.transitLookupBudget ?? createTransitLookupBudget();
 
 	const providerStatus = new Map<ProviderId, ProviderStatus>();
 	const record: RecordProviderCall = (provider, result) => recordProviderResult(providerStatus, provider, result);
