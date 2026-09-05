@@ -22,6 +22,22 @@
 	 * the rows where a swap exists. Selecting a row already drove the map; it now also
 	 * unfolds that row's choices, and selecting it again folds them away.
 	 *
+	 * ## One trip on this screen, and `itinerary` below is it
+	 *
+	 * Issues #243 and #250 were the same defect found twice: an edit changed part of the
+	 * panel and left the rest describing the trip from before it. #250 was the timeline
+	 * keeping a waiting-time edit in its own private copy, so the stopover block eight lines
+	 * above went on naming a bed the edited total no longer charged for. #243 was the stay
+	 * picker writing `stay` and `totalPrice` directly and leaving the two in-city transfers,
+	 * the free-time window and the timetables alone, so a hotel 2.8 km from the terminal
+	 * inherited a 36 km hostel's bus ride.
+	 *
+	 * So `itinerary` is the trip, and every surface here reads it: the map, the stopover
+	 * block, the pickers and the timeline, which binds it and edits it in place. Every edit
+	 * goes through `algorithm/`, never through a field assignment, so nothing derived can be
+	 * left behind: `recomputeItinerarySelection` for a picked alternative or a swapped bed,
+	 * `recomputeItineraryWaitingTimes` (inside the timeline) for a buffer.
+	 *
 	 * ## Why edits here are a frozen, local "what if" preview
 	 *
 	 * `itinerary` starts from the `itinerary` prop but is NOT kept in sync with it via an
@@ -38,10 +54,10 @@
 	 * way replacing `itinerary` would.
 	 */
 	import { base } from '$app/paths';
-	import type { Airport, Duration, Itinerary, Money, Stay } from '$lib/domain';
+	import type { Airport, Duration, Itinerary, Stay } from '$lib/domain';
 	import type { ConnectionTransferOptions, ItineraryGroup, OuterTransferOptions, TransferLegOptions } from '$lib/search';
 	import type { ItinerarySegmentId } from '$lib/itinerary-map/segment-id';
-	import { sumMoney } from '$lib/algorithm/build';
+	import { recomputeItinerarySelection } from '$lib/algorithm/recompute-selection';
 	import type { RecomputedSelection } from '$lib/algorithm/recompute-selection';
 	import {
 		FlightPicker,
@@ -54,7 +70,7 @@
 	import { distinctFlightCount, hasSwappableAlternatives } from '$lib/components/picker-alternatives';
 	import { keyStore } from '$lib/keys';
 	import { hasUnconfiguredStayProvider, hasUsableStayProvider } from '$lib/results/provider-setup';
-	import { StayPicker, describeNoStays, groupByProperty } from '$lib/stays';
+	import { StayPicker, describeNoStays, groupByProperty, isSameProperty } from '$lib/stays';
 	import type { StayProviderOutcome } from '$lib/stays';
 
 	interface Props {
@@ -127,16 +143,60 @@
 	let itinerary = $state(initialItinerary);
 	let selectedSegmentId = $state<ItinerarySegmentId | null>(null);
 
+	/** Whether the traveller has replaced a flight, a transfer or the bed. A waiting-time
+	 * edit is not one of these: it changes how long they wait, never which leg they take,
+	 * which is what `transitAnswers` below turns on. */
+	let pickedAnAlternative = $state(false);
+
 	function applySelection(recomputed: RecomputedSelection) {
 		itinerary = recomputed.itinerary;
+		pickedAnAlternative = true;
 	}
 
-	// No override field for the stay itself exists on `recomputeItinerarySelection`
-	// (that module's own doc comment: "issue #27's picker owns that swap separately,
-	// outside this module") — nights and free time don't change with which property is
-	// booked, only the price does, already multiplied out by `StayPicker` itself.
-	function applyStaySelection(stay: Stay, deltaForStay: Money) {
-		itinerary = { ...itinerary, stay, totalPrice: sumMoney(itinerary.totalPrice, deltaForStay) };
+	/** The property `initialItinerary`'s two in-city legs were routed to, if any.
+	 * `undefined` when the pipeline priced no bed, in which case those legs go to the city
+	 * centre (issue #161) and belong to no property at all. */
+	const routedProperty = $derived(
+		initialItinerary.transferAnchor === 'stay' ? initialItinerary.stay?.property : undefined
+	);
+
+	/**
+	 * Issue #243. Picking a property is not a price edit. `transferToHotel` and
+	 * `transferToConnectionAirport` are journeys to one address, `freeTime` starts when the
+	 * first of them gets the traveller there, and `nightsInConnection` follows from that
+	 * window, so a swap that wrote `stay` and `totalPrice` and stopped there left every one
+	 * of those describing the previous bed. On the acceptance trip that meant a hostel
+	 * 36.3 km from Gatwick showing `1h 7m`, "Bus, then bus", and the same five next
+	 * departures computed for a hotel 2.8 km from the terminal.
+	 *
+	 * The transfers on `initialItinerary` belong to whatever the pipeline routed to for this
+	 * connection, so they travel with the swap only when the traveller lands back on that
+	 * same property. Everything else is honestly unrouted: the search asks OSRM and
+	 * Transitous about the one property it picks and no other, so no journey to this address
+	 * exists to show. `StaySelection` carries that, `recomputeItinerarySelection` rebuilds
+	 * the window, the nights and the total from it, and the transfer rows and the stopover
+	 * block say "Nothing routed to this property" rather than wearing the last bed's times.
+	 *
+	 * `StayPicker` still offers a price delta as its second argument and this ignores it.
+	 * The recompute totals the whole trip from its parts, and adding a delta to the total
+	 * that stood before would be a second arithmetic path over one number, which is how
+	 * this repo has lost time more than once.
+	 */
+	function applyStaySelection(stay: Stay) {
+		const routed = isSameProperty(stay.property, routedProperty);
+		applySelection(
+			recomputeItinerarySelection(
+				itinerary,
+				{
+					staySelection: {
+						stay,
+						transferToHotel: routed ? initialItinerary.transferToHotel : undefined,
+						transferToConnectionAirport: routed ? initialItinerary.transferToConnectionAirport : undefined
+					}
+				},
+				minLayoverTime
+			)
+		);
 	}
 
 	// `ItineraryGroup.variants`: every (outbound, onward) pair the free tier found for this
@@ -223,9 +283,12 @@
 	// spends its one timetable lookup on the shortest pairing, which is what `group.best`
 	// is, so a longer one has no answers of its own and says so rather than borrowing the
 	// short trip's bus times.
-	const transitAnswers = $derived(
-		itinerary === initialItinerary && atDefaultLength ? group?.best.transit : undefined
-	);
+	//
+	// `pickedAnAlternative` rather than comparing `itinerary` against the prop, since issue
+	// #250 made a waiting-time edit replace `itinerary` too. That edit takes the same legs
+	// at the same times, so the lookups still describe this trip; swapping one of them is
+	// what ends that.
+	const transitAnswers = $derived(!pickedAnAlternative && atDefaultLength ? group?.best.transit : undefined);
 
 	// The timeline's "2 flights" / "3 options" marks: only rows whose fold offers more than
 	// one thing to pick, gated on the same conditions the fold itself renders under, so a
@@ -412,7 +475,10 @@
 		{/if}
 	</p>
 
-	<ItineraryTimeline {itinerary} {connectionAirport} bind:selectedSegmentId expansion={stepOptions} {optionMarks} />
+	<!-- `bind:itinerary`, not a plain prop: the waiting-time stepper inside the rows edits
+	     the trip, and issue #250 is what happened while that edit lived in a copy only the
+	     timeline could see. -->
+	<ItineraryTimeline bind:itinerary {connectionAirport} bind:selectedSegmentId expansion={stepOptions} {optionMarks} />
 </div>
 
 <style>

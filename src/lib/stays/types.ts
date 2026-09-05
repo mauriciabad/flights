@@ -85,6 +85,21 @@ function propertyKey(property: Property): string {
 	return `${property.name}@${property.coordinates.latitude},${property.coordinates.longitude}`;
 }
 
+/**
+ * Whether two records describe one property, by the same identity the grouping above uses.
+ * Reference equality is the wrong question for the reason `groupByProperty` documents: a
+ * stay read back out of IndexedDB has been through JSON and carries its own structurally
+ * equal `Property`.
+ *
+ * Issue #243 asks it of an itinerary rather than of a list: the two in-city transfers were
+ * routed to one address, so they hold for the property the traveller has picked only if it
+ * is that address. `undefined` on either side is "no property", which never matches one.
+ */
+export function isSameProperty(a?: Property, b?: Property): boolean {
+	if (!a || !b) return false;
+	return propertyKey(a) === propertyKey(b);
+}
+
 export function groupByProperty(stays: readonly Stay[]): PropertyStayOptions[] {
 	const groups: PropertyStayOptions[] = [];
 	const indexByKey = new Map<string, number>();

@@ -22,6 +22,7 @@ import type {
 	Money,
 	Stay,
 	Transfer,
+	TransferAnchor,
 	WaitingTimeRule
 } from '../domain';
 import { DEFAULT_MIN_LAYOVER_TIME_MINUTES, DEFAULT_TRAVELLERS, DEFAULT_WAITING_TIME_RULES } from '../domain';
@@ -176,12 +177,6 @@ export function sumMoney(first: Money, ...rest: (Money | undefined)[]): Money {
 	return { minorUnits: total, currency: first.currency };
 }
 
-/** What the two connection-side transfers were routed to and from — issue #161. `'stay'`
- * is a booked bed's own address; `'city-centre'` is the connection city's hand-checked
- * centre point (`data/airport-city-names.ts`), used when no bed was priced but the ride
- * into town is still a real thing to know about. */
-export type TransferAnchor = 'stay' | 'city-centre';
-
 /**
  * The bed, if one was priced, and the two connection-side transfers already resolved for
  * one candidate connection airport. Fetching these for real is issues #7-#10's job.
@@ -323,6 +318,11 @@ export function buildItineraries(input: BuildItinerariesInput): Itinerary[] {
 			const transferToConnectionAirport = keepConnectionTransfers
 				? resources.transferToConnectionAirport
 				: undefined;
+			// Carried onto the itinerary (issue #243) so every surface that renders one can
+			// tell whose journey those two legs are. Dropped alongside the legs themselves:
+			// an anchor for transfers this itinerary discarded would outlive the only thing
+			// it describes.
+			const transferAnchor = keepConnectionTransfers ? resources.transferAnchor : undefined;
 
 			// Free time is what is left of the layover after both airport-side transfers
 			// and the pre-boarding buffer, expressed as the real hotel check-in/check-out
@@ -404,6 +404,7 @@ export function buildItineraries(input: BuildItinerariesInput): Itinerary[] {
 				freeTime,
 				nightsInConnection,
 				transferToConnectionAirport,
+				transferAnchor,
 				connectionWaitingTime,
 				onwardFlight: onward,
 				destinationAirport: input.destinationAirport,

@@ -142,7 +142,8 @@
 			return unroutedLegNote('to-hotel', {
 				hasStay: Boolean(stay),
 				nightsInConnection: nights,
-				overnightWait: waitNote !== undefined
+				overnightWait: waitNote !== undefined,
+				transferAnchor: itinerary.transferAnchor
 			});
 		}
 		const fare = toHotel.price

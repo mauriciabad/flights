@@ -12,6 +12,11 @@
 	 * `withExpansion` covers the second thing a `.ts` file cannot author: a snippet. It
 	 * hands the timeline a probe snippet and one option mark, so a test can check where
 	 * the expansion lands and that a click inside it leaves the selection alone.
+	 *
+	 * `bind:itinerary` is the third (issue #250). The waiting-time stepper edits the trip
+	 * the caller holds, which is what stops `ResultDetail`'s stopover block from going on
+	 * describing the trip from before the edit, and `currentItinerary` is how a `.ts` test
+	 * reads what the caller ended up with.
 	 */
 	import type { Itinerary } from '../domain';
 	import type { ItinerarySegmentId } from '../itinerary-map/segment-id';
@@ -22,12 +27,18 @@
 		withExpansion?: boolean;
 	}
 
-	let { itinerary, withExpansion = false }: Props = $props();
+	let { itinerary: initialItinerary, withExpansion = false }: Props = $props();
 
+	// svelte-ignore state_referenced_locally
+	let itinerary = $state(initialItinerary);
 	let selectedSegmentId = $state<ItinerarySegmentId | null>(null);
 
 	export function currentSelection() {
 		return selectedSegmentId;
+	}
+
+	export function currentItinerary() {
+		return itinerary;
 	}
 
 	export function externalSelect(segment: ItinerarySegmentId | null) {
@@ -40,7 +51,7 @@
 {/snippet}
 
 <ItineraryTimeline
-	{itinerary}
+	bind:itinerary
 	bind:selectedSegmentId
 	expansion={withExpansion ? probe : undefined}
 	optionMarks={withExpansion ? { 'outbound-flight': '2 flights' } : undefined}

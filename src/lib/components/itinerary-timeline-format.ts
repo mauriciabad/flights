@@ -10,7 +10,7 @@
  * the providers came back with no route for it.
  */
 
-import type { Transfer, TransferLeg, TransferMode } from '../domain';
+import type { Transfer, TransferAnchor, TransferLeg, TransferMode } from '../domain';
 
 export {
 	calendarDayOffset,
@@ -176,9 +176,25 @@ export type UnroutedLeg =
  */
 export function unroutedLegNote(
 	leg: UnroutedLeg,
-	context: { hasStay: boolean; nightsInConnection: number; overnightWait?: boolean }
+	context: {
+		hasStay: boolean;
+		nightsInConnection: number;
+		overnightWait?: boolean;
+		/** `Itinerary.transferAnchor`, which is the only one of these that can say a route
+		 * was never asked for rather than asked for and refused (issue #243). */
+		transferAnchor?: TransferAnchor;
+	}
 ): string {
 	if (leg === 'to-hotel' || leg === 'from-hotel') {
+		// Issue #243: the traveller picked a property off the stay list, and the search
+		// routes to the one property it picks itself and no other, so nothing has ever been
+		// asked about this address. Distinct from the last sentence in this branch, which
+		// would blame a transport provider for refusing a question nobody put to it.
+		if (context.transferAnchor === 'unrouted-stay') {
+			return leg === 'to-hotel'
+				? 'Nothing routed to this property, so the journey to it is unknown.'
+				: 'Nothing routed back from this property, so the journey back is unknown.';
+		}
 		if (!context.hasStay && context.nightsInConnection === 0) {
 			// Issue #231 split the nightless trip in two. Both book nothing, but one of them
 			// is awake in a terminal at 3am, and telling that traveller their connection is
