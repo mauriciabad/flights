@@ -50,7 +50,39 @@ function render(props: Partial<Parameters<typeof PickedBed>[1]> = {}) {
 		}
 	});
 	flushSync();
+	giveTheStripAWidth();
 	return target;
+}
+
+/**
+ * jsdom runs no layout, so every element reports `clientWidth: 0`, and the component
+ * rightly declines to scroll a strip with no width. That would leave the carousel inert in
+ * every test below for a reason that has nothing to do with the carousel, so the strip is
+ * handed the geometry a browser would give it. The number is arbitrary; only the component's
+ * arithmetic against it is under test.
+ */
+const SLIDE_WIDTH = 100;
+let stripScrollLeft = 0;
+
+function giveTheStripAWidth() {
+	const strip = target!.querySelector('.bed-strip');
+	if (!strip) return;
+	stripScrollLeft = 0;
+	Object.defineProperty(strip, 'clientWidth', { value: SLIDE_WIDTH, configurable: true });
+	Object.defineProperty(strip, 'scrollLeft', {
+		get: () => stripScrollLeft,
+		set: (value: number) => {
+			stripScrollLeft = value;
+		},
+		configurable: true
+	});
+}
+
+/** Moves the strip the way a reader's own swipe does, and tells the component about it. */
+function scrollTheStripTo(offset: number) {
+	stripScrollLeft = offset;
+	target!.querySelector('.bed-strip')!.dispatchEvent(new Event('scroll'));
+	flushSync();
 }
 
 const sources = () => [...target!.querySelectorAll('img')].map((img) => img.getAttribute('src'));
@@ -153,6 +185,32 @@ describe('the photographs, and what they cost to fetch', () => {
 		prev().click();
 		flushSync();
 		expect(sources()).toEqual([PHOTO_A, PHOTO_B]);
+		expect(counter()).toBe('1 / 2');
+	});
+
+	it('ignores the strip while a programmatic scroll is still travelling', () => {
+		// The flicker this prevents is visible and it was real. Paging back to photo 1 sets
+		// the index at once, then the smooth scroll starts from the old offset and its first
+		// events round back to photo 2. The counter flicked 1 to 2 to 1 and both arrows
+		// flicked disabled with it, which was enough for a keyboard press to land on a
+		// control that was briefly dead. jsdom has no layout, so the strip's geometry is
+		// supplied here; the arithmetic under test is the component's own.
+		render();
+		next().click();
+		flushSync();
+		expect(counter()).toBe('2 / 2');
+
+		// Mid-animation, still at the offset it started from. This must not drag the counter
+		// back to where the reader has just left.
+		scrollTheStripTo(0);
+		expect(counter()).toBe('2 / 2');
+
+		// Arrived. The strip is trusted again from here on.
+		scrollTheStripTo(SLIDE_WIDTH);
+		expect(counter()).toBe('2 / 2');
+
+		// A swipe of the reader's own is honoured the moment it moves.
+		scrollTheStripTo(0);
 		expect(counter()).toBe('1 / 2');
 	});
 

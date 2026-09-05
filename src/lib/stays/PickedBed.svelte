@@ -45,6 +45,7 @@
 	 * fetched when the reader asks for it and never before, which is why `reached` exists
 	 * below. Loading a strip of two on render would cost 5 MB to show one picture.
 	 */
+	import { tick } from 'svelte';
 	import { ModeIcon } from '$lib/components';
 	import type { Property, TransferMode } from '$lib/domain';
 	import { formatPropertyRating } from '$lib/format';
@@ -106,24 +107,63 @@
 	 * of two would otherwise cost 5 MB. */
 	let reached = $state(0);
 	let strip = $state<HTMLDivElement>();
+	/** Held so `show` can move focus off an arrow it is about to disable. */
+	let prevButton = $state<HTMLButtonElement>();
+	let nextButton = $state<HTMLButtonElement>();
 
 	const rating = $derived(property.rating ? formatPropertyRating(property.rating) : undefined);
 	/** Below two there is nothing to page through, so the arrows and the counter are not
 	 * rendered at all rather than rendered inert. */
 	const pageable = $derived(photos.length > 1);
 
-	function show(next: number) {
+	async function show(next: number) {
+		const wasFocused = document.activeElement;
 		const target = Math.max(0, Math.min(photos.length - 1, next));
 		index = target;
 		if (target > reached) reached = target;
 		// No `behavior` argument on purpose: the strip sets `scroll-behavior: smooth` in
 		// CSS, and app.css's reduced-motion block already forces that back to `auto`
 		// globally. Passing 'smooth' here would step over the reader's stated preference.
-		strip?.scrollTo({ left: target * strip.clientWidth });
+		if (strip && strip.clientWidth > 0) {
+			travellingTo = target;
+			strip.scrollTo({ left: target * strip.clientWidth });
+		}
+
+		// Paging to an end disables the arrow that got you there, and a browser blurs a
+		// button the moment it becomes disabled. A keyboard reader who pressed Next twice
+		// would land on the last photograph with focus dumped back on the document body,
+		// having lost the carousel entirely. Hand focus to the arrow that still works.
+		//
+		// Read before `tick()` because after it the browser has already blurred the button
+		// and `document.activeElement` no longer remembers who was there.
+		await tick();
+		if (wasFocused === nextButton && nextButton?.disabled) prevButton?.focus();
+		else if (wasFocused === prevButton && prevButton?.disabled) nextButton?.focus();
 	}
+
+	/**
+	 * Where `show` last sent the strip, while it is still on its way there.
+	 *
+	 * Two things set `index`: a button, which knows the answer immediately, and the strip's
+	 * own scroll position, which is how a swipe is read. During a smooth programmatic
+	 * scroll they disagree, and the disagreement is visible. Paging from photo 2 back to
+	 * photo 1 sets `index` to 0 at once, then the animation starts from 343px and the first
+	 * scroll events round back to 1. The counter flicks 1 to 2 to 1, and both arrows flick
+	 * disabled with it, which is enough to make a keyboard press land on a control that was
+	 * briefly dead.
+	 *
+	 * So while a programmatic scroll is in flight, the strip's position describes where it
+	 * has got to rather than where the reader wants to be, and it is ignored until it
+	 * arrives. A swipe sets nothing here and is honoured the moment it moves.
+	 */
+	let travellingTo: number | undefined;
 
 	function onStripScroll() {
 		if (!strip || strip.clientWidth === 0) return;
+		if (travellingTo !== undefined) {
+			if (Math.abs(strip.scrollLeft - travellingTo * strip.clientWidth) > 1) return;
+			travellingTo = undefined;
+		}
 		const next = Math.round(strip.scrollLeft / strip.clientWidth);
 		if (next === index) return;
 		index = next;
@@ -186,6 +226,7 @@
 				<button
 					type="button"
 					class="bed-arrow bed-arrow-prev"
+					bind:this={prevButton}
 					disabled={index === 0}
 					aria-label="Previous photo"
 					onclick={() => show(index - 1)}
@@ -203,6 +244,7 @@
 				<button
 					type="button"
 					class="bed-arrow bed-arrow-next"
+					bind:this={nextButton}
 					disabled={index === photos.length - 1}
 					aria-label="Next photo"
 					onclick={() => show(index + 1)}
