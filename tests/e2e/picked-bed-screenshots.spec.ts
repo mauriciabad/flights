@@ -1,6 +1,7 @@
 import { expect, test } from './support/fixtures';
 import { FIXTURE_FLIGHT_NUMBERS, FIXTURE_PRICES } from './support/fixture-markers';
 import { mockAllKeylessProviders, mockHostelworld, routeRyanairFlights } from './support/providers';
+import { openTimeline } from './support/results-ui';
 
 /**
  * How `docs/screenshots/279-bed-*.png` were made, kept so the next person can remake them
@@ -69,7 +70,7 @@ for (const scheme of ['dark', 'light'] as const) {
 			await page.setViewportSize({ width, height: 900 });
 			await page.goto('/results/?dep=2027-03-08&arr=2027-03-27&from=BCN&to=TLL');
 			await expect(page.getByText('still searching')).toHaveCount(0, { timeout: 20_000 });
-			await page.getByRole('button', { name: 'Show details' }).first().click();
+			await openTimeline(page);
 
 			const block = page.locator('.stopover').first();
 			await expect(block).toBeVisible();

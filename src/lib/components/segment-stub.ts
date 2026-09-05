@@ -288,7 +288,7 @@ function waitStub(segment: Extract<TripStripSegment, { kind: 'wait' }>, context:
 		// AGENTS.md, on never presenting an estimate as a fact. This is the one part of the
 		// schedule the traveller set themselves, so the panel says whose number it is and
 		// where to change it instead of letting it read as a measured queue.
-		footnote: `Your own buffer, not a measured queue. ${formatDuration(segment.minutes)} is the setting for this airport, and Show details is where you change it.`,
+		footnote: `Your own buffer, not a measured queue. ${formatDuration(segment.minutes)} is the setting for this airport, and picking this wait is where you change it.`,
 		facts: [
 			{ label: 'Before', value: `${next.carrier.name} ${next.flightNumber} to ${to}, ${formatClockTime(next.departure)}` }
 		],
