@@ -451,6 +451,13 @@ as your authorship. What comes out is a well-formed commit that happens to say "
 feature", and every later rebase applies it cleanly because there is nothing wrong with it as a
 commit.
 
+`node tools/audit-branch-deletions.mjs` runs this check for you and exits non-zero. Run it
+before you push. It reports files the branch deletes and files it guts, and `--allow path,path`
+records a deletion you meant. Against the commit that caused all this it finds both deleted files
+plus `FlightPicker.svelte +8 -128`, `FlightPicker.test.ts +0 -107` and
+`recompute-selection.test.ts +1 -56`, with one entry for a deliberate extraction that belongs in
+`--allow`.
+
 So `git reset --soft` onto a base that has moved is only safe if you know what your working tree
 holds. If you want a single tidy commit, prefer `git add` on the paths you actually changed. And
 whichever way you get there, read `git diff --stat origin/main...HEAD` before pushing and look for
