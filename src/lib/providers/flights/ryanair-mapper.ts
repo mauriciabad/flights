@@ -180,9 +180,28 @@ export interface DailyFareRouteContext {
 }
 
 /**
- * Turns one day of the fare calendar into a `FlightOffer`, or `undefined` when this day
- * cannot be described honestly. Every rejection below is a real case measured against the
- * live endpoint on 2026-09-04, not defensive padding:
+ * `mapDailyFareToFlightOffer`'s return: the offer this day supports, when it supports one,
+ * plus the airports that were the single thing between a sellable fare and a dated offer.
+ *
+ * Issue #359: an offer this app dropped for want of a time zone is not the same fact as a
+ * day nothing was on sale, and until this shape existed the two arrived at the search
+ * pipeline as the same empty list — which the connections map then printed as "Nothing
+ * flies here" over a flight Ryanair had priced and named. Same shape, and the same reason
+ * for it, as flights-sky-map-offers.ts's `DirectItineraryResult` (issues #124/#130).
+ */
+export interface DailyFareResult {
+	offer?: FlightOffer;
+	/** Populated only for a fare that was otherwise fully sellable: on sale, in the window,
+	 * priced, and matched to a real timetable row. Never for a day rejected for any of those
+	 * ordinary reasons, so a caller counting these can never mistake "Ryanair sells nothing
+	 * that day" for "Ryanair sells this and this app cannot date it." */
+	unresolvedTimeZoneAirports: readonly IataAirportCode[];
+}
+
+/**
+ * Turns one day of the fare calendar into a `FlightOffer`, or into an empty result when
+ * this day cannot be described honestly. Every rejection below is a real case measured
+ * against the live endpoint on 2026-09-04, not defensive padding:
  *
  * - `unavailable` — nothing on sale. Also, and more importantly, what a route Ryanair does
  *   not fly at all looks like: BCN→OTP answers `200` with 31 unavailable rows. Mapping
@@ -195,58 +214,79 @@ export interface DailyFareRouteContext {
  *   matches providers on that number and the picker keys its rows on it; a made-up one is
  *   worse than one fewer row.
  * - unknown airport timezone — same judgement the adapter has always made (issue #93): a
- *   wrong UTC offset silently moves an overnight connection by a night.
+ *   wrong UTC offset silently moves an overnight connection by a night. Checked last, and
+ *   the only rejection this reports back, see `DailyFareResult`.
  */
 export function mapDailyFareToFlightOffer(
 	fare: RyanairDailyFare,
 	schedule: ReadonlyMap<string, RyanairScheduledFlight>,
 	context: DailyFareRouteContext
-): FlightOffer | undefined {
-	if (!isRecord(fare)) return undefined;
-	if (fare.unavailable === true || fare.soldOut === true) return undefined;
-	if (!isNonEmptyString(fare.day)) return undefined;
-	if (fare.day < context.earliestDeparture || fare.day > context.latestDeparture) return undefined;
+): DailyFareResult {
+	const none: DailyFareResult = { unresolvedTimeZoneAirports: [] };
+	if (!isRecord(fare)) return none;
+	if (fare.unavailable === true || fare.soldOut === true) return none;
+	if (!isNonEmptyString(fare.day)) return none;
+	if (fare.day < context.earliestDeparture || fare.day > context.latestDeparture) return none;
 
 	if (!isParsableLocalIsoString(fare.departureDate) || !isParsableLocalIsoString(fare.arrivalDate)) {
-		return undefined;
+		return none;
 	}
 
-	const departureTimeZone = context.timeZoneByIataCode[context.origin];
-	const arrivalTimeZone = context.timeZoneByIataCode[context.destination];
-	if (!departureTimeZone || !arrivalTimeZone) return undefined;
-
 	const price = toMoney(fare.price);
-	if (!price) return undefined;
+	if (!price) return none;
 
 	// The join. Departure minute is the identity: the fare feed is authoritative for the
 	// times (it is what is actually on sale) and the schedule only supplies the name of the
 	// flight leaving at that minute. Measured across 10 routes and 235 priced days on
 	// 2026-09-04, every fare matched a scheduled departure, arrival times included.
 	const scheduled = schedule.get(`${fare.day}T${wallClockMinute(fare.departureDate)}`);
-	if (!scheduled) return undefined;
+	if (!scheduled) return none;
+
+	// Last, after every other field has validated, which is what makes `DailyFareResult`'s
+	// report worth anything: a fare with no price or no timetable row was never going to
+	// become an offer, so naming its airports here would claim this app failed to time a
+	// flight it never had. Same ordering, same reason, as flights-sky-map-offers.ts.
+	const departureTimeZone = context.timeZoneByIataCode[context.origin];
+	const arrivalTimeZone = context.timeZoneByIataCode[context.destination];
+	if (!departureTimeZone || !arrivalTimeZone) {
+		const unresolved: IataAirportCode[] = [];
+		if (!departureTimeZone) unresolved.push(context.origin);
+		if (!arrivalTimeZone) unresolved.push(context.destination);
+		return { unresolvedTimeZoneAirports: unresolved };
+	}
 
 	const departure = toLocalDateTime(fare.departureDate, departureTimeZone);
 	const arrival = toLocalDateTime(fare.arrivalDate, arrivalTimeZone);
 
 	return {
-		carrier: carrierFor(scheduled.carrierCode),
-		// Prefixed to match the format every other consumer already expects ("FR8231" from
-		// the old fare finder), since the timetable splits the prefix off into carrierCode.
-		flightNumber: `${scheduled.carrierCode}${scheduled.number}`,
-		departureAirport: context.origin,
-		arrivalAirport: context.destination,
-		departure,
-		arrival,
-		duration: computeFlightDuration(departure, arrival),
-		price,
-		// Issue #109: `cheapestPerDay` has no adults/travellers parameter, and
-		// ryanair-client.ts never sends one, so what comes back is one adult's fare by
-		// construction rather than by assumption.
-		priceScope: 'per-person',
-		fareBrand: 'Basic',
-		baggage: BASIC_FARE_BAGGAGE,
-		deepLink: deepLinkFor(context.origin, context.destination, fare.day)
+		unresolvedTimeZoneAirports: [],
+		offer: {
+			carrier: carrierFor(scheduled.carrierCode),
+			// Prefixed to match the format every other consumer already expects ("FR8231" from
+			// the old fare finder), since the timetable splits the prefix off into carrierCode.
+			flightNumber: `${scheduled.carrierCode}${scheduled.number}`,
+			departureAirport: context.origin,
+			arrivalAirport: context.destination,
+			departure,
+			arrival,
+			duration: computeFlightDuration(departure, arrival),
+			price,
+			// Issue #109: `cheapestPerDay` has no adults/travellers parameter, and
+			// ryanair-client.ts never sends one, so what comes back is one adult's fare by
+			// construction rather than by assumption.
+			priceScope: 'per-person',
+			fareBrand: 'Basic',
+			baggage: BASIC_FARE_BAGGAGE,
+			deepLink: deepLinkFor(context.origin, context.destination, fare.day)
+		}
 	};
+}
+
+/** `mapDailyFaresToFlightOffers`'s return, gathering `DailyFareResult` across a whole month
+ * of fares. Mirrors flights-sky-map-offers.ts's `MapSearchOneWayResult`. */
+export interface MapDailyFaresResult {
+	offers: FlightOffer[];
+	unresolvedTimeZoneAirports: ReadonlySet<IataAirportCode>;
 }
 
 /**
@@ -261,16 +301,18 @@ export function mapDailyFaresToFlightOffers(
 	response: RyanairCheapestPerDayResponse,
 	schedule: ReadonlyMap<string, RyanairScheduledFlight>,
 	context: DailyFareRouteContext
-): FlightOffer[] {
+): MapDailyFaresResult {
 	const fares = response?.outbound?.fares;
-	if (!Array.isArray(fares)) return [];
-
 	const offers: FlightOffer[] = [];
+	const unresolvedTimeZoneAirports = new Set<IataAirportCode>();
+	if (!Array.isArray(fares)) return { offers, unresolvedTimeZoneAirports };
+
 	for (const fare of fares) {
-		const offer = mapDailyFareToFlightOffer(fare, schedule, context);
-		if (offer) offers.push(offer);
+		const result = mapDailyFareToFlightOffer(fare, schedule, context);
+		if (result.offer) offers.push(result.offer);
+		for (const code of result.unresolvedTimeZoneAirports) unresolvedTimeZoneAirports.add(code);
 	}
-	return offers;
+	return { offers, unresolvedTimeZoneAirports };
 }
 
 /** Ryanair writes an airport edge in `RyanairActiveAirport.routes` as `airport:STN`. The

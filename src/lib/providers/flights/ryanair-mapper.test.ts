@@ -9,11 +9,13 @@ import {
 	mapDailyFareToFlightOffer,
 	mapDailyFaresToFlightOffers
 } from './ryanair-mapper';
+import type { DailyFareRouteContext } from './ryanair-mapper';
 import type {
 	RyanairActiveAirportsResponse,
 	RyanairCheapestPerDayResponse,
 	RyanairMonthlyScheduleResponse
 } from './ryanair-types';
+import type { FlightOffer } from '../../domain';
 
 const FETCHED_AT = '2026-09-04T10:00:00.000Z';
 const snapshot = buildNetworkSnapshot(activeAirportsFixture as RyanairActiveAirportsResponse, FETCHED_AT);
@@ -163,8 +165,15 @@ describe('carrierFor', () => {
 });
 
 describe('mapDailyFareToFlightOffer', () => {
+	/** The offer half alone, for the cases that are about the mapping rather than about
+	 * issue #359's unresolved-zone report below. */
+	const offerFor = (
+		fare: Parameters<typeof mapDailyFareToFlightOffer>[0],
+		context: DailyFareRouteContext
+	): FlightOffer | undefined => mapDailyFareToFlightOffer(fare, scheduleIndex, context).offer;
+
 	it('maps a real captured BCN -> STN day to the exact domain shape, naming the flight from the timetable', () => {
-		const offer = mapDailyFareToFlightOffer(fares.outbound.fares[0], scheduleIndex, context);
+		const offer = offerFor(fares.outbound.fares[0], context);
 
 		expect(offer).toEqual({
 			carrier: { iataCode: 'FR', name: 'Ryanair' },
@@ -188,7 +197,7 @@ describe('mapDailyFareToFlightOffer', () => {
 	// wall clock at their own airport, with their own offsets, so the overnight is visible
 	// rather than normalised away (AGENTS.md "Timezones").
 	it('keeps an overnight arrival on its real local date, not folded back into the departure day', () => {
-		const offer = mapDailyFareToFlightOffer(fares.outbound.fares[2], scheduleIndex, context);
+		const offer = offerFor(fares.outbound.fares[2], context);
 		expect(offer?.departure.local).toBe('2026-10-03T22:55:00');
 		expect(offer?.arrival.local).toBe('2026-10-04T00:20:00');
 		expect(offer?.flightNumber).toBe('FR9811');
@@ -207,13 +216,13 @@ describe('mapDailyFareToFlightOffer', () => {
 			soldOut: false,
 			unavailable: true
 		};
-		expect(mapDailyFareToFlightOffer(unavailable, scheduleIndex, context)).toBeUndefined();
+		expect(offerFor(unavailable, context)).toBeUndefined();
 	});
 
 	it('drops a sold-out day, since its price cannot actually be bought', () => {
 		const soldOut = structuredClone(fares.outbound.fares[0]);
 		soldOut.soldOut = true;
-		expect(mapDailyFareToFlightOffer(soldOut, scheduleIndex, context)).toBeUndefined();
+		expect(offerFor(soldOut, context)).toBeUndefined();
 	});
 
 	// The fare feed names no flight. Without a timetable entry confirming a departure at
@@ -223,18 +232,61 @@ describe('mapDailyFareToFlightOffer', () => {
 		const unscheduled = structuredClone(fares.outbound.fares[0]);
 		unscheduled.departureDate = '2026-10-01T03:00:00';
 		unscheduled.arrivalDate = '2026-10-01T04:25:00';
-		expect(mapDailyFareToFlightOffer(unscheduled, scheduleIndex, context)).toBeUndefined();
+		expect(offerFor(unscheduled, context)).toBeUndefined();
 	});
 
 	it('drops a day outside the window the traveller asked about', () => {
 		const narrow = { ...context, earliestDeparture: '2026-10-02', latestDeparture: '2026-10-02' };
-		expect(mapDailyFareToFlightOffer(fares.outbound.fares[0], scheduleIndex, narrow)).toBeUndefined();
-		expect(mapDailyFareToFlightOffer(fares.outbound.fares[1], scheduleIndex, narrow)).toBeDefined();
+		expect(offerFor(fares.outbound.fares[0], narrow)).toBeUndefined();
+		expect(offerFor(fares.outbound.fares[1], narrow)).toBeDefined();
 	});
 
-	it('returns undefined rather than guessing when an airport has no known timezone', () => {
+	it('returns no offer rather than guessing when an airport has no known timezone', () => {
 		const unknownZone = { ...context, destination: 'ZZZ' };
-		expect(mapDailyFareToFlightOffer(fares.outbound.fares[0], scheduleIndex, unknownZone)).toBeUndefined();
+		expect(offerFor(fares.outbound.fares[0], unknownZone)).toBeUndefined();
+	});
+
+	// Issue #359. This fare is on sale, in the window, priced, and matched to a real
+	// timetable row: the only thing between it and an offer is a zone this app does not
+	// hold. Saying so is what stops the connections map printing "Nothing flies here".
+	it('names both airports it could not time, when neither zone is known', () => {
+		const neitherZone = { ...context, timeZoneByIataCode: {} };
+		expect(mapDailyFareToFlightOffer(fares.outbound.fares[0], scheduleIndex, neitherZone)).toEqual({
+			unresolvedTimeZoneAirports: ['BCN', 'STN']
+		});
+	});
+
+	it('names only the endpoint whose zone is missing', () => {
+		const noArrivalZone = { ...context, timeZoneByIataCode: { BCN: 'Europe/Madrid' } };
+		expect(mapDailyFareToFlightOffer(fares.outbound.fares[0], scheduleIndex, noArrivalZone).unresolvedTimeZoneAirports).toEqual(
+			['STN']
+		);
+	});
+
+	// The zone lookup runs last on purpose. A fare with no price or no timetable row was
+	// never going to become an offer, so reporting it here would claim this app failed to
+	// time a flight it never had.
+	it('reports nothing for a fare that had no price, even with no zones at all', () => {
+		const noPrice = structuredClone(fares.outbound.fares[0]);
+		noPrice.price = null;
+		expect(mapDailyFareToFlightOffer(noPrice, scheduleIndex, { ...context, timeZoneByIataCode: {} })).toEqual({
+			unresolvedTimeZoneAirports: []
+		});
+	});
+
+	it('reports nothing for a fare the timetable does not confirm, even with no zones at all', () => {
+		const unscheduled = structuredClone(fares.outbound.fares[0]);
+		unscheduled.departureDate = '2026-10-01T03:00:00';
+		unscheduled.arrivalDate = '2026-10-01T04:25:00';
+		expect(mapDailyFareToFlightOffer(unscheduled, scheduleIndex, { ...context, timeZoneByIataCode: {} })).toEqual({
+			unresolvedTimeZoneAirports: []
+		});
+	});
+
+	it('never reports an ordinary, fully mapped fare as an unresolved time zone', () => {
+		const result = mapDailyFareToFlightOffer(fares.outbound.fares[0], scheduleIndex, context);
+		expect(result.offer).toBeDefined();
+		expect(result.unresolvedTimeZoneAirports).toEqual([]);
 	});
 
 	it('carries the currency the response actually returned, not an assumed one', () => {
@@ -246,7 +298,7 @@ describe('mapDailyFareToFlightOffer', () => {
 			currencyCode: 'GBP',
 			currencySymbol: '£'
 		};
-		expect(mapDailyFareToFlightOffer(gbp, scheduleIndex, context)?.price).toEqual({
+		expect(offerFor(gbp, context)?.price).toEqual({
 			minorUnits: 1234,
 			currency: 'GBP'
 		});
@@ -269,7 +321,7 @@ describe('mapDailyFareToFlightOffer', () => {
 			currencyCode,
 			currencySymbol: currencyCode
 		};
-		expect(mapDailyFareToFlightOffer(fare, scheduleIndex, context)?.price).toEqual({ minorUnits, currency: currencyCode });
+		expect(offerFor(fare, context)?.price).toEqual({ minorUnits, currency: currencyCode });
 	});
 
 	// Issue #93: `valueMainUnit` renamed, retyped, or otherwise missing used to reach
@@ -279,48 +331,48 @@ describe('mapDailyFareToFlightOffer', () => {
 		const corrupted = structuredClone(fares.outbound.fares[0]);
 		// @ts-expect-error deliberately corrupting a required field to simulate schema drift.
 		delete corrupted.price.valueMainUnit;
-		expect(mapDailyFareToFlightOffer(corrupted, scheduleIndex, context)).toBeUndefined();
+		expect(offerFor(corrupted, context)).toBeUndefined();
 	});
 
 	it('drops a fare whose price.valueMainUnit was retyped to a number', () => {
 		const corrupted = structuredClone(fares.outbound.fares[0]);
 		// @ts-expect-error deliberately corrupting a required field to simulate schema drift.
 		corrupted.price.valueMainUnit = 14;
-		expect(mapDailyFareToFlightOffer(corrupted, scheduleIndex, context)).toBeUndefined();
+		expect(offerFor(corrupted, context)).toBeUndefined();
 	});
 
 	it('drops a fare whose price.valueFractionalUnit was retyped to null', () => {
 		const corrupted = structuredClone(fares.outbound.fares[0]);
 		// @ts-expect-error deliberately corrupting a required field to simulate schema drift.
 		corrupted.price.valueFractionalUnit = null;
-		expect(mapDailyFareToFlightOffer(corrupted, scheduleIndex, context)).toBeUndefined();
+		expect(offerFor(corrupted, context)).toBeUndefined();
 	});
 
 	it('drops a fare whose price is missing entirely', () => {
 		const corrupted = structuredClone(fares.outbound.fares[0]);
 		corrupted.price = null;
-		expect(mapDailyFareToFlightOffer(corrupted, scheduleIndex, context)).toBeUndefined();
+		expect(offerFor(corrupted, context)).toBeUndefined();
 	});
 
 	it('drops a fare whose departureDate is not a parsable ISO string, instead of throwing', () => {
 		const corrupted = structuredClone(fares.outbound.fares[0]);
 		corrupted.departureDate = 'not-a-date';
-		expect(() => mapDailyFareToFlightOffer(corrupted, scheduleIndex, context)).not.toThrow();
-		expect(mapDailyFareToFlightOffer(corrupted, scheduleIndex, context)).toBeUndefined();
+		expect(() => offerFor(corrupted, context)).not.toThrow();
+		expect(offerFor(corrupted, context)).toBeUndefined();
 	});
 
 	it('drops a fare whose arrivalDate is null, instead of throwing', () => {
 		const corrupted = structuredClone(fares.outbound.fares[0]);
 		corrupted.arrivalDate = null;
-		expect(() => mapDailyFareToFlightOffer(corrupted, scheduleIndex, context)).not.toThrow();
-		expect(mapDailyFareToFlightOffer(corrupted, scheduleIndex, context)).toBeUndefined();
+		expect(() => offerFor(corrupted, context)).not.toThrow();
+		expect(offerFor(corrupted, context)).toBeUndefined();
 	});
 
 	it('drops a fare that is not an object at all, instead of throwing', () => {
 		// @ts-expect-error deliberately passing a structurally broken fare entry.
-		expect(() => mapDailyFareToFlightOffer(null, scheduleIndex, context)).not.toThrow();
+		expect(() => offerFor(null, context)).not.toThrow();
 		// @ts-expect-error deliberately passing a structurally broken fare entry.
-		expect(mapDailyFareToFlightOffer(null, scheduleIndex, context)).toBeUndefined();
+		expect(offerFor(null, context)).toBeUndefined();
 	});
 });
 
@@ -328,7 +380,7 @@ describe('mapDailyFaresToFlightOffers', () => {
 	// The whole point of issue #137: one request now yields a row per sellable day, so the
 	// picker has real dates to offer instead of the single fare the fare finder returned.
 	it('maps every sellable day in the captured month to its own offer', () => {
-		const offers = mapDailyFaresToFlightOffers(fares, scheduleIndex, context);
+		const { offers } = mapDailyFaresToFlightOffers(fares, scheduleIndex, context);
 
 		expect(offers).toHaveLength(6);
 		expect(offers.map((offer) => offer.departure.local.slice(0, 10))).toEqual([
@@ -353,7 +405,7 @@ describe('mapDailyFaresToFlightOffers', () => {
 	});
 
 	it('clips to the traveller’s window rather than returning the whole calendar month', () => {
-		const offers = mapDailyFaresToFlightOffers(fares, scheduleIndex, {
+		const { offers } = mapDailyFaresToFlightOffers(fares, scheduleIndex, {
 			...context,
 			earliestDeparture: '2026-10-02',
 			latestDeparture: '2026-10-04'
@@ -366,7 +418,7 @@ describe('mapDailyFaresToFlightOffers', () => {
 	});
 
 	it('returns nothing at all when the timetable is empty, never a nameless flight', () => {
-		expect(mapDailyFaresToFlightOffers(fares, new Map(), context)).toEqual([]);
+		expect(mapDailyFaresToFlightOffers(fares, new Map(), context).offers).toEqual([]);
 	});
 
 	it('drops one malformed day among otherwise good ones rather than failing the batch', () => {
@@ -374,7 +426,7 @@ describe('mapDailyFaresToFlightOffers', () => {
 		// @ts-expect-error deliberately corrupting a required field to simulate schema drift.
 		drifted.outbound.fares[0].price.valueMainUnit = undefined;
 
-		const offers = mapDailyFaresToFlightOffers(drifted, scheduleIndex, context);
+		const { offers } = mapDailyFaresToFlightOffers(drifted, scheduleIndex, context);
 		expect(offers).toHaveLength(5);
 		expect(offers[0]?.departure.local.slice(0, 10)).toBe('2026-10-02');
 	});
@@ -382,7 +434,22 @@ describe('mapDailyFaresToFlightOffers', () => {
 	it('returns an empty list, not a throw, for a body with no fares array', () => {
 		const broken = { outbound: {} } as unknown as RyanairCheapestPerDayResponse;
 		expect(() => mapDailyFaresToFlightOffers(broken, scheduleIndex, context)).not.toThrow();
-		expect(mapDailyFaresToFlightOffers(broken, scheduleIndex, context)).toEqual([]);
+		expect(mapDailyFaresToFlightOffers(broken, scheduleIndex, context).offers).toEqual([]);
+	});
+
+	// Issue #359: the month's report, gathered across every day. Nothing on this route is
+	// datable, so the whole month is a set of two airports rather than six silent drops.
+	it('gathers every airport it could not time across the whole month', () => {
+		const { offers, unresolvedTimeZoneAirports } = mapDailyFaresToFlightOffers(fares, scheduleIndex, {
+			...context,
+			timeZoneByIataCode: {}
+		});
+		expect(offers).toEqual([]);
+		expect(unresolvedTimeZoneAirports).toEqual(new Set(['BCN', 'STN']));
+	});
+
+	it('reports an empty set for a month that mapped normally', () => {
+		expect(mapDailyFaresToFlightOffers(fares, scheduleIndex, context).unresolvedTimeZoneAirports).toEqual(new Set());
 	});
 });
 

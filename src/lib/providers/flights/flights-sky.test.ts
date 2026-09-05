@@ -444,10 +444,14 @@ describe('createFlightsSkyFlightProvider', () => {
 
 				expect(result.ok).toBe(false);
 				if (!result.ok) {
-					expect(result.error.code).toBe('malformed-response');
+					// Issue #359: the code says whose gap this is. Flights Sky's response parsed
+					// fine, so `malformed-response` was blaming the provider for this app's own
+					// missing zone.
+					expect(result.error.code).toBe('no-time-zone');
 					// Names the actual airport that blocked it — never a generic "something
 					// went wrong", and never silent.
 					expect(result.error.message).toContain('AHO');
+					if (result.error.code === 'no-time-zone') expect(result.error.airports).toEqual(['AHO']);
 				}
 			});
 		});

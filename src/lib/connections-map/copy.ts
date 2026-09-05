@@ -35,6 +35,12 @@ export function describeBlock(block: ConnectionBlock): BlockCopy {
 				headline: 'Airport not in the dataset',
 				detail: 'This app has no record of where this airport is, so it cannot plan through it.'
 			};
+		case 'timezone-unknown':
+			return {
+				headline: 'A flight here could not be timed',
+				detail:
+					'A source had a priced flight to this airport on a day in your window, and this app knows no time zone for it, so it cannot say when that flight lands.'
+			};
 		case 'no-outbound-flight':
 			return {
 				headline: 'Nothing flies here',

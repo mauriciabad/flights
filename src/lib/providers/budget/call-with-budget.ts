@@ -205,8 +205,14 @@ function toProviderError(
 			return { code, message, cause: rawError };
 		case 'cancelled':
 			return { code, message };
+		// Issue #359: this channel rebuilds an error from its code alone, so the airport
+		// list that is the whole point of `no-time-zone` cannot survive it, and reporting
+		// the code with an empty list would tell `search/cost-aware.ts` that no airport was
+		// untimed. Nothing reaches here today: both adapters that produce this code return
+		// it straight out of `searchOffers`, where the list is still in hand.
+		case 'no-time-zone':
 		case 'unknown':
-			return { code, message, cause: rawError };
+			return { code: 'unknown', message, cause: rawError };
 	}
 }
 

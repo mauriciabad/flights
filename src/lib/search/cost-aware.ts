@@ -22,7 +22,7 @@ import type {
 } from '../providers/types';
 import { estimateWidenCost } from '../providers/budget';
 import type { CostAwareSearchResult, CostAwareSource, ProviderTier, StayLookupBudget } from '../providers/budget';
-import type { FlightOffer, Stay } from '../domain';
+import type { FlightOffer, IataAirportCode, Stay } from '../domain';
 import type { RecordProviderCall, SourceTracker } from './provenance';
 
 function tierFor(cost: number): ProviderTier {
@@ -158,4 +158,18 @@ export function pickMeteredWithinBudget(costAwareSources: readonly CostAwareSour
  * quote." */
 export function flattenOk<T>(result: CostAwareSearchResult<T[]>): T[] {
 	return result.results.flatMap((entry) => (entry.outcome.ok ? entry.outcome.data : []));
+}
+
+/** Issue #359: the airports a source had a real, sellable fare for and this app could not
+ * put a clock on. `flattenOk` above keeps only the offers, so without this the one fact
+ * that tells "nothing flies here" apart from "something flies and this app could not date
+ * it" dies at this seam. */
+export function untimedAirports<T>(result: CostAwareSearchResult<T[]>): IataAirportCode[] {
+	return [
+		...new Set(
+			result.results.flatMap((entry) =>
+				!entry.outcome.ok && entry.outcome.error.code === 'no-time-zone' ? entry.outcome.error.airports : []
+			)
+		)
+	];
 }

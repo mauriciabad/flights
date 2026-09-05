@@ -512,7 +512,12 @@ export type ConnectionBlock =
 	 * town, back out, and checked in for the onward flight costs more minutes than the
 	 * layover has. `groundTimeNeeded` is that cost, so the two numbers can be printed
 	 * against each other. */
-	| { reason: 'layover-under-ground-time'; closestLayover: Duration; groundTimeNeeded: Duration };
+	| { reason: 'layover-under-ground-time'; closestLayover: Duration; groundTimeNeeded: Duration }
+	/** Issue #359: a source had a priced, numbered flight on the day and this app could not
+	 * date it, for want of a time zone for the airport. Like `airport-unknown` this is this
+	 * app saying what it does not know, and unlike `no-outbound-flight` it is not a claim
+	 * that nothing flies. */
+	| { reason: 'timezone-unknown' };
 
 /** How near a refusal came to being a trip. A pairing that missed by a rule further down
  * this list is a better explanation than one that missed at the top, so the closest miss
@@ -520,12 +525,18 @@ export type ConnectionBlock =
  * learns something that "nothing flies onward" would have hidden. */
 const BLOCK_CLOSENESS: Record<ConnectionBlock['reason'], number> = {
 	'airport-unknown': 0,
-	'prices-disagree': 1,
-	'no-outbound-flight': 2,
-	'no-onward-flight': 3,
-	'onward-before-arrival': 4,
-	'layover-under-minimum': 5,
-	'layover-under-ground-time': 6
+	// Issue #359 sits at the "this app's own gap" end of the list, next to `airport-unknown`
+	// and for the same reason: if some other pairing through this airport missed on a
+	// routing rule, that measurement is the better sentence to print. `closerBlock` never
+	// actually arbitrates this one, because `pairConnections` cannot produce it —
+	// `processCandidate` decides it before any pairing exists.
+	'timezone-unknown': 1,
+	'prices-disagree': 2,
+	'no-outbound-flight': 3,
+	'no-onward-flight': 4,
+	'onward-before-arrival': 5,
+	'layover-under-minimum': 6,
+	'layover-under-ground-time': 7
 };
 
 /** Keeps the closest miss, and among two misses of the same kind the one with the longest

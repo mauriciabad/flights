@@ -76,6 +76,16 @@ describe('describeBlock', () => {
 		// Different claims. One is about aviation and one is about this app's dataset.
 		expect(describeBlock({ reason: 'airport-unknown' }).detail).toContain('no record of where this airport is');
 	});
+
+	// Issue #359: a source priced a flight here. Saying "Nothing flies here" over it is a
+	// false sentence about a real flight, so this one says whose gap it is instead.
+	it('admits a flight it could not time, rather than claiming nothing flies', () => {
+		const copy = describeBlock({ reason: 'timezone-unknown' });
+
+		expect(copy.headline).toBe('A flight here could not be timed');
+		expect(copy.detail).toContain('knows no time zone');
+		expect(copy.detail).not.toContain('Nothing flies');
+	});
 });
 
 describe('describeUnpriced', () => {
