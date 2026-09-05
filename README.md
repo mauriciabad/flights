@@ -74,6 +74,12 @@ airport in. Its licence sits beside the copies at `static/flags/LICENSE.md`.
 [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/), via `pnpm run data:city-centres`.
 Each row names the GeoNames record it came from in `src/lib/data/city-centres.audit.tsv`.
 
+`src/lib/data/airport-terminals.generated.json` comes from
+[OpenStreetMap](https://www.openstreetmap.org/), `aeroway=terminal` worldwide via the
+Overpass API, licensed [ODbL](https://opendatacommons.org/licenses/odbl/), rebuilt by
+`node scripts/prepare-airport-terminals.mjs`. It moves a ground transfer's start from the
+runway reference point to a door, which at Gatwick are 1.4 km apart.
+
 `src/lib/data/direct-routes.generated.json` comes from English Wikipedia's airport
 destination tables, licensed
 [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/), via
