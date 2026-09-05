@@ -30,9 +30,8 @@ export type TransferMode = 'walk' | 'transit' | 'taxi' | 'drive';
  * walk is not a preference, it is the router answering a question nobody asked, and the
  * leg degrades to "no transfer found", which every caller already handles.
  *
- * Driving and taxi are left uncapped on purpose. Issue #119 says the same reasoning
- * applies to an absurd driving duration and it does, but a road cap needs its own argument
- * about ferry links and routing artefacts, and it belongs with the rest of that issue.
+ * Driving and taxi have their own rule now, `maxPlausibleRoadMinutes` below, and it is a
+ * different shape for a reason that rule states in full.
  *
  * Issue #204 moved this here from `search/resources.ts`, where it could only ever filter a
  * router's answer. `providers/transfers/osrm.ts` now refuses to ASK for a walk this long,
@@ -93,12 +92,103 @@ export const SLOWEST_USEFUL_TRANSIT_KM_PER_HOUR = 10;
  * whatever survives, so a slow-but-real route loses on its merits rather than being
  * deleted here.
  *
- * Driving and taxi stay uncapped, same as they are for the walk rule and for the same
- * reason: a road cap needs its own argument about ferry links and routing artefacts.
+ * Driving and taxi have their own rule, `maxPlausibleRoadMinutes` below.
  */
 export function maxPlausibleTransitMinutes(straightLineKm: number): Duration {
 	const travel = (Math.max(0, straightLineKm) / SLOWEST_USEFUL_TRANSIT_KM_PER_HOUR) * 60;
 	return (TRANSIT_FIXED_ALLOWANCE_MINUTES + travel) as Duration;
+}
+
+/**
+ * What a road transfer is allowed to cost that has nothing to do with how far it goes:
+ * getting off the airport apron, the last mile through a town centre, finding the address.
+ *
+ * 30 minutes, and far below transit's 90, because a road transfer buys none of what that
+ * 90 pays for. There is no walk to the stop, no change, and no wait for the next one. You
+ * get in and go. The allowance is here so the rule cannot fire on a short hop, where a
+ * hotel 800 m away round the far side of an airport perimeter road is four road kilometres
+ * and eight minutes, and the straight-line pace of that is 6 km/h.
+ */
+export const ROAD_FIXED_ALLOWANCE_MINUTES = 30;
+
+/**
+ * The slowest a real road transfer can average, measured as straight-line kilometres per
+ * hour, and the distance-dependent half of the road rule.
+ *
+ * 7 km/h, which is barely above a walk, and that is the whole statement: a vehicle that
+ * cannot beat a walker across the ground is not describing transport. This file's sibling
+ * `FASTEST_PLAUSIBLE_WALK_KM_PER_HOUR` in `providers/transfers/osrm.ts` puts the fastest
+ * any pedestrian router could claim at 6 km/h, so this floor sits one notch above it.
+ *
+ * Measured against `routing.openstreetmap.de/routed-car`, the router this app actually
+ * calls, on 2026-09-05. Fourteen airport-to-bed pairs picked to stress every geography a
+ * long road route comes from — a fjord, a mountain pass, an island with a car ferry, an
+ * island with none, a sea crossing between two countries:
+ *
+ * | route | straight | road | time | straight-line pace |
+ * | --- | --- | --- | --- | --- |
+ * | Inverness airport to Portree, Skye | 129.2 km | 193.7 km | 2h 44m | 47.3 km/h |
+ * | Barcelona airport to Placa de Catalunya | 12.3 km | 13.5 km | 17m | 42.5 km/h |
+ * | Helsinki airport to Tallinn old town | 98.6 km | 105.4 km | 2h 38m | 37.3 km/h |
+ * | Alesund airport to Geiranger | 76.0 km | 123.2 km | 2h 18m | 33.0 km/h |
+ * | Gatwick to Kings Cross | 42.1 km | 51.5 km | 1h 18m | 32.3 km/h |
+ * | Naples airport to Capri town | 37.3 km | 48.0 km | 1h 12m | 31.3 km/h |
+ * | Bergen airport to Balestrand | 123.6 km | 198.6 km | 4h 1m | 30.8 km/h |
+ * | Marseille airport to Ajaccio, Corsica | 333.5 km | 590.0 km | 12h 23m | 26.9 km/h |
+ * | Athens airport to Aegina town | 50.0 km | 82.0 km | 1h 57m | 25.5 km/h |
+ * | Vancouver airport to Victoria BC | 86.5 km | 154.2 km | 3h 58m | 21.8 km/h |
+ * | Split airport to Vis town | 53.9 km | 79.6 km | 3h 30m | 15.4 km/h |
+ * | Split airport to Hvar town | 42.3 km | 215.2 km | 4h 44m | 8.9 km/h |
+ * | Athens airport to Thira, Santorini | 214.4 km | 268.9 km | 37h 31m | 5.7 km/h |
+ * | Athens airport to Naxos town | 156.6 km | 180.0 km | 33h 0m | 4.7 km/h |
+ *
+ * The last two are the artefact, and it has one cause. OSRM's car profile prices a
+ * `route=ferry` way from the way's own `duration` tag, and falls back to about 5 km/h when
+ * there is none. Piraeus to Naxos is untagged, so the router spends 32h 31m on a crossing
+ * the timetable does 3h 45m; Santorini is five such ways in a row. Marseille to Ajaccio is
+ * the same journey with the tag present, and it comes back at a believable 12h 23m over
+ * 590 km. Nothing about the route's shape gives this away, which is the point of the
+ * "detour" column not being in this table: Naxos travels 1.15 times its straight line, the
+ * most innocent ratio of the fourteen, and it is the worst answer here by a factor of nine.
+ *
+ * Everything above 8.9 km/h in that table is real and stays. Two of them are worth naming,
+ * because they are the reason this is not a duration cap. Bergen airport to Balestrand on
+ * the Sognefjord is four hours and one minute, and it is an ordinary drive to a village
+ * people fly to Bergen for; issue #150 proposed a flat 240-minute cap for exactly this
+ * problem, and it would have deleted that journey by sixty seconds. Marseille to Ajaccio is
+ * twelve hours, entirely legitimate, and no flat cap survives contact with it at all.
+ *
+ * Split airport to Hvar town is the closest call in the table and it is kept on purpose.
+ * 4h 44m to cover 42 km is a terrible way to reach Hvar, and it is a true one: OSRM cannot
+ * board the passenger catamaran, so it takes the Drvenik car ferry and drives the length of
+ * the island, which is what a car really has to do. At 8.9 km/h against a 7 km/h floor it
+ * survives with room. `providers/transfers/osrm.ts` errs the same direction with
+ * `FASTEST_PLAUSIBLE_WALK_KM_PER_HOUR`, and #220's transit rule with
+ * `SLOWEST_USEFUL_TRANSIT_KM_PER_HOUR`: the bound must never delete a journey somebody
+ * would actually take, so where the evidence runs out, it runs out on the loose side.
+ *
+ * What this therefore does NOT do is bound length. A twelve-hour drive to Corsica passes,
+ * and should: length is sometimes the truth, and a traveller offered a bed 300 km from the
+ * airport is better served by being told it is twelve hours away than by the row going
+ * quiet. `pickBestTransfer` prefers transit, then walking, then taxi, then driving, so a
+ * long drive only becomes the itinerary's pick when nothing else exists; and since #246 a
+ * taxi past 30 km carries no fare estimate at all, with its own disclosure saying why.
+ * This rule deletes disproportion, not distance.
+ */
+export const SLOWEST_USEFUL_ROAD_KM_PER_HOUR = 7;
+
+/**
+ * The longest driving or taxi transfer worth putting in front of a traveller, for two
+ * points this far apart in a straight line. Issue #119's second half.
+ *
+ * Same shape as `maxPlausibleTransitMinutes` and for the same reason: no flat number is
+ * right for a leg that is 2 km in one city and 200 km in another. Different numbers,
+ * because the two modes fail differently. Transit is slow because it stops; a road route is
+ * slow because the router is pricing a boat.
+ */
+export function maxPlausibleRoadMinutes(straightLineKm: number): Duration {
+	const travel = (Math.max(0, straightLineKm) / SLOWEST_USEFUL_ROAD_KM_PER_HOUR) * 60;
+	return (ROAD_FIXED_ALLOWANCE_MINUTES + travel) as Duration;
 }
 
 export interface TransferLeg {
