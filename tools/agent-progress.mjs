@@ -84,3 +84,10 @@ for (const r of rows) {
 	console.log(`  ${r.ahead} commits ahead · ${r.stat || 'no unstaged diff'}${r.staged ? ` · staged: ${r.staged}` : ''} · ${r.untracked} untracked`);
 	console.log(`  last touched ${r.idleMin}m ago: ${r.file}${flag}`);
 }
+
+// A diff here is one moment, not a trend. An agent taking a control measurement may
+// check origin/main into its own tree, measure, and restore, and a sweep landing inside
+// that window shows hundreds of deletions that are about to vanish. That happened at
+// 05:06 on 2026-09-05 and the orchestrator queried a PR over it. Read two sweeps a few
+// minutes apart before concluding anything from a diff, and ask the agent before acting.
+console.log('\nA diff is a snapshot. Take a second reading before concluding from it.');
