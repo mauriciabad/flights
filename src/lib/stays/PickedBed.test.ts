@@ -304,6 +304,17 @@ describe('a photograph that fails to load', () => {
 		]);
 	});
 
+	it('retries an Agoda resize at the address the provider actually gave', () => {
+		// Issue #281 made Agoda the second provider whose URLs get rewritten, and this card
+		// reaches the reverse through `original-photo.ts` rather than naming one of them.
+		const stored =
+			'https://pix8.agoda.net/hotelImages/417108/0/c8efa945512ccad1b821cad1055e2d28.jpg?va=1&ce=3';
+		const el = render({ property: property({ images: [`${stored}&s=800x600`] }) });
+		el.querySelector('img')!.dispatchEvent(new Event('error'));
+		flushSync();
+		expect(sources()).toEqual([stored]);
+	});
+
 	it('gives up rather than retrying forever once the fallback fails too', () => {
 		const upgraded =
 			'https://cf.bstatic.com/xdata/images/hotel/max1024x768/751028262.jpg?k=abc&o=';

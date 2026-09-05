@@ -20,6 +20,7 @@
 	import { cheapestSelectableOption, isOptionSelectable, rankProperties } from './rank';
 	import { describeNoStays, type StayProviderOutcome } from './no-stays-reason';
 	import { propertyOf, type PropertyStayOptions } from './types';
+	import { originalStayPhoto } from '$lib/providers/stays/original-photo';
 
 	interface Props {
 		/** Every candidate property for this connection, each with its priced room-kind
@@ -107,6 +108,18 @@
 	const openProperty = $derived(openGroup ? propertyOf(openGroup) : undefined);
 	const alternatives = $derived(ranked.filter((group) => group !== openGroup));
 
+	/** Issue #281: the stored URL whose resized form did not load, so the card can retry
+	 * once at the address the provider actually published. Holding the STORED url rather
+	 * than the failing one is what keeps this to a single retry. A failing fallback sets this
+	 * to the same value again instead of flipping back and forth forever, and a different
+	 * property clears it on its own, with no effect to reset it. */
+	let failedPhotoOf = $state<string | undefined>(undefined);
+	const openPhoto = $derived.by(() => {
+		const stored = openProperty?.images[0];
+		if (!stored) return undefined;
+		return stored === failedPhotoOf ? (originalStayPhoto(stored) ?? stored) : stored;
+	});
+
 	/** Whether anything in the whole candidate list is bookable by this group at all -
 	 * false only when every property's only rooms are a female-only dorm this group
 	 * can't (fully) use, the one case with nothing safe to fall back to. */
@@ -185,8 +198,13 @@
 
 			<div class="stay-open-body">
 				<div class="stay-open-media" aria-hidden={openProperty.images.length === 0 ? true : undefined}>
-					{#if openProperty.images[0]}
-						<img src={openProperty.images[0]} alt={openProperty.name} loading="lazy" />
+					{#if openPhoto}
+						<img
+							src={openPhoto}
+							alt={openProperty.name}
+							loading="lazy"
+							onerror={() => (failedPhotoOf = openProperty.images[0])}
+						/>
 						{#if openProperty.images.length > 1}
 							<span class="stay-open-media-count">1 / {openProperty.images.length}</span>
 						{/if}
