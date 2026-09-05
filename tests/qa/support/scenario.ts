@@ -87,3 +87,39 @@ export function resultsUrl(): string {
 	});
 	return `/results/?${params.toString()}`;
 }
+
+/**
+ * Every route question a cold search sends Kiwi, as `FROM->TO`, with `BCN->*` for the "where
+ * does this airport fly at all" query that starts the search.
+ *
+ * Issue #379: the universe a check ranks against has to be written down, or the check passes
+ * for a reason nobody stated. Before `bench.ts` answered the bundled route datasets, this
+ * same search asked about `BTS`, `CGN`, `EIN`, `HAJ`, `HHN`, `NUE`, `OSR` and `RTM` — eight
+ * airports this file has never named, every one of them out of Ryanair's real shipped
+ * snapshot. The count was nine then and it is nine now, which is why counting was never
+ * going to catch it.
+ *
+ * Where each entry comes from:
+ *
+ * - `BCN->*` starts every search.
+ * - `STN->TLL` is in `ROUTE_GRAPH` as an origin-side candidate, and the graph does not say
+ *   Stansted flies on to Tallinn, so the search pays a request to ask. `VIE`, `BGY`, `WAW`
+ *   and `CRL` are confirmed onward for free and cost nothing.
+ * - The other seven are Barcelona's edges in `algorithm/connections-fallback-data.ts`, a
+ *   hand table compiled into the app bundle rather than fetched. The bench cannot answer for
+ *   it, so it is named here instead. None of the seven survives — nothing confirms an onward
+ *   leg to Tallinn — but each costs the request that proves it.
+ *
+ * When this list moves, find the source it moved from before editing it.
+ */
+export const ROUTE_QUESTIONS_ASKED: readonly string[] = [
+	'BCN->*',
+	'BUD->TLL',
+	'CIA->TLL',
+	'DUB->TLL',
+	'FCO->TLL',
+	'KRK->TLL',
+	'LTN->TLL',
+	'MXP->TLL',
+	'STN->TLL'
+];

@@ -1,5 +1,6 @@
 /**
- * Invariant: a search asks about a bounded number of airports, and a reload asks about none.
+ * Invariant: a search asks about a bounded number of airports, it asks about the ones this
+ * scenario names and no others, and a reload asks about none.
  *
  * Issue #187. `algorithm/connections.ts` used to request a route graph for every airport the
  * origin flies to and then keep six of them. BCN unions 79 resolvable outbound airports
@@ -14,15 +15,16 @@
  * every load. So this file counts the route-graph half on its own, which is the number that
  * moves when somebody removes the ranking.
  *
- * The second check is the one that matters most, and it is why issue #194 was the same bug.
+ * The reload check is the one that matters most, and it is why issue #194 was the same bug.
  * A bounded fan-out is also a DETERMINISTIC one: geography ranks the candidates, geography
  * comes from a bundled dataset, so load one asks about exactly the set load two will want.
  * An unbounded loop can never reach that state, because no load ever caches all of it.
  */
 
 import { test, expect } from './support/bench';
+import type { RecordedRequest } from './support/bench';
 import { KIWI_PUBLIC_HOST } from './support/catalog';
-import { resultsUrl } from './support/scenario';
+import { ROUTE_QUESTIONS_ASKED, resultsUrl } from './support/scenario';
 import { resultCards, waitForSearchToSettle } from './support/page';
 
 /**
@@ -32,13 +34,6 @@ import { resultCards, waitForSearchToSettle } from './support/page';
  *
  * Deliberately the arithmetic rather than the 12 this scenario measures today. A number
  * copied from current behaviour can only ratify it, and the point is the shape.
- *
- * What this cannot see is the defect issue #255 was about. The bench's candidate set comes
- * from a fixture and is shorter than the ceiling, so a ceiling that cuts live cities looks
- * identical here to one that cuts nothing, and #248 could report "itineraries unchanged at
- * 4" in good faith. The check that does see it is a unit test in
- * `algorithm/connections.test.ts`, "still asks the bundled route graph about a candidate it
- * has no request budget left for".
  */
 const MAX_ROUTE_LOOKUPS = 6 * 3 + 1;
 
@@ -56,15 +51,35 @@ const MAX_ROUTE_LOOKUPS = 6 * 3 + 1;
  * `SearchOneWayItinerariesQuery`, the fare search, stays out: it is priced per itinerary
  * rather than per candidate, and `cost-per-search.qa.ts` is what bounds it.
  */
-function routeGraphLookups(requests: readonly { url: string }[]): string[] {
+function routeGraphLookups(requests: readonly RecordedRequest[]): RecordedRequest[] {
 	return requests
 		.filter((request) => request.url.includes(KIWI_PUBLIC_HOST))
 		.filter(
 			(request) =>
 				request.url.includes('OnePerCityItinerariesQuery') ||
 				request.url.includes('DirectRouteCheckQuery')
-		)
-		.map((request) => request.url);
+		);
+}
+
+/**
+ * The pair each lookup asked about, as `FROM->TO`, or `FROM->*` for the "where does this
+ * airport fly at all" query.
+ *
+ * The airports are in the GraphQL variables rather than the URL, which is why `bench.ts`
+ * keeps the request body. A count on its own is what issue #378 called an observation
+ * dressed as arithmetic; the pairs are what make the count explainable.
+ */
+function pairsAsked(requests: readonly RecordedRequest[]): string[] {
+	return routeGraphLookups(requests).map((request) => {
+		const variables = request.postData ?? '';
+		const [source, destination] = [
+			/"source":\{"ids":\["Station:airport:([A-Z]{3})"\]/,
+			/"destination":\{"ids":\["Station:airport:([A-Z]{3})"\]/
+		].map((pattern) => pattern.exec(variables)?.[1]);
+		// `anywhere` is the magic id `buildOnePerCityVariables` sends for "no destination
+		// filter", which is the "where does this airport fly at all" question.
+		return `${source ?? '??'}->${destination ?? (variables.includes('"anywhere"') ? '*' : '??')}`;
+	});
 }
 
 test.describe('route-graph fan-out', () => {
@@ -89,6 +104,30 @@ test.describe('route-graph fan-out', () => {
 		).toBeLessThanOrEqual(MAX_ROUTE_LOOKUPS);
 	});
 
+	test('one search asks about the airports this scenario names and no others', async ({ page, bench, withKeys }) => {
+		await withKeys();
+		await page.goto(resultsUrl());
+		await waitForSearchToSettle(page);
+
+		const asked = pairsAsked(bench.requests).sort();
+		expect(
+			asked,
+			[
+				'A cold search asked Kiwi about a different set of pairs than the scenario declares.',
+				'',
+				'This is issue #379. Until it was fixed the bench let three bundled JSON datasets',
+				'through as ordinary app assets, so this scenario ranked against the real Ryanair',
+				'snapshot of 224 airports while its fixture described seven, and nobody could',
+				'see it. If this list has grown, ask which source it grew from before widening',
+				'ROUTE_QUESTIONS_ASKED — a fixture that is edited until the symptom goes away is',
+				'exactly what #379 is about.',
+				'',
+				`Asked (${asked.length}):`,
+				...asked.map((pair) => `  ${pair}`)
+			].join('\n')
+		).toEqual([...ROUTE_QUESTIONS_ASKED].sort());
+	});
+
 	test('a reload asks about no airport the first search already asked about', async ({ page, bench, withKeys }) => {
 		await withKeys();
 		await page.clock.install({ time: new Date('2026-09-20T09:00:00Z') });
@@ -100,7 +139,7 @@ test.describe('route-graph fan-out', () => {
 		await page.goto(resultsUrl());
 		await waitForSearchToSettle(page);
 
-		const lookups = routeGraphLookups(bench.requests);
+		const lookups = pairsAsked(bench.requests);
 		expect(
 			lookups,
 			[
@@ -113,7 +152,7 @@ test.describe('route-graph fan-out', () => {
 				'load two asks about the ones load one never reached. That is issue #194: each of',
 				'those misses is awaited in turn and nothing paints until they are done.',
 				'',
-				...lookups.map((url) => `  ${url}`)
+				...lookups.map((pair) => `  ${pair}`)
 			].join('\n')
 		).toEqual([]);
 	});
