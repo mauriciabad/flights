@@ -8,6 +8,7 @@ import type {
 	FlightOffer,
 	Itinerary,
 	LocalDateTime,
+	PropertyRating,
 	Stay,
 	Transfer
 } from '../domain';
@@ -56,9 +57,9 @@ function makeFlight(
 	};
 }
 
-function makeStay(pricePerNightMinorUnits = 3000): Stay {
+function makeStay(pricePerNightMinorUnits = 3000, rating?: PropertyRating): Stay {
 	return {
-		property: { name: 'Test Hostel', coordinates: { latitude: 0, longitude: 0 }, images: [] },
+		property: { name: 'Test Hostel', coordinates: { latitude: 0, longitude: 0 }, images: [], rating },
 		roomKind: 'dorm',
 		pricePerNight: { minorUnits: pricePerNightMinorUnits, currency: 'EUR' }
 	};
@@ -75,7 +76,13 @@ const destination = makeAirport('IST', 'Istanbul Airport');
 /** One itinerary built through the real algorithm (not hand-authored), so its freeTime,
  * nights and totals are exactly what the domain rules would produce, the same guarantee
  * build.test.ts relies on. */
-function makeItinerary(overrides: { outboundArrival?: LocalDateTime; onwardDeparture?: LocalDateTime } = {}): Itinerary {
+function makeItinerary(
+	overrides: {
+		outboundArrival?: LocalDateTime;
+		onwardDeparture?: LocalDateTime;
+		stayRating?: PropertyRating;
+	} = {}
+): Itinerary {
 	const outboundArrival = overrides.outboundArrival ?? localDateTime('2026-06-01T10:00:00', 'Europe/Vienna', 120);
 	const onwardDeparture = overrides.onwardDeparture ?? localDateTime('2026-06-03T14:00:00', 'Europe/Vienna', 120);
 
@@ -87,7 +94,7 @@ function makeItinerary(overrides: { outboundArrival?: LocalDateTime; onwardDepar
 		connectionAirports: { VIE: connection },
 		connectionResources: {
 			VIE: {
-				stay: makeStay(),
+				stay: makeStay(3000, overrides.stayRating),
 				transferToHotel: makeTransfer(30),
 				transferToConnectionAirport: makeTransfer(30)
 			}
@@ -339,6 +346,16 @@ describe('ItineraryTimeline, the stopover row and the missing bed (issue #185)',
 		const root = renderTimeline(makeItinerary());
 		const stopoverRow = root.querySelector('[data-segment="free-time"]');
 		expect(stopoverRow!.textContent).toContain('Test Hostel');
+	});
+
+	it('rates the bed on the scale its provider published, with a space before the separator', () => {
+		// #245, verbatim off production on 2026-09-05: "London Backpackers · dorm· rated
+		// 87/5". Hostelworld had said 87 out of 100 for that hostel (confirmed live the same
+		// day), so both halves were wrong and the separator had lost its space.
+		const root = renderTimeline(makeItinerary({ stayRating: { value: 87, outOf: 100 } }));
+		const line = root.querySelector('.tl-stopover-stay');
+		const text = line!.textContent!.replace(/\s+/g, ' ').trim();
+		expect(text).toBe('Test Hostel · dorm · rated 8.7/10');
 	});
 });
 
