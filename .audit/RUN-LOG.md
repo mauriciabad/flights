@@ -110,3 +110,54 @@ room will need to select and pay for 4 persons".
 So both prior readings were half right. Dorm rates are quoted per person; private rooms are
 priced per room. `Stay.pricePerPersonPerNight` is populated only where a provider actually
 quoted per person, and nothing is ever divided by heads.
+
+### Iterations 6 to 9, 04:00 to 04:40. Four PRs merged, tracker halved.
+
+| PR | issues | verified on production |
+| --- | --- | --- |
+| #235 | #229 #228 #217 #192 | yes, nine checks |
+| #236 | follow-ups to #228 | yes |
+| #237 | #191 #203 #185 | partial, see below |
+| #238 | #225 #206 | pending |
+| #239 | #189 | pending |
+
+**Open issues 20 to 10.** Remaining: #232 #231 #227 #219 #213 #198 #194 #187 #119 #20.
+
+**#238 is the owner's flagship and it shipped with real data behind it.** Six nights on his own
+trip is cheaper than five. That number is the whole argument for reading deltas off pairings
+rather than off a nightly rate, which is the premise he was shown at 02:10 and chose against.
+
+**#206 settled with measurement, not argument.** Guest counts of 1, 2, 3, 4 and 6 against
+`api.m.hostelworld.com` returned byte-identical rates with only `totalNumberOfItems` moving.
+Safestay Kensington prices a twin private at 79.03 rising to 306.37 for a fifteen-bed. Dorms
+are quoted per person, private rooms per room, nothing is divided by heads. Both halves are in
+`docs/PROVIDERS.md`.
+
+**#239's real find was not the filter semantics.** `Chip.selected` was `$bindable` and the chip
+flipped its own copy after calling `onclick`, so a local write to an unbound bindable prop
+shadowed every later parent value and `aria-pressed` stuck true forever. Fixing it retired a
+`{#key filtersGeneration}` remount that had been destroying keyboard focus on every filter
+change.
+
+### Instruments that lied tonight, all four of them mine
+
+1. **`tools/stale-servers.mjs` never worked.** `ps -o etimes` is a Linux extension; BSD ps
+   rejects it, the call threw for every process, the catch swallowed it and `continue`d, so the
+   loop skipped every listener and printed "No node listeners from this project." The run that
+   convinced me it worked was one where I had already killed all fourteen by hand. AGENTS.md
+   tells agents to trust it before a suite. Found by the #225 agent, whose own preview server it
+   could not see. Fixed to parse BSD `etime`, and it now exits non-zero rather than answering
+   "nothing there" when it cannot see.
+2. **The #235 verification probe read the collapsed results page**, where the seven-line block
+   legitimately does not appear, and reported #229 and #228 as failing. Three false failures.
+3. **The #237 verification probe counted "Ground, 2 rides not priced" as a bed announcement.**
+   `.audit/check-predicate.sh` carries a comment warning about exactly this, which I had read
+   four hours earlier.
+4. **I relayed an agent's untested inference onto #213 as a conclusion**, corrected it, then
+   found the real answer: `curl` gets `status=000` on every OSRM endpoint while ICMP is clean at
+   0% loss, so this machine's IP is blocked at the connection level. Three comments on one issue
+   to get one fact right.
+
+The pattern is worth naming, because it is the same one the repo already documents about
+itself: every one of these was an instrument reporting confidently on something it could not
+actually see.
