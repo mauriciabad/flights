@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Duration, FlightOffer, LocalDateTime, Transfer, TransitSchedule } from '../domain';
 import type { ItineraryParts } from './build';
-import { readMissedService, readStaleSchedule } from './transit-schedule';
+import { readMissedService, readStaleSchedule, transitDepartureWait } from './transit-schedule';
 
 function at(local: string): LocalDateTime {
 	return { local, timeZone: 'Europe/Madrid', utcOffsetMinutes: 120 };
@@ -194,5 +194,70 @@ describe('readStaleSchedule', () => {
 	it('has no opinion on a leg with no timetable at all', () => {
 		const parts: ItineraryParts = { ...trip(700), transferToConnectionAirport: undefined };
 		expect(readStaleSchedule(parts, 'transferToConnectionAirport')).toBeUndefined();
+	});
+});
+
+describe('transitDepartureWait (issue #344)', () => {
+	/** The fixture trip with one runway leg's first departure moved to a named clock, which
+	 * is the only input this question has beyond the flight it hangs off. */
+	function departingAt(intended: string, field: 'transferToHotel' | 'transferToDestinationLocation'): ItineraryParts {
+		const parts = trip(120);
+		const leg = parts[field]!;
+		return {
+			...parts,
+			[field]: {
+				...leg,
+				transitSchedule: { ...leg.transitSchedule!, intended: at(intended) }
+			}
+		};
+	}
+
+	it('measures the wait from the landing, the same anchor the picker names', () => {
+		// The owner's own case from the other end: land at 11am, and the first bus this
+		// timetable offers is at 5:49am the next morning. The row's clock alone says 5:49am
+		// and nothing about the eighteen hours in front of it.
+		expect(transitDepartureWait(departingAt('2026-10-07T05:49:00', 'transferToHotel'), 'transferToHotel')).toBe(
+			18 * 60 + 49
+		);
+	});
+
+	it('is quiet about an ordinary wait, which the caller then says nothing about', () => {
+		expect(transitDepartureWait(departingAt('2026-10-06T11:12:00', 'transferToHotel'), 'transferToHotel')).toBe(12);
+	});
+
+	it('follows the flight when a swap moves the landing', () => {
+		const parts: ItineraryParts = {
+			...departingAt('2026-10-06T14:30:00', 'transferToHotel'),
+			outboundFlight: flight('2026-10-06T10:00:00', '2026-10-06T13:00:00')
+		};
+		expect(transitDepartureWait(parts, 'transferToHotel')).toBe(90);
+	});
+
+	it('reads each runway leg against its own flight', () => {
+		// The destination leg hangs off the onward landing at 6pm, not the outbound one at 11am.
+		const parts = departingAt('2026-10-06T19:30:00', 'transferToDestinationLocation');
+		expect(transitDepartureWait(parts, 'transferToDestinationLocation')).toBe(90);
+	});
+
+	it('says nothing about a leg that ends at a gate, which has no wait of this kind', () => {
+		// An `arriveBy` answer is a departure chosen backwards from a deadline. The traveller
+		// leaves when it leaves, and "3h after you land" would be nonsense about it.
+		expect(transitDepartureWait(trip(120), 'transferToConnectionAirport')).toBeUndefined();
+		expect(transitDepartureWait(trip(120), 'transferToOriginAirport')).toBeUndefined();
+	});
+
+	it('says nothing about a leg with no timetable at all', () => {
+		const parts: ItineraryParts = {
+			...trip(120),
+			transferToHotel: { mode: 'taxi', duration: 35 as Duration, legs: [] }
+		};
+		expect(transitDepartureWait(parts, 'transferToHotel')).toBeUndefined();
+	});
+
+	it('never goes negative on a departure before the landing', () => {
+		// A stale schedule can outlive the flight it was planned for (#266), and this question
+		// is asked on rows the timeline draws before it knows that. Zero, never a count of
+		// minutes into the past.
+		expect(transitDepartureWait(departingAt('2026-10-06T09:00:00', 'transferToHotel'), 'transferToHotel')).toBe(0);
 	});
 });

@@ -19,6 +19,19 @@ import type { Duration, LocalDateTime, TransitLegField, TransitPlanMoment, Trans
 export const NEXT_SERVICE_SOON_MINUTES = 30 as Duration;
 
 /**
+ * A wait before the FIRST departure under this is one the traveller would have had
+ * whatever their flight did, rather than a dead spot in the timetable. Twenty minutes,
+ * which is a headway; `NEXT_SERVICE_SOON_MINUTES` above is thirty, because these two
+ * measure different things. This one asks whether the service is running at all at the
+ * hour you arrive. That one asks what missing a running service costs.
+ *
+ * Lived in `TransportPicker` until issue #344 gave the timeline the same sentence. Two
+ * surfaces disagreeing about what counts as a dead spot is the drift `readMissedService`
+ * is one function for.
+ */
+export const NORMAL_WAIT_THRESHOLD_MINUTES = 20 as Duration;
+
+/**
  * - `'another-soon'`: another one follows within `NEXT_SERVICE_SOON_MINUTES`. Missing it
  *   costs a wait, not the trip.
  * - `'long-gap'`: the next one exists but is far enough out to change the plan. `gap` and
@@ -88,6 +101,36 @@ export function transitLegMoment(parts: ItineraryParts, field: TransitLegField):
 	const buffer = parts[field]?.landingBuffer;
 	if (buffer === undefined) return undefined;
 	return { time: addLocalMinutes(landing, buffer), arriveBy: false };
+}
+
+/**
+ * How long after landing this leg's first departure actually is. Issue #344.
+ *
+ * The owner: "if the flight is at 5am, arriving at 3am in some places changes the
+ * transport options, the metro may be closed and a night bus needed." The app has known
+ * this number since #135 taught it to ask the timetable about the real journey moment, and
+ * only the transport picker ever said it out loud. A results card could print `5:49am`
+ * beside a bus for a traveller who lands at 8:30pm the night before, with nothing on the
+ * row naming the nine hours in between.
+ *
+ * Measured from the landing rather than from `transitLegMoment`'s landing-plus-walk-out,
+ * because that is the anchor the picker's own sentence uses ("4h 20m after you land") and
+ * one wait described by two numbers on two screens is worse than either number alone.
+ *
+ * `undefined` for the two legs that end at a gate, which have no wait of this kind: an
+ * `arriveBy` answer is a departure chosen backwards from a deadline, and the traveller
+ * leaves when it leaves. Also `undefined` for a leg with no timetable at all, which is
+ * every road leg.
+ */
+export function transitDepartureWait(parts: ItineraryParts, field: TransitLegField): Duration | undefined {
+	const schedule = parts[field]?.transitSchedule;
+	if (!schedule) return undefined;
+	// The same split `transitLegMoment` makes above, and for the same reason: which flight a
+	// leg hangs off is knowledge this module owns.
+	if (field !== 'transferToHotel' && field !== 'transferToDestinationLocation') return undefined;
+	const landing =
+		field === 'transferToHotel' ? parts.outboundFlight.arrival : parts.onwardFlight.arrival;
+	return Math.max(0, minutesBetween(landing, schedule.intended)) as Duration;
 }
 
 /**

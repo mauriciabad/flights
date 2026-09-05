@@ -252,6 +252,34 @@ export interface TransitScheduleOutcome {
  * the point transit finally has a real timetable behind it. Without this step the pipeline's
  * road-only lookups would leave a two-hour walk as the pick for an airport run a night bus
  * covers in forty minutes.
+ *
+ * ## Why the hour does not move that rule. Issue #344
+ *
+ * The owner asked for it to: land at 3am, the metro is shut, "usually in this cases a taxi
+ * may be worth it". #282 left the same question open from the other end, a press replacing
+ * a 35-minute taxi with a bus at 5:49am, nine hours after landing. It was looked at
+ * properly and the rule stays, for reasons that are about evidence rather than caution.
+ *
+ * **The comparison a traveller is actually making has no money in it.** "Worth it" is a
+ * price against a wait, and no `TransferProvider` here quotes a transit fare (issue #292,
+ * and `domain/transfer.ts`'s `costIsUnknown`). The app holds a rate-card range for the taxi
+ * and nothing at all for the bus. Flipping the default to the expensive option on half the
+ * evidence is a worse error than leaving it.
+ *
+ * **The clock is a proxy for the fact, and the fact is already measured.** Barcelona's
+ * metro runs all night on a Saturday and stops at midnight on a Tuesday, so an
+ * "unsociable hours" window would swap the pick where the service is running and leave it
+ * where it is shut. The wait is the observable, `transitDepartureWait` in
+ * `algorithm/transit-schedule.ts` computes it, and #344 puts it on the row instead.
+ *
+ * **A rule on time alone deletes public transport.** A taxi beats a bus on time nearly
+ * always; "pick whatever arrives first" is "always pick the taxi" with extra steps, against
+ * an app whose whole pitch is the trip you can do without a car.
+ *
+ * What would make the pick moveable is a transit fare to weigh against the taxi's. Until
+ * then the honest change is the one #344 made: say what the taxi costs the party, say what
+ * that is each, say what hour the bus leaves at, and let the traveller decide with the
+ * picker one tap away.
  */
 export async function fetchTransitSchedules(input: FetchTransitSchedulesInput): Promise<TransitScheduleOutcome> {
 	const plans = planTransitLegs(input);
