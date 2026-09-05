@@ -10,6 +10,12 @@
  *
  *   node tools/probe-card-age.mjs --url 'http://127.0.0.1:41289/results/?...' --age-hours 3
  *
+ * Issue #293 added the second half of that reading: which provider requests landed BEFORE
+ * the page first went quiet and which landed after it. A refresh that follows a background
+ * revalidation is supposed to run off the warmed cache, so "after" is the column that says
+ * what the second pass cost, and it should be empty of anything but the revalidations that
+ * triggered it.
+ *
  * How the two ages are forced apart: after a cold search, every cache entry is backdated.
  * Flight and stay entries go past their own TTL (15 min for Kiwi offers, 60 min for Ryanair
  * fares, 5 min for Transitous) so the reload refetches them, while OSRM road routes are
@@ -40,6 +46,9 @@ const SAMPLER = (intervalMs) => {
 		return {
 			t: Date.now() - started,
 			footers: cards.map((card) => card.querySelector('.provenance-source')?.textContent?.trim() ?? ''),
+			// Issue #293: the badge only renders when it has something to say, so its count is
+			// how many cards are currently telling a traveller their price is unconfirmed.
+			badges: cards.map((card) => card.querySelector('.freshness-badge')?.textContent?.trim() ?? ''),
 			cardClasses: cards.map((card) => card.className),
 			status: document.querySelector('.results-subhead')?.textContent?.replace(/\s+/g, ' ').trim() ?? '',
 			busy: document.querySelectorAll('[aria-busy="true"]').length,
@@ -170,13 +179,47 @@ async function run(label) {
 		console.log(`  ${host}: ${seen.count}, last at +${seen.last} ms`);
 	}
 
+	const badgeChanges = [];
+	for (const sample of samples) {
+		const showing = sample.badges.filter(Boolean);
+		const previous = badgeChanges[badgeChanges.length - 1];
+		const badge = showing[0] ?? '';
+		if (previous === undefined || previous.badge !== badge) {
+			badgeChanges.push({ badge, from: sample.t, count: showing.length });
+		}
+	}
+	console.log('freshness badge, each time it changed:');
+	for (const change of badgeChanges) {
+		const what = change.badge === '' ? '(none)' : `${change.badge} on ${change.count} card(s)`;
+		console.log(`  +${String(change.from).padStart(6)} ms  ${what}`);
+	}
+
 	const busySamples = samples.filter((sample) => sample.busy > 0).length;
-	const searching = samples.filter((sample) => /still searching/.test(sample.status));
+	// Every stretch the page spent searching, not just the last one. The first pass and any
+	// refresh behind it are separate stretches, and telling them apart is the whole point.
+	const passes = [];
+	for (const sample of samples) {
+		const isSearching = /still searching/.test(sample.status);
+		const open = passes.length > 0 && passes[passes.length - 1].to === undefined;
+		if (isSearching && !open) passes.push({ from: sample.t, to: undefined });
+		if (!isSearching && open) passes[passes.length - 1].to = sample.t;
+	}
+	console.log(`aria-busy in ${busySamples}/${samples.length} samples`);
 	console.log(
-		`aria-busy in ${busySamples}/${samples.length} samples; "still searching" cleared at +${
-			searching.length > 0 ? searching[searching.length - 1].t + sampleMs : 0
-		} ms`
+		`"still searching" ran ${passes.length} time(s): ${
+			passes.map((pass) => `+${pass.from}..${pass.to ?? 'end'} ms`).join(', ') || 'never'
+		}`
 	);
+
+	const firstQuiet = passes[0]?.to;
+	if (firstQuiet !== undefined) {
+		const late = responses.filter((response) => response.at > firstQuiet);
+		console.log(`provider requests after the page first went quiet (+${firstQuiet} ms): ${late.length}`);
+		for (const host of [...new Set(late.map((response) => response.host))].sort()) {
+			const mine = late.filter((response) => response.host === host);
+			console.log(`  ${host}: ${mine.length}, last at +${mine[mine.length - 1].at} ms`);
+		}
+	}
 
 	const warm = await readCache(page);
 	console.log('cache age after the reload, oldest entry per provider:');
