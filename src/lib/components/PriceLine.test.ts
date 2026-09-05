@@ -19,14 +19,20 @@ import PriceLine from './PriceLine.svelte';
 let target: HTMLElement | undefined;
 let component: Record<string, unknown> | undefined;
 
-/** Every receipt row as `label -> amount`, plus whether it carries the warning tint the
- * card uses for something the total is missing. */
-function rows(itinerary: Itinerary): { line: string; missing: boolean }[] {
+/** One mount per test. `afterEach` unmounts it, so two of these in one test would leak the
+ * first, which is why both readers below go through here. */
+function render(itinerary: Itinerary): HTMLElement {
 	target = document.createElement('div');
 	document.body.appendChild(target);
 	component = mount(PriceLine, { target, props: { itinerary } });
 	flushSync();
-	return [...target.querySelectorAll('.price-part')].map((row) => ({
+	return target;
+}
+
+/** Every receipt row as `label -> amount`, plus whether it carries the warning tint the
+ * card uses for something the total is missing. */
+function rows(itinerary: Itinerary): { line: string; missing: boolean }[] {
+	return [...render(itinerary).querySelectorAll('.price-part')].map((row) => ({
 		line: `${row.querySelector('.price-part-label')?.textContent?.trim()} -> ${row
 			.querySelector('.price-part-amount')
 			?.textContent?.trim()}`,
@@ -35,11 +41,7 @@ function rows(itinerary: Itinerary): { line: string; missing: boolean }[] {
 }
 
 function headline(itinerary: Itinerary): string {
-	target = document.createElement('div');
-	document.body.appendChild(target);
-	component = mount(PriceLine, { target, props: { itinerary } });
-	flushSync();
-	return target.querySelector('.price-total')!.textContent!.trim();
+	return render(itinerary).querySelector('.price-total')!.textContent!.trim();
 }
 
 afterEach(() => {
