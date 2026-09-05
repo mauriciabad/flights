@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryCacheStore } from '../../cache';
 import type { StaySearchQuery } from '../types';
 import { createHostelworldStayProvider } from './hostelworld';
@@ -93,6 +93,10 @@ const propertyUrls = () => urlsSeen.filter((url) => url.startsWith(PROPERTIES));
 
 beforeEach(() => {
 	urlsSeen = [];
+});
+
+afterEach(() => {
+	vi.restoreAllMocks();
 });
 
 describe('the keyless contract', () => {
@@ -223,6 +227,40 @@ describe('searchStays', () => {
 		expect(urlsSeen).toEqual([]);
 		// Issue #151: a cache hit must not claim it came off the wire this second.
 		expect(second.source.fetchedAt).toBe(first.source.fetchedAt);
+	});
+
+	it('answers from beds an hour old without waiting for the refresh (issue #194)', async () => {
+		// The refresh never resolves. That is the assertion: if this call awaited it the test
+		// would hang, which is what the results page did — blank for 24 seconds while three
+		// cities per candidate were refetched one after another. Before #194 this adapter read
+		// through a private `readCache` that returned `undefined` past the hour, so there was
+		// nothing to answer with.
+		let refreshStarted = false;
+		let expired = false;
+		const hostelworld = provider(
+			fixtureFetch({
+				[PROPERTIES]: () => {
+					if (!expired) return new Response(JSON.stringify(propertiesLondon), { status: 200 });
+					refreshStarted = true;
+					throw new Error('the refresh must not be awaited');
+				}
+			})
+		);
+
+		const first = await hostelworld.searchStays(query, ctx());
+		expect(first.ok).toBe(true);
+
+		const realNow = Date.now();
+		expired = true;
+		vi.spyOn(Date, 'now').mockReturnValue(realNow + 61 * 60_000);
+		const second = await hostelworld.searchStays(query, ctx());
+
+		expect(second.ok).toBe(true);
+		if (second.ok && first.ok) expect(second.data).toEqual(first.data);
+		// Issue #151, applied to the stale tier: an hour-old price must be dated by when it
+		// was fetched, not by when it was read.
+		expect(second.source.fetchedAt).toBe(first.source.fetchedAt);
+		expect(refreshStarted).toBe(true);
 	});
 
 	it('builds the city index once for concurrent stopovers, not once each', async () => {

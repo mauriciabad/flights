@@ -14,7 +14,7 @@
  */
 
 import type { CacheKey, CacheStore } from '../../cache';
-import { defineCacheKey, getDefaultStore } from '../../cache';
+import { defineCacheKey, getDefaultStore, readCachedEntry } from '../../cache';
 import type { Transfer, TransitPlanMoment } from '../../domain';
 import { greatCircleDistanceKm } from '../../domain';
 import type {
@@ -37,16 +37,20 @@ import { localDateTimeToUtcInstant } from './transitous-datetime';
 import { mapPlanResponseToTransfer, TransitousMapMalformedResponseError } from './transitous-mapper';
 
 /**
- * A schedule fetched for a specific instant doesn't need "stale-while-revalidate" — unlike
- * a price, it won't drift while sitting in the cache, so there is nothing to show-then-
- * refresh. What it needs is simply not being re-fetched for a query the app just made:
- * an itinerary builder can easily ask about the same connection-airport-and-rough-time
- * pair from several candidate itineraries in one search. Five minutes is short enough that
- * a schedule fetched well ahead of the actual day of travel still gets refreshed with any
- * realtime update by the time it matters, and long enough to absorb that kind of repeat
- * query without a second real request — the concrete form issue #8's "cache aggressively,
- * do not hammer them" takes for a provider whose data is tied to a fixed point in time
- * rather than a fluctuating price.
+ * How long a schedule stays current. Five minutes is short enough that a plan fetched well
+ * ahead of the day of travel picks up any realtime update by the time it matters, and long
+ * enough to absorb the repeat queries one search makes — an itinerary builder easily asks
+ * about the same connection-airport-and-rough-time pair from several candidates. Issue #8's
+ * "cache aggressively, do not hammer them", for a provider whose data is tied to a fixed
+ * instant rather than a fluctuating price.
+ *
+ * Past it the entry is stale, not gone. This file used to read through a private
+ * `readFreshCacheEntry` whose body was the exact line `cache/read-entry.ts` was written to
+ * delete, and five minutes is short enough that almost every reload landed past it: a
+ * search reloaded ninety minutes later re-asked Transitous for four plans it was already
+ * holding and painted nothing until they came back. On the reasoning that a fixed-instant
+ * schedule does not drift, serving the held answer while a refresh runs behind it is
+ * strictly better than making the traveller wait for one.
  */
 const CACHE_TTL_MS = 5 * 60 * 1000;
 
@@ -62,6 +66,45 @@ export function createTransitousTransferProvider(
 ): TransferProvider {
 	const fetchImpl = options.fetchImpl;
 	const resolveStore = options.resolveStore ?? getDefaultStore;
+	/** Keys with a refresh already running, so several candidate itineraries asking about
+	 * one airport at one time start one request between them rather than one each. */
+	const revalidating = new Set<string>();
+
+	/**
+	 * Refetches one plan behind an answer already given. Returns nothing and rejects never:
+	 * nobody is awaiting it, so a rejection would be unhandled, and a failed refresh is not
+	 * a failure of the call that started it. The traveller keeps the schedule they were
+	 * shown, with its real age still on the card.
+	 */
+	async function revalidatePlan(
+		query: TransferSearchQuery,
+		plannedFor: TransitPlanMoment,
+		departureUtc: Date,
+		ctx: ProviderContext,
+		store: CacheStore,
+		cacheKey: CacheKey
+	): Promise<void> {
+		if (revalidating.has(cacheKey.raw)) return;
+		revalidating.add(cacheKey.raw);
+		try {
+			const plan = await fetchTransitousPlan(
+				{ from: query.from, to: query.to, departureUtc, arriveBy: plannedFor.arriveBy },
+				{ signal: ctx.signal, fetchImpl }
+			);
+			const transfer = mapPlanResponseToTransfer(
+				plan,
+				plannedFor,
+				greatCircleDistanceKm(query.from, query.to)
+			);
+			await writeCacheEntry(store, cacheKey, transfer ? [transfer] : []);
+		} catch {
+			// A malformed or failed refresh leaves the held schedule exactly as it was. The
+			// next search tries again; overwriting it with nothing would turn a background
+			// refresh into a silent loss of what is on screen.
+		} finally {
+			revalidating.delete(cacheKey.raw);
+		}
+	}
 
 	return {
 		kind: 'transfer',
@@ -131,13 +174,21 @@ export function createTransitousTransferProvider(
 			);
 
 			const store = await resolveStore();
-			const cached = await readFreshCacheEntry(store, cacheKey);
+			const cached = await readCachedEntry<Transfer[]>(store, cacheKey);
 			if (cached) {
+				// Served at any age, never discarded for being past its TTL. One adapter
+				// awaiting one request is enough to hold the whole results page blank, because
+				// the candidate graph waits on all of them, and at a five-minute TTL that was
+				// nearly every reload.
+				const revalidated = !cached.fresh;
+				if (revalidated) {
+					void revalidatePlan(query, plannedFor, departureUtc, ctx, store, cacheKey);
+				}
 				return {
 					ok: true,
 					data: cached.value,
 					source: { providerId: TRANSITOUS_PROVIDER_ID, fetchedAt: new Date(cached.storedAt).toISOString() },
-					requestsUsed: 0
+					requestsUsed: revalidated ? 1 : 0
 				};
 			}
 
@@ -173,16 +224,6 @@ export function createTransitousTransferProvider(
 /** Ready-to-register default instance — most callers want this, not the factory above.
  * The factory stays exported for tests that need to inject `fetchImpl`/`resolveStore`. */
 export const transitousTransferProvider = createTransitousTransferProvider();
-
-async function readFreshCacheEntry(
-	store: CacheStore,
-	key: CacheKey
-): Promise<{ value: Transfer[]; storedAt: number } | undefined> {
-	const entry = await store.get(key.raw);
-	if (!entry) return undefined;
-	if (Date.now() - entry.storedAt >= entry.ttlMs) return undefined;
-	return { value: entry.value as Transfer[], storedAt: entry.storedAt };
-}
 
 async function writeCacheEntry(store: CacheStore, key: CacheKey, value: Transfer[]): Promise<void> {
 	const now = Date.now();

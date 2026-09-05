@@ -194,6 +194,87 @@ describe('createTransitousTransferProvider', () => {
 		if (second.ok) expect(second.data).toEqual(first.ok ? first.data : undefined);
 	});
 
+	it('answers from an expired schedule without waiting for the refresh (issue #194)', async () => {
+		// The refresh never resolves. That is the whole assertion: if this call awaited it,
+		// the test would hang, which is exactly what the results page did — blank for 24
+		// seconds while four cities were refetched in sequence. Before #194 this adapter read
+		// through a private `readFreshCacheEntry` that returned `undefined` past the TTL, so
+		// there was nothing to answer with and the await was unavoidable.
+		let refreshStarted = false;
+		const fetchImpl = vi
+			.fn()
+			.mockResolvedValueOnce(jsonResponse(nightGapPlanBody()))
+			.mockImplementation(() => {
+				refreshStarted = true;
+				return new Promise<Response>(() => {});
+			});
+		const store = new MemoryCacheStore();
+		const provider = createTransitousTransferProvider({ fetchImpl, resolveStore: async () => store });
+		const query = {
+			from: { latitude: 42.199, longitude: 2.6975 },
+			to: { latitude: 42.1818, longitude: 2.4901 },
+			departure: REQUESTED_LATE_NIGHT_DEPARTURE
+		};
+
+		const first = await provider.searchTransfers(query, ctx());
+		expect(first.ok).toBe(true);
+
+		// Past the five-minute TTL, which is where almost every reload lands.
+		vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 6 * 60 * 1000);
+		const second = await provider.searchTransfers(query, ctx());
+
+		expect(second.ok).toBe(true);
+		if (second.ok && first.ok) expect(second.data).toEqual(first.data);
+		expect(second.requestsUsed).toBe(1);
+		expect(refreshStarted).toBe(true);
+	});
+
+	it('starts one refresh for several callers asking about the same plan at once', async () => {
+		const fetchImpl = vi
+			.fn()
+			.mockResolvedValueOnce(jsonResponse(nightGapPlanBody()))
+			.mockImplementation(() => new Promise<Response>(() => {}));
+		const store = new MemoryCacheStore();
+		const provider = createTransitousTransferProvider({ fetchImpl, resolveStore: async () => store });
+		const query = {
+			from: { latitude: 42.199, longitude: 2.6975 },
+			to: { latitude: 42.1818, longitude: 2.4901 },
+			departure: REQUESTED_LATE_NIGHT_DEPARTURE
+		};
+
+		await provider.searchTransfers(query, ctx());
+		vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 6 * 60 * 1000);
+		// Three candidate itineraries can share one connection airport at one time. A refresh
+		// each would spend three requests to learn one schedule.
+		await Promise.all([
+			provider.searchTransfers(query, ctx()),
+			provider.searchTransfers(query, ctx()),
+			provider.searchTransfers(query, ctx())
+		]);
+
+		expect(fetchImpl).toHaveBeenCalledTimes(2);
+	});
+
+	it('dates a stale answer by when it was fetched, not by when it was read', async () => {
+		const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(nightGapPlanBody()));
+		const store = new MemoryCacheStore();
+		const provider = createTransitousTransferProvider({ fetchImpl, resolveStore: async () => store });
+		const query = {
+			from: { latitude: 42.199, longitude: 2.6975 },
+			to: { latitude: 42.1818, longitude: 2.4901 },
+			departure: REQUESTED_LATE_NIGHT_DEPARTURE
+		};
+
+		const fetchedAt = Date.now();
+		const first = await provider.searchTransfers(query, ctx());
+		vi.spyOn(Date, 'now').mockReturnValue(fetchedAt + 90 * 60 * 1000);
+		const second = await provider.searchTransfers(query, ctx());
+
+		// Issue #151's rule, applied to the stale tier: a schedule read out of a 90-minute-old
+		// entry must not claim it came off the wire this second.
+		expect(first.ok && second.ok && second.source.fetchedAt).toBe(first.ok ? first.source.fetchedAt : '');
+	});
+
 	it('maps a well-formed 200 whose itineraries have no readable fields to malformed-response, not ok:true empty (issue #68)', async () => {
 		// Distinct from the "no route" test above: the client-level shape check
 		// (transitous-client.ts) passes — `itineraries` really is an array — but nothing

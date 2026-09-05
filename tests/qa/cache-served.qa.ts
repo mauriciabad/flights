@@ -8,9 +8,11 @@
  * carrying an `ageMs` for the label. Every cache-aside reader in `providers/` reimplemented
  * the same three lines instead, and each one chose to discard: `ryanair.ts`'s `readCache`
  * read the entry, saw it was past its TTL, and returned `undefined` — losing an answer it
- * was holding in its hand. #155 fixed that reader and #174 fixed Kiwi's, and the page still
- * does not paint, which is why this check is written about the behaviour rather than about
- * any one of those functions.
+ * was holding in its hand. #155 fixed that reader, #174 fixed Kiwi's, and #194 fixed the
+ * last two, in `transitous.ts` and `hostelworld.ts`. This check is written about the
+ * behaviour rather than about any one of those functions, which is why it kept failing
+ * through the first three fixes: the page waits on its slowest source, so the invariant
+ * only holds once every reader holds it.
  *
  * ## How this is measured
  *
@@ -23,14 +25,14 @@
  * the TTL and not about the method.
  *
  * The control is what caught #194. It passed against `origin/main` at 49bd622, painting in
- * 2.0s, and stopped passing the moment PR #174 merged — three sequential `OnePerCity`
- * lookups now go out on a reload where nothing has expired, and nothing paints until they
- * are done. Both checks in this file are pinned to that, because they measure the same paint
- * one TTL apart and the same thing is holding it.
+ * 2.0s, stopped passing the moment PR #174 merged, and passes again at 357ms. What broke it
+ * was not a cache reader at all: `algorithm/connections.ts` asked every airport the origin
+ * flies to for its own route graph before keeping six, so no load ever cached the whole set
+ * and every reload had a tail of misses to await, one at a time. Ranking on geography first
+ * and asking only the top slice is what made the second load free.
  */
 
 import { test, expect } from './support/bench';
-import { knownBroken } from './known-broken';
 import { resultsUrl } from './support/scenario';
 import { provenanceLines, resultCards, waitForSearchToFinish } from './support/page';
 
@@ -55,8 +57,6 @@ async function firstCardArrivesWithin(page: import('@playwright/test').Page, ms:
 
 test.describe('cached answers are served, not discarded', () => {
 	test('a reload inside the TTL paints from cache before the network answers', async ({ page, bench }) => {
-		knownBroken('reload-waits-for-kiwi');
-
 		await page.clock.install({ time: new Date('2026-09-20T09:00:00Z') });
 		await page.goto(resultsUrl());
 		await waitForSearchToFinish(page);
@@ -83,8 +83,6 @@ test.describe('cached answers are served, not discarded', () => {
 	});
 
 	test('a reload past the fare TTL still shows the previous answer, with its age', async ({ page, bench }) => {
-		knownBroken('reload-waits-for-kiwi');
-
 		await page.clock.install({ time: new Date('2026-09-20T09:00:00Z') });
 		await page.goto(resultsUrl());
 		await waitForSearchToFinish(page);

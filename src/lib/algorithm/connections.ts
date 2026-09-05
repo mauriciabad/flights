@@ -174,6 +174,10 @@ export interface ConnectionGraphOptions {
 	) => void;
 	/** How many ranked candidates to return. Default `DEFAULT_MAX_CANDIDATES`. */
 	maxCandidates?: number;
+	/** How many candidates this call may ask a route-graph source about. Default
+	 * `maxCandidates * ROUTE_PROBES_PER_KEPT_CANDIDATE`. See that constant for why the
+	 * ceiling belongs here rather than inside each adapter. */
+	maxRouteProbes?: number;
 	/** Candidates whose detour ratio — `(dist(A,C) + dist(C,B)) / dist(A,B)` — exceeds
 	 * this are dropped outright rather than merely scored low. Default
 	 * `DEFAULT_MAX_DETOUR_RATIO`. Only applies when geography for A, B and the candidate
@@ -197,6 +201,35 @@ export interface ConnectionGraphOptions {
  * one that has already decided to spend its whole budget on one search, can raise this.
  */
 export const DEFAULT_MAX_CANDIDATES = 6;
+
+/**
+ * How many airports this module may ask a route-graph source about, per candidate it
+ * intends to keep. Issue #187.
+ *
+ * This loop used to ask about every airport the origin flies to and then keep six. For a
+ * hub that is hundreds of questions for six answers: BCN unions 79 resolvable outbound
+ * airports across Ryanair's bundled snapshot, the build-time cheap-routes dataset and the
+ * fallback table, and STN unions 179. Every keyless route-graph provider paid that, and
+ * each grew a private ceiling of its own to survive it — `kiwi-public.ts`'s
+ * `MAX_ROUTE_LOOKUPS_PER_SESSION` being the blunt one, which stops answering partway
+ * through a search.
+ *
+ * A ceiling inside an adapter can only say "I will stop after N". It cannot say which N,
+ * because the adapter cannot see which candidates the search is going to keep. This one
+ * can: every input to `scoreGeography` is bundled data, so the candidates get ranked
+ * before anything is asked and only the top slice is asked about.
+ *
+ * Three per kept candidate, so the default search probes 18. Two reasons for three rather
+ * than one. Most candidates the origin flies to do not fly on to the destination, so the
+ * list has to be walked some way past six to find six; and an over-tight window would let
+ * geography alone decide the answer, where the point of asking is that out-degree can
+ * still reorder what geography proposed.
+ *
+ * 18 is also above the 19 route lookups issue #187 measured for the whole BVC to PFO
+ * search (one for the origin, then one per candidate), so the route this adapter exists
+ * for is not touched by the ceiling at all — it never had more candidates than this.
+ */
+export const ROUTE_PROBES_PER_KEPT_CANDIDATE = 3;
 
 /**
  * Above this detour ratio a "connection" is really just a wrong answer — the failure mode
@@ -420,45 +453,65 @@ interface ScoredCandidate {
 	breakdown: ConnectionScoreBreakdown;
 }
 
+/** The two score components that need no provider: both come from the bundled airport
+ * dataset and pure geometry, so every candidate can be given one before a single request
+ * goes out. `detour` is `null` when geography for A, B or C is unknown. */
+interface CandidateGeographyScore {
+	sizeClass: number;
+	detour: number | null;
+}
+
 /**
- * Combines connectivity, size class and (when geography is known) detour into one score.
- * Returns `null` when the candidate should be excluded outright — currently only the
- * detour-too-large case, and only when geography for A, B and the candidate are all
- * known; an unknown candidate is scored without that component rather than assumed to be
- * a bad detour, since "we don't know" and "we know it's bad" are different things and
- * only the second should disqualify anything (AGENTS.md: "say what you do not know
- * rather than guessing").
+ * Scores the half of a candidate that geography alone decides. Returns `null` when the
+ * candidate should be excluded outright — currently only the detour-too-large case, and
+ * only when geography for A, B and the candidate are all known; an unknown candidate is
+ * scored without that component rather than assumed to be a bad detour, since "we don't
+ * know" and "we know it's bad" are different things and only the second should disqualify
+ * anything (AGENTS.md: "say what you do not know rather than guessing").
  */
-function scoreCandidate({
-	outDegree,
+function scoreGeography({
 	candidateGeo,
 	originGeo,
 	destinationGeo,
-	weights,
 	maxDetourRatio
 }: {
-	outDegree: number;
 	candidateGeo: ConnectionAirportInfo | undefined;
 	originGeo: ConnectionAirportInfo | undefined;
 	destinationGeo: ConnectionAirportInfo | undefined;
-	weights: ConnectionWeights;
 	maxDetourRatio: number;
-}): ScoredCandidate | null {
-	const connectivity = Math.min(1, outDegree / CONNECTIVITY_SATURATION);
+}): CandidateGeographyScore | null {
 	const sizeClass = candidateGeo ? SIZE_CLASS_SCORES[candidateGeo.sizeClass] : 0.5;
 
-	let detour: number | null = null;
-	if (candidateGeo && originGeo && destinationGeo) {
-		const direct = haversineDistanceKm(originGeo.coordinates, destinationGeo.coordinates);
-		if (direct > 0) {
-			const viaCandidate =
-				haversineDistanceKm(originGeo.coordinates, candidateGeo.coordinates) +
-				haversineDistanceKm(candidateGeo.coordinates, destinationGeo.coordinates);
-			const ratio = viaCandidate / direct;
-			if (ratio > maxDetourRatio) return null;
-			detour = Math.max(0, 1 - (ratio - 1) / (maxDetourRatio - 1));
-		}
-	}
+	if (!candidateGeo || !originGeo || !destinationGeo) return { sizeClass, detour: null };
+
+	const direct = haversineDistanceKm(originGeo.coordinates, destinationGeo.coordinates);
+	if (direct <= 0) return { sizeClass, detour: null };
+
+	const viaCandidate =
+		haversineDistanceKm(originGeo.coordinates, candidateGeo.coordinates) +
+		haversineDistanceKm(candidateGeo.coordinates, destinationGeo.coordinates);
+	const ratio = viaCandidate / direct;
+	if (ratio > maxDetourRatio) return null;
+	return { sizeClass, detour: Math.max(0, 1 - (ratio - 1) / (maxDetourRatio - 1)) };
+}
+
+/**
+ * Adds the one component only a provider can supply — how many airports the candidate
+ * flies on to — to the geography score, and weights the three into the final number.
+ *
+ * Called twice per candidate. Once with `outDegree: 0` before any request, to rank the
+ * candidates and decide which are worth asking about; once more with the real out-degree
+ * for the ones that were asked. A candidate nobody asked about therefore keeps the score
+ * it was ranked on, which is the honest one: connectivity genuinely is zero as far as
+ * this search ever found out.
+ */
+function combineScore(
+	geography: CandidateGeographyScore,
+	outDegree: number,
+	weights: ConnectionWeights
+): ScoredCandidate {
+	const connectivity = Math.min(1, outDegree / CONNECTIVITY_SATURATION);
+	const { sizeClass, detour } = geography;
 
 	// Redistribute the detour weight across the remaining components when it's
 	// unavailable, so a candidate with no known geography isn't penalised twice over
@@ -497,6 +550,7 @@ export async function findConnectionCandidates(
 		airportLookup,
 		onProviderResult,
 		maxCandidates = DEFAULT_MAX_CANDIDATES,
+		maxRouteProbes = maxCandidates * ROUTE_PROBES_PER_KEPT_CANDIDATE,
 		maxDetourRatio = DEFAULT_MAX_DETOUR_RATIO,
 		weights = DEFAULT_WEIGHTS,
 		signal
@@ -568,7 +622,10 @@ export async function findConnectionCandidates(
 		candidateCodes = candidateCodes.filter((code) => allowList.has(code));
 	}
 
-	const candidates: ConnectionCandidate[] = [];
+	// Step 2, and the whole of issue #187: rank every candidate on what costs nothing to
+	// know, so the requests in step 3 are spent on the airports most likely to survive.
+	// Geography comes from the bundled dataset, so this pass touches no network at all.
+	const ranked: { code: IataAirportCode; geography: CandidateGeographyScore; rank: number }[] = [];
 
 	for (const code of candidateCodes) {
 		// Forbidden airports are filtered here, not downstream, so a forbidden candidate
@@ -600,6 +657,33 @@ export async function findConnectionCandidates(
 		// non-empty, so that's still worth its own guard.)
 		if (forbiddenCountries.size > 0 && forbiddenCountries.has(candidateGeo.countryCode)) continue;
 
+		const geography = scoreGeography({
+			candidateGeo,
+			originGeo,
+			destinationGeo,
+			maxDetourRatio
+		});
+		if (!geography) continue; // Excluded: detour ratio beyond maxDetourRatio.
+
+		ranked.push({
+			code,
+			geography,
+			// What this candidate scores if it turns out to fly nowhere onward — the worst
+			// case the search can still discover about it, and therefore a floor rather than
+			// a guess. Ranking on it asks the airports whose geography can carry them on
+			// their own first.
+			rank: combineScore(geography, 0, weights).score
+		});
+	}
+
+	ranked.sort((a, b) => b.rank - a.rank || a.code.localeCompare(b.code));
+
+	const candidates: ConnectionCandidate[] = [];
+
+	// Step 3: the only pass that can cost a request. Bounded, and in an order fixed by
+	// bundled data alone, which is what makes a reload cheap (issue #194): the first load
+	// caches exactly the set the second load asks for, so the second asks for nothing.
+	for (const { code, geography } of ranked.slice(0, Math.max(0, maxRouteProbes))) {
 		const inboundEdges = await unionDirectDestinations(freeSources, code);
 		let inboundSourceId = inboundEdges.get(destination);
 		let meteredRequestSpent = false;
@@ -636,15 +720,7 @@ export async function findConnectionCandidates(
 
 		if (!inboundSourceId) continue; // No source, free or metered, confirms C -> destination.
 
-		const scored = scoreCandidate({
-			outDegree: inboundEdges.size,
-			candidateGeo,
-			originGeo,
-			destinationGeo,
-			weights,
-			maxDetourRatio
-		});
-		if (!scored) continue; // Excluded: detour ratio beyond maxDetourRatio.
+		const scored = combineScore(geography, inboundEdges.size, weights);
 
 		candidates.push({
 			airportCode: code,
