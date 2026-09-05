@@ -1,0 +1,110 @@
+/**
+ * Which glyph stands for a step of a journey, and how far down the transit tree it goes.
+ *
+ * Issue #322: a flight segment carries its airline's logo, so at a glance you know who is
+ * flying you; a transport segment carried nothing, so a bus, a train, a taxi and a walk all
+ * looked alike until you read the words. The icon is the fix, and the only interesting part
+ * of it is how specific it is allowed to be.
+ *
+ * ## How far down, and why it stops there
+ *
+ * `TransferMode` has four values and three of them are already the answer: a walk is a
+ * walk, a taxi is a taxi, a drive is a drive. `transit` is the one that hides things.
+ * Underneath it, `TransferLeg.vehicle` carries what Transitous called each ride — "Bus",
+ * "Metro", "Train", "Ferry" and the rest of `TRANSIT_MODE_LABELS` — and the issue's own
+ * warning is that "a generic transit icon over a leg the app knows is a train is exactly
+ * the small dishonesty this codebase keeps catching."
+ *
+ * So this goes exactly one level below `transit`, to the vehicle FAMILY, and stops there
+ * for two reasons that pull the same way.
+ *
+ * The first is the icon set. Tabler draws a bus, a train and a ferry. It has no tram, no
+ * metro, no cable car, no gondola and no funicular, and drawing a train for a gondola would
+ * be the dishonesty this is trying to avoid, one step further down.
+ *
+ * The second is that a transfer is usually several rides. "Bus, then metro" has no single
+ * true vehicle, and `itinerary-timeline-format.ts` already refuses to name the vehicles in
+ * that case and counts them instead. This refuses in the same place, for the same reason: a
+ * family is claimed only when every ride in the transfer agrees on one. Anything else — a
+ * mixture, a ride the provider did not name, a family Tabler cannot draw — falls back to
+ * the plain transit mark.
+ *
+ * That mark is a bus, which is a claim of a kind, and it is the claim airport signage
+ * already makes: the bus seen head-on is what "public transport" means on a sign, and it is
+ * what `ModeIcon` has drawn for `transit` since issue #119. A traveller who wants the exact
+ * vehicles has them in words, on the same row, every time.
+ */
+
+import type { Transfer, TransferLeg } from '$lib/domain';
+
+/**
+ * What a `ModeIcon` may depict. A superset of `TransferMode`, so a caller holding a
+ * `Transfer` can pass `transfer.mode` straight in, plus the three timeline step kinds and
+ * the two transit families specific enough to earn their own glyph.
+ */
+export type ModeIconKind =
+	| 'walk'
+	| 'transit'
+	| 'transit-rail'
+	| 'transit-ferry'
+	| 'taxi'
+	| 'drive'
+	| 'flight'
+	| 'wait'
+	| 'stopover';
+
+/**
+ * Every vehicle word this app can receive, and the glyph family it belongs to.
+ *
+ * Keyed on the exact strings `transitous-mapper.ts`'s `TRANSIT_MODE_LABELS` produces, which
+ * is the only thing that ever writes `TransferLeg.vehicle`. Those two tables have to agree,
+ * so `mode-icon.test.ts` holds them to it: a label added there without a decision here
+ * fails that test rather than quietly rendering a bus.
+ *
+ * Absent on purpose, not by omission: "Cable car", "Gondola" and "Funicular" have no icon
+ * in Tabler, and "Transit" is the mapper's own fallback for a mode it did not recognise,
+ * which is the opposite of knowing what the vehicle is. All four take the plain transit
+ * mark.
+ */
+export const VEHICLE_FAMILY: Readonly<Record<string, 'road' | 'rail' | 'water'>> = {
+	Bus: 'road',
+	Coach: 'road',
+	Metro: 'rail',
+	Tram: 'rail',
+	Train: 'rail',
+	'Night train': 'rail',
+	Ferry: 'water'
+};
+
+const FAMILY_KIND = {
+	road: 'transit',
+	rail: 'transit-rail',
+	water: 'transit-ferry'
+} as const satisfies Record<string, ModeIconKind>;
+
+/** The legs that are a ride rather than the walk to and from a stop. A transit transfer
+ *  almost always opens and closes with a walk, and neither says anything about the vehicle
+ *  in the middle. */
+function rides(legs: readonly TransferLeg[]): TransferLeg[] {
+	return legs.filter((leg) => leg.mode !== 'walk');
+}
+
+/**
+ * The glyph for one ground transfer, as specific as the app can honestly be about it.
+ *
+ * Not a component prop or a `$derived` in three places, because the same answer belongs on
+ * the trip strip, in the timeline rail and on a picker row, and three copies of this rule
+ * is how they would come to disagree about the same journey.
+ */
+export function transferIconKind(transfer: Transfer): ModeIconKind {
+	if (transfer.mode !== 'transit') return transfer.mode;
+
+	const families = rides(transfer.legs).map((leg) => (leg.vehicle ? VEHICLE_FAMILY[leg.vehicle] : undefined));
+	const [first] = families;
+	// `undefined` covers three different silences and all of them mean the same thing here:
+	// no rides at all (a `Transfer` cached before legs were populated), a provider that did
+	// not name the vehicle, and a vehicle no icon in this set depicts. `some` then catches
+	// the mixture, since a second family never equals the first.
+	if (first === undefined || families.some((family) => family !== first)) return 'transit';
+	return FAMILY_KIND[first];
+}

@@ -106,7 +106,7 @@ function containsAirLeg(itinerary: TransitousItinerary): boolean {
 	return itinerary.legs.some((leg) => AIR_LEG_MODES.has(leg.mode));
 }
 
-const TRANSIT_MODE_LABELS: Record<string, string> = {
+export const TRANSIT_MODE_LABELS: Record<string, string> = {
 	BUS: 'Bus',
 	COACH: 'Coach',
 	SUBWAY: 'Metro',

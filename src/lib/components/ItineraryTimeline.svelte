@@ -86,7 +86,7 @@
 	import { technicalStopDetail } from './technical-stop-note';
 	import AirlineLogo from './AirlineLogo.svelte';
 	import ModeIcon from './ModeIcon.svelte';
-	import type { ModeIconKind } from './ModeIcon.svelte';
+	import type { ModeIconKind } from './mode-icon';
 	import MetricRail from './MetricRail.svelte';
 	import TimeCell from './TimeCell.svelte';
 	import WaitingTimeStepper from './WaitingTimeStepper.svelte';

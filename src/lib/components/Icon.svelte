@@ -29,6 +29,7 @@
 	 * second label could add. So hidden is the default and `label` is the opt-out, rather
 	 * than the other way round, which would make the wrong choice the quiet one.
 	 */
+	import type { ClassValue } from 'svelte/elements';
 	import { TABLER_ICON_PATHS, type IconName } from '$lib/data/tabler-icons.generated';
 
 	interface Props {
@@ -39,7 +40,7 @@
 		 * beside it or on the control around it.
 		 */
 		label?: string;
-		class?: string;
+		class?: ClassValue;
 	}
 
 	let { name, label, class: className }: Props = $props();
