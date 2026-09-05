@@ -24,9 +24,12 @@ function snapshotAt(fetchedAt: string): RyanairNetworkSnapshot {
 }
 
 describe('directDestinationsFrom', () => {
+	// STN is in the network with a route and has no zone, which is issue #371's half-known
+	// airport. A live refresh produces one whenever Ryanair decommissions an airport
+	// mid-answer or sends a `timeZone` string `isSupportedTimeZone` rejects.
 	const snapshot: RyanairNetworkSnapshot = {
 		fetchedAt: '2026-09-04T10:00:00.000Z',
-		destinationsByOrigin: { BCN: ['STN', 'AHO'], AHO: [] },
+		destinationsByOrigin: { BCN: ['STN', 'AHO'], AHO: [], STN: ['BCN'] },
 		timeZonesByIataCode: { BCN: 'Europe/Madrid' }
 	};
 
@@ -48,6 +51,23 @@ describe('directDestinationsFrom', () => {
 
 	it('never throws on an empty code', () => {
 		expect(directDestinationsFrom(snapshot, '')).toEqual([]);
+	});
+
+	/**
+	 * Issue #371, the invariant this app chose. An airport with routes and no zone is still
+	 * answered for, so it is still proposed as a connection candidate and every other flight
+	 * provider still gets asked to price the leg. Ryanair's own failure to time it is
+	 * reported by `searchOffers`'s `no-time-zone` (#359) and reaches the traveller as
+	 * "A flight here could not be timed", which is a true sentence about a real flight.
+	 *
+	 * The rejected alternative was dropping the airport from `destinationsByOrigin` too. It
+	 * reads as the safer half, and it is the more expensive one: the city disappears from
+	 * the search entirely, with nothing on screen saying why, over a zone string one
+	 * provider sent badly. `buildNetworkSnapshot`'s own comment carries the full reasoning.
+	 */
+	it('still answers for an airport in the network whose zone the snapshot never learned', () => {
+		expect(snapshot.timeZonesByIataCode.STN).toBeUndefined();
+		expect(directDestinationsFrom(snapshot, 'STN')).toEqual(['BCN']);
 	});
 });
 
@@ -75,7 +95,31 @@ describe('the generated snapshot', () => {
 		// Ryanair served 224 airports on 2026-09-04. The floor is deliberately far below
 		// that: this is here to catch a truncated fetch, not to pin the airline's size.
 		expect(origins.length).toBeGreaterThan(150);
-		expect(Object.keys(snapshot.timeZonesByIataCode).length).toBe(origins.length);
+	});
+
+	/**
+	 * Issue #371. This is a canary on the refresh, not a rule the app leans on. The code
+	 * handles a half-known airport by proposing it anyway and reporting what it cannot
+	 * price, which the `directDestinationsFrom` tests above pin. The shipped file was whole
+	 * on 2026-09-04 (224 origins, 224 zones, 0 missing), so nothing reaching a traveller
+	 * today depends on that handling, and a refresh that changes it is worth reading before
+	 * it lands: Ryanair has either retired an airport mid-answer or started sending a
+	 * `timeZone` string `isSupportedTimeZone` rejects, and the second would be every route
+	 * at once. When this fails, go and look at the airport it names. Do not delete the line.
+	 *
+	 * The count equality this replaces let two different sets of the same size pass.
+	 */
+	it('knows a zone for every airport in the network, and none outside it', async () => {
+		const snapshot = await loadBundledRyanairNetwork();
+		const origins = Object.keys(snapshot.destinationsByOrigin);
+
+		expect(origins.filter((code) => !(code in snapshot.timeZonesByIataCode))).toEqual([]);
+		// The other direction says the two derivations still agree about which airports
+		// exist. `scripts/fetch-ryanair-network.mjs` writes this file without importing
+		// `buildNetworkSnapshot` (a .mjs script cannot), so nothing but this holds them
+		// to one shape.
+		const zoned = Object.keys(snapshot.timeZonesByIataCode);
+		expect(zoned.filter((code) => !(code in snapshot.destinationsByOrigin))).toEqual([]);
 	});
 
 	it('holds airport codes on both sides of every edge, never city or country codes', async () => {

@@ -365,6 +365,23 @@ function directDestinationsOf(airport: RyanairActiveAirport): IataAirportCode[] 
  * LED) is absent from the response entirely, which is the same fact that endpoint spends
  * a 404 stating. So an origin missing from `destinationsByOrigin` means "not in Ryanair's
  * network", and no request has to be spent rediscovering that per airport per search.
+ *
+ * Issue #371: the two halves fill under different rules, so an airport can be in one and
+ * not the other. That asymmetry is deliberate, and this is the one place that says so.
+ *
+ * An airport keeps its routes even when its zone is dropped. It stays a connection
+ * candidate, and `pipeline.ts`'s `fetchLegs` asks every flight provider to price the leg,
+ * not only Ryanair. Skyscanner, Flights Sky and Kiwi resolve zones through
+ * `airport-timezone.ts`, a seed table plus a live Transitous lookup with no connection to
+ * this feed, so an airport Ryanair described with a string `isSupportedTimeZone` rejects is
+ * usually one they can time. Dropping it here would delete the city from the whole search
+ * on the strength of one provider's bad string, and it would make `hasDirectRoute` answer
+ * `false` about a route Ryanair genuinely flies. That is a wrong answer rather than a
+ * missing one, and `no-results.ts` prints a different sentence to the traveller for it.
+ *
+ * What Ryanair itself cannot price is reported instead of hidden: `searchOffers` fails with
+ * `no-time-zone` (#359) and the connections map says "A flight here could not be timed."
+ * Losing a real stopover to a zone string nobody recognised is the cost this trades away.
  */
 export function buildNetworkSnapshot(
 	airports: RyanairActiveAirportsResponse,
@@ -374,6 +391,8 @@ export function buildNetworkSnapshot(
 	const timeZonesByIataCode: Record<string, string> = {};
 	for (const airport of airports) {
 		if (!airport?.iataCode) continue;
+		// Unconditional, and the line below is not. See this function's own comment: a route
+		// this app cannot price itself is still a route, and still worth proposing.
 		destinationsByOrigin[airport.iataCode] = directDestinationsOf(airport);
 		// Issue #124: validated, not just present-checked. Ryanair's own feed is exactly the
 		// kind of unvalidated provider string that already crashed a different adapter with

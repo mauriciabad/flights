@@ -68,6 +68,27 @@ describe('buildNetworkSnapshot', () => {
 		expect(withBadZone.timeZonesByIataCode).toEqual({});
 	});
 
+	/**
+	 * Issue #371, the untested other half of the test above. Losing its zone costs the
+	 * airport its entry in the zone table and nothing else: it keeps its routes, so it is
+	 * still proposed as a connection candidate and `pipeline.ts`'s `fetchLegs` still asks
+	 * every other flight provider to price the leg. Those providers get their zones from
+	 * `airport-timezone.ts`, which has never read this feed, so one of them timing a leg
+	 * Ryanair could not is the ordinary case rather than the lucky one.
+	 *
+	 * Deleting the route here instead would be the quieter bug: the traveller would lose the
+	 * city with no sentence anywhere saying why, and `hasDirectRoute` would start answering
+	 * `false` about a route Ryanair flies.
+	 */
+	it('keeps the routes of an airport whose zone it had to drop, so the candidate is still proposed', () => {
+		const withBadZone = buildNetworkSnapshot(
+			[{ iataCode: 'ZZZ', timeZone: 'IANA', routes: ['airport:STN'] }] as unknown as RyanairActiveAirportsResponse,
+			FETCHED_AT
+		);
+		expect(withBadZone.timeZonesByIataCode).toEqual({});
+		expect(withBadZone.destinationsByOrigin).toEqual({ ZZZ: ['STN'] });
+	});
+
 	it('records an airport that flies nowhere as an empty list, not a missing key', () => {
 		const grounded = buildNetworkSnapshot(
 			[{ iataCode: 'XXX', timeZone: 'Europe/Madrid', routes: ['city:NOWHERE'] }] as RyanairActiveAirportsResponse,
