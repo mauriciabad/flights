@@ -186,143 +186,153 @@
 	}
 </script>
 
-<div class="bed">
-	<!--
-		No media element at all when the provider gave no photograph. A grey box with a
-		building glyph in it says "a picture is missing", and nothing is missing: this
-		property came back without one. The block simply has one less part.
-	-->
-	{#if photos.length > 0}
-		<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-		<div
-			class="bed-media"
-			role="group"
-			aria-label={`Photos of ${property.name}`}
-			onkeydown={onStripKeydown}
-		>
-			<div class="bed-strip" bind:this={strip} onscroll={onStripScroll}>
-				{#each photos as photo, i (photo.original)}
-					<div class="bed-slide">
-						{#if i <= reached && !photo.broken}
-							<img
-								src={photo.src}
-								alt={pageable
-									? `${property.name}, photo ${i + 1} of ${photos.length}`
-									: property.name}
-								loading="lazy"
-								decoding="async"
-								onerror={() => onPhotoError(i)}
-							/>
-						{/if}
-					</div>
-				{/each}
-			</div>
-
-			{#if pageable}
-				<!-- Real buttons, outside the scroller, so they are ordinary tab stops that
-				     tab out of again. Nothing inside the strip is focusable, which is what
-				     keeps the usual carousel focus trap unreachable here: there is no
-				     off-screen control to fall into. -->
-				<button
-					type="button"
-					class="bed-arrow bed-arrow-prev"
-					bind:this={prevButton}
-					disabled={index === 0}
-					aria-label="Previous photo"
-					onclick={() => show(index - 1)}
-				>
-					<svg viewBox="0 0 16 16" fill="none" aria-hidden="true" focusable="false">
-						<path
-							d="M10 3 5 8l5 5"
-							stroke="currentColor"
-							stroke-width="1.6"
-							stroke-linecap="round"
-							stroke-linejoin="round"
-						/>
-					</svg>
-				</button>
-				<button
-					type="button"
-					class="bed-arrow bed-arrow-next"
-					bind:this={nextButton}
-					disabled={index === photos.length - 1}
-					aria-label="Next photo"
-					onclick={() => show(index + 1)}
-				>
-					<svg viewBox="0 0 16 16" fill="none" aria-hidden="true" focusable="false">
-						<path
-							d="m6 3 5 5-5 5"
-							stroke="currentColor"
-							stroke-width="1.6"
-							stroke-linecap="round"
-							stroke-linejoin="round"
-						/>
-					</svg>
-				</button>
-				<!-- The count is the whole reason a reader knows there is a second picture,
-				     since two photographs do not earn a dot row. `aria-live` because the
-				     number changes on a swipe, which fires no event a screen reader would
-				     otherwise report. -->
-				<p class="bed-count font-mono tabular-nums" aria-live="polite">
-					{index + 1} / {photos.length}
-				</p>
-			{/if}
-		</div>
-	{/if}
-
-	<div class="bed-facts">
-		<p class="bed-name">
-			{property.name}
-			{#if rating}
-				<!-- Issue #258 made the rating a value and its scale, and
-				     `formatPropertyRating` is the only place it becomes a string. Absent
-				     means no provider scored it, which is a different fact from a bad
-				     score, so nothing is drawn. -->
-				<span class="bed-rating font-mono tabular-nums">{rating}</span>
-			{/if}
-		</p>
-
-		<p class="bed-tags">
-			<span class="bed-tag">{roomKindLabel}</span>
-			{#if property.womenOnly}
-				<!-- The whole property admits women only, which `domain/stay.ts` is careful
-				     to separate from one room being a female dorm. It has been on the record
-				     since a women-only hostel was recommended to a party with no female
-				     travellers, and this is the first surface to print it. -->
-				<span class="bed-tag bed-tag-restricted">Women only</span>
-			{/if}
-		</p>
-
-		<dl class="bed-rail">
-			<div class="bed-figure">
-				<dt class="bed-figure-label font-mono">Per night</dt>
-				<dd class="bed-figure-value font-mono tabular-nums">
-					{rate.amount}
-					<!-- The space before this matters and is not formatting. The note is a block,
-					     so it drops to its own line either way, but with the markup closed up
-					     the two run together in `textContent` and a screen reader says
-					     "twenty euros for three" as one word: "€20.00for 3". -->
-					{#if rate.audience}<span class="bed-figure-note">{rate.audience}</span>{/if}
-				</dd>
-			</div>
-			<div class="bed-figure">
-				<dt class="bed-figure-label font-mono">Nights</dt>
-				<dd class="bed-figure-value font-mono tabular-nums">{nights}</dd>
-			</div>
-			{#if distanceFromAirport}
-				<div class="bed-figure">
-					<dt class="bed-figure-label font-mono">From airport</dt>
-					<dd class="bed-figure-value font-mono tabular-nums">{distanceFromAirport}</dd>
+<!--
+	The frame exists only to be the query container. An element with `container-type`
+	establishes a container for its DESCENDANTS and never for itself, so `.bed` carrying
+	both the `container-type` and the `@container` rule meant the rule could never match:
+	the block stayed in its one-column phone form at every width, and a desktop card drew a
+	525px-tall photograph across 840px. Nothing in the markup looked wrong, which is why it
+	took a screenshot to find.
+-->
+<div class="bed-frame">
+	<div class="bed">
+		<!--
+			No media element at all when the provider gave no photograph. A grey box with a
+			building glyph in it says "a picture is missing", and nothing is missing: this
+			property came back without one. The block simply has one less part.
+		-->
+		{#if photos.length > 0}
+			<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+			<div
+				class="bed-media"
+				role="group"
+				aria-label={`Photos of ${property.name}`}
+				onkeydown={onStripKeydown}
+			>
+				<div class="bed-strip" bind:this={strip} onscroll={onStripScroll}>
+					{#each photos as photo, i (photo.original)}
+						<div class="bed-slide">
+							{#if i <= reached && !photo.broken}
+								<img
+									src={photo.src}
+									alt={pageable
+										? `${property.name}, photo ${i + 1} of ${photos.length}`
+										: property.name}
+									loading="lazy"
+									decoding="async"
+									onerror={() => onPhotoError(i)}
+								/>
+							{/if}
+						</div>
+					{/each}
 				</div>
-			{/if}
-		</dl>
 
-		<p class="bed-transfer">
-			{#if transfer.mode}
-				<ModeIcon kind={transfer.mode} />
-			{/if}
-			<span>{transfer.note}</span>
-		</p>
+				{#if pageable}
+					<!-- Real buttons, outside the scroller, so they are ordinary tab stops that
+					     tab out of again. Nothing inside the strip is focusable, which is what
+					     keeps the usual carousel focus trap unreachable here: there is no
+					     off-screen control to fall into. -->
+					<button
+						type="button"
+						class="bed-arrow bed-arrow-prev"
+						bind:this={prevButton}
+						disabled={index === 0}
+						aria-label="Previous photo"
+						onclick={() => show(index - 1)}
+					>
+						<svg viewBox="0 0 16 16" fill="none" aria-hidden="true" focusable="false">
+							<path
+								d="M10 3 5 8l5 5"
+								stroke="currentColor"
+								stroke-width="1.6"
+								stroke-linecap="round"
+								stroke-linejoin="round"
+							/>
+						</svg>
+					</button>
+					<button
+						type="button"
+						class="bed-arrow bed-arrow-next"
+						bind:this={nextButton}
+						disabled={index === photos.length - 1}
+						aria-label="Next photo"
+						onclick={() => show(index + 1)}
+					>
+						<svg viewBox="0 0 16 16" fill="none" aria-hidden="true" focusable="false">
+							<path
+								d="m6 3 5 5-5 5"
+								stroke="currentColor"
+								stroke-width="1.6"
+								stroke-linecap="round"
+								stroke-linejoin="round"
+							/>
+						</svg>
+					</button>
+					<!-- The count is the whole reason a reader knows there is a second picture,
+					     since two photographs do not earn a dot row. `aria-live` because the
+					     number changes on a swipe, which fires no event a screen reader would
+					     otherwise report. -->
+					<p class="bed-count font-mono tabular-nums" aria-live="polite">
+						{index + 1} / {photos.length}
+					</p>
+				{/if}
+			</div>
+		{/if}
+
+		<div class="bed-facts">
+			<p class="bed-name">
+				{property.name}
+				{#if rating}
+					<!-- Issue #258 made the rating a value and its scale, and
+					     `formatPropertyRating` is the only place it becomes a string. Absent
+					     means no provider scored it, which is a different fact from a bad
+					     score, so nothing is drawn. -->
+					<span class="bed-rating font-mono tabular-nums">{rating}</span>
+				{/if}
+			</p>
+
+			<p class="bed-tags">
+				<span class="bed-tag">{roomKindLabel}</span>
+				{#if property.womenOnly}
+					<!-- The whole property admits women only, which `domain/stay.ts` is careful
+					     to separate from one room being a female dorm. It has been on the record
+					     since a women-only hostel was recommended to a party with no female
+					     travellers, and this is the first surface to print it. -->
+					<span class="bed-tag bed-tag-restricted">Women only</span>
+				{/if}
+			</p>
+
+			<dl class="bed-rail">
+				<div class="bed-figure">
+					<dt class="bed-figure-label font-mono">Per night</dt>
+					<dd class="bed-figure-value font-mono tabular-nums">
+						{rate.amount}
+						<!-- The space before this matters and is not formatting. The note is a block,
+						     so it drops to its own line either way, but with the markup closed up
+						     the two run together in `textContent` and a screen reader says
+						     "twenty euros for three" as one word: "€20.00for 3". -->
+						{#if rate.audience}<span class="bed-figure-note">{rate.audience}</span>{/if}
+					</dd>
+				</div>
+				<div class="bed-figure">
+					<dt class="bed-figure-label font-mono">Nights</dt>
+					<dd class="bed-figure-value font-mono tabular-nums">{nights}</dd>
+				</div>
+				{#if distanceFromAirport}
+					<div class="bed-figure">
+						<dt class="bed-figure-label font-mono">From airport</dt>
+						<dd class="bed-figure-value font-mono tabular-nums">{distanceFromAirport}</dd>
+					</div>
+				{/if}
+			</dl>
+
+			<p class="bed-transfer">
+				{#if transfer.mode}
+					<ModeIcon kind={transfer.mode} />
+				{/if}
+				<span>{transfer.note}</span>
+			</p>
+		</div>
 	</div>
 </div>
 
@@ -338,8 +348,11 @@
 	   a 375px screen. Side by side, the photograph costs nothing at all, because the facts
 	   beside it are already taller than it is.
 	*/
-	.bed {
+	.bed-frame {
 		container-type: inline-size;
+	}
+
+	.bed {
 		display: grid;
 		gap: var(--space-3);
 	}
@@ -349,6 +362,28 @@
 			grid-template-columns: minmax(0, 13rem) minmax(0, 1fr);
 			gap: var(--space-4);
 			align-items: start;
+		}
+
+		/* The photograph is 208px wide in this phase, where two 32px arrows and their insets
+		   swallow 80px of it. Down to 24px, which is still over the 24px WCAG 2.5.8 minimum,
+		   and tight to the edges. The phone keeps the larger target: there the photograph is
+		   343px wide and the finger pressing it is not a mouse pointer. */
+		.bed-arrow {
+			width: 1.5rem;
+			height: 1.5rem;
+		}
+
+		.bed-arrow svg {
+			width: 0.875rem;
+			height: 0.875rem;
+		}
+
+		.bed-arrow-prev {
+			left: var(--space-1);
+		}
+
+		.bed-arrow-next {
+			right: var(--space-1);
 		}
 	}
 
