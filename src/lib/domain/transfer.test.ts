@@ -8,8 +8,8 @@ import {
 /**
  * The fourteen routes `SLOWEST_USEFUL_ROAD_KM_PER_HOUR`'s own comment tabulates, measured
  * against `routing.openstreetmap.de/routed-car` on 2026-09-05. They are here rather than
- * only in prose so that moving the constant has to face them: change 7 to 15 and Split to
- * Vis fails, change it to 4 and Athens to Santorini does.
+ * only in prose so that moving the constant has to face them: raise it to 15 and Split to
+ * Hvar fails, drop it to 4 and Athens to Santorini does.
  *
  * `keep` is the claim, not the observation. Every one of these routes is a real answer the
  * router gave; the flag says whether a traveller should be offered it.
@@ -52,17 +52,18 @@ describe('maxPlausibleRoadMinutes', () => {
 		const tightest = (keep: boolean) =>
 			Math.min(...margins.filter((m) => m.keep === keep).map((m) => m.margin));
 
-		expect(tightest(true)).toBeGreaterThan(1.2);
-		expect(tightest(false)).toBeGreaterThan(1.2);
+		expect(tightest(true)).toBeGreaterThan(1.25);
+		expect(tightest(false)).toBeGreaterThan(1.25);
 		expect(tightest(true)).toBeGreaterThan(tightest(false));
 	});
 
-	it('cannot refuse a short hop, whatever the router says about it', () => {
-		// A bed 800 m away on the far side of an airport perimeter road is a real four
-		// kilometres of tarmac, and its straight-line pace is nonsense however fast the car
-		// goes. ROAD_FIXED_ALLOWANCE_MINUTES is what stops the rule reading that as an
-		// artefact.
-		expect(maxPlausibleRoadMinutes(0.8)).toBeGreaterThan(30);
+	it('never refuses a road transfer of an hour or less, at any distance', () => {
+		// The property ROAD_FIXED_ALLOWANCE_MINUTES exists for, stated so a reader can check
+		// it without arithmetic. A bed a kilometre away across an unbridged river is a real
+		// 20 km detour whose crow-flight pace reads as nonsense, and this is what keeps it.
+		for (const km of [0, 0.4, 0.95, 3, 12.3]) {
+			expect(maxPlausibleRoadMinutes(km)).toBeGreaterThanOrEqual(60);
+		}
 		expect(maxPlausibleRoadMinutes(0)).toBe(ROAD_FIXED_ALLOWANCE_MINUTES);
 	});
 

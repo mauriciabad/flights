@@ -100,25 +100,28 @@ export function maxPlausibleTransitMinutes(straightLineKm: number): Duration {
 }
 
 /**
- * What a road transfer is allowed to cost that has nothing to do with how far it goes:
- * getting off the airport apron, the last mile through a town centre, finding the address.
+ * What a road transfer is allowed to cost that has nothing to do with how far it goes.
  *
- * 30 minutes, and far below transit's 90, because a road transfer buys none of what that
- * 90 pays for. There is no walk to the stop, no change, and no wait for the next one. You
- * get in and go. The allowance is here so the rule cannot fire on a short hop, where a
- * hotel 800 m away round the far side of an airport perimeter road is four road kilometres
- * and eight minutes, and the straight-line pace of that is 6 km/h.
+ * 60 minutes, which is generous, and the reason is that at short range straight-line
+ * distance stops carrying any information. Two points a kilometre apart can have a river,
+ * a runway or a rail corridor between them, and the real road answer is then a 20 km
+ * detour to the nearest crossing: a completely ordinary transfer whose crow-flight pace
+ * reads as 2 km/h. An hour of slack is what stops the rule below mistaking that for the
+ * thing it is hunting. It also gives this rule a property worth stating plainly, because a
+ * reader can check it without doing any arithmetic: **it can never refuse a road transfer
+ * of an hour or less.**
  */
-export const ROAD_FIXED_ALLOWANCE_MINUTES = 30;
+export const ROAD_FIXED_ALLOWANCE_MINUTES = 60;
 
 /**
  * The slowest a real road transfer can average, measured as straight-line kilometres per
  * hour, and the distance-dependent half of the road rule.
  *
- * 7 km/h, which is barely above a walk, and that is the whole statement: a vehicle that
- * cannot beat a walker across the ground is not describing transport. This file's sibling
+ * 7.5 km/h, which is barely above a walk, and that is the whole statement: a vehicle that
+ * cannot beat a walker across the ground is not describing transport.
  * `FASTEST_PLAUSIBLE_WALK_KM_PER_HOUR` in `providers/transfers/osrm.ts` puts the fastest
- * any pedestrian router could claim at 6 km/h, so this floor sits one notch above it.
+ * any pedestrian router could credibly claim at 6 km/h, and this floor sits a quarter
+ * above that.
  *
  * Measured against `routing.openstreetmap.de/routed-car`, the router this app actually
  * calls, on 2026-09-05. Fourteen airport-to-bed pairs picked to stress every geography a
@@ -161,8 +164,10 @@ export const ROAD_FIXED_ALLOWANCE_MINUTES = 30;
  * Split airport to Hvar town is the closest call in the table and it is kept on purpose.
  * 4h 44m to cover 42 km is a terrible way to reach Hvar, and it is a true one: OSRM cannot
  * board the passenger catamaran, so it takes the Drvenik car ferry and drives the length of
- * the island, which is what a car really has to do. At 8.9 km/h against a 7 km/h floor it
- * survives with room. `providers/transfers/osrm.ts` errs the same direction with
+ * the island, which is what a car really has to do. The bound at its distance is 6h 38m,
+ * so it survives with 40% to spare; Athens to Santorini, the artefact that comes closest to
+ * passing, is refused with 27% to spare the other way. Those two margins are not equal and
+ * are not meant to be. `providers/transfers/osrm.ts` errs the same direction with
  * `FASTEST_PLAUSIBLE_WALK_KM_PER_HOUR`, and #220's transit rule with
  * `SLOWEST_USEFUL_TRANSIT_KM_PER_HOUR`: the bound must never delete a journey somebody
  * would actually take, so where the evidence runs out, it runs out on the loose side.
@@ -175,7 +180,7 @@ export const ROAD_FIXED_ALLOWANCE_MINUTES = 30;
  * taxi past 30 km carries no fare estimate at all, with its own disclosure saying why.
  * This rule deletes disproportion, not distance.
  */
-export const SLOWEST_USEFUL_ROAD_KM_PER_HOUR = 7;
+export const SLOWEST_USEFUL_ROAD_KM_PER_HOUR = 7.5;
 
 /**
  * The longest driving or taxi transfer worth putting in front of a traveller, for two

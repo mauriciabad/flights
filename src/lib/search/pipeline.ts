@@ -85,7 +85,8 @@ import {
 	fetchConnectionResources,
 	pickBestTransfer,
 	pickLandingToTransportTime,
-	ROAD_TRANSFER_MODES
+	ROAD_TRANSFER_MODES,
+	withheldRoadFor
 } from './resources';
 import { createTransitLookupBudget, fetchTransitSchedules } from './transit-schedule';
 import type { TransitLookupBudget } from './transit-schedule';
@@ -204,10 +205,18 @@ async function fetchOuterTransfers(
 		transferToOriginAirport: originOutcome?.selected,
 		transferToDestinationLocation,
 		transferToOriginAirportOptions: query.originLocation
-			? { candidates: originOutcome?.candidates ?? [], taxiFareEstimate: originTaxiFareEstimate }
+			? {
+					candidates: originOutcome?.candidates ?? [],
+					taxiFareEstimate: originTaxiFareEstimate,
+					withheldRoad: withheldRoadFor(originOutcome)
+				}
 			: NO_TRANSFER_LEG_OPTIONS,
 		transferToDestinationLocationOptions: query.destinationLocation
-			? { candidates: destinationCandidates, taxiFareEstimate: destinationTaxiFareEstimate }
+			? {
+					candidates: destinationCandidates,
+					taxiFareEstimate: destinationTaxiFareEstimate,
+					withheldRoad: withheldRoadFor(destinationOutcome)
+				}
 			: NO_TRANSFER_LEG_OPTIONS
 	};
 }
@@ -598,11 +607,13 @@ async function processCandidate(input: ProcessCandidateInput): Promise<Candidate
 			transferOptions: {
 				transferToHotel: {
 					candidates: resources.transferToHotelCandidates,
-					taxiFareEstimate: resources.transferToHotelTaxiFareEstimate
+					taxiFareEstimate: resources.transferToHotelTaxiFareEstimate,
+					withheldRoad: resources.transferToHotelWithheldRoad
 				},
 				transferToConnectionAirport: {
 					candidates: resources.transferToConnectionAirportCandidates,
-					taxiFareEstimate: resources.transferToConnectionAirportTaxiFareEstimate
+					taxiFareEstimate: resources.transferToConnectionAirportTaxiFareEstimate,
+					withheldRoad: resources.transferToConnectionAirportWithheldRoad
 				}
 			}
 		};

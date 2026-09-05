@@ -197,13 +197,19 @@ export interface TransitLegAnswer {
 	 * across Europe to cover 9.7 km, and this app is what decided the traveller should not
 	 * see it.
 	 */
-	withheld?: WithheldTransitRoute;
+	withheld?: WithheldRoutes;
 }
 
-/** The shape of what issue #220's plausibility rule refused, in the numbers a traveller
- * can check: how many routes, the quickest of them, and the straight-line distance they
- * were measured against. */
-export interface WithheldTransitRoute {
+/**
+ * The shape of what `search/resources.ts`'s plausibility rule refused for one leg, in the
+ * numbers a traveller can check: how many routes came back, the quickest of them, and the
+ * straight-line distance they were all measured against.
+ *
+ * One type for transit (issue #220) and for driving and taxi (issue #119), because it is
+ * one fact. The rule that produced it differs per mode and the observation does not: a
+ * provider answered, and this app decided the traveller should not see the answer.
+ */
+export interface WithheldRoutes {
 	count: number;
 	quickest: Duration;
 	straightLineKm: number;
@@ -235,6 +241,18 @@ export interface ItineraryResult {
 export interface TransferLegOptions {
 	candidates: Transfer[];
 	taxiFareEstimate?: TaxiFareEstimate;
+	/**
+	 * Issue #119: the driving and taxi routes `isPlausibleTransfer` refused for this leg,
+	 * kept rather than dropped on the floor, for the same reason #220 keeps the refused
+	 * buses. When the road rule fires it usually empties the leg outright — a route slow
+	 * enough to trip it is far enough that walking was never asked for either — and the
+	 * timeline's unrouted row would otherwise say "no transport provider could route to it"
+	 * about a leg a provider did route, at 33 hours, which this app then declined to show.
+	 *
+	 * Absent on nearly every leg. It fills only when a router answered with a journey nobody
+	 * could take.
+	 */
+	withheldRoad?: WithheldRoutes;
 }
 
 /** The two connection-side legs' alternatives for one candidate airport (connection airport
