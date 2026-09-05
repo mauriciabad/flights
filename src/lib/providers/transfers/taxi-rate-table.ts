@@ -1,54 +1,17 @@
-import type { IsoCountryCode, IsoCurrencyCode } from '../../domain';
+import type { FareEstimate, FareRange, IsoCountryCode, IsoCurrencyCode } from '../../domain';
 
 /**
- * A taxi fare is never a quote here, only a distance-based guess from a per-country rate
- * card. AGENTS.md, "When the data is missing": "never present an estimate as a fact." A
- * `Money` is a single number a UI can print as if it were confirmed, so this is
- * deliberately a different shape: a range, plus enough provenance to judge how much to
- * trust it. `kind: 'estimate'` exists so a discriminated union of "things that hold a
- * price" can never collapse a `TaxiFareRange` into whatever expects a real `Money`
- * without a caller noticing and handling the range on purpose.
- */
-export interface TaxiFareRange {
-	kind: 'estimate';
-	currency: IsoCurrencyCode;
-	/** Low and high bounds, in the currency's minor units, from applying the matched rate
-	 * card's low/high flag-down and per-km figures to the route distance. */
-	lowMinorUnits: number;
-	highMinorUnits: number;
-	/** The country whose rate card produced this estimate — not necessarily the country
-	 * the app already knows the connection is in, since a caller might ask for any pair
-	 * of points. */
-	countryCode: IsoCountryCode;
-	/** `'fallback'` means no dedicated card exists for `countryCode` and a generic
-	 * cross-country range was used instead. A UI should hedge harder on this, e.g. widen
-	 * a "roughly €X" line to "somewhere between €X and €Y, could be more". */
-	rateSource: 'country' | 'fallback';
-	/** Where the flag-down and per-km figures came from, for whoever wants to check them
-	 * rather than take them on faith. */
-	citation: string;
-}
-
-/**
- * The ride is longer than any card in this table describes, so there is no fare here at
- * all. Issue #246, and see `MAX_RATED_TAXI_DISTANCE_KM` for what settled the boundary.
+ * A per-country taxi rate card, and the arithmetic that turns a driving distance into a
+ * fare range from it. Never a quote: `estimateTaxiFare` below answers with a `FareRange`
+ * or a refusal, both of which live in `domain/fare.ts` precisely so nothing can assign
+ * one to a `Transfer.price` by accident. AGENTS.md, "When the data is missing": "never
+ * present an estimate as a fact."
  *
- * A separate member of the union rather than an absent estimate, because "we did not ask"
- * and "we asked and will not guess" are different answers and the traveller is owed the
- * second one in words. It carries the distance and the ceiling so a screen can say which
- * ride it is refusing to price, and the citation so it can still say which card it would
- * have reached for.
+ * Issue #249 moved the two result shapes into the domain. They used to be declared here,
+ * which meant only this module and the transport picker could hold one; a `Transfer` can
+ * now carry the estimate for its own leg, so the receipt on the results card shows the
+ * range instead of the word "not priced".
  */
-export interface TaxiFareOutOfRange {
-	kind: 'out-of-range';
-	distanceKm: number;
-	ratedUpToKm: number;
-	countryCode: IsoCountryCode;
-	citation: string;
-}
-
-/** Everything this table can say about one ride: a range, or a refusal. */
-export type TaxiFareEstimate = TaxiFareRange | TaxiFareOutOfRange;
 
 interface TaxiRateCard {
 	currency: IsoCurrencyCode;
@@ -252,13 +215,13 @@ export const MAX_RATED_TAXI_DISTANCE_KM = 30;
  * its `rateSource` and `citation` attached rather than a single `Money`, and why the
  * over-distance result is nothing at all rather than a wider range.
  */
-export function estimateTaxiFare(distanceMeters: number, countryCode: IsoCountryCode): TaxiFareEstimate {
+export function estimateTaxiFare(distanceMeters: number, countryCode: IsoCountryCode): FareEstimate {
 	if (!(distanceMeters >= 0)) {
 		throw new Error(`estimateTaxiFare requires a non-negative distance, got ${distanceMeters}`);
 	}
 
 	const card = TAXI_RATE_TABLE[countryCode];
-	const rateSource: TaxiFareRange['rateSource'] = card ? 'country' : 'fallback';
+	const rateSource: FareRange['rateSource'] = card ? 'country' : 'fallback';
 	const { currency, flagDownMinorUnits, perKmMinorUnits, citation } = card ?? FALLBACK_TAXI_RATE_CARD;
 	const distanceKm = distanceMeters / 1000;
 

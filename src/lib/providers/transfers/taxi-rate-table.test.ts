@@ -1,14 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import {
-	estimateTaxiFare,
-	MAX_RATED_TAXI_DISTANCE_KM,
-	TAXI_RATE_TABLE,
-	type TaxiFareRange
-} from './taxi-rate-table';
+import { estimateTaxiFare, MAX_RATED_TAXI_DISTANCE_KM, TAXI_RATE_TABLE } from './taxi-rate-table';
+import type { FareRange } from '../../domain';
 
 /** Narrows to the priced answer, so a test about the numbers fails loudly rather than
  * silently reading `undefined` off the refusal. */
-function range(distanceMeters: number, countryCode: string): TaxiFareRange {
+function range(distanceMeters: number, countryCode: string): FareRange {
 	const result = estimateTaxiFare(distanceMeters, countryCode);
 	if (result.kind !== 'estimate') {
 		throw new Error(`expected a fare range for ${distanceMeters}m in ${countryCode}`);

@@ -23,7 +23,14 @@
 	 * carries no heading and no card chrome of its own: the step already names the leg,
 	 * and a bordered card inside a bordered row was the box-in-a-box look this replaces.
 	 */
-	import type { Duration, Itinerary, LocalDateTime, Transfer, TransferMode } from '../domain';
+	import type {
+		Duration,
+		FareEstimate,
+		Itinerary,
+		LocalDateTime,
+		Transfer,
+		TransferMode
+	} from '../domain';
 	import {
 		diffTransfers,
 		recomputeItinerarySelection,
@@ -34,7 +41,6 @@
 	import type { MissedService } from '../algorithm/transit-schedule';
 	import type { TransitLegAnswer } from '../search/types';
 	import { MAX_TRANSIT_LOOKUPS_PER_SEARCH } from '../search/transit-schedule';
-	import type { TaxiFareEstimate } from '../providers/transfers/taxi-rate-table';
 	import Button from './Button.svelte';
 	import ModeIcon from './ModeIcon.svelte';
 	import {
@@ -68,7 +74,7 @@
 		alternatives: Transfer[];
 		/** OSRM's taxi-rate-table.ts estimate for this leg's `taxi` alternative, kept as its
 		 * own type so it can never be mistaken for a confirmed `Transfer.price`. */
-		taxiFareEstimate?: TaxiFareEstimate;
+		taxiFareEstimate?: FareEstimate;
 		/** The instant the traveller becomes free to start this leg, e.g. the outbound
 		 * flight's arrival for a connection-airport-to-hotel leg. Omit for a leg with no such
 		 * anchor (an origin-location transfer ahead of any flight event): the schedule still

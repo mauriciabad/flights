@@ -27,7 +27,7 @@ import type {
 import { createStayLookupBudget, createUnboundedStayLookupBudget } from '../providers/budget';
 import { recordProviderResult, SourceTracker } from './provenance';
 import type { ProviderStatus } from './types';
-import type { TaxiFareEstimate } from '../providers/transfers/taxi-rate-table';
+import type { FareEstimate } from '../domain';
 
 // Issue #114: `resources.ts` reaches past the generic `TransferProvider` interface into
 // osrm.ts's own `getTaxiFareEstimate` for a taxi fare range (see `estimateTaxiFareForLeg`'s
@@ -449,7 +449,7 @@ describe('fetchConnectionResources: taxi fare estimate wiring (issue #114)', () 
 		getTaxiFareEstimate.mockReset();
 	});
 
-	function fareEstimate(): TaxiFareEstimate {
+	function fareEstimate(): FareEstimate {
 		return {
 			kind: 'estimate',
 			currency: 'EUR',

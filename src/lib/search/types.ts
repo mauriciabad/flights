@@ -38,6 +38,7 @@ import type { ItineraryScore } from '../algorithm/score';
 import type {
 	Airport,
 	Duration,
+	FareEstimate,
 	IataAirportCode,
 	IsoCalendarDate,
 	IsoCurrencyCode,
@@ -49,7 +50,6 @@ import type {
 } from '../domain';
 import type { ProviderRegistry } from '../providers/registry';
 import type { AvailableKeys, ProviderError, ProviderId, ProviderKind, ProviderSource } from '../providers/types';
-import type { TaxiFareEstimate } from '../providers/transfers/taxi-rate-table';
 import type { ProviderAnswer } from './provenance';
 // Type-only, so no runtime cycle with `transit-schedule.ts`'s own import of this file.
 import type { TransitLookupBudget } from './transit-schedule';
@@ -258,7 +258,7 @@ export interface ItineraryResult {
  */
 export interface TransferLegOptions {
 	candidates: Transfer[];
-	taxiFareEstimate?: TaxiFareEstimate;
+	taxiFareEstimate?: FareEstimate;
 	/**
 	 * Issue #119: the driving and taxi routes `isPlausibleTransfer` refused for this leg,
 	 * kept rather than dropped on the floor, for the same reason #220 keeps the refused

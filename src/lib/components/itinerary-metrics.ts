@@ -217,7 +217,7 @@ export interface PriceBreakdown {
 	 * A count, not a boolean, because "the airport run, both ways" and "one leg of four"
 	 * are different sizes of hole and the card says which. It is never a Money: this is
 	 * precisely the number the app does not have, and the one distance-derived range it
-	 * does have (`TaxiFareEstimate`) is in the rate card's own currency, so it belongs
+	 * does have (`FareEstimate`) is in the rate card's own currency, so it belongs
 	 * beside its leg in `TransportPicker`, not added into a figure in another currency.
 	 */
 	unpricedTransferCount: number;

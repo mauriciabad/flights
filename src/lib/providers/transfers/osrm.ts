@@ -38,6 +38,7 @@ import type { CacheKey, CacheStore } from '../../cache';
 import type {
 	Coordinates,
 	Duration,
+	FareEstimate,
 	IsoCountryCode,
 	Transfer,
 	TransferLeg,
@@ -55,10 +56,8 @@ import type {
 	TransferSearchQuery
 } from '../types';
 import { estimateTaxiFare } from './taxi-rate-table';
-import type { TaxiFareEstimate } from './taxi-rate-table';
 
 export { estimateTaxiFare, TAXI_RATE_TABLE } from './taxi-rate-table';
-export type { TaxiFareEstimate } from './taxi-rate-table';
 
 /** Keyless and unmetered — no `../budget` cap or wiring applies — but still a real
  * registered adapter id, so it is checked against `ProviderId` (../types.ts, issue #69)
@@ -973,7 +972,7 @@ export interface TaxiFareResult {
 	distanceMeters: number;
 	/** Distance-based approximation from TAXI_RATE_TABLE. Always a range; never a
 	 * quote. See taxi-rate-table.ts. */
-	fareEstimate: TaxiFareEstimate;
+	fareEstimate: FareEstimate;
 }
 
 /**

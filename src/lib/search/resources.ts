@@ -45,6 +45,7 @@ import type {
   AirportSizeClass,
   Coordinates,
   Duration,
+  FareEstimate,
   IsoCalendarDate,
   IsoCountryCode,
   IsoCurrencyCode,
@@ -74,7 +75,6 @@ import {
   getTaxiFareEstimate,
   OSRM_PROVIDER_ID,
 } from "../providers/transfers/osrm";
-import type { TaxiFareEstimate } from "../providers/transfers/taxi-rate-table";
 import {
   claimAutoWidenStaySources,
   flattenOk,
@@ -510,7 +510,7 @@ function servesAnyRequestedMode(
  * already contains a `taxi` `Transfer` (proof OSRM ran and had a route for this exact pair)
  * and only when a country code is known to rate it against. Deliberately reaches past the
  * generic `TransferProvider` interface into osrm.ts's own `getTaxiFareEstimate`: a
- * `TaxiFareEstimate` only ever exists there, on purpose, never on `Transfer` itself
+ * `FareEstimate` only ever exists there, on purpose, never on `Transfer` itself
  * (osrm.ts's own header comment — so nothing can mistake this for a quoted `Transfer.price`).
  *
  * Never a second network request for the same route: osrm.ts's own driving-route fetch
@@ -529,7 +529,7 @@ export async function estimateTaxiFareForLeg(
   countryCode: IsoCountryCode | undefined,
   signal: AbortSignal,
   record: RecordProviderCall,
-): Promise<TaxiFareEstimate | undefined> {
+): Promise<FareEstimate | undefined> {
   if (countryCode === undefined) return undefined;
   if (!candidates.some((transfer) => transfer.mode === "taxi"))
     return undefined;
@@ -721,9 +721,9 @@ export interface ConnectionResourcesWithStayCandidates extends ConnectionResourc
    * `taxi` candidate is among `transferToHotelCandidates` and a country code was given to
    * rate it against. Never folds into any candidate's own `Transfer.price` — see
    * `estimateTaxiFareForLeg`'s own doc comment for why that separation is deliberate. */
-  transferToHotelTaxiFareEstimate?: TaxiFareEstimate;
+  transferToHotelTaxiFareEstimate?: FareEstimate;
   /** Same idea as `transferToHotelTaxiFareEstimate`, for the return leg. */
-  transferToConnectionAirportTaxiFareEstimate?: TaxiFareEstimate;
+  transferToConnectionAirportTaxiFareEstimate?: FareEstimate;
   /** Issue #119: the driving and taxi routes the road rule refused on the hotel-bound leg.
    * Set on the degraded outcome too, and that is the case it exists for: a route slow
    * enough to trip that rule leaves nothing behind it, so the leg has no transfer at all

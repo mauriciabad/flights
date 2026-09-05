@@ -331,7 +331,7 @@ export interface ScoringWeights {
 	 * so it never decides between two beds at the same airport.
 	 *
 	 * The alternative was the measured fare this app already computes
-	 * (`TaxiFareEstimate`, from a real OSRM distance). It is not usable here: it is
+	 * (`FareEstimate`, from a real OSRM distance). It is not usable here: it is
 	 * denominated in the rate card's own country currency, GBP for a Gatwick layover,
 	 * against a EUR-denominated score, and nothing in this codebase converts currencies by
 	 * design. Folding GBP minor units into a EUR figure is the class of bug #152 fixed.

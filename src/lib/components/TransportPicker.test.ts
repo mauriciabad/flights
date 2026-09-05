@@ -14,7 +14,7 @@ import type {
 } from '../domain';
 import { buildItineraries, type BuildItinerariesInput } from '../algorithm/build';
 import type { RecomputedSelection } from '../algorithm/recompute-selection';
-import type { TaxiFareEstimate } from '../providers/transfers/taxi-rate-table';
+import type { FareEstimate } from '../domain';
 import type { TransitLegAnswer } from '../search/types';
 import TransportPicker from './TransportPicker.svelte';
 
@@ -123,7 +123,7 @@ afterEach(() => {
 function mountPicker(props: {
 	itinerary: Itinerary;
 	alternatives: Transfer[];
-	taxiFareEstimate?: TaxiFareEstimate;
+	taxiFareEstimate?: FareEstimate;
 	referenceMoment?: LocalDateTime;
 	transitAnswer?: TransitLegAnswer;
 	oncheckTransit?: () => void;
@@ -189,7 +189,7 @@ describe('TransportPicker: no-service transit', () => {
 			transitSchedule: { intended: localDateTime('2026-06-01T05:20:00'), following: [], plannedFor: departAfter('2026-06-01T01:00:00') }
 		};
 		const taxi: Transfer = { mode: 'taxi', duration: 18 as Duration, legs: [] };
-		const taxiFareEstimate: TaxiFareEstimate = {
+		const taxiFareEstimate: FareEstimate = {
 			kind: 'estimate',
 			currency: 'EUR',
 			lowMinorUnits: 1800,
@@ -219,7 +219,7 @@ describe('TransportPicker: no-service transit', () => {
 		const walkTransfer: Transfer = { mode: 'walk', duration: 40 as Duration, legs: [] };
 		const itinerary = baseItinerary(walkTransfer);
 		const taxi: Transfer = { mode: 'taxi', duration: 76 as Duration, legs: [] };
-		const taxiFareEstimate: TaxiFareEstimate = {
+		const taxiFareEstimate: FareEstimate = {
 			kind: 'out-of-range',
 			distanceKm: 94.9,
 			ratedUpToKm: 30,
@@ -263,7 +263,7 @@ describe('TransportPicker: no-service transit', () => {
 			}
 		};
 		const taxi: Transfer = { mode: 'taxi', duration: 76 as Duration, legs: [] };
-		const taxiFareEstimate: TaxiFareEstimate = {
+		const taxiFareEstimate: FareEstimate = {
 			kind: 'out-of-range',
 			distanceKm: 94.9,
 			ratedUpToKm: 30,
@@ -392,7 +392,7 @@ describe('TransportPicker: selection', () => {
 		const currentTransfer: Transfer = { mode: 'walk', duration: 30 as Duration, legs: [] };
 		const itinerary = baseItinerary(currentTransfer);
 		const taxi: Transfer = { mode: 'taxi', duration: 12 as Duration, legs: [] };
-		const taxiFareEstimate: TaxiFareEstimate = {
+		const taxiFareEstimate: FareEstimate = {
 			kind: 'estimate',
 			currency: 'EUR',
 			lowMinorUnits: 1200,
