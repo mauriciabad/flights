@@ -1,21 +1,20 @@
 {
-	"status": true,
-	"message": "Success",
 	"data": {
-		"hotels": [
+		"result": [
 			{
 				"hotel_id": 198765,
-				"accessibilityLabel": "FIXTURE Lodge, FIXTURELAND",
-				"property": {
-					"name": "FIXTURE Lodge",
-					"latitude": 48.1897,
-					"longitude": 16.3352,
-					"reviewScore": 8.4,
-					"reviewCount": 1523,
-					"priceBreakdown": {
-						"grossPrice": { "value": 9444.44, "currency": "EUR" }
-					},
-					"photoUrls": ["https://cf.bstatic.com/xdata/images/hotel/FIXTURE-not-a-real-photo.jpg"]
+				"hotel_name": "FIXTURE Lodge",
+				"latitude": 48.1897,
+				"longitude": 16.3352,
+				"main_photo_url": "https://cf.bstatic.com/xdata/images/hotel/square60/FIXTURE-not-a-real-photo.jpg",
+				"review_score": 8.4,
+				"composite_price_breakdown": {
+					"gross_amount_per_night": {
+						"value": 9444.44,
+						"currency": "EUR",
+						"amount_rounded": "€ 9444",
+						"amount_unrounded": "€ 9444.44"
+					}
 				}
 			}
 		]
