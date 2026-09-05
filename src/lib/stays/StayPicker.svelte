@@ -21,6 +21,7 @@
 	import { formatDistanceKm, haversineDistanceKm } from './distance';
 	import { stayTotalDelta, stayTotalForNights } from './pricing';
 	import { cheapestSelectableOption, isOptionSelectable, rankProperties } from './rank';
+	import { firstBookableStay } from './recommended-bed';
 	import { describeNoStays, type StayProviderOutcome } from './no-stays-reason';
 	import { propertyOf, type PropertyStayOptions } from './types';
 
@@ -111,7 +112,7 @@
 		})
 	);
 
-	const fallbackStay = $derived(ranked[0] ? cheapestSelectableOption(ranked[0], travellers, females)?.stay : undefined);
+	const fallbackStay = $derived(firstBookableStay(ranked, travellers, females));
 	const effectiveSelected = $derived(selected ?? fallbackStay);
 
 	const openGroup = $derived(
