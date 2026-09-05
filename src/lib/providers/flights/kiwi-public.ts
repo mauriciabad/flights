@@ -57,7 +57,7 @@ import type {
 	ProviderResult,
 	ProviderSource
 } from '../types';
-import { fetchOnePerCityDirect, fetchOneWayDirect } from './kiwi-public-client';
+import { fetchDirectRouteCheck, fetchOnePerCityDirect, fetchOneWayDirect } from './kiwi-public-client';
 import {
 	ONE_PER_CITY_DIRECT_QUERY,
 	ONE_WAY_DIRECT_QUERY,
@@ -394,6 +394,157 @@ function createKiwiPublicFlightProvider(options: KiwiPublicProviderOptions = {})
 		}
 	}
 
+	/**
+	 * Issue #340. One request, one pair, an exact answer.
+	 *
+	 * `listDirectDestinations` below cannot answer this, and the shape of what it returns
+	 * hides that. `onewayOnePerCityItineraries` gives ONE itinerary per destination *city*
+	 * sorted by price, so Boa Vista's twenty-row answer names Milan once — as Malpensa —
+	 * and Bergamo is not in it, though Kiwi sells Neos NO3865 BVC to BGY on 7 October 2026
+	 * for EUR 262. London is Gatwick only, Rome is Fiumicino only, Paris is Orly only. Then
+	 * the far side: Paphos is missing from Munich's, Orly's, Amsterdam's, Brussels' and
+	 * Fiumicino's lists, all five of which Kiwi will sell you on a direct pair query.
+	 *
+	 * So the everywhere query answers "name me somewhere cheap you fly", and the connection
+	 * graph was reading it as "here is your entire network". This asks the question the
+	 * graph actually has, which Kiwi answers precisely, for the same one request the list
+	 * costs.
+	 *
+	 * Same departure window as `listDirectDestinations`, and for the same reason: this is a
+	 * question about a route rather than about a day, and the window is how an adapter with
+	 * only a fare search can approximate one. `false` therefore means "no direct flight in
+	 * that window", never "no such route" — `providers/types.ts` states that contract and
+	 * `results/no-results.ts` is written to respect it.
+	 */
+	async function hasDirectRoute(
+		origin: IataAirportCode,
+		destination: IataAirportCode,
+		ctx: ProviderContext
+	): Promise<ProviderResult<boolean>> {
+		if (ctx.signal.aborted) {
+			return fail({ code: 'cancelled', message: 'Kiwi route check was cancelled before it started' }, 0);
+		}
+
+		const earliestDeparture = isoDateAfterDays(now(), DESTINATIONS_WINDOW_START_DAYS);
+		const latestDeparture = isoDateAfterDays(
+			now(),
+			DESTINATIONS_WINDOW_START_DAYS + DESTINATIONS_WINDOW_LENGTH_DAYS
+		);
+
+		const store = await resolveStore(options);
+		const cacheKey = defineCacheKey(
+			KIWI_PUBLIC_PROVIDER_ID,
+			{ op: 'hasDirectRoute', origin, destination, earliestDeparture, latestDeparture },
+			DESTINATIONS_TTL_MS
+		);
+
+		const cached = await readCachedEntry<boolean>(store, cacheKey);
+		// Served at any age, like every other read here. A route that existed yesterday is
+		// the best answer available while a refresh runs, and making the graph wait on the
+		// network for it is the reload cost #147 is about.
+		if (cached) {
+			const canRevalidate =
+				(ctx.maxRequests === undefined || ctx.maxRequests >= 1) &&
+				routeLookupsSpent < maxRouteLookups;
+			const revalidated = !cached.fresh && canRevalidate;
+			if (revalidated) {
+				routeLookupsSpent += 1;
+				void revalidateDirectRoute(origin, destination, earliestDeparture, latestDeparture, ctx, store, cacheKey);
+			}
+			return {
+				ok: true,
+				data: cached.value,
+				source: source(cached.storedAt),
+				requestsUsed: revalidated ? 1 : 0
+			};
+		}
+
+		// Out of budget, or past this session's ceiling: `false` for the same reason
+		// `listDirectDestinations` returns an empty ok rather than an error. Stopping on
+		// purpose is not a failure, and reporting one would put a red "Kiwi failed" on a
+		// search where Kiwi did exactly what it was told.
+		//
+		// This is the one place a `false` from here does not mean "I looked and found
+		// nothing". It is safe only because `providers/types.ts` forbids any caller from
+		// printing a `false` as "there is no route" — `connections.ts` declines to propose
+		// the candidate and `results/no-results.ts` never turns a decline into a claim. If
+		// that contract ever weakens, this line has to become a failure.
+		if (ctx.maxRequests !== undefined && ctx.maxRequests < 1) return ok(false, 0);
+		if (routeLookupsSpent >= maxRouteLookups) return ok(false, 0);
+
+		routeLookupsSpent += 1;
+		const found = await fetchDirectRoute(origin, destination, earliestDeparture, latestDeparture, ctx);
+		if (found.error !== undefined) return fail(found.error, 1);
+
+		await writeCache(store, cacheKey, found.exists);
+		return ok(found.exists, 1);
+	}
+
+	/**
+	 * Asks Kiwi for one pair and decides whether anything it returned is a single flight
+	 * this app could actually offer. `limit: 1` because the question is existence, not
+	 * price — but it goes through `mapOneWayResultToOffers` rather than counting raw
+	 * itineraries, so a self-transfer or a multi-segment chain that slipped past the filter
+	 * is rejected here exactly as it would be if the fare stage had asked. Counting rows
+	 * would confirm a route this app cannot sell.
+	 */
+	async function fetchDirectRoute(
+		origin: IataAirportCode,
+		destination: IataAirportCode,
+		earliestDeparture: IsoCalendarDate,
+		latestDeparture: IsoCalendarDate,
+		ctx: ProviderContext
+	): Promise<{ exists: boolean; error?: ProviderError }> {
+		const response = await fetchDirectRouteCheck(
+			ONE_WAY_DIRECT_QUERY,
+			buildOneWayVariables({
+				origin,
+				destination,
+				earliestDeparture,
+				latestDeparture,
+				currency: DEFAULT_CURRENCY,
+				limit: 1
+			}),
+			{ signal: ctx.signal, fetchImpl: options.fetchImpl }
+		);
+		if (!response.ok) return { exists: false, error: toProviderError(response.error) };
+
+		const result = response.data.onewayItineraries;
+		const appError = appErrorOf(result);
+		if (appError !== undefined) {
+			return {
+				exists: false,
+				error: { code: 'unknown', message: `Kiwi returned an error: ${appError}` }
+			};
+		}
+		return { exists: mapOneWayResultToOffers(result).length > 0 };
+	}
+
+	/** The background half of the stale-first read above. Never rejects, never replaces a
+	 * known route with the silence of a failed request. */
+	async function revalidateDirectRoute(
+		origin: IataAirportCode,
+		destination: IataAirportCode,
+		earliestDeparture: IsoCalendarDate,
+		latestDeparture: IsoCalendarDate,
+		ctx: ProviderContext,
+		store: CacheStore,
+		cacheKey: CacheKey
+	): Promise<void> {
+		if (revalidating.has(cacheKey.raw)) return;
+		revalidating.add(cacheKey.raw);
+		try {
+			const found = await fetchDirectRoute(origin, destination, earliestDeparture, latestDeparture, ctx);
+			if (found.error !== undefined) return;
+			await writeCache(store, cacheKey, found.exists);
+			revalidationSettled(KIWI_PUBLIC_PROVIDER_ID);
+		} catch {
+			// The next search asks again.
+		} finally {
+			revalidating.delete(cacheKey.raw);
+		}
+	}
+
 	async function listDirectDestinations(
 		origin: IataAirportCode,
 		ctx: ProviderContext
@@ -600,7 +751,8 @@ function createKiwiPublicFlightProvider(options: KiwiPublicProviderOptions = {})
 		// candidate discovery, which is the entire point of registering it.
 		estimateSearchOffersCost: () => 0,
 		searchOffers,
-		listDirectDestinations
+		listDirectDestinations,
+		hasDirectRoute
 	};
 }
 

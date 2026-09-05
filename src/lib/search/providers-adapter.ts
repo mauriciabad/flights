@@ -80,6 +80,37 @@ export function createCheapRoutesFlightProvider(): FlightProvider {
 				source: await source(),
 				requestsUsed: 0
 			};
+		},
+
+		/**
+		 * Issue #340. Answers `true` or "I do not know", and never `false`.
+		 *
+		 * This dataset is a sample of recent cheap fares, not a route graph: 1,338 rows over
+		 * 47 origins, which is one row for Boa Vista and none at all for Paphos. A `false`
+		 * from it would be the sample's silence dressed up as a fact about the world, which
+		 * is the exact mistake #340 exists to remove — so it declines instead, and the
+		 * caller falls through to a source that looked.
+		 *
+		 * Present rather than omitted because a hit here is real and free: the row exists
+		 * because somebody was sold that flight.
+		 */
+		async hasDirectRoute(
+			origin: IataAirportCode,
+			destination: IataAirportCode
+		): Promise<ProviderResult<boolean>> {
+			const routes = await getCheapRoutesFrom(origin);
+			if (!routes.some((route) => route.destination === destination)) {
+				return {
+					ok: false,
+					error: {
+						code: 'unknown',
+						message: 'The build-time cheap-fare sample has no row for this pair, which is not evidence the route is absent'
+					},
+					source: await source(),
+					requestsUsed: 0
+				};
+			}
+			return { ok: true, data: true, source: await source(), requestsUsed: 0 };
 		}
 	};
 }

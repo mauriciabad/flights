@@ -20,6 +20,10 @@ import type { IsoCalendarDate, IsoCurrencyCode } from '../../domain';
  */
 export const ONE_WAY_FEATURE_NAME = 'SearchOneWayItinerariesQuery';
 export const ONE_PER_CITY_FEATURE_NAME = 'OnePerCityItinerariesQuery';
+/** Issue #340. `ONE_WAY_DIRECT_QUERY` again, asked to settle whether a route exists rather
+ * than to price one, and named so that Kiwi's logs and `route-graph-fanout.qa.ts` can both
+ * tell the two apart. */
+export const ROUTE_CHECK_FEATURE_NAME = 'DirectRouteCheckQuery';
 
 /**
  * Direct flights only, priced, between two airports across a date range — ONE request for

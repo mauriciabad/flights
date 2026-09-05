@@ -63,6 +63,16 @@ interface DirectDestinationSource {
 	 * adapted one, `'fallback-table'` for the bundled table. */
 	readonly id: string;
 	getDirectDestinations(iataCode: IataAirportCode): Promise<IataAirportCode[]>;
+	/**
+	 * Issue #340: "do you have this exact pair", for a source that can answer it better
+	 * than by listing everywhere `origin` flies and checking.
+	 *
+	 * `true` is a confirmation. Anything else means "not confirmed by me" and the caller
+	 * moves to the next source — never "no such route", because none of these sources is in
+	 * a position to say that. Omitted entirely by a source whose list already IS its whole
+	 * network, where membership and this question are the same thing.
+	 */
+	confirmsRoute?(origin: IataAirportCode, destination: IataAirportCode): Promise<boolean>;
 }
 
 /** What this module needs to rank a candidate: where it is, how big it is, and which
@@ -346,7 +356,24 @@ function sourceFromProvider(
 			// list" as its own fact rather than inferring it from a shorter route graph.
 			onProviderResult?.(provider, result);
 			return result.ok ? result.data : [];
-		}
+		},
+		confirmsRoute: provider.hasDirectRoute
+			? async (origin, destination) => {
+					const ctx = contextFor(provider.id, providerKeys, signal);
+					const result = await provider.hasDirectRoute!(origin, destination, ctx);
+					// Reported as a destination list of one so the status panel counts this
+					// call the same way it counts every other route lookup: it is one request
+					// to the same provider asking the same kind of question, and leaving it
+					// out would make a search look cheaper than it is (issue #130).
+					onProviderResult?.(
+						provider,
+						result.ok
+							? { ...result, data: result.data ? [destination] : [] }
+							: result
+					);
+					return result.ok && result.data;
+				}
+			: undefined
 	};
 }
 
@@ -419,6 +446,64 @@ async function unionDirectDestinations(
 		}
 	}
 	return byCode;
+}
+
+/**
+ * Issue #340: asks each source, in preference order, whether it has this exact pair, and
+ * stops at the first that says yes.
+ *
+ * This replaces "fetch everywhere `origin` flies, then check whether `destination` is in
+ * it" for every source that can tell the two apart. They are not the same question.
+ * `kiwi-public`'s list comes from a price-sorted "fly me anywhere" fare search returning one
+ * row per destination *city*, so Milan appears once — as Malpensa — and Bergamo is missing
+ * from it while Kiwi will happily sell you Boa Vista to Bergamo. The same list drops a hub's
+ * thinner routes: Paphos is in none of Munich's, Orly's, Amsterdam's, Brussels' or
+ * Fiumicino's, and Kiwi sells all five.
+ *
+ * Each source answers the best way it can, decided per source rather than for the group. One
+ * source growing an exact check must never silence another that only has a list, or adding
+ * the capability to a single adapter would delete every candidate the others vouched for.
+ *
+ * `onwardDestinationsKnown` is the largest destination list this call happened to see, and
+ * `0` when every source answered exactly — an exact check learns whether one route exists
+ * and nothing about how many others do. The caller uses the free bundled out-degree for
+ * scoring rather than this, so that a candidate is never ranked by which source confirmed it.
+ */
+async function confirmDirectRoute(
+	sources: DirectDestinationSource[],
+	origin: IataAirportCode,
+	destination: IataAirportCode
+): Promise<{ sourceId: string | undefined; onwardDestinationsKnown: number }> {
+	let onwardDestinationsKnown = 0;
+	for (const source of sources) {
+		if (source.confirmsRoute) {
+			if (await source.confirmsRoute(origin, destination)) {
+				return { sourceId: source.id, onwardDestinationsKnown };
+			}
+			continue;
+		}
+		const destinations = await source.getDirectDestinations(origin);
+		onwardDestinationsKnown = Math.max(onwardDestinationsKnown, destinations.length);
+		if (destinations.includes(destination)) return { sourceId: source.id, onwardDestinationsKnown };
+	}
+	return { sourceId: undefined, onwardDestinationsKnown };
+}
+
+/**
+ * The other airports serving `code`'s city, from `METRO_CODE_MEMBERS` below. Empty for an
+ * airport that is its own city, which is nearly all of them.
+ *
+ * Issue #340 needs this for the opposite direction to the one that table was written for.
+ * `hasKnownDirectRoute` uses it to resolve a city code a source reported (PAR) down to the
+ * airport a caller asked about; this resolves an airport a source reported (MXP) back up to
+ * the city and out to its siblings (LIN, BGY), because a one-row-per-city source names one
+ * of them and means any of them.
+ */
+function metroSiblingsOf(code: IataAirportCode): IataAirportCode[] {
+	for (const members of Object.values(METRO_CODE_MEMBERS)) {
+		if (members.includes(code)) return members.filter((member) => member !== code);
+	}
+	return [];
 }
 
 /** What one attempt at the metered, last-resort path produced. `sourceId` is `undefined`
@@ -647,7 +732,35 @@ export async function findConnectionCandidates(
 		}
 	}
 
-	let candidateCodes = [...outboundEdges.keys()].filter(
+	// Issue #340: put a multi-airport city's OTHER airports back on the table.
+	//
+	// `outboundEdges` comes from `listDirectDestinations`, and `kiwi-public`'s comes from a
+	// query that returns one row per destination *city*. Boa Vista's twenty-row answer names
+	// Milan once, as Malpensa, so Bergamo is absent from the candidate list even though Kiwi
+	// sells Neos NO3865 BVC to BGY and Ryanair flies BGY to Pafos. London is Gatwick only,
+	// Rome Fiumicino only, Paris Orly only, everywhere, on every search.
+	//
+	// A sibling is only proposed when a bundled source ALREADY says it flies to the
+	// destination, which costs no request and is what keeps this from being a fan-out: for
+	// BVC to PFO it proposes three airports rather than ten, because Ryanair's snapshot
+	// reaches Pafos from Bergamo, Stansted and Beauvais and from none of the other seven
+	// siblings. Each of the three then costs exactly one keyless request to confirm its
+	// outbound leg, and the two that do not fly from Boa Vista are dropped before the fare
+	// stage ever sees them.
+	//
+	// Proposing is not asserting. A sibling carries no outbound edge until something
+	// confirms one, which is why it goes in its own set rather than into `outboundEdges`.
+	const siblingsNeedingOutboundProof = new Set<IataAirportCode>();
+	for (const code of [...outboundEdges.keys()]) {
+		for (const sibling of metroSiblingsOf(code)) {
+			if (sibling === origin || sibling === destination) continue;
+			if (outboundEdges.has(sibling) || siblingsNeedingOutboundProof.has(sibling)) continue;
+			const reachesDestination = await unionDirectDestinations(bundledSources, sibling);
+			if (reachesDestination.has(destination)) siblingsNeedingOutboundProof.add(sibling);
+		}
+	}
+
+	let candidateCodes = [...outboundEdges.keys(), ...siblingsNeedingOutboundProof].filter(
 		(code) => code !== origin && code !== destination
 	);
 	if (allowList) {
@@ -735,12 +848,25 @@ export async function findConnectionCandidates(
 		// Manchester 21st, and both of them in Ryanair's bundled snapshot as flying to
 		// Pafos. They were the two the ceiling threw away.
 		const withinRequestBudget = index < Math.max(0, maxRouteProbes);
-		const inboundEdges = await unionDirectDestinations(
-			withinRequestBudget ? freeSources : bundledSources,
-			code
-		);
-		let inboundSourceId = inboundEdges.get(destination);
+
+		// Bundled first, always, because it costs nothing and it is complete for what it
+		// covers: Ryanair's snapshot is Ryanair's whole network, so a hit here is a real
+		// confirmation and not a sample. Issue #340 — the seven of BVC to PFO's candidates
+		// that Ryanair already reaches Pafos from now settle for zero requests, which is
+		// what pays for the wider candidate set this change produces.
+		const bundledEdges = await unionDirectDestinations(bundledSources, code);
+		let onwardDestinationsKnown = bundledEdges.size;
+		let inboundSourceId = bundledEdges.get(destination);
 		let meteredRequestSpent = false;
+
+		if (!inboundSourceId && withinRequestBudget) {
+			// Issue #340: ask the pair question rather than fetching everywhere `code` flies
+			// and checking membership. Same one request, and an answer that is about this
+			// route instead of about what happened to be cheap out of `code` this week.
+			const confirmed = await confirmDirectRoute(freeSources, code, destination);
+			inboundSourceId = confirmed.sourceId;
+			onwardDestinationsKnown = Math.max(onwardDestinationsKnown, confirmed.onwardDestinationsKnown);
+		}
 
 		if (
 			!inboundSourceId &&
@@ -766,22 +892,33 @@ export async function findConnectionCandidates(
 			remainingMeteredBudget -= result.spent;
 			meteredRequestSpent = result.spent > 0;
 			if (result.sourceId) {
-				for (const c of result.destinations) {
-					if (!inboundEdges.has(c)) inboundEdges.set(c, result.sourceId);
-				}
+				onwardDestinationsKnown = Math.max(onwardDestinationsKnown, result.destinations.length);
 				inboundSourceId = result.destinations.includes(destination) ? result.sourceId : undefined;
 			}
 		}
 
 		if (!inboundSourceId) continue; // No source, free or metered, confirms C -> destination.
 
-		const scored = combineScore(geography, inboundEdges.size, weights);
+		// Issue #340: a candidate that exists only because it shares a city with an airport
+		// the origin flies to has no outbound edge yet — nothing has said the origin flies
+		// HERE. Confirm it or drop it. Deliberately last, so the request is only spent on a
+		// sibling whose onward leg already checked out, and never on the seven Milan and
+		// London and Paris airports that reach nothing.
+		let outboundSourceId = outboundEdges.get(code);
+		if (!outboundSourceId) {
+			if (!withinRequestBudget) continue;
+			const confirmed = await confirmDirectRoute(freeSources, origin, code);
+			if (!confirmed.sourceId) continue;
+			outboundSourceId = confirmed.sourceId;
+		}
+
+		const scored = combineScore(geography, onwardDestinationsKnown, weights);
 
 		candidates.push({
 			airportCode: code,
 			score: scored.score,
 			breakdown: scored.breakdown,
-			confirmedBy: { outbound: outboundEdges.get(code)!, inbound: inboundSourceId },
+			confirmedBy: { outbound: outboundSourceId, inbound: inboundSourceId },
 			meteredRequestSpent
 		});
 	}

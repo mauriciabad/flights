@@ -32,9 +32,16 @@ function createFakeFlightProvider(
 		routes?: Record<IataAirportCode, IataAirportCode[]>;
 		metered?: boolean;
 		fail?: boolean;
+		/**
+		 * Issue #340: what this provider knows that its `routes` sample does not show, as
+		 * `origin -> destinations`. Present only when a test needs the two questions to
+		 * disagree, which is the real shape of `kiwi-public`: its destination list is one
+		 * row per city, price-sorted and capped, while a pair query answers exactly.
+		 */
+		pairs?: Record<IataAirportCode, IataAirportCode[]>;
 	} = {}
 ): FlightProvider {
-	const { routes = {}, metered = false, fail = false } = opts;
+	const { routes = {}, metered = false, fail = false, pairs } = opts;
 	const cost = metered ? 1 : 0;
 	// Fixture-only stand-in id, not a real registered adapter — cast rather than widening
 	// FlightProvider.id itself, which is exactly the closed `ProviderId` union issue #69
@@ -69,7 +76,32 @@ function createFakeFlightProvider(
 				}
 				return { ok: true, data: [...(routes[iataCode] ?? [])], source: source(), requestsUsed: cost };
 			}
-		)
+		),
+		...(pairs
+			? {
+					hasDirectRoute: vi.fn(
+						async (
+							origin: IataAirportCode,
+							destination: IataAirportCode
+						): Promise<ProviderResult<boolean>> => {
+							if (fail) {
+								return {
+									ok: false,
+									error: { code: 'network-error', message: 'simulated failure' },
+									source: source(),
+									requestsUsed: cost
+								};
+							}
+							return {
+								ok: true,
+								data: (pairs[origin] ?? []).includes(destination),
+								source: source(),
+								requestsUsed: cost
+							};
+						}
+					)
+				}
+			: {})
 	};
 }
 
@@ -385,6 +417,85 @@ describe('findConnectionCandidates', () => {
 		expect(metered.listDirectDestinations).not.toHaveBeenCalled();
 	});
 
+	it('offers Bergamo, which a one-row-per-city source hides behind Malpensa (issue #340)', async () => {
+		// The owner's own report, in miniature and with the real codes. Kiwi answers "which
+		// airports does Boa Vista fly to" with one itinerary per destination CITY, so Milan
+		// comes back as Malpensa alone and Bergamo is not in the list at all — while Kiwi
+		// will sell you Neos NO3865 BVC to BGY on 7 October 2026 for EUR 262, and Ryanair
+		// flies BGY to Pafos for EUR 63. The app offered London Gatwick, fifth-fastest of the
+		// ten flightconnections.com lists, and not Bergamo, second at 9h 40.
+		//
+		// `routes` is what the sampled list says. `pairs` is what the provider actually
+		// knows. The gap between them is the bug.
+		const provider = createFakeFlightProvider('one-per-city', {
+			routes: { BVC: ['MXP'], MXP: [] },
+			pairs: { BVC: ['MXP', 'BGY'], BGY: ['PFO'] }
+		});
+
+		const candidates = await findConnectionCandidates(
+			{ originAirport: 'BVC', destinationAirport: 'PFO', soonestDeparture: SOONEST_DEPARTURE },
+			{ flightProviders: [provider] }
+		);
+
+		expect(candidates.map((c) => c.airportCode)).toContain('BGY');
+	});
+
+	it('does not offer a sibling airport the origin has no flight to (issue #340)', async () => {
+		// The other half of the same change: Milan's third airport reaches Pafos in the
+		// bundled snapshot exactly as Bergamo does, so proposing it costs nothing and is
+		// right. Offering it would be an invention — nothing flies Boa Vista to Linate, and
+		// the pair query is what settles that before the fare stage is ever asked.
+		const provider = createFakeFlightProvider('one-per-city', {
+			routes: { BVC: ['MXP'], MXP: [] },
+			pairs: { BVC: ['MXP', 'BGY'], BGY: ['PFO'], LIN: ['PFO'] }
+		});
+
+		const candidates = await findConnectionCandidates(
+			{ originAirport: 'BVC', destinationAirport: 'PFO', soonestDeparture: SOONEST_DEPARTURE },
+			{ flightProviders: [provider] }
+		);
+
+		expect(candidates.map((c) => c.airportCode)).not.toContain('LIN');
+	});
+
+	it('confirms an onward leg the destination list samples away (issue #340)', async () => {
+		// The same defect on the far side, and the one that cost four of the ten. Paphos is
+		// in none of Munich's, Orly's, Amsterdam's, Brussels' or Fiumicino's destination
+		// lists, because those are price-sorted samples of a hub's network rather than the
+		// network — and Kiwi sells every one of those pairs. Membership in a sample was
+		// standing in for "does this airport fly there".
+		const provider = createFakeFlightProvider('sampled-hub', {
+			routes: { BVC: ['MUC'], MUC: ['LIS', 'OPO'] },
+			pairs: { BVC: ['MUC'], MUC: ['PFO'] }
+		});
+
+		const candidates = await findConnectionCandidates(
+			{ originAirport: 'BVC', destinationAirport: 'PFO', soonestDeparture: SOONEST_DEPARTURE },
+			{ flightProviders: [provider] }
+		);
+
+		expect(candidates.map((c) => c.airportCode)).toEqual(['MUC']);
+	});
+
+	it('lets one source answering exactly stand in for none of the others (issue #340)', async () => {
+		// A per-group fallback would have made adding `hasDirectRoute` to one adapter delete
+		// every candidate the adapters without it had vouched for. Measured the hard way:
+		// wiring the build-time cheap-routes wrapper up first took 21 pipeline tests down
+		// with it, because it answered "not me" for fixtures it has never heard of and the
+		// providers holding the data were then never asked at all.
+		const exact = createFakeFlightProvider('answers-pairs', { routes: {}, pairs: { XXX: [] } });
+		const listOnly = createFakeFlightProvider('answers-lists', {
+			routes: { BCN: ['VIE'], VIE: ['SOF'] }
+		});
+
+		const candidates = await findConnectionCandidates(
+			{ originAirport: 'BCN', destinationAirport: 'SOF', soonestDeparture: SOONEST_DEPARTURE },
+			{ flightProviders: [exact, listOnly] }
+		);
+
+		expect(candidates.map((c) => c.airportCode)).toContain('VIE');
+	});
+
 	it('still asks the bundled route graph about a candidate it has no request budget left for (issue #255)', async () => {
 		// The regression that lost half of docs/ACCEPTANCE.md's route, in miniature. Real
 		// codes and real geography, because both are the point: for BVC to PFO the two
@@ -413,9 +524,12 @@ describe('findConnectionCandidates', () => {
 		expect(found).toContain('BHX');
 		expect(found).toContain('MAN');
 		expect(found).not.toContain('AMS');
-		// Four candidates, one of them inside the budget, so the provider is asked about
-		// the origin and that one and nothing else. Past the ceiling nothing is spent.
-		expect(provider.listDirectDestinations).toHaveBeenCalledTimes(2);
+		// Once, for the origin, and for no candidate at all. Was twice until issue #340:
+		// the one candidate inside the request budget is Rome, and Rome is in the bundled
+		// snapshot as flying to Pafos, so the question is settled before a request is built
+		// for it. Past the ceiling nothing is spent, which is what #255 is about, and inside
+		// it nothing is spent either when the answer already ships with the app.
+		expect(provider.listDirectDestinations).toHaveBeenCalledTimes(1);
 	});
 
 	it('falls back to the bundled route table when no flightProviders are supplied at all', async () => {

@@ -478,6 +478,12 @@ export function hostelworldProperties(url: URL): unknown {
  * `no-fabricated-flights.qa.ts` can attribute every leg, and it still exercises the request
  * that `cost-per-search.qa.ts` counts. A recorded Kiwi that offered fares would be worth
  * adding the day an invariant needs two flight providers disagreeing.
+ *
+ * Three feature names arrive here and only two documents do. Issue #340's
+ * `DirectRouteCheckQuery` is `onewayItineraries` asked whether a route exists rather than
+ * what it costs, so it falls into the same branch as the fare search and gets the same empty
+ * `Itineraries` — which is a real answer to it: this Kiwi confirms no route, and the bench's
+ * other providers carry the scenario exactly as they did before.
  */
 export function kiwiPublicGraphQl(url: URL): unknown {
 	const feature = url.searchParams.get('featureName') ?? '';
