@@ -192,14 +192,24 @@
 	});
 
 	/**
-	 * Every search that actually ran is remembered, whether it came from the form next
-	 * door or from a link someone sent. Deduplicated and capped by the store itself.
-	 * `untrack` because `record` writes state this component also reads further down, and
-	 * an effect that reads what it writes is what froze this page once already (#87).
+	 * Every search a traveller made is remembered, whether it came from the form next door
+	 * or from a link someone sent. Deduplicated and capped by the store itself. `untrack`
+	 * because `record` writes state this component also reads further down, and an effect
+	 * that reads what it writes is what froze this page once already (#87).
+	 *
+	 * Issue #358: this reads `parsedQuery` rather than `query` on purpose. `query` stays
+	 * null until the 150KB airports dataset lands, so that no provider is asked about a code
+	 * this app has never heard of, and filing history behind that download lost the search
+	 * for anyone who left before it arrived. Measured with `tools/probe-history-write-timing.mjs`:
+	 * the heading is on screen at 57ms and the write happens 12ms after the dataset chunk,
+	 * so delaying that chunk by 1.5s delays the write by 1.53s. Whether the two codes are
+	 * real is a different question from whether a search was made, and only the second one
+	 * decides this. A link carrying a retired code is therefore remembered too, which leaves
+	 * it one tap from the page that says what is wrong with it.
 	 */
 	$effect(() => {
 		const params = normalizedQuery;
-		if (!query || !params) return;
+		if (!parsedQuery || blockingIssues.length > 0 || !params) return;
 		untrack(() => searchHistory.record(new URLSearchParams(params)));
 	});
 

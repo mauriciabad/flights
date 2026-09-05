@@ -169,6 +169,9 @@ test.describe('search to results', () => {
 
 		await page.goto(`/results/?dep=${DEPARTURE}&arr=${ARRIVAL}&from=BCN&to=TLL`);
 		await expect(page.getByRole('heading', { level: 1 })).toContainText('BCN');
+		// The heading says the page read the link. Only this says the search was filed, and
+		// the next line throws the page away.
+		await expect.poll(() => filedSearches(page)).toContain('from=BCN');
 
 		await page.goto('/');
 		const recent = page.getByRole('link', { name: /BCN.*TLL/ });
