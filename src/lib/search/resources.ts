@@ -57,6 +57,7 @@ import type {
 import {
   greatCircleDistanceKm,
   MAX_PLAUSIBLE_WALK_MINUTES,
+  maxPlausibleRoadMinutes,
   maxPlausibleTransitMinutes,
 } from "../domain";
 import type { ConnectionResources } from "../algorithm/build";
@@ -81,6 +82,7 @@ import {
 } from "./cost-aware";
 import type { StayLookupBudget } from "../providers/budget";
 import type { RecordProviderCall, SourceTracker } from "./provenance";
+import type { WithheldRoutes } from "./types";
 
 /**
  * How far from the connection airport a bed may be and still belong to this stopover.
@@ -191,7 +193,11 @@ const TRANSFER_MODE_PREFERENCE: readonly TransferMode[] = [
 /** Issue #204 moved this to `domain/transfer.ts`, where `providers/transfers/osrm.ts` can
  * read it too and stop ASKING for a walking route this filter would only discard. Still
  * exported from here: it has been part of this module's surface since issue #119. */
-export { MAX_PLAUSIBLE_WALK_MINUTES, maxPlausibleTransitMinutes };
+export {
+  MAX_PLAUSIBLE_WALK_MINUTES,
+  maxPlausibleRoadMinutes,
+  maxPlausibleTransitMinutes,
+};
 
 /**
  * Whether this transfer is worth putting in front of a traveller at all.
@@ -201,27 +207,92 @@ export { MAX_PLAUSIBLE_WALK_MINUTES, maxPlausibleTransitMinutes };
  * measuring a padded duration against a walking cap would drop a 40-minute walk for the
  * sin of following a landing at a large airport.
  *
- * Two rules now, one per mode that has one, and both live in `domain/transfer.ts` so the
- * adapters can read the same numbers this filter judges them by:
+ * Every mode has a rule now, and all three live in `domain/transfer.ts` so the adapters can
+ * read the same numbers this filter judges them by:
  *
  * - Walking, since issue #119: a flat 45 minutes. A walk is a walk at any distance.
  * - Transit, since issue #220: `maxPlausibleTransitMinutes` of the straight-line distance
  *   between the two points, because 90 minutes across a big city and 10 across a small one
  *   are both ordinary and no flat number is right for both.
+ * - Driving and taxi, since issue #119's second half: `maxPlausibleRoadMinutes` of the same
+ *   distance. One rule for both, because they are the same OSRM driving route with two
+ *   labels on it (`providers/transfers/osrm.ts`: "a taxi does not get its own physics").
+ *   What differs between them is who pays, and #246 already answers that separately by
+ *   withholding a fare estimate past the rate card's range.
  *
  * `straightLineKm` is the leg's own distance, and it is a required argument rather than an
  * optional one on purpose: a caller that has not measured the leg cannot apply the transit
  * rule, and silently skipping it is how the 33-hour answer in #220 reached the card.
+ *
+ * The switch is exhaustive rather than a chain of `if`s ending in `return true`. That
+ * trailing `true` is what left driving unjudged from #119 until #119's second half, without
+ * anything in the type system noticing, and a fifth `TransferMode` would inherit the same
+ * silence.
  */
 export function isPlausibleTransfer(
   transfer: Transfer,
   straightLineKm: number,
 ): boolean {
-  if (transfer.mode === "walk")
-    return transfer.duration <= MAX_PLAUSIBLE_WALK_MINUTES;
-  if (transfer.mode === "transit")
-    return transfer.duration <= maxPlausibleTransitMinutes(straightLineKm);
-  return true;
+  switch (transfer.mode) {
+    case "walk":
+      return transfer.duration <= MAX_PLAUSIBLE_WALK_MINUTES;
+    case "transit":
+      return transfer.duration <= maxPlausibleTransitMinutes(straightLineKm);
+    case "drive":
+    case "taxi":
+      return transfer.duration <= maxPlausibleRoadMinutes(straightLineKm);
+  }
+}
+
+/**
+ * The two modes `maxPlausibleRoadMinutes` judges: one OSRM driving route wearing two
+ * labels. Deliberately not `ROAD_TRANSFER_MODES` below, which also holds `'walk'` because
+ * that is the set OSRM can be ASKED for, not the set this rule applies to.
+ */
+export const VEHICLE_TRANSFER_MODES: readonly TransferMode[] = [
+  "drive",
+  "taxi",
+];
+
+/**
+ * What `isPlausibleTransfer` threw away for one leg, reduced to the three numbers a card
+ * can print: how many routes, the quickest of them, and the distance they were judged
+ * against. `undefined` when it refused nothing of these modes, which is nearly every leg.
+ *
+ * Filtered by mode because one leg's rejects can hold both kinds, and the two are shown in
+ * different places — a refused bus in the transport picker's transit notice (issue #220), a
+ * refused drive in the timeline's unrouted-leg row (issue #119). Reporting a refused bus in
+ * a sentence about driving would be the same collapse both notices exist to undo.
+ */
+export function summariseWithheldRoutes(
+  rejected: readonly Transfer[],
+  straightLineKm: number,
+  modes: readonly TransferMode[],
+): WithheldRoutes | undefined {
+  const matching = rejected.filter((transfer) => modes.includes(transfer.mode));
+  if (matching.length === 0) return undefined;
+  const quickest = matching.reduce(
+    (shortest, transfer) =>
+      transfer.duration < shortest ? transfer.duration : shortest,
+    matching[0].duration,
+  );
+  return { count: matching.length, quickest, straightLineKm };
+}
+
+/** Issue #119: one leg's refused driving and taxi routes, read straight off the outcome
+ * that produced them so no caller has to re-measure the distance they were judged against.
+ * `undefined` for a leg the query never asked for, which has no outcome and so nothing to
+ * report, and for the ordinary leg where nothing was refused. */
+export function withheldRoadFor(
+  outcome: TransferSearchOutcome | undefined,
+): WithheldRoutes | undefined {
+  return outcome
+    ? summariseWithheldRoutes(
+        outcome.rejected,
+        outcome.straightLineKm,
+        VEHICLE_TRANSFER_MODES,
+      )
+    : undefined;
 }
 
 /** Picks one `Transfer` to represent an A-to-B leg out of everything usable providers
@@ -328,6 +399,11 @@ export interface TransferSearchOutcome {
    * with a journey nobody could take.
    */
   rejected: Transfer[];
+  /** The straight-line distance every rule above was applied against, carried out rather
+   * than left for each caller to recompute. Two callers measuring the same leg with two
+   * different numbers is how a filtered route and the sentence explaining it end up
+   * disagreeing about the distance they are talking about. */
+  straightLineKm: number;
   /** Issue #135: every provider's untouched answer for this leg, in call order, so a
    * caller can tell "asked, and there is no service here" from "never asked" for THIS leg
    * rather than only for the whole search. `SearchSnapshot.providers` already answers the
@@ -407,6 +483,7 @@ export async function fetchBestTransfer(
     candidates,
     selected: pickBestTransfer(candidates),
     rejected,
+    straightLineKm,
     results,
   };
 }
@@ -638,6 +715,13 @@ export interface ConnectionResourcesWithStayCandidates extends ConnectionResourc
   transferToHotelTaxiFareEstimate?: TaxiFareEstimate;
   /** Same idea as `transferToHotelTaxiFareEstimate`, for the return leg. */
   transferToConnectionAirportTaxiFareEstimate?: TaxiFareEstimate;
+  /** Issue #119: the driving and taxi routes the road rule refused on the hotel-bound leg.
+   * Set on the degraded outcome too, and that is the case it exists for: a route slow
+   * enough to trip that rule leaves nothing behind it, so the leg has no transfer at all
+   * and the timeline row is the only place left to say what happened. */
+  transferToHotelWithheldRoad?: WithheldRoutes;
+  /** Same idea as `transferToHotelWithheldRoad`, for the return leg. */
+  transferToConnectionAirportWithheldRoad?: WithheldRoutes;
 }
 
 /** The "nothing to travel to" outcome shared by the early-outs below — no bed this party
@@ -647,6 +731,10 @@ export interface ConnectionResourcesWithStayCandidates extends ConnectionResourc
 function withoutTransfers(
   stayCandidates: Stay[],
   stay?: Stay,
+  withheldRoad?: {
+    transferToHotel?: WithheldRoutes;
+    transferToConnectionAirport?: WithheldRoutes;
+  },
 ): ConnectionResourcesWithStayCandidates {
   return {
     stay,
@@ -656,6 +744,9 @@ function withoutTransfers(
     stayCandidates,
     transferToHotelCandidates: [],
     transferToConnectionAirportCandidates: [],
+    transferToHotelWithheldRoad: withheldRoad?.transferToHotel,
+    transferToConnectionAirportWithheldRoad:
+      withheldRoad?.transferToConnectionAirport,
   };
 }
 
@@ -742,11 +833,26 @@ export async function fetchConnectionResources(
   // incomplete, result: the price is known and the way there is not, which is exactly what
   // AGENTS.md means by saying what you do not know. `algorithm/build.ts` already treats
   // both connection-side transfers as optional, so nothing downstream needs them to exist.
+  const withheldRoad = {
+    transferToHotel: summariseWithheldRoutes(
+      transferToHotelOutcome.rejected,
+      transferToHotelOutcome.straightLineKm,
+      VEHICLE_TRANSFER_MODES,
+    ),
+    transferToConnectionAirport: summariseWithheldRoutes(
+      transferToConnectionAirportOutcome.rejected,
+      transferToConnectionAirportOutcome.straightLineKm,
+      VEHICLE_TRANSFER_MODES,
+    ),
+  };
   if (
     !transferToHotelOutcome.selected ||
     !transferToConnectionAirportOutcome.selected
   ) {
-    return withoutTransfers(stayCandidates, stay);
+    // Carried into the degraded outcome, not dropped with the transfers. Issue #119's road
+    // rule empties a leg far more often than it thins one, so this branch is where its
+    // refusal usually lands and where the row that explains it has to read from.
+    return withoutTransfers(stayCandidates, stay, withheldRoad);
   }
 
   const landingBuffer = pickLandingToTransportTime(
@@ -762,7 +868,8 @@ export async function fetchConnectionResources(
     (transfer) => applyLandingBuffer(transfer, landingBuffer, input.sources),
   );
   const transferToHotel = pickBestTransfer(transferToHotelCandidates);
-  if (!transferToHotel) return withoutTransfers(stayCandidates, stay); // unreachable: buffering cannot empty a non-empty list
+  if (!transferToHotel)
+    return withoutTransfers(stayCandidates, stay, withheldRoad); // unreachable: buffering cannot empty a non-empty list
 
   const transferToConnectionAirportCandidates =
     transferToConnectionAirportOutcome.candidates;
@@ -804,5 +911,8 @@ export async function fetchConnectionResources(
     transferToConnectionAirportCandidates,
     transferToHotelTaxiFareEstimate,
     transferToConnectionAirportTaxiFareEstimate,
+    transferToHotelWithheldRoad: withheldRoad.transferToHotel,
+    transferToConnectionAirportWithheldRoad:
+      withheldRoad.transferToConnectionAirport,
   };
 }

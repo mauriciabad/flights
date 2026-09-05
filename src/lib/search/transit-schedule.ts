@@ -43,11 +43,11 @@ import { greatCircleDistanceKm } from '../domain';
 import { addLocalMinutes } from '../algorithm/build';
 import { recomputeItinerarySelection } from '../algorithm/recompute-selection';
 import type { AvailableKeys, ProviderError, ProviderResult, TransferProvider } from '../providers/types';
-import { applyLandingBuffer, fetchBestTransfer } from './resources';
+import { applyLandingBuffer, fetchBestTransfer, summariseWithheldRoutes } from './resources';
 import type { RecordProviderCall, SourceTracker } from './provenance';
 import { providerAnswer } from './provenance';
 import type { ProviderAnswer } from './provenance';
-import type { TransitLegAnswer, TransitLegAnswers, TransitLegField, WithheldTransitRoute } from './types';
+import type { TransitLegAnswer, TransitLegAnswers, TransitLegField, WithheldRoutes } from './types';
 
 /**
  * How many `/plan` requests one search may spend, across every itinerary it refines.
@@ -336,18 +336,14 @@ function readLegAnswer(
 }
 
 /** Issue #220: the refused routes, reduced to the numbers a card can print. The caller
- * decides whether there is anything to report at all. See its own comment. */
+ * decides whether there is anything to report at all. Only the transit ones: this leg's
+ * rejects can also hold a drive the road rule refused (issue #119), and that one is
+ * reported by the timeline's own unrouted-leg row, not by a sentence about buses. */
 function readWithheld(refused: {
 	rejected: readonly Transfer[];
 	straightLineKm: number;
-}): WithheldTransitRoute | undefined {
-	const transitRoutes = refused.rejected.filter((transfer) => transfer.mode === 'transit');
-	if (transitRoutes.length === 0) return undefined;
-	const quickest = transitRoutes.reduce(
-		(shortest, transfer) => (transfer.duration < shortest ? transfer.duration : shortest),
-		transitRoutes[0].duration
-	);
-	return { count: transitRoutes.length, quickest, straightLineKm: refused.straightLineKm };
+}): WithheldRoutes | undefined {
+	return summariseWithheldRoutes(refused.rejected, refused.straightLineKm, ['transit']);
 }
 
 function startsAtARunway(field: TransitLegField): boolean {

@@ -11,6 +11,8 @@
  */
 
 import type { Transfer, TransferAnchor, TransferLeg, TransferMode } from '../domain';
+import type { WithheldRoutes } from '../search/types';
+import { formatDuration } from '$lib/format';
 
 export {
 	calendarDayOffset,
@@ -183,6 +185,17 @@ export function unroutedLegNote(
 		/** `Itinerary.transferAnchor`, which is the only one of these that can say a route
 		 * was never asked for rather than asked for and refused (issue #243). */
 		transferAnchor?: TransferAnchor;
+		/**
+		 * Issue #119: what this leg's road rule refused, when it refused anything. Every
+		 * sentence below claims nothing was routed, and this is the one case where that is
+		 * false — a router answered, at 33 hours to cover 157 km, and this app is what
+		 * decided the traveller should not be offered it. Same reasoning as #220's withheld
+		 * notice in `TransportPicker`, in the place a refused DRIVE actually lands: that
+		 * rule usually empties the leg outright, so there is no picker left to say it in.
+		 *
+		 * Ranked BELOW `transferAnchor` on purpose — see the `unrouted-stay` branch.
+		 */
+		withheldRoad?: WithheldRoutes;
 	}
 ): string {
 	if (leg === 'to-hotel' || leg === 'from-hotel') {
@@ -190,6 +203,13 @@ export function unroutedLegNote(
 		// routes to the one property it picks itself and no other, so nothing has ever been
 		// asked about this address. Distinct from the last sentence in this branch, which
 		// would blame a transport provider for refusing a question nobody put to it.
+		//
+		// First, and that matters more than it looks. `withheldRoad` below describes the leg
+		// the SEARCH routed, to the property the search picked. Once the traveller has moved
+		// to a different one, that refusal is about an address they are no longer looking at,
+		// and printing "the road route in takes 33h" beside this property's name would be
+		// #243's own wrong-address bug arriving from the other direction. Reorder these two
+		// and `itinerary-timeline-format.test.ts` fails on purpose.
 		if (context.transferAnchor === 'unrouted-stay') {
 			return leg === 'to-hotel'
 				? 'Nothing routed to this property, so the journey to it is unknown.'
@@ -203,6 +223,12 @@ export function unroutedLegNote(
 				? 'Overnight wait, so there is no hotel leg here.'
 				: 'Same-day connection, so there is no hotel leg here.';
 		}
+		// Above the two "nothing routed" sentences below, and above #211's, because it
+		// contradicts all three. "Nothing routed into the city" is as false as "no transport
+		// provider could route to it" when a router answered at 33 hours and this app refused
+		// the answer. Below the nightless branch, though: that traveller is not going to a
+		// bed at all, and the refusal is true and irrelevant to them.
+		if (context.withheldRoad) return withheldRoadNote(leg, context.withheldRoad);
 		if (!context.hasStay) {
 			// Issue #185: the row's own fact and nothing else. It used to open with "No bed
 			// priced for this stopover", which was true but was also the third and sixth of
@@ -230,5 +256,22 @@ export function unroutedLegNote(
 			? 'The bed is priced, but no transport provider could route to it.'
 			: 'The bed is priced, but no transport provider could route back from it.';
 	}
+	if (context.withheldRoad) return withheldRoadNote(leg, context.withheldRoad);
 	return 'No route came back from the transport providers for this leg.';
+}
+
+/**
+ * The refusal, in the two numbers it was made on. Deliberately does not print
+ * `WithheldRoutes.count`: driving and taxi are one OSRM route wearing two labels
+ * (`providers/transfers/osrm.ts`), so the count here is almost always 2 and "2 routes"
+ * would describe two options where the traveller has one.
+ */
+function withheldRoadNote(leg: UnroutedLeg, withheld: WithheldRoutes): string {
+	const subject =
+		leg === 'to-hotel'
+			? 'The road route in'
+			: leg === 'from-hotel'
+				? 'The road route back'
+				: 'The road route';
+	return `${subject} takes ${formatDuration(withheld.quickest)} to cover ${formatKilometres(withheld.straightLineKm)} in a straight line, so it is not offered.`;
 }

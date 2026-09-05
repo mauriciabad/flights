@@ -48,7 +48,9 @@ const {
 	fetchConnectionResources,
 	isPlausibleTransfer,
 	MAX_PLAUSIBLE_WALK_MINUTES,
-	pickBestTransfer
+	pickBestTransfer,
+	summariseWithheldRoutes,
+	VEHICLE_TRANSFER_MODES
 } = await import('./resources');
 
 // Every id passed through here is a fixture-only stand-in, not a real registered adapter —
@@ -736,9 +738,13 @@ describe('walking has to be walkable (issue #119)', () => {
 		expect(isPlausibleTransfer(transfer('walk', MAX_PLAUSIBLE_WALK_MINUTES + 1), BIRMINGHAM_KM)).toBe(false);
 	});
 
-	it('caps nothing but walking and transit, since a long drive is a different argument', () => {
+	it('applies the road rule to driving and taxi alike, since they are one route', () => {
+		// OSRM answers both from the same driving lookup, so anything that makes one of them
+		// implausible makes the other one implausible too. What separates them is who pays,
+		// and #246 answers that on its own by withholding a fare estimate past 30 km.
 		for (const mode of ['drive', 'taxi'] as const) {
-			expect(isPlausibleTransfer(transfer(mode, 702), BIRMINGHAM_KM), mode).toBe(true);
+			expect(isPlausibleTransfer(transfer(mode, 702), BIRMINGHAM_KM), mode).toBe(false);
+			expect(isPlausibleTransfer(transfer(mode, 60), BIRMINGHAM_KM), mode).toBe(true);
 		}
 	});
 
@@ -801,6 +807,57 @@ describe('public transport has to be plausible for the distance (issue #220)', (
 		// Issue #220: not thrown away. The card needs it to say a route came back and was
 		// refused rather than claiming nobody found one.
 		expect(outcome.rejected.map((rejected) => rejected.duration)).toEqual([702]);
+	});
+});
+
+describe('a road route has to be proportionate to the distance (issue #119)', () => {
+	it('refuses the 33h drive OSRM gives for a 157 km hop to Naxos', () => {
+		expect(isPlausibleTransfer(transfer('drive', 1980), 156.6)).toBe(false);
+	});
+
+	it('keeps the four-hour drive to Balestrand a flat cap would have deleted', () => {
+		// Bergen airport to Balestrand on the Sognefjord, 4h 1m over 123.6 km. #150 proposed
+		// a flat 240-minute cap for this problem and this journey misses it by a minute.
+		expect(isPlausibleTransfer(transfer('drive', 241), 123.6)).toBe(true);
+		// Marseille to Ajaccio, twelve hours and entirely real, is where a flat cap of any
+		// size stops being arguable at all.
+		expect(isPlausibleTransfer(transfer('drive', 743), 333.5)).toBe(true);
+	});
+
+	it('empties the leg and keeps what it refused, so the row can say what happened', async () => {
+		const provider = configurableTransferProvider([transfer('drive', 1980), transfer('taxi', 1980)]);
+		const resources = await fetchConnectionResources(
+			baseInput([fakeStayProvider('stays', [stay('Hostel', 'dorm', 2000)])], {
+				transferProviders: [provider],
+				currency: 'EUR'
+			})
+		);
+
+		// The bed survives a leg with no route to it (issue #211), and so does the reason.
+		expect(resources.stay?.property.name).toBe('Hostel');
+		expect(resources.transferToHotel).toBeUndefined();
+		expect(resources.transferToHotelCandidates).toEqual([]);
+		expect(resources.transferToHotelWithheldRoad).toEqual({
+			count: 2,
+			quickest: 1980,
+			straightLineKm: expect.closeTo(0.95, 1)
+		});
+	});
+
+	it('reports a refused bus and a refused drive apart, never as each other', () => {
+		const rejected = [transfer('transit', 1287), transfer('drive', 1980), transfer('taxi', 2100)];
+
+		expect(summariseWithheldRoutes(rejected, 9.7, VEHICLE_TRANSFER_MODES)).toEqual({
+			count: 2,
+			quickest: 1980,
+			straightLineKm: 9.7
+		});
+		expect(summariseWithheldRoutes(rejected, 9.7, ['transit'])).toEqual({
+			count: 1,
+			quickest: 1287,
+			straightLineKm: 9.7
+		});
+		expect(summariseWithheldRoutes([], 9.7, VEHICLE_TRANSFER_MODES)).toBeUndefined();
 	});
 });
 

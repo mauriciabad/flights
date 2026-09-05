@@ -211,6 +211,72 @@ describe('unroutedLegNote', () => {
 		expect(unroutedLegNote('to-hotel', picked)).not.toMatch(/provider/i);
 	});
 
+	it('says a road route was refused rather than that nobody could route it (issue #119)', () => {
+		// Athens airport to Naxos town, the measured case behind `maxPlausibleRoadMinutes`.
+		// Every other sentence in this function claims nothing was routed, and here something
+		// was: OSRM answered, at 33h, and this app is what declined to offer it.
+		const withheldRoad = { count: 2, quickest: 1980 as Duration, straightLineKm: 156.6 };
+
+		expect(unroutedLegNote('to-hotel', { hasStay: true, nightsInConnection: 1, withheldRoad })).toBe(
+			'The road route in takes 33h to cover 157 km in a straight line, so it is not offered.'
+		);
+		// And with no bed priced either, where the row would otherwise say "Nothing routed
+		// into the city for this stopover" about a route that came back.
+		expect(unroutedLegNote('to-hotel', { hasStay: false, nightsInConnection: 1, withheldRoad })).toBe(
+			'The road route in takes 33h to cover 157 km in a straight line, so it is not offered.'
+		);
+		expect(
+			unroutedLegNote('to-destination-location', { hasStay: false, nightsInConnection: 6, withheldRoad })
+		).toBe('The road route takes 33h to cover 157 km in a straight line, so it is not offered.');
+	});
+
+	it('does not print how many routes it refused, because drive and taxi are one route', () => {
+		// OSRM answers both from the same driving lookup, so the count is all but always 2 and
+		// "2 routes" would describe two options where the traveller has one.
+		const note = unroutedLegNote('from-hotel', {
+			hasStay: true,
+			nightsInConnection: 1,
+			withheldRoad: { count: 2, quickest: 1980 as Duration, straightLineKm: 156.6 }
+		});
+		expect(note).not.toMatch(/\b2\b/);
+		expect(note).toBe('The road route back takes 33h to cover 157 km in a straight line, so it is not offered.');
+	});
+
+	it('lets a property nobody routed win over a refusal about a different one', () => {
+		// Both facts can be true at once and they are about different addresses. `withheldRoad`
+		// describes the leg the SEARCH routed, to the property the search picked; once the
+		// traveller has moved to another one, `transferAnchor` is 'unrouted-stay' and that
+		// refusal is about somewhere they are no longer looking at. Printing it here would be
+		// issue #243's wrong-address bug arriving from the other direction, so the ordering in
+		// `unroutedLegNote` is load-bearing and this is what fails when somebody swaps it.
+		const both = {
+			hasStay: true,
+			nightsInConnection: 1,
+			transferAnchor: 'unrouted-stay' as const,
+			withheldRoad: { count: 2, quickest: 1980 as Duration, straightLineKm: 156.6 }
+		};
+
+		expect(unroutedLegNote('to-hotel', both)).toBe(
+			'Nothing routed to this property, so the journey to it is unknown.'
+		);
+		expect(unroutedLegNote('from-hotel', both)).toBe(
+			'Nothing routed back from this property, so the journey back is unknown.'
+		);
+		expect(unroutedLegNote('to-hotel', both)).not.toMatch(/33h/);
+	});
+
+	it('leaves a nightless connection alone, since there is no hotel leg to route to', () => {
+		// The refusal is true and irrelevant: this traveller is not going to a bed at all, and
+		// the same-day sentence is what they need to read.
+		expect(
+			unroutedLegNote('to-hotel', {
+				hasStay: false,
+				nightsInConnection: 0,
+				withheldRoad: { count: 2, quickest: 1980 as Duration, straightLineKm: 156.6 }
+			})
+		).toBe('Same-day connection, so there is no hotel leg here.');
+	});
+
 	it('never says "yet" about a leg nothing is coming for (issue #140)', () => {
 		const legs = ['to-hotel', 'from-hotel', 'to-origin-airport', 'to-destination-location'] as const;
 		const contexts = [
