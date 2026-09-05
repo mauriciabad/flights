@@ -265,6 +265,23 @@ A dozen agents run at once and the scratchpad directory is one directory. An age
 a PR body in `pr-body.md` had it overwritten mid-session by another agent doing the same
 thing, and only noticed because it checked the posted PR against what it wrote.
 
+**And never `git stash` here at all.** `refs/stash` lives in the repo's common git dir, not in
+your worktree, so every agent in this repo pushes onto and pops from **one shared stack**. On
+2026-09-05 two agents stashed within the same minute before rebasing and each popped the
+other's work: one asked for two spec files and received the other's in-progress search-form
+redesign, including a deleted component and three new ones. Nothing was lost only because one
+of them read what it had popped instead of carrying on.
+
+Unlike the scratchpad, no naming convention saves you: the stack is anonymous and `stash pop`
+takes whatever is on top.
+
+Use this instead, which is per-worktree and cannot collide:
+
+```bash
+git diff > /private/tmp/.../<your-branch>.patch
+git checkout -- .
+```
+
 Put your agent id or branch name in any temporary file you write: `pr-body-<branch>.md`, not
 `pr-body.md`. The same goes for a port, a database name, or anything else two of you could
 pick independently and both believe you own.
