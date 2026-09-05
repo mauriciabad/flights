@@ -253,9 +253,9 @@ export interface ItineraryResult {
  *
  * Issue #249 removed a `taxiFareEstimate` field from here. A rate-card range is a fact
  * about one candidate, not about the leg, so it now rides on that candidate's own
- * `Transfer.fareEstimate` and reaches every reader — the picker, the receipt on the results
- * card, a transfer swapped in later — through the transfer itself rather than through a
- * prop threaded past three components in parallel with it.
+ * `Transfer.fareEstimate` and reaches every reader through the transfer itself: the
+ * picker, the receipt on the results card, a transfer swapped in later. That beats a prop
+ * threaded past three components in parallel with the transfer it describes.
  */
 export interface TransferLegOptions {
 	candidates: Transfer[];

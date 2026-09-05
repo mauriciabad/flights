@@ -1,13 +1,13 @@
 /**
  * OSRM adapter: walking and driving durations from the public, keyless OSRM demo
  * infrastructure, plus a taxi fare *estimate* derived from driving distance and a
- * per-country rate table (taxi-rate-table.ts) — never a quote. Issue #249 puts that
+ * per-country rate table (taxi-rate-table.ts), never a quote. Issue #249 puts that
  * estimate on the taxi `Transfer` itself, in `fareEstimate`: a different field and a
  * different type from the `price` a provider would quote (domain/fare.ts).
  *
  * Issue #9. Implements TransferProvider (issue #2, ../types.ts) for the walk/drive
  * modes, plus one additional export (`findTransfersToMany`) that falls outside that
- * interface's one-pair-at-a-time shape — see its own comment for why it exists alongside
+ * interface's one-pair-at-a-time shape. See its own comment for why it exists alongside
  * that interface rather than being folded into `searchTransfers`.
  *
  * ## Why this file does not call router.project-osrm.org for anything but driving

@@ -1116,6 +1116,21 @@
 		color: var(--color-text-faint);
 	}
 
+	/* Issue #249. The timeline's price column is the narrowest fare surface in the app, so
+	   the marker is three letters on its own line under the range rather than the word
+	   "estimate" the receipt and the picker have room for. It still has to be there: an
+	   unmarked range in a column of quoted fares reads as a quote for two people. */
+	.tl-price-estimate {
+		display: block;
+		font-family: var(--font-sans);
+		font-size: var(--font-size-xs);
+		font-weight: var(--font-weight-regular);
+		letter-spacing: var(--tracking-wide);
+		line-height: 1.2;
+		text-transform: uppercase;
+		color: var(--color-text-faint);
+	}
+
 	/* "2 flights", "3 options": the one visible sign that a row unfolds into a choice.
 	   Accent-coloured because it is the only text on the line that invites a click, and
 	   the chevron turns with the row so an open fold reads as open. */

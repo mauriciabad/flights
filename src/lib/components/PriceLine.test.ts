@@ -58,9 +58,9 @@ function ride(mode: Transfer['mode']): Transfer {
 const walk = ride('walk');
 const taxi = ride('taxi');
 
-/** The same taxi, carrying what the GB rate card says a ride like it costs — the range
+/** The same taxi, carrying what the GB rate card says a ride like it costs: the range
  * `providers/transfers/taxi-rate-table.ts` produces from an OSRM driving distance. Still no
- * `price`: this is a guess, and the row it produces has to read as one. */
+ * `price`, because this is a guess and the row it produces has to read as one. */
 const ratedTaxi: Transfer = {
 	...taxi,
 	fareEstimate: {

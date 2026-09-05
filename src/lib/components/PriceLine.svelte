@@ -257,8 +257,8 @@
 	/* Quiet, small caps, sitting under its own amount: the word qualifies the figure
 	   without competing with the two real ones above it. Deliberately the same treatment
 	   `TransportPicker` gives the identical range, so the two screens read as one claim
-	   rather than two. Not warning-tinted — an estimate is a number this app has, not a
-	   hole it is confessing to, and the chip below is the one that means the second thing. */
+	   rather than two. Not warning-tinted. An estimate is a number this app has, not a hole
+	   it is confessing to, and the chip below is the one that means the second thing. */
 	.estimate-tag {
 		display: block;
 		font-family: var(--font-sans);

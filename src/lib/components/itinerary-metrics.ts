@@ -217,7 +217,7 @@ interface GroundFareSummary {
 }
 
 /**
- * Sorts this trip's ground legs by what the app knows about each one — issue #204's count,
+ * Sorts this trip's ground legs by what the app knows about each one. Issue #204's count,
  * split by issue #249 into the part that has a number and the part that does not.
  *
  * Three things put a ride in `unpricedRides`, and they are the same fact to a traveller
@@ -252,8 +252,8 @@ function groundFares(itinerary: Itinerary): GroundFareSummary {
 	// Issue #140's gate, for the same reason it gates the missing bed: a same-day
 	// connection has no bed to reach, so a leg it does not have is not a leg that failed.
 	// Only the two connection-side legs, since the outer two are absent whenever the query
-	// carried no origin or destination location — a trip that genuinely has no such ride
-	// rather than one nobody could route.
+	// carried no origin or destination location, which is a trip that genuinely has no such
+	// ride rather than one nobody could route.
 	if (itinerary.stay && itinerary.nightsInConnection > 0) {
 		unpricedRides +=
 			(itinerary.transferToHotel ? 0 : 1) + (itinerary.transferToConnectionAirport ? 0 : 1);
@@ -279,7 +279,7 @@ export interface PriceBreakdown {
 	missingStay: boolean;
 	/**
 	 * Issue #204: how many rides this trip needs whose cost `total` does not include AND has
-	 * no number for at all — nobody quoted a fare, no rate card reaches that far (issue
+	 * no number for at all. Nobody quoted a fare, no rate card reaches that far (issue
 	 * #246), or nobody could route the leg (issue #211). See `groundFares`.
 	 *
 	 * A count, not a boolean, because "the airport run, both ways" and "one leg of four"
@@ -301,9 +301,9 @@ export interface PriceBreakdown {
 	 * somebody really quoted and it goes through `sumMoney`, which throws on a currency
 	 * mix; this is a guess from a table of municipal tariffs, denominated in the ride's own
 	 * country's currency rather than the search's. A guess inside the total would be a
-	 * number a traveller can sort on, filter by and screenshot — `results/sort.ts` orders
+	 * number a traveller can sort on, filter by and screenshot. `results/sort.ts` orders
 	 * cheapest-first on `totalPrice.minorUnits` and `results/filters.ts` hides anything over
-	 * the traveller's max price — and a filter that drops a trip on the strength of a card
+	 * the traveller's max price, so a filter that drops a trip on the strength of a card
 	 * back-calculated from a 5 km London ride is worse than a gap, because it is invisible.
 	 */
 	estimatedGround: EstimatedGroundFare[];

@@ -285,9 +285,9 @@ export interface Transfer {
 	 * `'out-of-range'` is a populated field too, not an absent one: issue #246 refuses to
 	 * rate a 94.9 km motorway run off a card back-calculated from a 5.1 km city ride, and
 	 * that refusal carries the distance and the ceiling so a screen can say which ride it
-	 * declined to price instead of going quiet. Absent means nobody even asked — no rate
-	 * card covers the mode (a bus fare: Transitous returns a timetable, not a ticket price)
-	 * or the caller had no country to rate the ride against.
+	 * declined to price instead of going quiet. Absent means nobody even asked, because no
+	 * rate card covers the mode (a bus fare: Transitous returns a timetable, not a ticket
+	 * price) or the caller had no country to rate the ride against.
 	 */
 	fareEstimate?: FareEstimate;
 }
@@ -332,8 +332,8 @@ export type GroundFare =
 
 export function groundFare(transfer: Transfer): GroundFare {
 	if (transfer.price !== undefined) return { kind: 'quoted', price: transfer.price };
-	// Checked after `price` so a provider that ever does quote a walk — an airport shuttle
-	// sold as one — reads as quoted money rather than as free. `walkedTransferLegs` in
+	// Checked after `price` so a provider that ever does quote a walk, an airport shuttle
+	// sold as one, reads as quoted money rather than as free. `walkedTransferLegs` in
 	// itinerary.ts makes the same choice for the same reason.
 	if (transfer.mode === 'walk') return { kind: 'free' };
 	if (transfer.fareEstimate?.kind === 'estimate')

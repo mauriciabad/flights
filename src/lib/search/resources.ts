@@ -602,7 +602,7 @@ export interface FetchConnectionResourcesInput {
   travellers?: number;
   females?: number;
   /** Issue #114: the connection airport's own country, used only to rate a taxi fare
-   * estimate for this connection's two hotel-bound legs — consulted for nothing else here.
+   * estimate for this connection's two hotel-bound legs, consulted for nothing else here.
    * It goes onto the `TransferSearchQuery` (issue #249), so OSRM attaches the range to the
    * taxi `Transfer` it builds. `undefined` degrades to no taxi estimate for this
    * connection, never a guess borrowed from the wrong country's rate card. */

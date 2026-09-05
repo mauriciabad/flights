@@ -145,7 +145,7 @@ export interface TransferFareNote {
  * transfer.
  *
  * Issue #119, the owner on a walking option: **"and price of walk is 0€..."**. That zero is
- * long gone — no `TransferProvider` sets `Transfer.price` at all — but the note that
+ * long gone, since no `TransferProvider` sets `Transfer.price` at all, but the note that
  * replaced it put walking and a bus in the same bucket, and they are not the same fact.
  * Walking has no fare, which this app knows and which is the reason walking is worth
  * offering. A bus with no price is a gap in what Transitous told us.
@@ -154,8 +154,8 @@ export interface TransferFareNote {
  * rather than a `TransferMode` because a mode cannot answer either of them. A short taxi
  * carries a rate-card range, and a long one carries issue #246's refusal to guess. This
  * printed "Price not available" for both, which put the words "price not available"
- * directly under a receipt line reading "£35.85-£55.58 ESTIMATE" for the same ride —
- * measured on a live build on 2026-09-05, in `StopoverBlock`'s own sentence. One screen
+ * directly under a receipt line reading "£35.85-£55.58 ESTIMATE" for the same ride.
+ * Measured on a live build on 2026-09-05, in `StopoverBlock`'s own sentence. One screen
  * cannot say both.
  *
  * `compact` is the timeline's own price column, which sits under real money on a 375px

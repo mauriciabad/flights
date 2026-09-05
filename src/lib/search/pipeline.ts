@@ -116,11 +116,12 @@ const NO_TRANSFER_LEG_OPTIONS: TransferLegOptions = { candidates: [] };
  * `destinationLocation`) once per search — they never depend on which connection candidate
  * ends up winning, so re-fetching them per candidate would just be the same query repeated.
  *
- * Issue #114: also returns each leg's full candidate list (`TransferLegOptions`), each
- * taxi among them carrying its own rate-card estimate — the outer-leg equivalent of
- * `resources.ts`'s per-connection
- * candidates — a `TransportPicker` for "travel to the airport"/"travel to the destination"
- * needs real alternatives exactly the same way the connection-side pickers do. */
+ * Issue #114: also returns each leg's full candidate list (`TransferLegOptions`), the
+ * outer-leg equivalent of `resources.ts`'s per-connection candidates. A `TransportPicker`
+ * for "travel to the airport" or "travel to the destination" needs real alternatives
+ * exactly the same way the connection-side pickers do. Since issue #249 each taxi in that
+ * list carries its own rate-card estimate, which is why `countryCode` rides on the query
+ * below. */
 async function fetchOuterTransfers(
 	query: SearchQuery,
 	originAirport: Airport,

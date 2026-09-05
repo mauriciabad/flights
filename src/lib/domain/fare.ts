@@ -10,8 +10,8 @@ import type { IsoCountryCode, IsoCurrencyCode } from './codes';
  *
  * The rate card that fills these in is still taxi-specific and still lives in
  * `providers/transfers/taxi-rate-table.ts`. Only the answer's shape is general, because
- * the thing a screen has to render — a bounded guess with its source attached, or a
- * refusal with the reason — is the same whatever mode ever produces one.
+ * the thing a screen has to render, a bounded guess with its source attached or a refusal
+ * with the reason, is the same whatever mode ever produces one.
  */
 
 /**
@@ -31,9 +31,9 @@ export interface FareRange {
 	 * card's low/high flag-down and per-km figures to the route distance. */
 	lowMinorUnits: number;
 	highMinorUnits: number;
-	/** The country whose rate card produced this estimate — not necessarily the country
-	 * the app already knows the connection is in, since a caller might ask for any pair
-	 * of points. */
+	/** The country whose rate card produced this estimate, not necessarily the country the
+	 * app already knows the connection is in, since a caller might ask for any pair of
+	 * points. */
 	countryCode: IsoCountryCode;
 	/** `'fallback'` means no dedicated card exists for `countryCode` and a generic
 	 * cross-country range was used instead. A UI should hedge harder on this, e.g. widen

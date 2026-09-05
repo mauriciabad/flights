@@ -379,7 +379,7 @@ describe('priceBreakdown: a ride the rate card can describe', () => {
 		};
 	}
 
-	/** A taxi past what any card in the table reaches — issue #246's Gatwick run. */
+	/** A taxi past what any card in the table reaches, which is issue #246's Gatwick run. */
 	const unratedTaxi: Transfer = {
 		mode: 'taxi',
 		duration: 76 as Duration,
