@@ -43,8 +43,11 @@
 	let { options, onWiden, pendingKey }: Props = $props();
 
 	function requestsLabel(group: WidenOptionGroup, affordable: AffordableWiden): string {
-		const count = affordable.options.length;
-		const base = `~${affordable.requests} request${affordable.requests === 1 ? '' : 's'}`;
+		// Nothing is being bought, so quote the row's own price rather than the zero it can
+		// afford — "~0 requests" beside a reason saying why is not information.
+		const buying = affordable.options.length === 0 ? group : affordable;
+		const count = buying.options.length;
+		const base = `~${buying.requests} request${buying.requests === 1 ? '' : 's'}`;
 		// Honest about the number being a sum, not one candidate's cost (issue #96: "if the
 		// number is an aggregate across candidates while the label reads as one action,
 		// make the label honest"). Only said out loud when there is more than one
@@ -52,7 +55,9 @@
 		if (count <= 1) return base;
 		// Issue #244: when the month cannot pay for every stopover the row still runs, on
 		// as many as it can, so the count has to name what is really being bought.
-		if (affordable.skipped > 0) return `${base} across ${count} of ${group.options.length} stopovers`;
+		if (affordable.skipped > 0 && affordable.options.length > 0) {
+			return `${base} across ${count} of ${group.options.length} stopovers`;
+		}
 		return `${base} across ${count} stopovers`;
 	}
 
