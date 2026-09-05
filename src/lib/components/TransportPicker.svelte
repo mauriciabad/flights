@@ -477,7 +477,7 @@
 		     above. Pressing it is what authorises the requests, and the count is on the row
 		     before the press rather than reported afterwards. -->
 		{#if oncheckTransit}
-			<p class="transit-check">
+			<div class="transit-check">
 				<Button variant="secondary" size="sm" loading={transitChecking} onclick={oncheckTransit}>
 					Check public transport
 				</Button>
@@ -485,7 +485,7 @@
 					>{TRANSIT_CHECK_REQUESTS} timetable lookups, of the {MAX_TRANSIT_LOOKUPS_PER_SEARCH} this
 					search may spend</span
 				>
-			</p>
+			</div>
 		{/if}
 	{/if}
 
