@@ -1,0 +1,146 @@
+{
+	"properties": [
+		{
+			"id": 993002,
+			"isPromoted": false,
+			"hbid": 0,
+			"name": "FIXTURE Ridge Lodge",
+			"starRating": 0,
+			"overallRating": {
+				"overall": 88,
+				"numberOfRatings": "4910"
+			},
+			"latitude": 48.25,
+			"longitude": 16.5697,
+			"isFeatured": false,
+			"type": "HOSTEL",
+			"address1": "1 FIXTURE Street",
+			"freeCancellationAvailable": true,
+			"lowestPricePerNight": {
+				"value": "9111.11",
+				"currency": "EUR"
+			},
+			"lowestPrivatePricePerNight": {
+				"value": "9111.11",
+				"currency": "EUR"
+			},
+			"lowestDormPricePerNight": {
+				"value": "9111.11",
+				"currency": "EUR"
+			},
+			"lowestAveragePricePerNight": {
+				"value": "9111.11",
+				"currency": "EUR"
+			},
+			"lowestAverageDormPricePerNight": {
+				"value": "9111.11",
+				"currency": "EUR"
+			},
+			"lowestAveragePrivatePricePerNight": {
+				"value": "9111.11",
+				"currency": "EUR"
+			},
+			"distance": {
+				"value": 15.5,
+				"units": "km"
+			},
+			"city": {
+				"id": "991001",
+				"name": "FIXTURELAND",
+				"hrpRating": "80"
+			},
+			"country": {
+				"id": "15",
+				"name": "FIXTURELAND"
+			},
+			"rooms": {
+				"dorms": [
+					{
+						"id": 993003,
+						"name": "FIXTURE 12 Bed Mixed Dorm",
+						"capacity": "12",
+						"basicType": "Mixed Dorm",
+						"ensuite": false,
+						"averagePrice": {
+							"value": "9111.11",
+							"currency": "EUR"
+						}
+					}
+				],
+				"privates": []
+			},
+			"images": []
+		},
+		{
+			"id": 993012,
+			"isPromoted": false,
+			"hbid": 0,
+			"name": "FIXTURE Far Lodge",
+			"starRating": 0,
+			"overallRating": {
+				"overall": 91,
+				"numberOfRatings": "2200"
+			},
+			"latitude": 48.4,
+			"longitude": 16.5697,
+			"isFeatured": false,
+			"type": "HOSTEL",
+			"address1": "9 FIXTURE Road",
+			"freeCancellationAvailable": true,
+			"lowestPricePerNight": {
+				"value": "9444.44",
+				"currency": "EUR"
+			},
+			"lowestPrivatePricePerNight": {
+				"value": "9444.44",
+				"currency": "EUR"
+			},
+			"lowestDormPricePerNight": {
+				"value": "9444.44",
+				"currency": "EUR"
+			},
+			"lowestAveragePricePerNight": {
+				"value": "9444.44",
+				"currency": "EUR"
+			},
+			"lowestAverageDormPricePerNight": {
+				"value": "9444.44",
+				"currency": "EUR"
+			},
+			"lowestAveragePrivatePricePerNight": {
+				"value": "9444.44",
+				"currency": "EUR"
+			},
+			"distance": {
+				"value": 32.2,
+				"units": "km"
+			},
+			"city": {
+				"id": "991001",
+				"name": "FIXTURELAND",
+				"hrpRating": "80"
+			},
+			"country": {
+				"id": "15",
+				"name": "FIXTURELAND"
+			},
+			"rooms": {
+				"dorms": [
+					{
+						"id": 993013,
+						"name": "FIXTURE 8 Bed Mixed Dorm",
+						"capacity": "8",
+						"basicType": "Mixed Dorm",
+						"ensuite": false,
+						"averagePrice": {
+							"value": "9444.44",
+							"currency": "EUR"
+						}
+					}
+				],
+				"privates": []
+			},
+			"images": []
+		}
+	]
+}
