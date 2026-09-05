@@ -17,7 +17,7 @@
  */
 
 import { describeProviderResponse, readProviderResponse, readRetryAfterSeconds } from '../response-evidence';
-import { ONE_PER_CITY_FEATURE_NAME, ONE_WAY_FEATURE_NAME } from './kiwi-public-queries';
+import { ONE_PER_CITY_FEATURE_NAME, ONE_WAY_FEATURE_NAME, ROUTE_CHECK_FEATURE_NAME } from './kiwi-public-queries';
 import type {
 	KiwiPublicFetchResult,
 	KiwiPublicGraphQlResponse,
@@ -143,6 +143,27 @@ export function fetchOneWayDirect(
 	deps: KiwiPublicHttpDeps
 ): Promise<KiwiPublicFetchResult<KiwiPublicOneWayData>> {
 	return postGraphQl<KiwiPublicOneWayData>(ONE_WAY_FEATURE_NAME, query, variables, deps);
+}
+
+/**
+ * Issue #340: the same document as `fetchOneWayDirect`, under its own `featureName`.
+ *
+ * Two reasons, and both matter. Kiwi reads that name in its own logs, and a route-existence
+ * check is genuinely a different thing from a fare search, so telling them apart is the
+ * polite half of an undocumented dependency — kiwi-public-queries.ts makes that argument for
+ * the name it already sends.
+ *
+ * The half with teeth is ours. `tests/qa/route-graph-fanout.qa.ts` bounds how many airports
+ * one search asks about by counting route-graph requests on the wire, and it recognises them
+ * by their feature name. Sending these as `SearchOneWayItinerariesQuery` would have hidden
+ * every one of them inside the fare traffic and quietly retired that ceiling.
+ */
+export function fetchDirectRouteCheck(
+	query: string,
+	variables: unknown,
+	deps: KiwiPublicHttpDeps
+): Promise<KiwiPublicFetchResult<KiwiPublicOneWayData>> {
+	return postGraphQl<KiwiPublicOneWayData>(ROUTE_CHECK_FEATURE_NAME, query, variables, deps);
 }
 
 export function fetchOnePerCityDirect(

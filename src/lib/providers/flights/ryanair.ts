@@ -753,6 +753,29 @@ function createRyanairFlightProvider(options: RyanairProviderOptions = {}): Flig
 		};
 	}
 
+	/**
+	 * Issue #340. Ryanair is one of the two adapters that can answer this exactly, because
+	 * the snapshot is Ryanair's whole network rather than a sample of it: if BGY to PFO is
+	 * not in the snapshot, Ryanair does not fly it.
+	 *
+	 * Reads the same snapshot `listDirectDestinations` does, so it costs the same nothing,
+	 * and that is what makes it worth asking first. A candidate the snapshot already
+	 * confirms never needs the keyless-but-real Kiwi request that would otherwise be spent
+	 * settling the same question — which is how #340's wider candidate set pays for itself.
+	 *
+	 * `false` is scoped to this airline and says so in `providers/types.ts`. Ryanair not
+	 * flying Munich to Paphos is not evidence that Lufthansa does not.
+	 */
+	async function hasDirectRoute(
+		origin: IataAirportCode,
+		destination: IataAirportCode,
+		ctx: ProviderContext
+	): Promise<ProviderResult<boolean>> {
+		const listed = await listDirectDestinations(origin, ctx);
+		if (!listed.ok) return listed;
+		return { ...listed, data: listed.data.includes(destination) };
+	}
+
 	async function healthCheck(ctx: ProviderContext): Promise<ProviderHealth> {
 		if (ctx.signal.aborted) {
 			return {
@@ -800,7 +823,8 @@ function createRyanairFlightProvider(options: RyanairProviderOptions = {}): Flig
 		// uses to prefer this adapter over a metered one before spending any of its quota.
 		estimateSearchOffersCost: () => 0,
 		searchOffers,
-		listDirectDestinations
+		listDirectDestinations,
+		hasDirectRoute
 	};
 }
 

@@ -263,11 +263,47 @@ export interface FlightProvider extends ProviderBase {
 	): Promise<ProviderResult<FlightOffer[]>>;
 	/** IATA codes of every airport this adapter has a direct flight to from `origin` — the
 	 * connection-graph input issue #12 needs ("which airports can actually sit in the
-	 * middle"), not priced offers. */
+	 * middle"), not priced offers.
+	 *
+	 * Read it as a sample, never as a network. An adapter answering out of a bundled
+	 * snapshot returns its whole network here; one that derives the list from a fare search
+	 * returns whatever that search surfaced, which for a hub is a fraction of the truth. Use
+	 * `hasDirectRoute` when the question is about one specific pair — see issue #340 for
+	 * what reading absence from this list as "no such route" cost. */
 	listDirectDestinations(
 		origin: IataAirportCode,
 		ctx: ProviderContext
 	): Promise<ProviderResult<IataAirportCode[]>>;
+	/**
+	 * Does this adapter know a direct `origin -> destination` flight? Issue #340.
+	 *
+	 * The question `listDirectDestinations` was standing in for, asked directly. It exists
+	 * because those two are not the same question for every adapter, and the difference is
+	 * not visible at the call site: `kiwi-public` derives its destination list from a
+	 * price-sorted "fly me anywhere" fare search that returns ONE row per destination
+	 * **city**, so Milan is Malpensa or Bergamo but never both, and a hub's thinner routes
+	 * fall off the end entirely. Membership in that list is evidence of a route; absence
+	 * from it is evidence of nothing, and the connection graph was reading it as both.
+	 *
+	 * `true` means this adapter found the route. `false` means it looked at this exact pair
+	 * and found nothing, which is a far stronger statement than absence from a sampled list
+	 * and still not a claim that no such flight exists anywhere: a bundled snapshot answers
+	 * for one airline, and a fare-derived adapter answers for the window it searched, so a
+	 * seasonal route reads as `false` out of season. A caller may decline to propose a
+	 * candidate on `false`. Nothing may print it as "there is no route". A failed
+	 * `ProviderResult` is "I do not know", the same contract `listDirectDestinations`
+	 * already has.
+	 *
+	 * Optional because most adapters have no cheaper way to answer it than the list they
+	 * already return, and a stub that re-derives it from that list would hide the very
+	 * difference this method exists to expose. A caller that finds it missing should fall
+	 * back to list membership and treat the result as the weaker claim it is.
+	 */
+	hasDirectRoute?(
+		origin: IataAirportCode,
+		destination: IataAirportCode,
+		ctx: ProviderContext
+	): Promise<ProviderResult<boolean>>;
 }
 
 /** Issue #2: "cheapest beds near a coordinate for a date range, dorm and private priced

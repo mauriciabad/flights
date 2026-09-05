@@ -35,6 +35,11 @@ function fixtureFetch(respond?: (url: string) => Response): typeof fetch {
 		if (url.includes('featureName=OnePerCityItinerariesQuery')) {
 			return new Response(JSON.stringify(onePerCityBvc), { status: 200 });
 		}
+		// Issue #340's route check reuses the one-way document under its own feature name, so
+		// the BVC to LGW capture is the right answer to it too.
+		if (url.includes('featureName=DirectRouteCheckQuery')) {
+			return new Response(JSON.stringify(bvcToLgw), { status: 200 });
+		}
 		throw new Error(`fixtureFetch: no stub configured for ${url}`);
 	}) as typeof fetch;
 }
@@ -615,5 +620,74 @@ describe('expired entries are served, not discarded (#165)', () => {
 		await new Promise((resolve) => setTimeout(resolve, 0));
 
 		expect((await store.get(destinationsKey().raw))?.value).toEqual(before);
+	});
+	describe('hasDirectRoute (issue #340)', () => {
+		it('asks about the one pair, under its own feature name, instead of listing everywhere', async () => {
+			const result = await makeProvider(fixtureFetch()).hasDirectRoute!('BVC', 'LGW', ctx());
+
+			expect(result).toMatchObject({ ok: true, data: true, requestsUsed: 1 });
+			expect(requests).toHaveLength(1);
+			// The feature name is what `route-graph-fanout.qa.ts` counts these by, and what
+			// keeps a route check out of Kiwi's own fare-search logs.
+			expect(requests[0].url).toContain('featureName=DirectRouteCheckQuery');
+			const itinerary = requests[0].body.variables.search as { itinerary: Record<string, unknown> };
+			expect(itinerary.itinerary.destination).toEqual({ ids: ['Station:airport:LGW'] });
+		});
+
+		it('judges the answer with the offer mapper, not by counting rows', async () => {
+			// A row Kiwi returns is not automatically a flight this app can offer: the mapper
+			// is what rejects a self-transfer or a chain of two flight numbers. Confirming a
+			// route from a row the fare stage would then refuse produces a candidate that can
+			// never become an itinerary, and #332 would report it as "no onward flight" while
+			// this adapter had said there was one.
+			const empty = { data: { onewayItineraries: { __typename: 'Itineraries', itineraries: [] } } };
+			const result = await makeProvider(
+				fixtureFetch(() => new Response(JSON.stringify(empty), { status: 200 }))
+			).hasDirectRoute!('BVC', 'PFO', ctx());
+
+			expect(result).toMatchObject({ ok: true, data: false });
+		});
+
+		it('says it does not know, rather than no, once the session ceiling is reached', async () => {
+			// The one place a `false` from here is not "I looked and found nothing", so it is
+			// worth pinning that it costs no request and reports none.
+			const provider = createKiwiPublicFlightProvider({
+				store: new MemoryCacheStore(),
+				fetchImpl: fixtureFetch(),
+				now: () => Date.parse('2026-09-04T00:00:00Z'),
+				maxRouteLookups: 0
+			});
+
+			const result = await provider.hasDirectRoute!('BVC', 'LGW', ctx());
+
+			expect(result).toMatchObject({ ok: true, data: false, requestsUsed: 0 });
+			expect(requests).toHaveLength(0);
+		});
+
+		it('serves a cached answer without a second request', async () => {
+			const store = new MemoryCacheStore();
+			const fetchImpl = fixtureFetch();
+			await makeProvider(fetchImpl, store).hasDirectRoute!('BVC', 'LGW', ctx());
+			const second = await makeProvider(fetchImpl, store).hasDirectRoute!('BVC', 'LGW', ctx());
+
+			expect(second).toMatchObject({ ok: true, data: true, requestsUsed: 0 });
+			expect(requests).toHaveLength(1);
+		});
+
+		it('serves a cached NO without a second request', async () => {
+			// The one that shipped broken. `CachedEntry.fresh` is `T | undefined`, so the
+			// `!cached.fresh` every other read here uses reports a fresh `false` as expired,
+			// and "no route" is the common answer on this path. A reload then re-asked every
+			// candidate that had come back negative — twelve lookups on the acceptance route,
+			// caught by `route-graph-fanout.qa.ts`'s reload check and by nothing else.
+			const empty = { data: { onewayItineraries: { __typename: 'Itineraries', itineraries: [] } } };
+			const store = new MemoryCacheStore();
+			const fetchImpl = fixtureFetch(() => new Response(JSON.stringify(empty), { status: 200 }));
+			await makeProvider(fetchImpl, store).hasDirectRoute!('BVC', 'PFO', ctx());
+			const second = await makeProvider(fetchImpl, store).hasDirectRoute!('BVC', 'PFO', ctx());
+
+			expect(second).toMatchObject({ ok: true, data: false, requestsUsed: 0 });
+			expect(requests).toHaveLength(1);
+		});
 	});
 });

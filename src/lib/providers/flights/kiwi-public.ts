@@ -57,7 +57,7 @@ import type {
 	ProviderResult,
 	ProviderSource
 } from '../types';
-import { fetchOnePerCityDirect, fetchOneWayDirect } from './kiwi-public-client';
+import { fetchDirectRouteCheck, fetchOnePerCityDirect, fetchOneWayDirect } from './kiwi-public-client';
 import {
 	ONE_PER_CITY_DIRECT_QUERY,
 	ONE_WAY_DIRECT_QUERY,
@@ -154,6 +154,62 @@ const DESTINATIONS_WINDOW_LENGTH_DAYS = 30;
  */
 export const MAX_ROUTE_LOOKUPS_PER_SESSION = 20;
 
+/**
+ * Milliseconds this adapter leaves between two route-graph requests. Issue #340.
+ *
+ * The ceiling above bounds how MANY requests a session makes and says nothing about how
+ * fast. Both halves matter, and we already learned that on this project: issue #262 had
+ * OSRM apparently down, `curl` returning nothing at all while the host was plainly up, and
+ * the cause was twelve lookups arriving on one tick. The signature there is the signature
+ * here — `BCN -> BVC` sent one `OnePerCityItinerariesQuery` and then nineteen
+ * `DirectRouteCheckQuery` back to back, and **zero** responses came back for any of them.
+ * Not a 429, not a 500: nothing, which the browser reports as "Failed to fetch". The same
+ * endpoint answers a single call from a quiet client without complaint.
+ *
+ * I want to be honest that this is not a confirmed diagnosis. Kiwi publishes no rate limit
+ * for an endpoint it does not document at all, two agents were probing it from this machine
+ * at the time, and a sixteen-request search succeeded twenty minutes after the
+ * nineteen-request one failed. What is certain is that this app should not be the client
+ * that finds out where the limit is, and 250ms is slow enough to be unremarkable while
+ * costing a six-candidate search under two seconds.
+ *
+ * Skipped when a caller supplies its own `fetchImpl`, since that is never the real network.
+ */
+export const MIN_GAP_BETWEEN_ROUTE_REQUESTS_MS = 250;
+
+/**
+ * The gap is a promise to one shared endpoint, so it has to hold across every caller at
+ * once, and subtracting timestamps does not do that on its own: `connections.ts` is
+ * sequential today, but a caller that fans out with `Promise.all` would have every request
+ * read the same `lastRequestAt`, sleep the same delay and fire together — a burst one gap
+ * late, which is exactly what #262 measured for OSRM.
+ *
+ * Chaining gives the property actually wanted: each request waits for the one before it to
+ * take its slot. `takeRouteRequestSlot` is deliberately not `async`, so the link joins the
+ * chain synchronously on the caller's own tick rather than after a microtask, where two
+ * callers would both extend the same predecessor.
+ *
+ * Module-level rather than per-instance, like `osrm.ts`'s, because the endpoint is shared
+ * whether or not two provider instances are.
+ */
+let lastRouteRequestAt = 0;
+let routeRequestChain: Promise<void> = Promise.resolve();
+
+function takeRouteRequestSlot(minGapMs: number): Promise<void> {
+	if (minGapMs <= 0) return Promise.resolve();
+	const slot = routeRequestChain.then(async () => {
+		const elapsed = Date.now() - lastRouteRequestAt;
+		if (elapsed < minGapMs) {
+			await new Promise((resolve) => setTimeout(resolve, minGapMs - elapsed));
+		}
+		lastRouteRequestAt = Date.now();
+	});
+	// Swallowed on the chain only, never on `slot`: one caller's failure must not strand
+	// everything queued behind it, and must still reach that caller.
+	routeRequestChain = slot.catch(() => undefined);
+	return slot;
+}
+
 export interface KiwiPublicProviderOptions {
 	/** Overrides the shared IndexedDB-or-memory store. Tests inject a `MemoryCacheStore`. */
 	store?: CacheStore;
@@ -165,6 +221,10 @@ export interface KiwiPublicProviderOptions {
 	/** Overrides `MAX_ROUTE_LOOKUPS_PER_SESSION`. Tests set it low enough to reach without
 	 * stubbing forty responses. */
 	maxRouteLookups?: number;
+	/** Milliseconds between two route-graph requests, across every caller. Defaults to
+	 * `MIN_GAP_BETWEEN_ROUTE_REQUESTS_MS`, or to 0 when `fetchImpl` is set, so tests stay
+	 * instant. A test that wants to observe the spacing sets a small number here. */
+	minGapBetweenRouteRequestsMs?: number;
 }
 
 /**
@@ -251,6 +311,8 @@ async function writeCache<T>(store: CacheStore, key: CacheKey, value: T): Promis
 function createKiwiPublicFlightProvider(options: KiwiPublicProviderOptions = {}): FlightProvider {
 	const now = options.now ?? Date.now;
 	const maxRouteLookups = options.maxRouteLookups ?? MAX_ROUTE_LOOKUPS_PER_SESSION;
+	const minGapBetweenRouteRequestsMs =
+		options.minGapBetweenRouteRequestsMs ?? (options.fetchImpl ? 0 : MIN_GAP_BETWEEN_ROUTE_REQUESTS_MS);
 	/** Real route requests spent by this instance. See `MAX_ROUTE_LOOKUPS_PER_SESSION`. */
 	let routeLookupsSpent = 0;
 	/** Cache keys with a background refresh already running, so two callers a second apart
@@ -394,6 +456,160 @@ function createKiwiPublicFlightProvider(options: KiwiPublicProviderOptions = {})
 		}
 	}
 
+	/**
+	 * Issue #340. One request, one pair, an exact answer.
+	 *
+	 * `listDirectDestinations` below cannot answer this, and the shape of what it returns
+	 * hides that. `onewayOnePerCityItineraries` gives ONE itinerary per destination *city*
+	 * sorted by price, so Boa Vista's twenty-row answer names Milan once — as Malpensa —
+	 * and Bergamo is not in it, though Kiwi sells Neos NO3865 BVC to BGY on 7 October 2026
+	 * for EUR 262. London is Gatwick only, Rome is Fiumicino only, Paris is Orly only. Then
+	 * the far side: Paphos is missing from Munich's, Orly's, Amsterdam's, Brussels' and
+	 * Fiumicino's lists, all five of which Kiwi will sell you on a direct pair query.
+	 *
+	 * So the everywhere query answers "name me somewhere cheap you fly", and the connection
+	 * graph was reading it as "here is your entire network". This asks the question the
+	 * graph actually has, which Kiwi answers precisely, for the same one request the list
+	 * costs.
+	 *
+	 * Same departure window as `listDirectDestinations`, and for the same reason: this is a
+	 * question about a route rather than about a day, and the window is how an adapter with
+	 * only a fare search can approximate one. `false` therefore means "no direct flight in
+	 * that window", never "no such route" — `providers/types.ts` states that contract and
+	 * `results/no-results.ts` is written to respect it.
+	 */
+	async function hasDirectRoute(
+		origin: IataAirportCode,
+		destination: IataAirportCode,
+		ctx: ProviderContext
+	): Promise<ProviderResult<boolean>> {
+		if (ctx.signal.aborted) {
+			return fail({ code: 'cancelled', message: 'Kiwi route check was cancelled before it started' }, 0);
+		}
+
+		const earliestDeparture = isoDateAfterDays(now(), DESTINATIONS_WINDOW_START_DAYS);
+		const latestDeparture = isoDateAfterDays(
+			now(),
+			DESTINATIONS_WINDOW_START_DAYS + DESTINATIONS_WINDOW_LENGTH_DAYS
+		);
+
+		const store = await resolveStore(options);
+		const cacheKey = defineCacheKey(
+			KIWI_PUBLIC_PROVIDER_ID,
+			{ op: 'hasDirectRoute', origin, destination, earliestDeparture, latestDeparture },
+			DESTINATIONS_TTL_MS
+		);
+
+		const cached = await readCachedEntry<boolean>(store, cacheKey);
+		// Served at any age, like every other read here. A route that existed yesterday is
+		// the best answer available while a refresh runs, and making the graph wait on the
+		// network for it is the reload cost #147 is about.
+		if (cached) {
+			const canRevalidate =
+				(ctx.maxRequests === undefined || ctx.maxRequests >= 1) &&
+				routeLookupsSpent < maxRouteLookups;
+			// `=== undefined`, not `!cached.fresh`: this entry is a boolean, and a fresh
+			// `false` is the common answer here. See `CachedEntry.fresh`.
+			const revalidated = cached.fresh === undefined && canRevalidate;
+			if (revalidated) {
+				routeLookupsSpent += 1;
+				void revalidateDirectRoute(origin, destination, earliestDeparture, latestDeparture, ctx, store, cacheKey);
+			}
+			return {
+				ok: true,
+				data: cached.value,
+				source: source(cached.storedAt),
+				requestsUsed: revalidated ? 1 : 0
+			};
+		}
+
+		// Out of budget, or past this session's ceiling: `false` for the same reason
+		// `listDirectDestinations` returns an empty ok rather than an error. Stopping on
+		// purpose is not a failure, and reporting one would put a red "Kiwi failed" on a
+		// search where Kiwi did exactly what it was told.
+		//
+		// This is the one place a `false` from here does not mean "I looked and found
+		// nothing". It is safe only because `providers/types.ts` forbids any caller from
+		// printing a `false` as "there is no route" — `connections.ts` declines to propose
+		// the candidate and `results/no-results.ts` never turns a decline into a claim. If
+		// that contract ever weakens, this line has to become a failure.
+		if (ctx.maxRequests !== undefined && ctx.maxRequests < 1) return ok(false, 0);
+		if (routeLookupsSpent >= maxRouteLookups) return ok(false, 0);
+
+		routeLookupsSpent += 1;
+		const found = await fetchDirectRoute(origin, destination, earliestDeparture, latestDeparture, ctx);
+		if (found.error !== undefined) return fail(found.error, 1);
+
+		await writeCache(store, cacheKey, found.exists);
+		return ok(found.exists, 1);
+	}
+
+	/**
+	 * Asks Kiwi for one pair and decides whether anything it returned is a single flight
+	 * this app could actually offer. `limit: 1` because the question is existence, not
+	 * price — but it goes through `mapOneWayResultToOffers` rather than counting raw
+	 * itineraries, so a self-transfer or a multi-segment chain that slipped past the filter
+	 * is rejected here exactly as it would be if the fare stage had asked. Counting rows
+	 * would confirm a route this app cannot sell.
+	 */
+	async function fetchDirectRoute(
+		origin: IataAirportCode,
+		destination: IataAirportCode,
+		earliestDeparture: IsoCalendarDate,
+		latestDeparture: IsoCalendarDate,
+		ctx: ProviderContext
+	): Promise<{ exists: boolean; error?: ProviderError }> {
+		await takeRouteRequestSlot(minGapBetweenRouteRequestsMs);
+		const response = await fetchDirectRouteCheck(
+			ONE_WAY_DIRECT_QUERY,
+			buildOneWayVariables({
+				origin,
+				destination,
+				earliestDeparture,
+				latestDeparture,
+				currency: DEFAULT_CURRENCY,
+				limit: 1
+			}),
+			{ signal: ctx.signal, fetchImpl: options.fetchImpl }
+		);
+		if (!response.ok) return { exists: false, error: toProviderError(response.error) };
+
+		const result = response.data.onewayItineraries;
+		const appError = appErrorOf(result);
+		if (appError !== undefined) {
+			return {
+				exists: false,
+				error: { code: 'unknown', message: `Kiwi returned an error: ${appError}` }
+			};
+		}
+		return { exists: mapOneWayResultToOffers(result).length > 0 };
+	}
+
+	/** The background half of the stale-first read above. Never rejects, never replaces a
+	 * known route with the silence of a failed request. */
+	async function revalidateDirectRoute(
+		origin: IataAirportCode,
+		destination: IataAirportCode,
+		earliestDeparture: IsoCalendarDate,
+		latestDeparture: IsoCalendarDate,
+		ctx: ProviderContext,
+		store: CacheStore,
+		cacheKey: CacheKey
+	): Promise<void> {
+		if (revalidating.has(cacheKey.raw)) return;
+		revalidating.add(cacheKey.raw);
+		try {
+			const found = await fetchDirectRoute(origin, destination, earliestDeparture, latestDeparture, ctx);
+			if (found.error !== undefined) return;
+			await writeCache(store, cacheKey, found.exists);
+			revalidationSettled(KIWI_PUBLIC_PROVIDER_ID);
+		} catch {
+			// The next search asks again.
+		} finally {
+			revalidating.delete(cacheKey.raw);
+		}
+	}
+
 	async function listDirectDestinations(
 		origin: IataAirportCode,
 		ctx: ProviderContext
@@ -479,6 +695,7 @@ function createKiwiPublicFlightProvider(options: KiwiPublicProviderOptions = {})
 		latestDeparture: IsoCalendarDate,
 		ctx: ProviderContext
 	): Promise<{ destinations: IataAirportCode[]; error?: ProviderError }> {
+		await takeRouteRequestSlot(minGapBetweenRouteRequestsMs);
 		const response = await fetchOnePerCityDirect(
 			ONE_PER_CITY_DIRECT_QUERY,
 			buildOnePerCityVariables({
@@ -600,7 +817,8 @@ function createKiwiPublicFlightProvider(options: KiwiPublicProviderOptions = {})
 		// candidate discovery, which is the entire point of registering it.
 		estimateSearchOffersCost: () => 0,
 		searchOffers,
-		listDirectDestinations
+		listDirectDestinations,
+		hasDirectRoute
 	};
 }
 

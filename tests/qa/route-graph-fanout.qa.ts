@@ -42,12 +42,28 @@ import { resultCards, waitForSearchToSettle } from './support/page';
  */
 const MAX_ROUTE_LOOKUPS = 6 * 3 + 1;
 
-/** Kiwi's route graph comes from `OnePerCityItinerariesQuery`; its fares come from
- * `SearchOneWayItinerariesQuery` down the same URL. Only the first is this file's business. */
+/**
+ * Kiwi's route knowledge comes from two queries down the same URL, and its fares from a
+ * third. Both of the first two are this file's business, and issue #340 is why the second
+ * one is named here.
+ *
+ * `OnePerCityItinerariesQuery` asks "where does this airport fly", and `DirectRouteCheckQuery`
+ * asks "does it fly HERE" — the question #340 replaced the first one with for the candidate
+ * loop, because one row per destination city is a sample and the loop was reading it as a
+ * network. Both spend one request per airport, so both are fan-out, and counting only the
+ * older one would have left this ceiling measuring traffic the search had stopped making.
+ *
+ * `SearchOneWayItinerariesQuery`, the fare search, stays out: it is priced per itinerary
+ * rather than per candidate, and `cost-per-search.qa.ts` is what bounds it.
+ */
 function routeGraphLookups(requests: readonly { url: string }[]): string[] {
 	return requests
 		.filter((request) => request.url.includes(KIWI_PUBLIC_HOST))
-		.filter((request) => request.url.includes('OnePerCityItinerariesQuery'))
+		.filter(
+			(request) =>
+				request.url.includes('OnePerCityItinerariesQuery') ||
+				request.url.includes('DirectRouteCheckQuery')
+		)
 		.map((request) => request.url);
 }
 

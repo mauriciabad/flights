@@ -243,30 +243,46 @@ export function explainNoResults(input: NoResultsInput): NoResultsExplanation {
 	const everySourceEmpty = emptyHanded.length === sources.length;
 
 	const title = everySourceEmpty
-		? `No route out of ${origin.code}`
-		: `No stopover from ${origin.code} reaches ${destination.code}`;
+		? `No route out of ${origin.code} from these sources`
+		: `No stopover found from ${origin.code} to ${destination.code}`;
 
-	// Every sentence below names who said what. Nothing here ever suggests a different
-	// destination: a source's silence about a route is not evidence about the route, and
-	// inventing that inference is what this issue is about. "Later dates will not change
-	// that" is safe in both shapes — a route graph is date-free, so no date a traveller
-	// picks moves it — which is exactly what the old "widen the search" advice got wrong.
+	// Issue #340. Every sentence here names who said what, and none of them says more than
+	// the source it names actually established.
+	//
+	// The three sentences this replaces were each false on the owner's own routes:
+	//
+	//   "No stopover from GRO reaches BVC"       — asserted absence; the app found three the
+	//                                              day this was written.
+	//   "none of them continues to Boa Vista"    — none of them was asked that. They were
+	//                                              asked for a list of somewhere-cheap
+	//                                              destinations, one per city, capped.
+	//   "Later dates will not change that."      — an absolute claim about every future date
+	//                                              from one query over one 30-day window.
+	//
+	// The last one was defended as safe because "a route graph is date-free". That holds for
+	// Ryanair's bundled snapshot and for nothing else here: Kiwi has no route graph, and its
+	// answer is a fare search over a window that moves with the calendar. A seasonal route
+	// out of season reads as absent and comes back in November.
+	//
+	// A source that spent no request is also not a witness. Ryanair answering `0 reqs` about
+	// Boa Vista means it read a snapshot that has never contained Cape Verde, and listing it
+	// beside the others made two sources that cannot know look like corroboration.
 	const sentences: string[] = [];
 	if (emptyHanded.length > 0) {
 		const who = joinLabels(emptyHanded.map((line) => line.label));
 		sentences.push(
-			everySourceEmpty
-				? `${who} answered, and ${emptyHanded.length === 1 ? 'it has' : 'they have'} no route out of ${airportLabel(origin)} at all.`
-				: `${who} answered with no route out of ${airportLabel(origin)} at all.`
+			`${who} ${emptyHanded.length === 1 ? 'has' : 'have'} no route out of ${airportLabel(origin)} in what ${emptyHanded.length === 1 ? 'it covers' : 'they cover'}.`
 		);
 	}
 	if (knewRoutes.length > 0) {
 		const who = joinLabels(knewRoutes.map((line) => line.label));
 		sentences.push(
-			`${who} ${knewRoutes.length === 1 ? 'knows' : 'know'} routes from ${origin.code}, and none of them continues to ${airportLabel(destination)}.`
+			`${who} ${knewRoutes.length === 1 ? 'knows' : 'know'} routes from ${origin.code}, and the ones this search checked did not continue to ${airportLabel(destination)}.`
 		);
 	}
-	sentences.push('Later dates will not change that.');
+	sentences.push(
+		`That is what these sources returned, not a finding that no such trip exists: none of them was asked about every airport, and the two keyless ones answer for one airline and for a fixed departure window. A route flying in another season, or one only a source we did not ask sells, would look exactly like this.`
+	);
 
 	return { cause: 'no-route-known', title, detail: sentences.join(' '), sources, fix };
 }
