@@ -585,8 +585,8 @@
 							<!-- Issue #339. The row above shows the traveller's currency so the figure can
 							     be held against the trip's total. This is where the arithmetic behind that
 							     is written down, because a converted estimate is an approximation of an
-							     approximation and the card has no room to say so. The driver charges the
-							     first of these two numbers. -->
+							     approximation and the card has no room to say so. Whoever takes the money,
+							     a driver or a ticket machine, charges the first of these two numbers. -->
 							<p>
 								The rate card is written in {source.from} and quotes
 								{formatMoneyRange(source.fromLowMinorUnits, source.fromHighMinorUnits, source.from)} for this

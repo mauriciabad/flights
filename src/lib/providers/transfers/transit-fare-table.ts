@@ -208,8 +208,8 @@ export const TRANSIT_FARE_TABLE: Readonly<Record<IataAirportCode, TransitFareCar
 			"Île-de-France Mobilités' own 2026 fare table (iledefrance-mobilites.fr, read " +
 			'2026-09-06, rates applicable as of 1 January 2026): the Paris Region ↔ Airports single ' +
 			'is €14.00 and the ordinary Bus-Tram single is €2.05. IDFM says the airport ticket ' +
-			'covers Roissy-CDG by RER B and is rail only — "your journey can only be made by metro, ' +
-			'RER or train in zones 1 to 5" — so the bus lines that also serve the airport are not ' +
+			'covers Roissy-CDG by RER B and is rail only. Its words: "your journey can only be made by ' +
+			'metro, RER or train in zones 1 to 5". So the bus lines that also serve the airport are not ' +
 			'on it. That they take the €2.05 bus ticket instead is inferred from the airport ' +
 			"ticket's stated scope rather than read, which is why the band is this wide."
 	},
@@ -320,7 +320,7 @@ function partyShare(
  * cited guess. A `FareBeyondRatedRange` is this table saying the journey has left the fare
  * area its ticket was sold for, which a screen can put in words. `undefined` is no card for
  * this airport, which reaches a reader as `groundFare`'s existing `'unquoted'` and the
- * words "Price not available" — the app's oldest and most honest answer, and the right one
+ * words "Price not available", the app's oldest and most honest answer, and the right one
  * for the 97% of connection airports nobody has read a tariff for.
  *
  * Pure and synchronous, the same property `estimateTaxiFare` has and for the same reason:
