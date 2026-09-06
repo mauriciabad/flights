@@ -1,5 +1,61 @@
 # Handoff to the next orchestrator
 
+## 2026-09-06, midday: the owner's review of the hotel card and the maps
+
+Five complaints, five issues, six PRs, all merged and verified against production rather than
+against CI. `.audit/check-owner-review.sh` reports REVIEW ANSWERED; its predicate and the
+decision trail for the run are in `.audit/EXIT-PREDICATE-OWNER-REVIEW.md` and
+`.audit/owner-review-run.tsv`.
+
+**What shipped.** A journey time per mode on the stay row with a real hierarchy (#404, #405),
+a sort control defaulting to the existing #219 order (#406), a cited transit fare table keyed
+by airport (#407), and land, water, borders and real road geometry under every ground-leg
+preview (#408).
+
+**Half of today's PRs were instrument repairs, and that is the finding.** Five separate checks
+were reporting reassuring things while measuring nothing, and three of them were mine, written
+the same day.
+
+- `tools/verify-production.mjs` was uncommitted and hunted a "show details" button #278
+  deleted. Four checks reported SKIP and nobody read the word. Two more matched wording the UI
+  has never used.
+- The same file printed "A SKIP is not a pass" and then `process.exit(bad === 0 ? 0 : 1)` on
+  the next line, so a run that reached nothing returned success.
+- A check I wrote to test the stay list's sort control queried the whole document and passed
+  by matching "Sort 3 trips into place" on the page behind the panel.
+- A duration matcher I wrote wanted `min` or `h`; the app writes `Taxi 24m`, so it failed
+  against a build that had shipped the feature.
+- `.audit/check-owner-review.sh` matched a check name by string, that name was renamed six
+  hours later, and the predicate would have read red forever. It now reports an unmatched name
+  as drift rather than as a failing app, because those need different work.
+- `tools/probe-stay-routing.mjs` waited on `.itinerary-timeline-totals`, which is in no file.
+
+The mechanism is always the same. A name or a selector lives in two places with nothing tying
+them together. **Read what a green check actually matched, not that it was green**, and watch
+a check fail on purpose before trusting it.
+
+**Two things the owner asked for that measurement refused.** A bus time per stay row: MOTIS
+answers `mode TRANSIT not supported for one-to-many`, and the stitched `one-to-all` substitute
+puts 1 of 8 properties in the right position, so it would be worst at the comparison it exists
+for. And a British transit fare: six rail operators answer `403`, TfGM answers `202` empty,
+and Gatwick's adult price is fetched by a booking widget. Both refusals ship their probe.
+
+**Two follow-ups are open and both are cheap.** #416, transit legs carry `legGeometry` in a
+response the app already receives, so the dashed straight line on every stopover transfer is
+unread data rather than missing data. #415, a one-sided fare bound would cover Britain from
+cited coach fares.
+
+**New trap, now in AGENTS.md.** `api.transitous.org` answers Node's default User-Agent with
+`403` and a browser UA with a real response. It is the Kiwi trap facing the other way, and the
+two rules together are one rule: make the caller look like a browser in both directions.
+
+**A merge trap worth knowing.** `Closes #405, #404, #406` closes only the first. Both others
+sat open after the merge, which matters here because batching related issues into one PR is
+the house style.
+
+---
+
+
 Written 2026-09-06, 05:45, at the end of an overnight run. Read `AGENTS.md` first, then this.
 
 ## Where the app actually is
