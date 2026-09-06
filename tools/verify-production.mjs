@@ -175,8 +175,12 @@ await withPage(async (page) => {
 	record('picker', 'a bed states its distance', atPicker && rows.length > 0,
 		/km from airport|m from centre/i.test(picker),
 		(picker.match(/[\d.]+ (?:km|m) from (?:airport|centre)/i) ?? [''])[0]);
-	// Issue #405. Fails until that ships, which is the honest reading today.
-	record('picker', 'a bed states a journey time per mode', atPicker && rows.length > 0,
+	// Issue #405, and named for exactly what it tests. It asserts that a duration appears
+	// on a stay row at all, which today it does not. It does NOT check that there is one
+	// per mode, or that an icon sits beside it, because the markup for that is not built
+	// and a matcher written against a guess is how the checks above drifted in the first
+	// place. Tighten this once #405 has shipped and there is real markup to name.
+	record('picker', 'a bed row states a duration', atPicker && rows.length > 0,
 		/\d+\s?(min|h)\b/.test(picker), (picker.match(/[\d]+\s?(?:min|h)\b/) ?? [''])[0]);
 	// Issue #406.
 	// Scoped to the stay list's own container, not the document. Unscoped, this matched
