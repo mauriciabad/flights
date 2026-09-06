@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { compareResults, sortResults } from './sort';
-import { insertStable, insertWithoutDisplacing, slotsToResults, toSlot } from './stream-order';
+import { insertStable, insertWithoutDisplacing, reorderBy, slotsToResults, toSlot } from './stream-order';
 import { makeScoredResult } from './test-support';
 
 const byScore = compareResults('score');
@@ -185,5 +185,60 @@ describe('insertWithoutDisplacing', () => {
 		const sorted = sortResults(slotsToResults(order), 'score');
 
 		expect(sorted.map((r) => r.id)).toEqual([better.id, worse.id]);
+	});
+});
+
+describe('reorderBy', () => {
+	/** What the page holds: `shown[i]` is the trip card `i` is rendering, which is not the
+	 * trip the slot holds once the traveller has lengthened that stopover. */
+	const byPrice = compareResults('price');
+
+	it('sorts on the shown results, not on the ones the slots hold', () => {
+		// The bug this exists for. The slots still carry what the stream delivered, so sorting
+		// them puts the lengthened trip back where its old price belonged and the traveller
+		// presses a button that changes nothing.
+		const cheapest = makeScoredResult({ priceMinorUnits: 4_251, sequence: 1 });
+		const streamed = makeScoredResult({ priceMinorUnits: 8_853, sequence: 2 });
+		const middling = makeScoredResult({ priceMinorUnits: 10_816, sequence: 3 });
+		const order = [cheapest, streamed, middling].map(toSlot);
+		const lengthened = { ...streamed, itinerary: { ...streamed.itinerary, totalPrice: { minorUnits: 18_558, currency: 'EUR' as const } } };
+
+		const reordered = reorderBy(order, [cheapest, lengthened, middling], byPrice);
+
+		expect(reordered.map((slot) => slot.id)).toEqual([cheapest.id, middling.id, streamed.id]);
+	});
+
+	it('carries the slots over, so a card keeps the result it was holding', () => {
+		const a = makeScoredResult({ priceMinorUnits: 30_000, sequence: 1 });
+		const b = makeScoredResult({ priceMinorUnits: 10_000, sequence: 2 });
+		const order = [a, b].map(toSlot);
+
+		const reordered = reorderBy(order, [a, b], byPrice);
+
+		expect(reordered[0]).toBe(order[1]);
+		expect(reordered[1]).toBe(order[0]);
+	});
+
+	it('keeps every card when the shown list is short', () => {
+		// Defensive: paired by index precisely so a card can never be dropped, whatever the
+		// page hands it.
+		const a = makeScoredResult({ priceMinorUnits: 30_000, sequence: 1 });
+		const b = makeScoredResult({ priceMinorUnits: 10_000, sequence: 2 });
+		const order = [a, b].map(toSlot);
+
+		const reordered = reorderBy(order, [], byPrice);
+
+		expect(reordered).toHaveLength(2);
+		expect(reordered.map((slot) => slot.id).sort()).toEqual([a.id, b.id].sort());
+	});
+
+	it('leaves the given order untouched', () => {
+		const a = makeScoredResult({ priceMinorUnits: 30_000, sequence: 1 });
+		const b = makeScoredResult({ priceMinorUnits: 10_000, sequence: 2 });
+		const order = [a, b].map(toSlot);
+
+		reorderBy(order, [a, b], byPrice);
+
+		expect(order.map((slot) => slot.id)).toEqual([a.id, b.id]);
 	});
 });
