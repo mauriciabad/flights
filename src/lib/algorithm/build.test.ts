@@ -10,14 +10,18 @@ import type {
 	LocalDateTime,
 	Stay,
 	Transfer,
+	TransitSchedule,
 	WaitingTimeRule
 } from '../domain';
 import {
 	buildItineraries,
+	deriveLayover,
 	recomputeItineraryWaitingTimes,
 	type BuildItinerariesInput,
-	type ConnectionResources
+	type ConnectionResources,
+	type ItineraryParts
 } from './build';
+import { recomputeItinerarySelection } from './recompute-selection';
 
 const country: Country = { isoCode: 'AT', name: 'Austria' };
 const city: City = { name: 'Vienna', coordinates: { latitude: 48.2, longitude: 16.37 }, country };
@@ -854,5 +858,224 @@ describe('buildItineraries — a short overnight is a wait, not a stay (issue #2
 		expect(edited.freeTime.end.local).toBe('2026-10-07T00:30:00');
 		expect(edited.nightsInConnection).toBe(0);
 		expect(edited.totalPrice.minorUnits).toBe(11000);
+	});
+});
+
+/**
+ * Issue #368, measured on production on 2026-09-06 with `tools/probe-stopover-edges.mjs`
+ * against the owner's own search URL. Every number below is read off that run: the two
+ * flights and the buffer from the card, the two timetables from the Transitous responses
+ * the page received.
+ *
+ * The card printed "Thu 17 until 3:03am" over a row saying the ride to the airport leaves
+ * at 1:35am. Both are about one event, and 3:03am is 4:10am minus the ride, which is when
+ * the arithmetic would like a metro to run rather than when one does.
+ */
+describe('the layover, split at the services that actually run', () => {
+	const opo = (local: string) => localDateTime(local, 'Europe/Lisbon', 60);
+	const outbound = makeFlight(
+		'BCN',
+		'OPO',
+		localDateTime('2026-09-16T05:50:00', 'Europe/Madrid', 120),
+		opo('2026-09-16T06:50:00'),
+		120,
+		3099
+	);
+	const onward = makeFlight('OPO', 'BVC', opo('2026-09-17T06:10:00'), opo('2026-09-17T08:40:00'), 270, 8300);
+
+	function scheduled(duration: number, schedule: TransitSchedule, landingBuffer?: number): Transfer {
+		return {
+			mode: 'transit',
+			duration: duration as Duration,
+			legs: [],
+			transitSchedule: schedule,
+			landingBuffer: landingBuffer === undefined ? undefined : (landingBuffer as Duration)
+		};
+	}
+
+	/** Coach then metro, boarding 7:30am and at the door 8:06am, with 30 minutes of walking
+	 * out of OPO folded into `duration` the way `applyLandingBuffer` leaves it. */
+	const toHotel = scheduled(
+		69,
+		{
+			intended: opo('2026-09-16T07:30:00'),
+			arrival: opo('2026-09-16T08:06:00'),
+			following: [opo('2026-09-16T07:41:00'), opo('2026-09-16T07:59:00')],
+			plannedFor: { time: opo('2026-09-16T07:20:00'), arriveBy: false }
+		},
+		30
+	);
+
+	/** Metro then coach, the last pair that still makes the 4:10am check-in deadline. */
+	const toAirport = scheduled(67, {
+		intended: opo('2026-09-17T01:35:00'),
+		arrival: opo('2026-09-17T02:38:00'),
+		following: [],
+		earlier: [opo('2026-09-16T23:24:00'), opo('2026-09-17T00:34:00')],
+		plannedFor: { time: opo('2026-09-17T04:10:00'), arriveBy: true }
+	});
+
+	/** The trip as the pipeline has it before any timetable lands: road-mode rides of the
+	 * same length, which is what `buildItineraries` is given. */
+	function roadTrip() {
+		return buildItineraries(
+			baseInput({
+				outboundOffers: [outbound],
+				onwardOffers: [onward],
+				connectionAirports: { OPO: makeAirport('OPO') },
+				connectionResources: {
+					OPO: {
+						stay: makeStay(1240),
+						transferAnchor: 'stay',
+						transferToHotel: makeTransfer(69),
+						transferToConnectionAirport: makeTransfer(67)
+					}
+				},
+				waitingTimeRules: flatWaitingTime(120)
+			})
+		)[0];
+	}
+
+	/** The same trip once `fetchTransitSchedules` has folded both timetables in, which it
+	 * does one leg at a time through `recomputeItinerarySelection`. */
+	function timetabledTrip() {
+		const first = recomputeItinerarySelection(roadTrip(), { transferToHotel: toHotel });
+		return recomputeItinerarySelection(first.itinerary, { transferToConnectionAirport: toAirport })
+			.itinerary;
+	}
+
+	it('ends the stopover when the last service in time departs, not when the subtraction would like it to', () => {
+		expect(timetabledTrip().freeTime.end.local).toBe('2026-09-17T01:35:00');
+	});
+
+	it('starts the stopover when the service that was caught gets there', () => {
+		// Landing plus the 30m walk-out plus the 39m ride is 7:59am, and the traveller is
+		// nowhere near the hostel then: the 7:30am coach reaches it at 8:06am.
+		expect(timetabledTrip().freeTime.start.local).toBe('2026-09-16T08:06:00');
+	});
+
+	it('gives the hours the two edges leave, not the ones the buffer assumed', () => {
+		// 8:06am Wednesday to 1:35am Thursday.
+		expect(timetabledTrip().freeTime.duration).toBe(1049);
+	});
+
+	it('waits at the connection airport for however long the early service leaves', () => {
+		// Back at OPO at 2:38am for a 6:10am flight. The 2h buffer is a minimum the
+		// traveller set, and no timetable is obliged to meet it exactly.
+		expect(timetabledTrip().times.connectionAirportWaiting).toBe(212);
+	});
+
+	it('keeps door to door fixed, because none of this moves a flight', () => {
+		// The layover is 6:50am to 6:10am whatever happens inside it. Splitting it
+		// differently must not lengthen or shorten the journey.
+		expect(timetabledTrip().times.total).toBe(roadTrip().times.total);
+	});
+
+	it('still books the night, because a day in Porto is not an overnight wait', () => {
+		// The honest window gives 4h 35m inside the 9pm-to-9am night, under
+		// MIN_SLEEPABLE_MINUTES. It is still a night: the traveller has the whole of
+		// Wednesday at the property, and `isOvernightWait` is about gaps that fit inside
+		// one night, not about every window that happens to end in the small hours.
+		expect(timetabledTrip().nightsInConnection).toBe(1);
+	});
+});
+
+/**
+ * The property that makes issue #368's fix a shape rather than a patch: whatever the pieces
+ * do, they are pieces OF something, and that something is fixed by the two flights.
+ *
+ * This is the assertion that would have caught the original defect from the other side. The
+ * old `times.total` added the pieces back up, so moving one edge moved the journey; the old
+ * `deriveFreeTime` had no notion of a whole to be a part of, so nothing could have failed.
+ */
+describe('the layover always adds up to itself', () => {
+	const at = (local: string) => localDateTime(local, 'Europe/Lisbon', 60);
+	const transitTo = (duration: number, intended: string, arrival: string, plannedFor: string, arriveBy: boolean): Transfer => ({
+		mode: 'transit',
+		duration: duration as Duration,
+		legs: [],
+		transitSchedule: {
+			intended: at(intended),
+			arrival: at(arrival),
+			following: [],
+			plannedFor: { time: at(plannedFor), arriveBy }
+		}
+	});
+
+	function partsWith(overrides: Partial<ItineraryParts>): ItineraryParts {
+		return {
+			outboundFlight: makeFlight('BCN', 'OPO', at('2026-09-16T05:50:00'), at('2026-09-16T06:50:00'), 120),
+			onwardFlight: makeFlight('OPO', 'BVC', at('2026-09-17T06:10:00'), at('2026-09-17T08:40:00'), 270),
+			originWaitingTime: 120 as Duration,
+			connectionWaitingTime: 120 as Duration,
+			travellers: 2,
+			...overrides
+		};
+	}
+
+	const shapes: Record<string, ItineraryParts> = {
+		'no ground legs at all': partsWith({}),
+		'road rides both ways': partsWith({
+			transferToHotel: makeTransfer(69),
+			transferToConnectionAirport: makeTransfer(67)
+		}),
+		'a ride into town and nothing back': partsWith({ transferToHotel: makeTransfer(69) }),
+		'both rides on a live timetable': partsWith({
+			transferToHotel: transitTo(69, '2026-09-16T07:30:00', '2026-09-16T08:06:00', '2026-09-16T06:50:00', false),
+			transferToConnectionAirport: transitTo(67, '2026-09-17T01:35:00', '2026-09-17T02:38:00', '2026-09-17T04:10:00', true)
+		}),
+		'a timetable planned for a buffer nobody uses any more': partsWith({
+			transferToConnectionAirport: transitTo(67, '2026-09-17T01:35:00', '2026-09-17T02:38:00', '2026-09-17T01:20:00', true)
+		}),
+		'a buffer wider than the layover': partsWith({ connectionWaitingTime: 2000 as Duration })
+	};
+
+	for (const [name, parts] of Object.entries(shapes)) {
+		it(`splits ${name} into pieces that sum to the whole`, () => {
+			const layover = deriveLayover(parts);
+			expect(layover.intoTown + layover.free.duration + layover.backToAirport + layover.airportWait).toBe(
+				layover.total
+			);
+		});
+	}
+
+	it('leaves a stale timetable out of the edges rather than quoting it', () => {
+		// The lookup was planned for a 1:20am deadline and the trip now has a 4:10am one, so
+		// the 1:35am departure answers a question nobody is asking. Back to the subtraction.
+		const stale = deriveLayover(shapes['a timetable planned for a buffer nobody uses any more']!);
+		expect(stale.free.end.local).toBe('2026-09-17T03:03:00');
+	});
+});
+
+/**
+ * Issue #368's one silent hazard. `readStaleSchedule` answers `undefined` for two different
+ * things, and only one of them means "read this timetable as fact".
+ */
+describe('a timetable nothing can check against the trip', () => {
+	const at = (local: string) => localDateTime(local, 'Europe/Lisbon', 60);
+
+	it('does not move the stopover edge, because nobody can say the landing still matches', () => {
+		// A transit ride into town with a real schedule and no recorded walk-out. There is no
+		// moment to compare `plannedFor` against, so the arithmetic stands: 6:50am + 69m.
+		const layover = deriveLayover({
+			outboundFlight: makeFlight('BCN', 'OPO', at('2026-09-16T05:50:00'), at('2026-09-16T06:50:00'), 120),
+			onwardFlight: makeFlight('OPO', 'BVC', at('2026-09-17T06:10:00'), at('2026-09-17T08:40:00'), 270),
+			originWaitingTime: 120 as Duration,
+			connectionWaitingTime: 120 as Duration,
+			travellers: 2,
+			transferToHotel: {
+				mode: 'transit',
+				duration: 69 as Duration,
+				legs: [],
+				transitSchedule: {
+					intended: at('2026-09-16T07:30:00'),
+					arrival: at('2026-09-16T08:06:00'),
+					following: [],
+					plannedFor: { time: at('2026-09-16T07:20:00'), arriveBy: false }
+				}
+			}
+		});
+
+		expect(layover.free.start.local).toBe('2026-09-16T07:59:00');
 	});
 });

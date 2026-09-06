@@ -108,6 +108,7 @@ function baseItinerary(): Itinerary {
 		times: {
 			inFlight: 300 as Duration,
 			airportWaiting: 240 as Duration,
+			connectionAirportWaiting: 120 as Duration,
 			free: 120 as Duration,
 			total: 690 as Duration
 		}

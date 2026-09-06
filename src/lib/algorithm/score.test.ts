@@ -141,6 +141,7 @@ function twoHourLayover(flightCarrier: Carrier = carrier('AB', 'Air Baseline')):
 		times: {
 			inFlight: 300 as Duration, // both flights: 150 + 150
 			airportWaiting: 240 as Duration, // originWaitingTime + connectionWaitingTime
+			connectionAirportWaiting: 120 as Duration,
 			free: 120 as Duration,
 			total: 690 as Duration // inFlight + airportWaiting + free + 2*15min transfers
 		}
@@ -171,6 +172,7 @@ function threeNightStopover(flightCarrier: Carrier = carrier('AB', 'Air Baseline
 		times: {
 			inFlight: 300 as Duration,
 			airportWaiting: 240 as Duration,
+			connectionAirportWaiting: 120 as Duration,
 			free: 4320 as Duration,
 			total: 4890 as Duration // inFlight + airportWaiting + free + 2*15min transfers
 		}
@@ -246,6 +248,7 @@ function nightsStopover(nights: number, bedPerNight?: number): Itinerary {
 		times: {
 			inFlight: 300 as Duration,
 			airportWaiting: 240 as Duration,
+			connectionAirportWaiting: 120 as Duration,
 			free: freeDuration as Duration,
 			total: (300 + 240 + freeDuration + 30) as Duration
 		}

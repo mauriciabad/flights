@@ -13,6 +13,7 @@ import type {
 	Transfer
 } from '../domain';
 import { buildItineraries } from '../algorithm/build';
+import { recomputeItinerarySelection } from '../algorithm/recompute-selection';
 import ItineraryTimeline from './ItineraryTimeline.svelte';
 import ItineraryTimelineSelectionHarness from './ItineraryTimelineSelectionHarness.svelte';
 
@@ -628,5 +629,52 @@ describe('ItineraryTimeline, the hour the bus actually leaves (issue #344)', () 
 
 	it('says nothing on a road leg, which has no timetable to wait for', () => {
 		expect(rowText(makeItinerary())).not.toContain('First departure');
+	});
+});
+
+/**
+ * Issue #368. The rows between the two flights are a schedule the reader adds up, so the
+ * wait row has to say what the layover leaves rather than what the traveller's buffer rule
+ * asked for. With a real timetable on the ride back those are two different numbers, and the
+ * rows stopped reaching the flight below them.
+ */
+describe('ItineraryTimeline, the wait after a ride that leaves when the metro does', () => {
+	function portoTimeline() {
+		const opo = (local: string) => localDateTime(local, 'Europe/Lisbon', 60);
+		const [built] = buildItineraries({
+			originAirport: origin,
+			destinationAirport: destination,
+			outboundOffers: [makeFlight('LGW', 'VIE', opo('2026-09-16T06:50:00'), opo('2026-09-16T06:50:00'), 120)],
+			onwardOffers: [makeFlight('VIE', 'IST', opo('2026-09-17T06:10:00'), opo('2026-09-17T06:10:00'), 270)],
+			connectionAirports: { VIE: connection },
+			connectionResources: {
+				VIE: {
+					stay: makeStay(1240),
+					transferAnchor: 'stay',
+					transferToHotel: makeTransfer(69),
+					transferToConnectionAirport: makeTransfer(67)
+				}
+			},
+			waitingTimeRules: [{ waitingTime: 120 as Duration }]
+		});
+		const timetabled = recomputeItinerarySelection(built!, {
+			transferToConnectionAirport: {
+				mode: 'transit',
+				duration: 67 as Duration,
+				legs: [],
+				transitSchedule: {
+					intended: opo('2026-09-17T01:35:00'),
+					arrival: opo('2026-09-17T02:38:00'),
+					following: [],
+					plannedFor: { time: opo('2026-09-17T04:10:00'), arriveBy: true }
+				}
+			}
+		}).itinerary;
+		return renderTimeline(timetabled);
+	}
+
+	it('prints the wait the timetable leaves, not the two-hour rule', () => {
+		const row = portoTimeline().querySelector('[data-segment="connection-waiting"]');
+		expect(row?.querySelector('.tl-duration')?.textContent).toBe('3h 32m');
 	});
 });

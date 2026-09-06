@@ -69,7 +69,13 @@ function makeItinerary(overrides: ItineraryOverrides = {}): Itinerary {
 		onwardFlight: makeFlight('VIE', 'IST', overrides.onwardDeparture ?? '2027-03-09T12:00:00', '2027-03-09T15:00:00'),
 		destinationAirport: IST,
 		totalPrice: total,
-		times: { inFlight: 240 as Duration, airportWaiting: 0 as Duration, free: 1440 as Duration, total: 1740 as Duration }
+		times: {
+			inFlight: 240 as Duration,
+			airportWaiting: 0 as Duration,
+			connectionAirportWaiting: 0 as Duration,
+			free: 1440 as Duration,
+			total: 1740 as Duration
+		}
 	};
 }
 

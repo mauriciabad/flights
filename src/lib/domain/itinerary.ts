@@ -28,6 +28,21 @@ export interface ItineraryTimes {
 	/** Origin + connection airport waiting time only — never the gap between flights.
 	 * Brief line 58; see WaitingTimeRule in waiting-time.ts for why. */
 	airportWaiting: Duration;
+	/**
+	 * The connection half of `airportWaiting`, on its own, because it is the half that is
+	 * not `connectionWaitingTime`.
+	 *
+	 * That field is a rule the traveller set: be at the gate at least this long before
+	 * boarding. This is what the layover actually leaves them, and issue #368 is the gap
+	 * between the two. On the owner's Porto card the last metro that makes a 4:10am deadline
+	 * boards at 1:35am and reaches OPO at 2:38am, so the real wait before a 6:10am flight is
+	 * 3h 32m against a 2h rule. The timeline row prints this one; the customise panel's
+	 * stepper still edits the rule.
+	 *
+	 * `algorithm/build.ts` derives it as the layover's residual, which is what keeps
+	 * `total` below fixed while the pieces inside it move.
+	 */
+	connectionAirportWaiting: Duration;
 	/** Mirrors FreeTime.duration for this summary; FreeTime itself carries the real
 	 * start/end. Brief line 59. */
 	free: Duration;

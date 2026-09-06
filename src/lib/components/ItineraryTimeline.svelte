@@ -707,7 +707,13 @@
 		// actually have (the IATA code) rather than fabricating a name, city or country.
 		`the connection airport (${itinerary.outboundFlight.arrivalAirport})`,
 		itinerary.outboundFlight.arrivalAirport,
-		itinerary.connectionWaitingTime,
+		// Issue #368: what the layover leaves, not the buffer the traveller set. The row
+		// above prints the real last service to the airport, and on the owner's Porto card
+		// that lands them in the terminal 1h 32m before the 2h rule would have. Printing the
+		// rule here left the three rows failing to add up to the flight below them. The
+		// stepper that edits the rule is in the customise panel, which is where a minimum
+		// belongs.
+		itinerary.times.connectionAirportWaiting,
 		'connection-waiting'
 	)}
 

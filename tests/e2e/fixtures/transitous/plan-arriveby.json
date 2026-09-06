@@ -1,0 +1,30 @@
+{
+	"itineraries": [
+		{
+			"duration": 1500,
+			"startTime": "2027-03-10T07:10:00Z",
+			"endTime": "2027-03-10T07:35:00Z",
+			"legs": [
+				{
+					"mode": "BUS",
+					"routeShortName": "FIXTURE",
+					"duration": 1500,
+					"from": {
+						"name": "FIXTURELAND Hauptbahnhof",
+						"lat": 48.185,
+						"lon": 16.377,
+						"tz": "Europe/Vienna"
+					},
+					"to": {
+						"name": "FIXTURE Bravo Airport",
+						"lat": 48.1103,
+						"lon": 16.5697,
+						"tz": "Europe/Vienna"
+					},
+					"startTime": "2027-03-10T07:10:00Z",
+					"endTime": "2027-03-10T07:35:00Z"
+				}
+			]
+		}
+	]
+}

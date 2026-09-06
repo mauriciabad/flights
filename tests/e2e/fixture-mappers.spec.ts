@@ -66,6 +66,14 @@ const AFTER_LANDING: TransitPlanMoment = {
 	arriveBy: false
 };
 
+/** The other kind of question, and the other fixture. Issue #368: the ride back to the
+ * airport is planned backwards from a check-in deadline, and the mapper picks the LAST
+ * departure rather than the first when it is. */
+const BEFORE_DEADLINE: TransitPlanMoment = {
+	time: { local: '2027-03-10T09:00:00', timeZone: 'Europe/Vienna', utcOffsetMinutes: 60 },
+	arriveBy: true
+};
+
 async function routeThroughOsrm(raw: unknown): Promise<number> {
 	const provider = createOsrmTransferProvider({
 		store: new MemoryCacheStore(),
@@ -269,6 +277,18 @@ const CHECKS: Record<string, FixtureCheck> = {
 				raw as never,
 				AFTER_LANDING,
 				greatCircleDistanceKm(AIRPORT, CITY)
+			);
+			return transfer ? 1 : 0;
+		}
+	},
+	'transitous/plan-arriveby.json': {
+		readBy: 'providers/transfers/transitous-mapper.ts mapPlanResponseToTransfer',
+		yields: 'some',
+		map: (raw) => {
+			const transfer = mapPlanResponseToTransfer(
+				raw as never,
+				BEFORE_DEADLINE,
+				greatCircleDistanceKm(CITY, AIRPORT)
 			);
 			return transfer ? 1 : 0;
 		}

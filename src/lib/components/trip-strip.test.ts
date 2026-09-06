@@ -1,5 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import type { Airport, Duration, FlightOffer, Itinerary, LocalDateTime, Money, Transfer } from '../domain';
+import { deriveItinerary } from '../algorithm/build';
+import type {
+	Airport,
+	Duration,
+	FlightOffer,
+	Itinerary,
+	LocalDateTime,
+	Money,
+	Transfer,
+	TransitSchedule
+} from '../domain';
 import { TRIP_STRIP_SCALE, segmentIdOf, splitFreeTimeAtLocalMidnight, sqrtShares, tripStrip } from './trip-strip';
 
 function at(local: string): LocalDateTime {
@@ -91,6 +101,7 @@ function makeItinerary(shape: Shape): Itinerary {
 		times: {
 			inFlight: (shape.outboundMinutes + shape.onwardMinutes) as Duration,
 			airportWaiting: (waiting * 2) as Duration,
+			connectionAirportWaiting: waiting as Duration,
 			free: freeMinutes as Duration,
 			total: (shape.outboundMinutes + shape.stopoverMinutes + shape.onwardMinutes) as Duration
 		}
@@ -475,5 +486,85 @@ describe('segmentIdOf', () => {
 		const free = strip.segments.flatMap((segment, index) => (segment.kind === 'free' ? [segmentIdOf(strip, index)] : []));
 		expect(free.length).toBeGreaterThan(1);
 		expect(new Set(free)).toEqual(new Set(['free-time']));
+	});
+});
+
+/**
+ * Issue #368, the same production numbers `algorithm/build.test.ts` pins: BCN to BVC via
+ * Porto, landing 6:50am, boarding 6:10am the next morning, with both in-city rides on a real
+ * Transitous timetable.
+ *
+ * The strip drew a 67-minute cell across the 2h 35m between the stopover and the buffer,
+ * because it read `Transfer.duration` and `connectionWaitingTime` instead of asking what the
+ * layover actually leaves.
+ */
+describe('the strip, over a layover with a timetable in it', () => {
+	function scheduled(minutes: number, schedule: TransitSchedule, landingBuffer?: number): Transfer {
+		return {
+			mode: 'transit',
+			duration: minutes as Duration,
+			legs: [{ mode: 'transit', duration: minutes as Duration }],
+			transitSchedule: schedule,
+			landingBuffer: landingBuffer === undefined ? undefined : (landingBuffer as Duration)
+		};
+	}
+
+	function porto() {
+		const base = makeItinerary({
+			departs: '2026-09-16T04:50:00',
+			outboundMinutes: 120,
+			stopoverMinutes: 1400,
+			onwardMinutes: 270,
+			toCity: scheduled(
+				69,
+				{
+					intended: at('2026-09-16T07:30:00'),
+					arrival: at('2026-09-16T08:06:00'),
+					following: [at('2026-09-16T07:41:00')],
+					plannedFor: { time: at('2026-09-16T07:20:00'), arriveBy: false }
+				},
+				30
+			),
+			toAirport: scheduled(67, {
+				intended: at('2026-09-17T01:35:00'),
+				arrival: at('2026-09-17T02:38:00'),
+				following: [],
+				plannedFor: { time: at('2026-09-17T04:10:00'), arriveBy: true }
+			})
+		});
+		return tripStrip({ ...base, ...deriveItinerary(base) });
+	}
+
+	function cell(kind: string, leg?: string) {
+		const found = porto().segments.find(
+			(segment) => segment.kind === kind && (leg === undefined || (segment as { leg?: string }).leg === leg)
+		);
+		if (!found) throw new Error(`no ${kind} ${leg ?? ''} cell`);
+		return found;
+	}
+
+	it('draws the ride into town as long as it really takes, wait for the coach included', () => {
+		// 6:50am to 8:06am, not the 69 minutes the transfer claims.
+		expect(cell('transfer', 'to-city').minutes).toBe(76);
+	});
+
+	it('draws the ride back between leaving the bed and reaching the terminal', () => {
+		const back = cell('transfer', 'to-connection-airport');
+		expect([back.start.local, back.end.local]).toEqual(['2026-09-17T01:35:00', '2026-09-17T02:38:00']);
+		expect(back.minutes).toBe(63);
+	});
+
+	it('draws the terminal wait from the moment the traveller gets back to it', () => {
+		const wait = porto().segments.find((segment) => segment.kind === 'wait' && segment.start.local.startsWith('2026-09-17'));
+		expect(wait?.start.local).toBe('2026-09-17T02:38:00');
+		expect(wait?.minutes).toBe(212);
+	});
+
+	it('tiles the whole layover with no gap and no overlap', () => {
+		// Landing to take-off is 1400 minutes and every cell between the two flights has to
+		// account for one of them exactly once.
+		const segments = porto().segments;
+		const between = segments.slice(segments.findIndex((s) => s.kind === 'flight') + 1, segments.length - 1);
+		expect(between.reduce((sum, segment) => sum + segment.minutes, 0)).toBe(1400);
 	});
 });
