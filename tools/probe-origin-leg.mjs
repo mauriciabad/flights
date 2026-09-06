@@ -15,12 +15,13 @@
  * So this prints three things and asserts none of them:
  *
  * 1. The origin rows of one card, with the ride's own clock and the wait beside it.
- * 2. Every card's four metrics, in list order, under "Best match" and again under
- *    "Fastest". Correcting the origin edge moves `times.total`, which is what the second
- *    of those sorts by and an input to the score the first sorts by. A before-and-after
+ * 2. Every card's four metrics, in list order: as the search left them, then re-sorted by
+ *    each of the three modes. Correcting the origin edge moves `times.total`, which is what
+ *    "Fastest" sorts by and an input to the score "Best match" sorts by. A before-and-after
  *    of this section on the same URL is the ranking measurement issue #399 asks for, and
  *    "Airport wait" is exact minutes under a day, so the per-card delta is readable
- *    straight off it.
+ *    straight off it. "Cheapest" is there as the control: nothing in this issue can move
+ *    it.
  * 3. The Transitous responses for the origin leg as the provider sent them, with the
  *    departure the adapter picks marked. An `arriveBy` plan is chosen by the LAST boarding
  *    that still makes the deadline (providers/transfers/transitous-mapper.ts), and its
@@ -106,9 +107,17 @@ try {
 	const count = await cards.count();
 	console.log(`${count} result cards`);
 
-	for (const mode of ['score', 'duration']) {
+	console.log('\n=== list order as the search left it ===');
+	// `insertStable` places each arrival by its score at the moment it lands and never moves
+	// a card already on screen (stream-order.ts, issue #314), so this is not necessarily
+	// what the comparator would say. The three below are.
+	for (const [index, row] of (await readList()).entries()) {
+		console.log(`${String(index + 1).padStart(3)}  ${row}`);
+	}
+
+	for (const mode of ['score', 'price', 'duration']) {
 		await sortBy(mode);
-		console.log(`\n=== list order, sorted by ${mode} ===`);
+		console.log(`\n=== list order, re-sorted by ${mode} ===`);
 		const rows = await readList();
 		for (const [index, row] of rows.entries()) {
 			console.log(`${String(index + 1).padStart(3)}  ${row}`);
@@ -172,7 +181,16 @@ async function text(locator) {
 async function sortBy(mode) {
 	const body = page.locator('#results-filters-body');
 	if (await body.isHidden()) await page.locator('.filters-toggle').click();
-	await page.getByLabel('Sort by').selectOption(mode);
+	const select = page.getByLabel('Sort by');
+	// Only a real change to `sortMode` runs the re-sort effect, so selecting the mode the
+	// control already holds reads back the streamed order and calls it a sort. Route through
+	// another mode first. This bit the first version of this probe: it reported a "score"
+	// order that was really the arrival order and differed from the one a traveller gets by
+	// touching the control.
+	if ((await select.inputValue()) === mode) {
+		await select.selectOption(mode === 'price' ? 'score' : 'price');
+	}
+	await select.selectOption(mode);
 	// The list re-sorts synchronously on the change; this settles the DOM before it is read.
 	await page.locator('.result-card').first().waitFor();
 }

@@ -234,10 +234,12 @@ describe('the airport wait stub', () => {
 		expect(stub.facts).toContainEqual({ label: 'Before', value: 'easyJet U28965 to Pafos, 3:20pm' });
 	});
 
-	it('says the wait is the traveller\'s own setting, not a measured queue', () => {
+	it('says nobody measured the wait, and names the traveller\'s own floor under it', () => {
+		// Issues #368 and #399: the cell is what the ride beside it leaves, so the panel can
+		// no longer call the whole number a setting. 2h is the setting; the wait is not.
 		const stub = stubOf(itineraryFor(), 'wait');
 		expect(stub.footnote).toBe(
-			'Your own buffer, not a measured queue. 2h is the setting for this airport, and picking this wait is where you change it.'
+			'Not a measured queue: it is what the ride before it leaves you. Never under the 2h minimum you set for this airport, and picking this wait is where you change that.'
 		);
 	});
 

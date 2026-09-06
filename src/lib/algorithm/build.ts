@@ -216,7 +216,7 @@ export interface ConnectionLayover {
  * put four hours of the traveller's evening in nothing the card printed.
  */
 export interface OriginLeg {
-	/** Leaving to the outbound departure. `toAirport + airportWait` is exactly this. */
+	/** Leaving home to the outbound departure. `toAirport + airportWait` is exactly this. */
 	total: Duration;
 	/** When the traveller leaves. The ride's boarding time where a timetable answered, so
 	 * it is the clock the timeline row already prints for that leg and not a second one. */
