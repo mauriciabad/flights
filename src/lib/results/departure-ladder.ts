@@ -18,7 +18,7 @@
 
 import { departureDateOf, isSameFlight } from '$lib/algorithm/pairings';
 import type { Itinerary } from '$lib/domain';
-import { formatMoneyDelta, formatWeekdayAndDay } from '$lib/format';
+import { formatMoney, formatMoneyDelta, formatWeekdayAndDay } from '$lib/format';
 
 /** One rung of a connection's departure ladder: a date it can leave on, and the trip that
  * leaves then. Carried rather than only the date so a rung prices itself before it is
@@ -52,6 +52,20 @@ export interface DepartureDateChoice {
 }
 
 /**
+ * How many rungs the row draws at most, and why it is seven.
+ *
+ * Kayak's own flexible-date window is the chosen date plus or minus three, which is seven.
+ * Baymard's truncation research puts the useful band for a list like this at six to ten, and
+ * NN/g's date-list guidance caps at ten. Seven sits inside both and, at the stub width the
+ * nights ladder already uses, wraps to two rows on a 375px phone rather than six.
+ *
+ * The cap is real rather than defensive. A search window is whatever the traveller typed:
+ * `dep=2026-09-01&arr=2026-09-30` is a perfectly ordinary URL and would otherwise draw
+ * twenty-odd stubs down a 300px rail.
+ */
+export const MAX_DEPARTURE_RUNGS = 7;
+
+/**
  * Every date this connection can leave on, each priced against the trip on screen.
  *
  * ## Calendar order, with the cheapest marked, rather than sorted by price
@@ -79,7 +93,7 @@ export function departureLadder(
 	options: readonly DepartureDateOption[]
 ): DepartureDateChoice[] {
 	const cheapest = cheapestDate(options);
-	return options.map((option) => {
+	return rungsToDraw(shown, options).map((option) => {
 		const isCurrent = option.date === departureDateOf(shown);
 		const deltaMinorUnits = option.itinerary.totalPrice.minorUnits - shown.totalPrice.minorUnits;
 		const currency = option.itinerary.totalPrice.currency;
@@ -96,9 +110,58 @@ export function departureLadder(
 			isCheapest,
 			description: isCurrent
 				? `Leave ${label}, the trip shown`
-				: `Leave ${label}, ${delta}${isCheapest ? ', the cheapest day' : ''}`
+				: `Leave ${label}, ${spokenDelta(deltaMinorUnits, currency)}${
+						isCheapest ? ', the cheapest day' : ''
+					}`
 		};
 	});
+}
+
+/**
+ * The delta again, for the ear rather than the eye, naming what it is measured against.
+ *
+ * "+EUR 24.80" on a button is unambiguous next to the headline it is anchored to and says
+ * nothing on its own read out in a list of buttons. Kiwi.com ships this exact sentence for
+ * this exact control: their price strip's own translated string is `"{price} cheaper than
+ * currently selected date"`. Same fix, same reason.
+ */
+function spokenDelta(deltaMinorUnits: number, currency: string): string {
+	if (deltaMinorUnits === 0) return 'the same price as the day shown';
+	const amount = formatMoney({ minorUnits: Math.abs(deltaMinorUnits), currency });
+	return deltaMinorUnits < 0
+		? `${amount} cheaper than the day shown`
+		: `${amount} more than the day shown`;
+}
+
+/**
+ * Which days make the row when there are more than it can hold: the cheapest ones, plus
+ * whichever day is on screen, shown in calendar order.
+ *
+ * This is where the owner's "shorted by best price" is honoured. Price decides WHICH days
+ * appear and the calendar decides HOW they are arranged, which is the only reading that
+ * satisfies both halves of what he asked for. A day left out is left out for being dearer
+ * than seven others, and it is still reachable through the flight picker directly below,
+ * which lists every flight on every date the search found.
+ *
+ * The day on screen is always kept, even when it is the dearest of the lot, because a row
+ * that cannot show you where you are is not a control.
+ */
+function rungsToDraw(
+	shown: Itinerary,
+	options: readonly DepartureDateOption[]
+): DepartureDateOption[] {
+	if (options.length <= MAX_DEPARTURE_RUNGS) return [...options];
+	const current = departureDateOf(shown);
+	const byPrice = [...options].sort(
+		(a, b) => a.itinerary.totalPrice.minorUnits - b.itinerary.totalPrice.minorUnits
+	);
+	const kept = new Set<string>();
+	if (options.some((option) => option.date === current)) kept.add(current);
+	for (const option of byPrice) {
+		if (kept.size >= MAX_DEPARTURE_RUNGS) break;
+		kept.add(option.date);
+	}
+	return options.filter((option) => kept.has(option.date));
 }
 
 /** The date with the lowest total. Ties go to the earliest, which `options` already

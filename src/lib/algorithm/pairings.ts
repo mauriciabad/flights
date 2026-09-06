@@ -171,12 +171,15 @@ export interface DepartureDate<T> {
  * Every date this connection's pairings leave on, ascending, each with the best trip that
  * day.
  *
- * Ascending by date rather than by price, and that is not the order the rungs render in.
- * The owner asked twice in one sentence for "shorted by best price", and the ladder obeys
- * him; a date is also a point on a calendar, and a function that returns dates out of
- * calendar order hands every later reader a list they have to re-sort to reason about.
- * `results/departure-ladder.ts` owns the presentation order, the same split
- * `stopover-nights.ts` already makes.
+ * Ascending by date, and deliberately every date rather than a shortlist. A function that
+ * returned days out of calendar order would hand every later reader a list to re-sort before
+ * they could reason about it, and one that returned only some of them would leave
+ * `chooseDepartureDate` unable to find the rung that was pressed.
+ *
+ * Which days a narrow row can actually draw, and in what order, is
+ * `results/departure-ladder.ts`'s decision, the same split `stopover-nights.ts` already
+ * makes. That is also where the owner's "shorted by best price" is answered, and its doc
+ * comment argues the answer out.
  *
  * `requestedNights` is the other axis's pin. A traveller who asked for three nights and
  * then asks about Thursday should be offered Thursday's three-night trip, not Thursday's

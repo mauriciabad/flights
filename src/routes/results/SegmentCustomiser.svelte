@@ -113,9 +113,6 @@
 		/** True when the shortest pairing spends no night here, which makes this a flight
 		 * change rather than a stopover (issue #225). */
 		isFlightChange?: boolean;
-		/** Issue #224: whether this trip is at the shortest length this connection can do,
-		 * which is the one `pipeline.ts` refined transit timetables for. */
-		atDefaultLength?: boolean;
 		/** Issue #387: every day this connection can be flown on, priced, for the ladder
 		 * beside the outbound flight. Rides with the outbound panel because that is the leg
 		 * whose date it is. */
@@ -172,7 +169,6 @@
 		segment,
 		stopoverOptions = [],
 		isFlightChange = false,
-		atDefaultLength = true,
 		departureOptions = [],
 		group,
 		stayCandidates = [],
@@ -262,6 +258,7 @@
 		if (!onward || isSameFlight(onward, itinerary.onwardFlight)) return;
 		draft.apply(recomputeItinerarySelection(itinerary, { onwardFlight: onward }, minLayoverTime));
 	}
+
 	const stayProperties = $derived(groupByProperty(stayCandidates));
 
 	const originAirportTransferOptions = $derived(outerTransferOptions?.transferToOriginAirport ?? NO_TRANSFER_LEG_OPTIONS);
@@ -273,11 +270,30 @@
 		outerTransferOptions?.transferToDestinationLocation ?? NO_TRANSFER_LEG_OPTIONS
 	);
 
+	/**
+	 * Whether the trip on screen is the very pairing `pipeline.ts` spent its one timetable
+	 * lookup on, which is `group.best` and nothing else.
+	 *
+	 * This used to be the page's `atDefaultLength`, a night count compared against the
+	 * connection's cheapest. That was exact while the nights were the only thing that could
+	 * move a card off `group.best`, and issue #387 ends that: a departure date can land on
+	 * another day's pairing at the same length, and the old test would have called that the
+	 * default and claimed timetables planned for a flight two days earlier. Comparing the
+	 * two flights asks the question the timetables actually turn on.
+	 */
+	const showsSearchedPairing = $derived(
+		group !== undefined &&
+			isSameFlight(itinerary.outboundFlight, group.best.score.itinerary.outboundFlight) &&
+			isSameFlight(itinerary.onwardFlight, group.best.score.itinerary.onwardFlight)
+	);
+
 	// Issue #135: what each leg's timetable lookup actually said, planned for THIS
 	// itinerary's own flight times. Undefined once a leg has been swapped or the stopover
-	// extended, because the lookups were never planned for the trip that results, and
+	// moved, because the lookups were never planned for the trip that results, and
 	// pretending otherwise is the defect that issue is about.
-	const transitAnswers = $derived(!draft.pickedAnAlternative && atDefaultLength ? group?.best.transit : undefined);
+	const transitAnswers = $derived(
+		!draft.pickedAnAlternative && showsSearchedPairing ? group?.best.transit : undefined
+	);
 
 	/**
 	 * Issue #267: the two in-city legs, once the traveller has swapped to a bed the search

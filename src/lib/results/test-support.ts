@@ -165,8 +165,7 @@ export function makeScoredResult(
 		// Issue #387: one pairing leaves on one day, which is what almost every test here
 		// wants. `departureDates` above overrides it for the tests about the ladder itself.
 		departure: overrides.departureDates ?? {
-			options: [{ date: departureDateOf(itinerary), itinerary }],
-			current: departureDateOf(itinerary)
+			options: [{ date: departureDateOf(itinerary), itinerary }]
 		},
 		price: {
 			parts: [

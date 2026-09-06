@@ -1446,8 +1446,6 @@
 			segment={customisingSegment}
 			stopoverOptions={customisingResult.stopover.options}
 			isFlightChange={customisingResult.stopover.isFlightChange}
-			atDefaultLength={shownItinerary(customisingResult.id, customisingResult.itinerary).nightsInConnection ===
-				customisingResult.stopover.minimum}
 			group={groupsByConnection[customisingResult.id]}
 			stayCandidates={stayCandidatesByConnection[customisingCode] ?? []}
 			transferOptions={transferOptionsByConnection[customisingCode]}

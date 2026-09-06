@@ -20,7 +20,7 @@ import { currencyExponent, majorUnitsOf } from '$lib/domain';
 import type { ItineraryScore } from '$lib/algorithm/score';
 import { moneyCostOf } from '$lib/algorithm/score';
 import { isFlightChange } from '$lib/algorithm/stopover-length';
-import { departureDateOf, departureDates, pairingsOn, resolveStopover } from '$lib/algorithm/pairings';
+import { departureDates, pairingsOn, resolveStopover } from '$lib/algorithm/pairings';
 import type { PairingView } from '$lib/algorithm/pairings';
 import type { DepartureDateOption } from './departure-ladder';
 import type { ProviderError, ProviderId, ProviderKind } from '$lib/providers/types';
@@ -219,10 +219,13 @@ export interface ScoredResult {
  */
 export interface DepartureDates {
 	/** Every date this connection offers, in calendar order, with the trip on each, so a
-	 * rung prices itself before it is pressed. */
+	 * rung prices itself before it is pressed.
+	 *
+	 * Deliberately without a `current` beside it, unlike `StopoverLengths`' `minimum`. Which
+	 * rung is the current one is `departureLadder`'s answer, taken from the itinerary the
+	 * panel is drawing, and a second copy here would be a field that could disagree with the
+	 * trip on screen. */
 	options: DepartureDateOption[];
-	/** The date the shown trip leaves on. */
-	current: string;
 }
 
 /**
@@ -368,8 +371,7 @@ export function deriveScoredResult(
 			isFlightChange: isFlightChange(lengths)
 		},
 		departure: {
-			options: dates.map((date) => ({ date: date.date, itinerary: date.pick.score.itinerary })),
-			current: departureDateOf(shown.score.itinerary)
+			options: dates.map((date) => ({ date: date.date, itinerary: date.pick.score.itinerary }))
 		},
 		price: buildProvenance(shown.sources, snapshot.providers, snapshot.done)
 	};

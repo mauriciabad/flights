@@ -77,7 +77,9 @@ describe('departureLadder', () => {
 		const rungs = departureLadder(SIXTEENTH, LADDER);
 
 		expect(rungs.map((rung) => rung.isCheapest)).toEqual([false, true, false]);
-		expect(rungs[1]?.description).toBe('Leave Thu 17, -€24.80, the cheapest day');
+		expect(rungs[1]?.description).toBe(
+			'Leave Thu 17, €24.80 cheaper than the day shown, the cheapest day'
+		);
 	});
 
 	it('does not mark the cheapest day when it is the day already shown', () => {
@@ -97,6 +99,54 @@ describe('departureLadder', () => {
 
 	it('is empty for no options', () => {
 		expect(departureLadder(SIXTEENTH, [])).toEqual([]);
+	});
+});
+
+describe('departureLadder: a window longer than the row can hold', () => {
+	/** Twelve days, priced so the cheapest are scattered rather than adjacent: the 1st is
+	 * dearest and each later day is cheaper by a euro. `dep=2026-09-01&arr=2026-09-30` is an
+	 * ordinary URL, so this is not a hypothetical shape. */
+	const TWELVE = Array.from({ length: 12 }, (_, index) =>
+		option(
+			trip({
+				departure: `2026-09-${String(index + 1).padStart(2, '0')}`,
+				priceMinorUnits: 40000 - index * 100
+			})
+		)
+	);
+
+	it('draws no more than seven rungs', () => {
+		expect(departureLadder(TWELVE[0]!.itinerary, TWELVE)).toHaveLength(7);
+	});
+
+	it('keeps the cheapest days and shows them in calendar order', () => {
+		// The six cheapest are the 7th to the 12th, plus the 1st because it is on screen.
+		const rungs = departureLadder(TWELVE[0]!.itinerary, TWELVE);
+
+		expect(rungs.map((rung) => rung.date)).toEqual([
+			'2026-09-01',
+			'2026-09-07',
+			'2026-09-08',
+			'2026-09-09',
+			'2026-09-10',
+			'2026-09-11',
+			'2026-09-12'
+		]);
+	});
+
+	it('keeps the day on screen even when it is the dearest of the lot', () => {
+		// A row that cannot show you where you are is not a control.
+		const rungs = departureLadder(TWELVE[0]!.itinerary, TWELVE);
+
+		expect(rungs[0]?.isCurrent).toBe(true);
+		expect(rungs[0]?.date).toBe('2026-09-01');
+	});
+
+	it('marks the cheapest day of the whole window, not of the seven drawn', () => {
+		const rungs = departureLadder(TWELVE[0]!.itinerary, TWELVE);
+		const cheapest = rungs.filter((rung) => rung.isCheapest);
+
+		expect(cheapest.map((rung) => rung.date)).toEqual(['2026-09-12']);
 	});
 });
 
