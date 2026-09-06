@@ -52,7 +52,7 @@
  * time, and that piece is still the day the traveller lived through.
  */
 
-import { addLocalMinutes } from '$lib/algorithm/build';
+import { addLocalMinutes, deriveLayover } from '$lib/algorithm/build';
 import type { ItinerarySegmentId } from '$lib/itinerary-map/segment-id';
 import type {
 	Carrier,
@@ -277,10 +277,15 @@ export function tripStrip(itinerary: Itinerary): TripStrip {
 		transferToHotel,
 		freeTime,
 		transferToConnectionAirport,
-		connectionWaitingTime,
 		onwardFlight,
 		transferToDestinationLocation
 	} = itinerary;
+	// Issue #368: the three cells between the two flights are the layover's own pieces, and
+	// `build.ts` is the one place that splits it. Reading `Transfer.duration` and
+	// `connectionWaitingTime` here instead put a 67-minute cell across a 2h 35m gap on the
+	// strip, because the metro the app picked leaves an hour and a half before the
+	// subtraction says it does.
+	const layover = deriveLayover(itinerary);
 
 	const parts: Unshared[] = [];
 
@@ -289,7 +294,6 @@ export function tripStrip(itinerary: Itinerary): TripStrip {
 	// so each part below is anchored to the flight beside it rather than accumulated from
 	// the front, where one absent leg would shift every later clock.
 	const originWaitStart = addLocalMinutes(outboundFlight.departure, -originWaitingTime);
-	const connectionWaitStart = addLocalMinutes(onwardFlight.departure, -connectionWaitingTime);
 
 	if (transferToOriginAirport) {
 		parts.push({
@@ -327,9 +331,9 @@ export function tripStrip(itinerary: Itinerary): TripStrip {
 			mode: transferToHotel.mode,
 			transfer: transferToHotel,
 			leg: 'to-city',
-			minutes: transferToHotel.duration,
-			// `build.ts` sets `freeTime.start` to exactly this leg's arrival, so reading it
-			// back is the same number rather than a second derivation of it.
+			// Landing to `freeTime.start`, which is the leg plus any wait for the service
+			// that runs it, never `Transfer.duration` on its own.
+			minutes: layover.intoTown,
 			start: outboundFlight.arrival,
 			end: freeTime.start
 		});
@@ -349,17 +353,17 @@ export function tripStrip(itinerary: Itinerary): TripStrip {
 			mode: transferToConnectionAirport.mode,
 			transfer: transferToConnectionAirport,
 			leg: 'to-connection-airport',
-			minutes: transferToConnectionAirport.duration,
+			minutes: layover.backToAirport,
 			start: freeTime.end,
-			end: connectionWaitStart
+			end: layover.atAirport
 		});
 	}
 	parts.push({
 		kind: 'wait',
 		airport: onwardFlight.departureAirport,
 		beforeFlight: onwardFlight,
-		minutes: connectionWaitingTime,
-		start: connectionWaitStart,
+		minutes: itinerary.times.connectionAirportWaiting,
+		start: layover.atAirport,
 		end: onwardFlight.departure
 	});
 	const onwardIndex = parts.length;
