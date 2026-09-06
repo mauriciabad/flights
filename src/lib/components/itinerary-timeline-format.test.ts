@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { Duration, LocalDateTime, Transfer, TransferLeg } from '../domain';
+import type { Duration, FareParty, LocalDateTime, Transfer, TransferLeg } from '../domain';
 import {
 	formatCalendarDate,
 	formatClockTime,
@@ -703,5 +703,84 @@ describe('transitDepartureWaitNote (issue #344)', () => {
 
 	it('says nothing when there is no wait to speak of', () => {
 		expect(transitDepartureWaitNote(undefined, intended)).toBeUndefined();
+	});
+});
+
+describe('a ticket, priced for the party (issue #407)', () => {
+	function busRide(party: FareParty): Transfer {
+		return {
+			mode: 'transit',
+			duration: 40 as Duration,
+			legs: [],
+			fareEstimate: {
+				kind: 'estimate',
+				currency: 'EUR',
+				lowMinorUnits: 290 * 4,
+				highMinorUnits: 590 * 4,
+				countryCode: 'ES',
+				rateSource: 'country',
+				citation: 'TMB 2026 fare table',
+				party
+			}
+		};
+	}
+
+	it('names the party and one traveller\'s own ticket, with no vehicle to count', () => {
+		const note = transferFareNote(
+			busRide({
+				basis: 'per-person',
+				people: 4,
+				perPersonLowMinorUnits: 290,
+				perPersonHighMinorUnits: 590
+			})
+		);
+
+		expect(note.text).toBe('€11.60-€23.60');
+		expect(note.audience).toBe('for 4');
+		// "each" is the same word the taxi note uses and a different fact: there it is a
+		// share of one car, here it is the ticket the traveller buys.
+		expect(note.each).toBe('€2.90-€5.90 each');
+		expect(note.estimated).toBe(true);
+		expect(note.unknown).toBe(false);
+	});
+
+	it('says nothing about a party of one, where all three figures are the same number', () => {
+		const alone = transferFareNote({
+			mode: 'transit',
+			duration: 40 as Duration,
+			legs: [],
+			fareEstimate: {
+				kind: 'estimate',
+				currency: 'EUR',
+				lowMinorUnits: 290,
+				highMinorUnits: 590,
+				countryCode: 'ES',
+				rateSource: 'country',
+				citation: 'TMB 2026 fare table'
+			}
+		});
+
+		expect(alone.audience).toBeUndefined();
+		expect(alone.each).toBeUndefined();
+	});
+
+	it('prints a one-fare city once rather than as a range against itself', () => {
+		const berlin = transferFareNote({
+			mode: 'transit',
+			duration: 40 as Duration,
+			legs: [],
+			fareEstimate: {
+				kind: 'estimate',
+				currency: 'EUR',
+				lowMinorUnits: 500,
+				highMinorUnits: 500,
+				countryCode: 'DE',
+				rateSource: 'country',
+				citation: 'BVG single ticket page'
+			}
+		});
+
+		expect(berlin.text).toBe('€5.00');
+		expect(berlin.estimated).toBe(true);
 	});
 });

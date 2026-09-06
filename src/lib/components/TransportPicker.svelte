@@ -333,8 +333,11 @@
 		{#each rows as row (transferKey(row.transfer))}
 			<!-- Issue #249: the rate-card range rides on the transfer that was routed, so a
 			     taxi swapped in from this very list carries its own estimate rather than
-			     depending on a prop about the leg. -->
-			{@const taxiFare = row.transfer.fareEstimate}
+			     depending on a prop about the leg. Issue #407 put a second kind of card behind
+			     this same field, so the name says which row it belongs to rather than which
+			     mode it prices. -->
+			{@const rowFare = row.transfer.fareEstimate}
+			{@const ridesTransit = row.transfer.mode === 'transit'}
 			{@const summary = summariseTransferLegs(row.transfer.legs)}
 			<!-- Issue #249: five answers, one function. A walk says "No fare", which is a fact
 			     about walking rather than a gap in what a provider told us (#119); a rate-card
@@ -388,7 +391,7 @@
 						<span class="row-current">Current pick</span>
 					{:else if row.delta}
 						<span class="delta-text">
-							{#if taxiFare?.kind === 'estimate'}
+							{#if rowFare?.kind === 'estimate'}
 								estimate only
 							{:else if row.delta.hasPriceComparison && !row.delta.currencyMismatch}
 								{formatMoneyDelta(row.delta.priceDeltaMinorUnits ?? 0, row.transfer.price!.currency)} ·
@@ -406,7 +409,7 @@
 					     answers "how exactly", and only somebody who has chosen this option
 					     needs the second answer.
 
-					     The click handler is the same one `.taxi-citation` below needs and for
+					     The click handler is the same one `.fare-citation` below needs and for
 					     the same reason: this <summary> sits inside the row's <label>, which
 					     re-fires a click on its own radio for any bubbled click that is not
 					     itself a form control. Without it, opening the steps would also pick
@@ -510,17 +513,17 @@
 					</div>
 				{/if}
 
-				{#if taxiFare}
+				{#if rowFare}
 					<!-- The <label> above (this row) re-fires a click on its own <input> for any
 					     bubbled click whose target is not itself a form control, and <summary> gets
 					     no such exemption. Stopping propagation here is what keeps opening the
 					     citation from also silently selecting this row, same reasoning as Chip.svelte's
 					     own remove-button handler. -->
-					<details class="taxi-citation">
+					<details class="fare-citation">
 						<summary onclick={(event) => event.stopPropagation()}>
-							{#if taxiFare.kind === 'out-of-range'}
+							{#if rowFare.kind === 'out-of-range'}
 								Why there is no fare estimate
-							{:else if taxiFare.rateSource === 'fallback'}
+							{:else if rowFare.rateSource === 'fallback'}
 								Approximate rate (no country-specific data)
 							{:else}
 								Where this estimate comes from
@@ -528,21 +531,38 @@
 						</summary>
 						<!-- Issue #246: the card that would have answered is still named, because
 						     "nothing here can price this" is worth more with the reason attached. -->
-						{#if taxiFare.kind === 'out-of-range'}
+						{#if rowFare.kind === 'out-of-range' && ridesTransit}
+							<!-- Issue #407. A ticket runs out at a zone boundary rather than at the far
+							     end of what a meter was measured on, so the refusal is the same shape as
+							     the taxi's below and a different fact. -->
 							<p>
-								{formatKilometres(taxiFare.distanceKm)} is past the city rate card these estimates come from,
-								which covers rides up to {formatKilometres(taxiFare.ratedUpToKm)}. Stretched that far it put
+								{formatKilometres(rowFare.distanceKm)} is further than the ticket this table has read a price
+								for carries you, which covers journeys up to {formatKilometres(rowFare.ratedUpToKm)} from the
+								airport. Past that the journey is buying a zone nobody here has priced, so it is not priced.
+							</p>
+						{:else if rowFare.kind === 'out-of-range'}
+							<p>
+								{formatKilometres(rowFare.distanceKm)} is past the city rate card these estimates come from,
+								which covers rides up to {formatKilometres(rowFare.ratedUpToKm)}. Stretched that far it put
 								this transfer above the price of the flight it connects to, so it is not stretched.
 							</p>
 						{/if}
-						{#if taxiFare.kind === 'estimate' && taxiFare.party}
-							{@const party = taxiFare.party}
+						{#if rowFare.kind === 'estimate' && rowFare.party}
+							{@const party = rowFare.party}
 							<!-- Issue #344. The row above prints a party figure and a share; this is where
 							     the reason each of them is allowed to exist is written down, because the
 							     column has no room for it. The `unknown` branch is the one that matters
 							     most: it is the app declining to divide, and saying so is the difference
 							     between a cautious answer and a missing one. -->
-							{#if party.basis === 'per-vehicle'}
+							{#if party.basis === 'per-person'}
+								<!-- Issue #407, and the opposite arithmetic to the branch below. A meter
+								     divides between the people in the car and a turnstile multiplies by
+								     them, which is why the two say different things about the same figure. -->
+								<p>
+									A ticket is sold per person, so the figure above is {party.people} of them and the share
+									beside it is what one traveller pays. Nothing here is split between you.
+								</p>
+							{:else if party.basis === 'per-vehicle'}
 								<p>
 									A taxi meters the car, not the seat, so the figure above is
 									{party.vehicles === 1 ? 'one car' : `${party.vehicles} cars`} for the
@@ -560,8 +580,8 @@
 								</p>
 							{/if}
 						{/if}
-						{#if taxiFare.kind === 'estimate' && taxiFare.converted}
-							{@const source = taxiFare.converted}
+						{#if rowFare.kind === 'estimate' && rowFare.converted}
+							{@const source = rowFare.converted}
 							<!-- Issue #339. The row above shows the traveller's currency so the figure can
 							     be held against the trip's total. This is where the arithmetic behind that
 							     is written down, because a converted estimate is an approximation of an
@@ -570,14 +590,16 @@
 							<p>
 								The rate card is written in {source.from} and quotes
 								{formatMoneyRange(source.fromLowMinorUnits, source.fromHighMinorUnits, source.from)} for this
-								ride, which is what {taxiFare.party?.basis === 'per-vehicle' && taxiFare.party.vehicles > 1
-									? 'the drivers would charge between them'
-									: 'a driver would charge'}. The figure above is that range at the European
+								ride, which is what {ridesTransit
+									? 'the ticket machine takes'
+									: rowFare.party?.basis === 'per-vehicle' && rowFare.party.vehicles > 1
+										? 'the drivers would charge between them'
+										: 'a driver would charge'}. The figure above is that range at the European
 								Central Bank's reference rate for {source.rateDate}, so it moves with the rate and is not a
 								price anyone has quoted.
 							</p>
 						{/if}
-						<p>{taxiFare.citation}</p>
+						<p>{rowFare.citation}</p>
 					</details>
 				{/if}
 
@@ -954,19 +976,19 @@
 		color: var(--color-text-faint);
 	}
 
-	.taxi-citation {
+	.fare-citation {
 		grid-column: 1 / -1;
 		margin-top: var(--space-1);
 		font-size: var(--font-size-xs);
 		color: var(--color-text-faint);
 	}
 
-	.taxi-citation summary {
+	.fare-citation summary {
 		cursor: pointer;
 		color: var(--color-accent);
 	}
 
-	.taxi-citation p {
+	.fare-citation p {
 		margin-top: var(--space-1);
 	}
 

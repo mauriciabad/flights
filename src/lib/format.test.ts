@@ -212,6 +212,15 @@ describe('deltas', () => {
 	it('keeps a taxi estimate as a range, since neither bound is a quote', () => {
 		expect(formatMoneyRange(1800, 2400, 'EUR')).toBe('€18.00-€24.00');
 	});
+
+	it('prints a range whose ends agree once, since the hyphen would claim a width it has not got', () => {
+		// Issue #407. Berlin sells one fare for the airport journey whichever train you
+		// take, so "€5.00-€5.00" is a rendering fault rather than caution. What keeps it
+		// from reading as a quote is the word "estimate" beside it, not the second number.
+		expect(formatMoneyRange(500, 500, 'EUR')).toBe('€5.00');
+		expect(formatMoneyRange(440, 440, 'PLN')).toBe(formatMoney({ minorUnits: 440, currency: 'PLN' }));
+		expect(formatMoneyRange(190, 191, 'EUR')).toBe('€1.90-€1.91');
+	});
 });
 
 describe('formatUtcOffset', () => {

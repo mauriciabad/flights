@@ -160,6 +160,22 @@ export function createTransitousTransferProvider(
 			};
 			const departureUtc = localDateTimeToUtcInstant(query.departure);
 
+			// What this entry holds is a TIMETABLE, and it has to stay one.
+			//
+			// There is no shape version here, unlike `ROUTE_CACHE_SHAPE_VERSION` in osrm.ts,
+			// and that is a claim rather than an oversight: every field of the `Transfer[]`
+			// below is a function of the four key parts, so the same key can only ever mean
+			// the same answer. Two things about this entry make that worth stating. It is
+			// served at any age and never discarded for being stale (see the read below), so
+			// nothing ages a wrong entry out; and `Transfer` is a type the whole app widens.
+			//
+			// So: anything computed per SEARCH rather than per journey — a fare in the
+			// traveller's currency, a party size, a landing buffer — must be applied after
+			// this cache rather than folded into it. Issue #407's transit fare estimate is
+			// computed in `search/transit-schedule.ts` for exactly this reason, and
+			// `transitous.test.ts` asserts the cached value carries none. Widen the cached
+			// `Transfer` with anything the key does not determine and you owe this key a
+			// shape version, or every returning visitor keeps the old answer forever.
 			const cacheKey = defineCacheKey(
 				TRANSITOUS_PROVIDER_ID,
 				{
