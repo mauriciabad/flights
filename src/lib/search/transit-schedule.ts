@@ -38,8 +38,16 @@
  * fixed number instead of a multiple of however many stopovers the route graph offered.
  */
 
-import type { Coordinates, Duration, Itinerary, Transfer, TransitPlanMoment } from '../domain';
+import type {
+	Coordinates,
+	Duration,
+	IataAirportCode,
+	Itinerary,
+	Transfer,
+	TransitPlanMoment
+} from '../domain';
 import { greatCircleDistanceKm } from '../domain';
+import { countTransitBoardings, estimateTransitFare } from '../providers/transfers/transit-fare-table';
 import { addLocalMinutes } from '../algorithm/build';
 import { recomputeItinerarySelection } from '../algorithm/recompute-selection';
 import { transitLegMoment } from '../algorithm/transit-schedule';
@@ -116,6 +124,17 @@ export interface TransitLegPlan {
 	to: Coordinates;
 	moment: TransitPlanMoment;
 	/**
+	 * The airport this leg runs to or from, which is what `transit-fare-table.ts` prices a
+	 * ticket at. Issue #407.
+	 *
+	 * Not optional, because every leg planned below has exactly one airport at one end and
+	 * that is worth stating rather than rediscovering. The two outer legs run to the origin
+	 * airport and from the destination airport; the two connection-side legs run from and
+	 * back to the stopover's airport. There is no fifth shape, and a transit fare that had
+	 * to guess which end was the airport would be pricing a journey it had not identified.
+	 */
+	airport: IataAirportCode;
+	/**
 	 * The walk-out time this leg's `moment` was built from, for a leg that starts at a
 	 * runway, so whatever answers the plan can pad the journey by the same number the
 	 * question was asked with. Absent on a leg that ends at a departure gate, which is
@@ -184,7 +203,8 @@ export function planTransitLegs(input: PlanTransitLegsInput): TransitLegPlan[] {
 			field: 'transferToOriginAirport',
 			from: itinerary.originLocation.coordinates,
 			to: itinerary.originAirport.coordinates,
-			moment: originMoment
+			moment: originMoment,
+			airport: itinerary.originAirport.iataCode
 		});
 	}
 
@@ -201,7 +221,8 @@ export function planTransitLegs(input: PlanTransitLegsInput): TransitLegPlan[] {
 				from: input.connectionCoordinates,
 				to: itinerary.stay.property.coordinates,
 				moment: { time: addLocalMinutes(itinerary.outboundFlight.arrival, input.connectionLandingBuffer), arriveBy: false },
-				landingBuffer: input.connectionLandingBuffer
+				landingBuffer: input.connectionLandingBuffer,
+				airport: itinerary.outboundFlight.arrivalAirport
 			});
 		}
 		const connectionMoment = transitLegMoment(itinerary, 'transferToConnectionAirport');
@@ -210,7 +231,8 @@ export function planTransitLegs(input: PlanTransitLegsInput): TransitLegPlan[] {
 				field: 'transferToConnectionAirport',
 				from: itinerary.stay.property.coordinates,
 				to: input.connectionCoordinates,
-				moment: connectionMoment
+				moment: connectionMoment,
+				airport: itinerary.outboundFlight.arrivalAirport
 			});
 		}
 	}
@@ -221,7 +243,8 @@ export function planTransitLegs(input: PlanTransitLegsInput): TransitLegPlan[] {
 			from: itinerary.destinationAirport.coordinates,
 			to: itinerary.destinationLocation.coordinates,
 			moment: { time: addLocalMinutes(itinerary.onwardFlight.arrival, input.destinationLandingBuffer), arriveBy: false },
-			landingBuffer: input.destinationLandingBuffer
+			landingBuffer: input.destinationLandingBuffer,
+			airport: itinerary.destinationAirport.iataCode
 		});
 	}
 
@@ -332,7 +355,7 @@ export async function fetchTransitSchedules(input: FetchTransitSchedulesInput): 
 			landingBuffer === undefined
 				? found
 				: found.map((transfer) => applyLandingBuffer(transfer, landingBuffer, input.sources));
-		overrides[plan.field] = pickShortest(buffered);
+		overrides[plan.field] = withTransitFare(pickShortest(buffered), plan, input.itinerary);
 	}
 
 	return { itinerary: applyUsableOverrides(input, overrides), answers };
@@ -427,4 +450,41 @@ function readWithheld(refused: {
  * one. */
 function pickShortest(transfers: readonly Transfer[]): Transfer {
 	return [...transfers].sort((a, b) => a.duration - b.duration)[0];
+}
+
+/**
+ * The transit answer, carrying what a ticket for it costs where a rate card covers the
+ * airport. Issue #407.
+ *
+ * `price` stays unset, always, exactly as `taxiTransfer` in `providers/transfers/osrm.ts`
+ * leaves it. Transitous returns a timetable and nothing in it is a fare, so the guess goes
+ * in `fareEstimate`, whose type a caller cannot assign to `price` by accident
+ * (`domain/fare.ts`), and `groundFare` in `domain/transfer.ts` is what makes every reader
+ * choose between the two deliberately. Nothing here reaches `Itinerary.totalPrice`.
+ *
+ * Here rather than inside the Transitous adapter, which is where the taxi's equivalent
+ * lives, for one reason: that adapter caches the mapped `Transfer` in IndexedDB, and a fare
+ * is computed for one search's currency and one search's party. A cached transfer carrying
+ * a fare would serve a euro figure to a search asking in pounds and one traveller's ticket
+ * to a party of four, and it would go on doing it for the life of the entry. AGENTS.md's
+ * own #131 lesson, from the other side: rather than give the cache a new key for a value
+ * whose shape changed, keep the value the cache holds a timetable and compute the fare
+ * after reading it.
+ *
+ * The currency comes off `itinerary.totalPrice` rather than being threaded down from the
+ * search, and that is deliberate too. It is the currency the flights were quoted in and
+ * therefore the one printed three lines above this fare on the same card, so the two cannot
+ * drift apart, and neither of this function's two callers has to remember to pass it.
+ * Issue #339 is the bug that argument comes from: an estimate in the ride's own currency
+ * under a total in the traveller's is a figure nobody can compare with anything.
+ */
+function withTransitFare(transfer: Transfer, plan: TransitLegPlan, itinerary: Itinerary): Transfer {
+	const fareEstimate = estimateTransitFare(
+		plan.airport,
+		greatCircleDistanceKm(plan.from, plan.to),
+		countTransitBoardings(transfer.legs),
+		itinerary.totalPrice.currency,
+		itinerary.travellers
+	);
+	return fareEstimate ? { ...transfer, fareEstimate } : transfer;
 }

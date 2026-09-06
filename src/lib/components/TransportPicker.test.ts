@@ -381,7 +381,7 @@ describe('TransportPicker: selection', () => {
 		expect(received?.itinerary.transferToHotel?.mode).toBe('taxi');
 	});
 
-	it('never selects a row just because the traveller expanded its taxi citation', () => {
+	it('never selects a row just because the traveller expanded its fare citation', () => {
 		// The citation <details> lives inside the row's <label> (the label is what makes the
 		// whole row clickable). A <label> re-fires a click on its associated <input> for any
 		// bubbled click that is not itself a form control, and <summary> is not exempted the
@@ -409,7 +409,7 @@ describe('TransportPicker: selection', () => {
 			}
 		});
 
-		const summary = root.querySelector<HTMLElement>('.taxi-citation summary');
+		const summary = root.querySelector<HTMLElement>('.fare-citation summary');
 		expect(summary).toBeTruthy();
 		summary?.click();
 		flushSync();
@@ -422,7 +422,7 @@ describe('TransportPicker: selection', () => {
 			stillCheckedRadio?.closest('.picker-row')?.querySelector('.row-mode-label')?.textContent?.trim()
 		).toBe('Walk');
 		expect(selectCount).toBe(0); // opening the citation must never fire onselect
-		expect(root.querySelector('.taxi-citation')?.hasAttribute('open')).toBe(true); // it did open
+		expect(root.querySelector('.fare-citation')?.hasAttribute('open')).toBe(true); // it did open
 	});
 });
 
