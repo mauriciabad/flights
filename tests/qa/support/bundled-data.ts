@@ -27,18 +27,13 @@
  *
  * SvelteKit names every chunk by content hash alone — `app/immutable/chunks/CSe2j8Wu.js`,
  * with nothing of the source path left in it — so no URL pattern can match one. Vite's own
- * build manifest maps source module to emitted file, which is exactly the question, so this
- * reads that instead of guessing.
+ * build manifest maps source module to emitted file, which is exactly the question.
+ * `tests/shared/bundled-chunks.ts` asks it, for this suite and for `tests/e2e/`, which needed
+ * the same answer about the same build once #379's second half landed.
  */
 
-import { readFileSync } from 'node:fs';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { chunkPathnames } from '../../shared/bundled-chunks';
 import { AIRPORT_TIME_ZONES, ROUTE_GRAPH } from './scenario';
-
-const here = path.dirname(fileURLToPath(import.meta.url));
-const repoRoot = path.join(here, '..', '..', '..');
-const MANIFEST = path.join(repoRoot, '.svelte-kit', 'output', 'client', '.vite', 'manifest.json');
 
 /** Plainly in the past, so where the app compares a bundled snapshot against one it just
  * fetched (`newerSnapshot` in ryanair-network.ts) the recorded answer wins, which is what
@@ -99,9 +94,10 @@ let byPathname: Map<string, string> | null = null;
 /**
  * The replacement module for a built chunk, or `undefined` for any other app asset.
  *
- * Throws rather than falling back when the manifest is missing or has stopped naming one of
- * these datasets. Falling back would mean quietly reading the real 224-airport graph again,
- * which is the whole defect, and it would look like a passing suite.
+ * `chunkPathnames` throws rather than falling back when the manifest is missing or has
+ * stopped naming one of these datasets. Falling back would mean quietly reading the real
+ * 224-airport graph again, which is the whole defect, and it would look like a passing
+ * suite.
  */
 export function bundledDataModuleFor(pathname: string): string | undefined {
 	byPathname ??= buildIndex();
@@ -109,31 +105,9 @@ export function bundledDataModuleFor(pathname: string): string | undefined {
 }
 
 function buildIndex(): Map<string, string> {
-	let manifest: Record<string, { file?: string }>;
-	try {
-		manifest = JSON.parse(readFileSync(MANIFEST, 'utf-8'));
-	} catch (cause) {
-		throw new Error(
-			`Could not read Vite's build manifest at ${MANIFEST}. ` +
-				'The QA bench needs it to find which hashed chunk serves each bundled dataset. ' +
-				'Run `pnpm build` first, or update this path if the build output moved.',
-			{ cause }
-		);
-	}
-
 	const index = new Map<string, string>();
-	for (const [source, body] of Object.entries(FIXTURES)) {
-		const file = manifest[source]?.file;
-		if (!file) {
-			throw new Error(
-				`Vite's build manifest does not name a chunk for ${source}. ` +
-					'Either the module stopped being a dynamic import — in which case its data is now ' +
-					'inside a shared chunk and this bench can no longer answer for it — or the file ' +
-					'was renamed. Either way the QA scenario is silently ranking against real shipped ' +
-					'data again, which is issue #379.'
-			);
-		}
-		index.set(`/${file}`, `export default ${JSON.stringify(body())};`);
+	for (const [pathname, source] of chunkPathnames(Object.keys(FIXTURES))) {
+		index.set(pathname, `export default ${JSON.stringify(FIXTURES[source]!())};`);
 	}
 	return index;
 }

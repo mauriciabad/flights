@@ -7,6 +7,12 @@ import {
 	AIRLINE_LOGO_BASE_URL,
 	AIRLINE_LOGO_REDIRECT_HOST
 } from '../../../src/lib/data/airline-logos';
+import {
+	DEFAULT_ACTIVE_AIRPORTS_FIXTURE,
+	pinBundledRouteData,
+	readAirportFixture,
+	type AirportInUniverse
+} from './bundled-data';
 import { FIXTURE_FLIGHT_NUMBERS, FIXTURE_PRICES } from './fixture-markers';
 
 // Re-exported so a spec that wants to check "did this request really land on the host
@@ -74,21 +80,6 @@ function daysInMonth(year: number, month: number): number {
 }
 
 /**
- * Every airport the mocked active-airports list carries an IANA zone for, which is the set
- * of airports a mocked fare can actually become an offer at. Issue #354.
- *
- * Read from the fixture rather than typed out again, so adding an airport there is the
- * whole of adding it.
- */
-function timeableAirports(): Set<string> {
-	const airports = JSON.parse(loadFixture('ryanair/active-airports.json')) as {
-		iataCode?: string;
-		timeZone?: string;
-	}[];
-	return new Set(airports.filter((airport) => airport.timeZone).map((airport) => airport.iataCode!));
-}
-
-/**
  * Refuses to mock a fare at an airport the mocked airport list cannot put a clock on.
  *
  * Issue #354, and the afternoon it cost is the argument for it existing. Berlin was proposed
@@ -112,29 +103,39 @@ function timeableAirports(): Set<string> {
  * the first, so the second is the half that gets forgotten. Throwing here names the airport
  * at the moment somebody adds the flight.
  */
-function assertAirportsCanBeTimed(flights: readonly RyanairFlightSpec[]) {
-	const timeable = timeableAirports();
+function assertAirportsCanBeTimed(
+	flights: readonly RyanairFlightSpec[],
+	airports: readonly AirportInUniverse[],
+	whose: string
+) {
+	const timeable = new Set(
+		airports.filter((airport) => airport.timeZone).map((airport) => airport.iataCode)
+	);
 	const missing = [...new Set(flights.flatMap((flight) => [flight.dep, flight.arr]))]
 		.filter((iataCode) => !timeable.has(iataCode))
 		.sort();
 	if (missing.length === 0) return;
 	throw new Error(
 		`routeRyanairFlights was asked to price a flight at ${missing.join(', ')}, and ` +
-			'tests/e2e/fixtures/ryanair/active-airports.json has no time zone for ' +
+			`${whose} has no time zone for ` +
 			`${missing.length > 1 ? 'those airports' : 'that airport'}. Every fare there is ` +
 			'dropped by ryanair-mapper.ts and the city is then refused with "Nothing flies here", ' +
-			'which is not true and is issue #354. Add it to that fixture with its IANA zone, or ' +
-			'pass `{ airportsAnsweredBySpec: true }` if this spec answers the active-airports ' +
-			'endpoint itself.'
+			'which is not true and is issue #354. Add it there with its IANA zone, or pass ' +
+			'`{ airports }` naming the network this spec pinned instead.'
 	);
 }
 
 export interface RouteRyanairFlightsOptions {
-	/** Set when the spec registers its own `active-airports` response, which brings its own
-	 * zone table and makes the check above measure the wrong list.
-	 * `itinerary-map-transfers.spec.ts` does exactly that, building a fictional three-airport
-	 * network for a map it wants exact geometry from. */
-	airportsAnsweredBySpec?: boolean;
+	/**
+	 * The network this spec pinned, when it is not the shared fixture.
+	 *
+	 * It used to be a boolean that turned the check above off, which is what a spec with its
+	 * own `active-airports` response needed then: the check measured the shared list, which
+	 * was the wrong list. Naming the right list instead keeps issue #354's guard on for those
+	 * specs rather than trading it away. Issue #379 gives every such spec this array anyway,
+	 * since it is what `mockRyanairNetwork` takes.
+	 */
+	airports?: readonly AirportInUniverse[];
 }
 
 /**
@@ -157,7 +158,13 @@ export async function routeRyanairFlights(
 	flights: readonly RyanairFlightSpec[],
 	options: RouteRyanairFlightsOptions = {}
 ) {
-	if (!options.airportsAnsweredBySpec) assertAirportsCanBeTimed(flights);
+	assertAirportsCanBeTimed(
+		flights,
+		options.airports ?? readAirportFixture(DEFAULT_ACTIVE_AIRPORTS_FIXTURE),
+		options.airports
+			? "this spec's own airport list"
+			: `tests/e2e/fixtures/${DEFAULT_ACTIVE_AIRPORTS_FIXTURE}`
+	);
 	await target.route('https://services-api.ryanair.com/**', async (route) => {
 		const url = new URL(route.request().url());
 
@@ -275,8 +282,37 @@ export async function mockRyanair(target: Routable, flights: readonly RyanairFli
  * missing result card rather than on anything to do with what it was testing. If a route
  * graph is what your test needs, put `routes` on the airports in the fixture.
  */
-export async function mockRyanairActiveAirports(target: Routable, fixture = 'ryanair/active-airports.json') {
-	await mockJson(target, 'https://www.ryanair.com/api/views/locate/3/airports/en/active', fixture);
+export async function mockRyanairActiveAirports(
+	target: Routable,
+	fixture = DEFAULT_ACTIVE_AIRPORTS_FIXTURE
+) {
+	await mockRyanairNetwork(target, readAirportFixture(fixture));
+}
+
+const ACTIVE_AIRPORTS_URL = 'https://www.ryanair.com/api/views/locate/3/airports/en/active';
+
+/**
+ * The same thing from an airport list written in the spec rather than a fixture on disk, and
+ * the route data the app ships in its own bundle along with it.
+ *
+ * Issue #379: those bundled datasets are a second answer to the same question, which airports
+ * exist and what flies between them. Before this they were the real 224-airport shipped
+ * snapshot sitting behind a fixture naming fourteen. Pinning both here
+ * rather than in each spec is the only version of it nobody can forget half of.
+ *
+ * For a spec whose world is not the shared fourteen: `results-cls.spec.ts` wants exactly two
+ * stopovers between Barcelona and Tallinn, `stopovers-beyond-the-cap.spec.ts` wants ten so
+ * the cap of six has something to drop, and `itinerary-map-transfers.spec.ts` wants a
+ * fictional three-airport network Ryanair does not fly. Two of those said it with `via=`,
+ * which is `allowedConnectionAirports` and therefore a product feature standing in for a
+ * harness, and none of them could say anything about the bundled data at all.
+ */
+export async function mockRyanairNetwork(target: Routable, airports: readonly AirportInUniverse[]) {
+	const body = JSON.stringify(airports);
+	await target.route(ACTIVE_AIRPORTS_URL, async (route) => {
+		await route.fulfill({ status: 200, contentType: 'application/json', body });
+	});
+	await pinBundledRouteData(target, airports);
 }
 
 /** Skyscanner, reached through RapidAPI's "sky-scrapper" product. Requires the user's

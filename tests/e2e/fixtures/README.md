@@ -16,6 +16,31 @@ an adapter exists (issues #5 through #10).
 | `osrm/route.json` | OSRM (keyless) | `/route/v1/{profile}/{coordinates}` |
 | `markers.json` | — | the tokens below, read by the specs and by `tools/probe-results.mjs` |
 
+## `ryanair/active-airports.json` is the whole world, not one provider's answer
+
+Fourteen airports, and nothing outside them exists. Issue #379: the app also ships three
+route datasets inside its own bundle: Ryanair's 224-airport snapshot, a 309-airport
+all-carrier graph vendored from Wikipedia, and a cached-fare table.
+`algorithm/connections.ts` proposes stopovers from those as readily as from a provider. They
+arrive as ordinary app assets, so the network guard rightly lets them through, and every spec
+here was ranking against them while its fixture named fourteen airports. #361 widened the
+Wikipedia graph and three specs broke at once, none of which had changed.
+
+`support/bundled-data.ts` answers those three chunks from this file now, projected through
+the app's own `buildNetworkSnapshot`. So an airport in here exists everywhere, and
+regenerating a dataset next week cannot move a spec.
+
+One other bundled source is not a chunk and cannot be answered over the wire:
+`FALLBACK_ROUTES` in `src/lib/algorithm/connections-fallback-data.ts`, eighteen airports
+compiled into the app. It does not need answering, because a person edits it where the three
+datasets above are regenerated on a schedule, so the universe is those two hand-written files
+together. `../bundled-route-data.spec.ts` is the check that says so.
+
+A spec whose world is different declares it as an array and passes it to `mockRyanairNetwork`,
+which pins the provider response and the bundled graphs together from the one list.
+`results-cls.spec.ts`, `stopovers-beyond-the-cap.spec.ts` and
+`itinerary-map-transfers.spec.ts` all do.
+
 Ryanair's two fare endpoints have no fixture file. `cheapestPerDay` and
 `timtbl/3/schedules` have to agree with each other flight by flight — a fare the timetable
 does not name never becomes an offer — so they are generated together from one list of

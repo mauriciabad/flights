@@ -1,7 +1,11 @@
 import { test, expect } from './support/fixtures';
 import type { Page } from './support/fixtures';
 import { FIXTURE_FLIGHT_NUMBERS, FIXTURE_PRICES } from './support/fixture-markers';
-import { mockAllKeylessProviders, routeRyanairFlights } from './support/providers';
+import {
+	mockAllKeylessProviders,
+	mockRyanairNetwork,
+	routeRyanairFlights
+} from './support/providers';
 import { waitForSearchToSettle } from '../shared/search-wait';
 
 /**
@@ -36,20 +40,31 @@ const GOOD_CLS = 0.1;
 /** Matches `RESERVED_RESULT_SLOTS` in `src/routes/results/+page.svelte`. */
 const RESERVED_SLOTS = 2;
 
+const SEARCH_URL = '/results/?dep=2027-03-08&arr=2027-03-27&from=BCN&to=TLL';
+
 /**
- * `via` pins the two stopovers this file mocks fares for, rather than trusting them to
- * survive the ranking. Issue #361 vendored an all-carrier route graph, and BCN to TLL now
- * confirms 49 candidates from bundled data alone where it used to confirm a handful: Vienna
- * holds at second but Berlin falls to tenth, outside `DEFAULT_MAX_CANDIDATES`, so its fares
- * were never fetched and the second card never arrived. Nothing about layout stability
- * changed, only which cities the search chose to price.
+ * The world this file searches: Barcelona to Tallinn, and the two stopovers between them it
+ * mocks fares for.
  *
- * Pinning is the fix rather than re-picking two cities that rank well today, because the
- * graph is regenerated weekly and the next refresh would move them again. This file is about
- * where a late card lands, so it should say which two trips it means and stop depending on a
- * ranking it does not test.
+ * It used to say this in the URL, as `via=VIE,BER`. That worked, since `via` is
+ * `allowedConnectionAirports` and does state the universe. But it stated it by using a product
+ * feature as a harness, and it could say nothing about the route data shipped inside the
+ * bundle, which is where the trouble came from. Issue #361 vendored an all-carrier route
+ * graph, BCN to TLL started confirming 49 candidates from bundled data alone, Berlin fell
+ * from a handful to tenth, outside `DEFAULT_MAX_CANDIDATES`, its fares were never fetched and
+ * the second card stopped arriving. Nothing about layout stability had changed.
+ *
+ * Issue #379 lets a spec answer for that data, so this says it once, as data, and the search
+ * runs on an ordinary URL. Both stopovers carry a zone because `ryanair-mapper.ts` drops an
+ * undated fare and the city is then refused for a reason this file is not about, which is
+ * issue #354 and cost an afternoon.
  */
-const SEARCH_URL = '/results/?dep=2027-03-08&arr=2027-03-27&from=BCN&to=TLL&via=VIE,BER';
+const NETWORK = [
+	{ iataCode: 'BCN', timeZone: 'Europe/Madrid', routes: ['airport:VIE', 'airport:BER'] },
+	{ iataCode: 'VIE', timeZone: 'Europe/Vienna', routes: ['airport:BCN', 'airport:TLL'] },
+	{ iataCode: 'BER', timeZone: 'Europe/Berlin', routes: ['airport:BCN', 'airport:TLL'] },
+	{ iataCode: 'TLL', timeZone: 'Europe/Tallinn', routes: ['airport:VIE', 'airport:BER'] }
+];
 
 /**
  * Vienna is answered first and is the more expensive trip; Berlin answers a second later and
@@ -117,7 +132,8 @@ async function answerStopoversInTurn(page: Page) {
 
 async function openStreamingSearch(page: Page) {
 	await mockAllKeylessProviders(page.context());
-	await routeRyanairFlights(page.context(), flights());
+	await mockRyanairNetwork(page.context(), NETWORK);
+	await routeRyanairFlights(page.context(), flights(), { airports: NETWORK });
 	await answerStopoversInTurn(page);
 	await page.context().route('https://basemaps.cartocdn.com/**', (route) =>
 		route.fulfill({ status: 200, contentType: 'application/json', body: EMPTY_MAP_STYLE })

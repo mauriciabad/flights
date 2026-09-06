@@ -1,4 +1,5 @@
 import { test as base, expect } from '@playwright/test';
+import { pinBundledRouteData } from './bundled-data';
 import { installNetworkGuard } from './network-guard';
 import { mockAirlineLogos } from './providers';
 
@@ -20,6 +21,12 @@ export const test = base.extend<{ forbidRealNetwork: void }>({
 			// `mockAllKeylessProviders` so a spec that mocks nothing at all still does not
 			// trip the guard on an image.
 			await mockAirlineLogos(context);
+			// The bundled route graphs, for the same reason and at the same moment: no spec
+			// opts into them, every spec that searches ranks against them, and until issue
+			// #379 they were the real 224-airport shipped data behind a fixture naming
+			// fourteen. Registered after the guard so it wins, and before the test body so a
+			// spec can replace it. See support/bundled-data.ts.
+			await pinBundledRouteData(context);
 			await use();
 			guard.assertNothingWasBlocked();
 		},
@@ -29,6 +36,8 @@ export const test = base.extend<{ forbidRealNetwork: void }>({
 
 export { expect };
 
-/** Re-exported so a spec can type a helper's `page` parameter without importing from
- *  '@playwright/test' itself, which `guard.spec.ts` fails the suite for. */
+/** Re-exported so a spec types a helper's `page` parameter from the same place it gets
+ *  `test` and `expect`, rather than opening a second import line to '@playwright/test'.
+ *  A type-only import there would be safe, since it is erased before anything runs and
+ *  `guard.spec.ts` knows that after issue #382. One import is still better than two. */
 export type { Page } from '@playwright/test';

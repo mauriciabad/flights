@@ -1,7 +1,7 @@
 import { test, expect } from './support/fixtures';
 import { routeRyanairFlights } from './support/providers';
 import { FIXTURE_FLIGHT_NUMBERS, FIXTURE_NAMES, FIXTURE_PRICES } from './support/fixture-markers';
-import { mockHostelworld, mockKiwiPublic } from './support/providers';
+import { mockHostelworld, mockKiwiPublic, mockRyanairNetwork } from './support/providers';
 import { openTimeline } from './support/results-ui';
 import { waitForSearchToSettle } from '../shared/search-wait';
 import { readFileSync } from 'node:fs';
@@ -157,32 +157,30 @@ test.describe('itinerary map: every transfer leg, distinct markers, honest geome
 		// these three airports. It stands in for "some keyless flight source covers this
 		// pairing" so the map has four transfer legs to draw, which is what this test is
 		// about, and the FIXTURE names say as much in the payload itself.
-		await page.context().route('https://www.ryanair.com/api/views/locate/3/airports/en/active', (route) =>
-			route.fulfill({
-				status: 200,
-				contentType: 'application/json',
-				body: JSON.stringify([
-					{
-						iataCode: 'KEF',
-						name: FIXTURE_NAMES.airportA,
-						timeZone: 'Atlantic/Reykjavik',
-						routes: ['airport:OSL']
-					},
-					{
-						iataCode: 'OSL',
-						name: FIXTURE_NAMES.airportB,
-						timeZone: 'Europe/Oslo',
-						routes: ['airport:TBS', 'airport:KEF']
-					},
-					{
-						iataCode: 'TBS',
-						name: FIXTURE_NAMES.airportC,
-						timeZone: 'Asia/Tbilisi',
-						routes: ['airport:OSL']
-					}
-				])
-			})
-		);
+		const NETWORK = [
+			{
+				iataCode: 'KEF',
+				name: FIXTURE_NAMES.airportA,
+				timeZone: 'Atlantic/Reykjavik',
+				routes: ['airport:OSL']
+			},
+			{
+				iataCode: 'OSL',
+				name: FIXTURE_NAMES.airportB,
+				timeZone: 'Europe/Oslo',
+				routes: ['airport:TBS', 'airport:KEF']
+			},
+			{
+				iataCode: 'TBS',
+				name: FIXTURE_NAMES.airportC,
+				timeZone: 'Asia/Tbilisi',
+				routes: ['airport:OSL']
+			}
+		];
+		// One call for both halves: the `active-airports` response the adapter reads, and the
+		// route graphs the app ships in its own bundle. Without the second the search would
+		// rank this fictional network against 224 real Ryanair airports, which is issue #379.
+		await mockRyanairNetwork(page.context(), NETWORK);
 		await routeRyanairFlights(
 			page.context(),
 			[
@@ -203,11 +201,10 @@ test.describe('itinerary map: every transfer leg, distinct markers, honest geome
 					flightNumber: FIXTURE_FLIGHT_NUMBERS[6]
 				}
 			],
-			// These three are not in the shared airport fixture and do not belong there:
-			// the block above answers `active-airports` with its own network, zones and
-			// all. Issue #354's check measures the shared list, which is the wrong list
-			// here.
-			{ airportsAnsweredBySpec: true }
+			// These three are not in the shared airport fixture and do not belong there: the
+			// block above answers `active-airports` with its own network, zones and all. Naming
+			// it here keeps issue #354's check on, measuring the list this spec really pinned.
+			{ airports: NETWORK }
 		);
 
 		// -----------------------------------------------------------------

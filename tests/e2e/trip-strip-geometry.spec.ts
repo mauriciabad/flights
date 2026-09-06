@@ -70,10 +70,19 @@ async function openResults(page: Page, url = '/results/?dep=2027-03-08&arr=2027-
 	return card;
 }
 
-/** Each strip target's box and the segment it names, read off the live DOM. */
+/**
+ * Every tappable block on the first card's strip, with its box and the segment it names.
+ *
+ * The checks below all end in "and none of them is too small" or "too close", which an empty
+ * strip satisfies as comfortably as a well-spaced one. Issue #382 is a list of five times
+ * exactly that passed for the wrong reason, so the premise is stated here, once, for every
+ * caller.
+ */
 async function stripTargets(page: Page) {
-	return page.locator('.result-card').first().locator('.trip-strip-hit').evaluateAll((hits) =>
-		hits.map((hit) => {
+	const hits = page.locator('.result-card').first().locator('.trip-strip-hit');
+	await expect(hits.first(), 'no strip blocks on screen, so a geometry sweep proves nothing').toBeVisible();
+	return hits.evaluateAll((blocks) =>
+		blocks.map((hit) => {
 			const box = hit.getBoundingClientRect();
 			return {
 				label: hit.getAttribute('aria-label') ?? '',
@@ -165,6 +174,9 @@ test.describe('every strip block is big enough to hit (#316)', () => {
 		// z-index decides who wins the tap.
 		await openResults(page, FOUR_LEG_URL);
 		const targets = (await stripTargets(page)).sort((a, b) => a.centre - b.centre);
+		// The same premise the sibling check states: this trip has more than four blocks, so
+		// "no pair is too close" is a claim about real pairs.
+		expect(targets.length).toBeGreaterThan(4);
 
 		const tooClose = targets
 			.slice(1)
@@ -181,17 +193,24 @@ test.describe('every strip block is big enough to hit (#316)', () => {
 		// The issue's own sweep, run over the whole page rather than the strip alone, since
 		// its second finding was the timeline unfold control at 19px tall.
 		await openResults(page, FOUR_LEG_URL);
-		const small = await page.evaluate(() =>
-			[...document.querySelectorAll('a,button,input,select,[role="button"]')]
+		const { controls, small } = await page.evaluate(() => {
+			const visible = [...document.querySelectorAll('a,button,input,select,[role="button"]')]
 				.map((element) => ({
 					name: element.getAttribute('aria-label') ?? element.textContent?.trim().slice(0, 40) ?? '',
 					box: element.getBoundingClientRect()
 				}))
 				// A control with no box at all is inside something closed, which is not a target.
-				.filter(({ box }) => box.width > 0 && box.height > 0 && (box.width < 24 || box.height < 24))
-				.map(({ name, box }) => `${name}: ${Math.round(box.width)}x${Math.round(box.height)}`)
-		);
+				.filter(({ box }) => box.width > 0 && box.height > 0);
+			return {
+				controls: visible.length,
+				small: visible
+					.filter(({ box }) => box.width < 24 || box.height < 24)
+					.map(({ name, box }) => `${name}: ${Math.round(box.width)}x${Math.round(box.height)}`)
+			};
+		});
 
+		// The sweep's own premise: an empty page has no control under 24px either. Issue #382.
+		expect(controls, 'no visible controls on the results page').toBeGreaterThan(10);
 		expect(small).toEqual([]);
 	});
 });
