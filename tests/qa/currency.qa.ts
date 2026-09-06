@@ -38,6 +38,9 @@ test.describe('currency', () => {
 		await page.goto(resultsUrl());
 		await waitForSearchToSettle(page);
 		const bedless = await connectionCities(page);
+		// "Nothing was lost" is also true of a baseline that had nothing. Issue #382, and this
+		// is the check that exists because pricing a bed once deleted trips.
+		expect(bedless.length, 'the keyless baseline produced no itinerary to lose').toBeGreaterThan(0);
 
 		// Run two: identical search, with the two stay providers configured. An init script
 		// applies to the next navigation, so the reload below is the first load that sees a

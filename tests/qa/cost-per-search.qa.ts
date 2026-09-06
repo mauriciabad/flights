@@ -20,6 +20,12 @@ import { waitForSearchToSettle } from './support/page';
 
 test.describe('cost per search', () => {
 	test('the declared budget still leaves a month of searches', () => {
+		// An empty budget table declares nothing that outruns anything. Issue #382.
+		expect(
+			Object.keys(REQUESTS_PER_SEARCH).length,
+			'tests/qa/budget.ts declares no provider'
+		).toBeGreaterThan(0);
+
 		const problems = budgetsThatOutrunTheirFreeTier();
 		expect(
 			problems,
@@ -32,8 +38,17 @@ test.describe('cost per search', () => {
 		await page.goto(resultsUrl());
 		await waitForSearchToSettle(page);
 
+		// The premise, before the budget. "Nothing went over budget" is also what a search that
+		// made no requests at all produces, and this is the check standing between the owner's
+		// free tier and an agent's afternoon. Issue #382.
+		const counts = bench.countsByProvider();
+		expect(
+			counts.size,
+			`this search called no provider at all:\n${bench.describeTraffic()}`
+		).toBeGreaterThan(0);
+
 		const over: string[] = [];
-		for (const [providerId, count] of bench.countsByProvider()) {
+		for (const [providerId, count] of counts) {
 			if (providerId === undefined) continue;
 			const budget = REQUESTS_PER_SEARCH[providerId];
 			if (budget === undefined || count <= budget) continue;
@@ -60,7 +75,13 @@ test.describe('cost per search', () => {
 		await page.goto(resultsUrl());
 		await waitForSearchToSettle(page);
 
-		const undeclared = [...bench.countsByProvider().keys()].filter(
+		const called = [...bench.countsByProvider().keys()];
+		expect(
+			called.length,
+			`this search called no provider at all:\n${bench.describeTraffic()}`
+		).toBeGreaterThan(0);
+
+		const undeclared = called.filter(
 			(providerId) => providerId !== undefined && REQUESTS_PER_SEARCH[providerId] === undefined
 		);
 

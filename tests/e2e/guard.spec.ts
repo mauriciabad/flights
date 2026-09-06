@@ -1,6 +1,7 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import ts from 'typescript';
 import { test, expect } from './support/fixtures';
 import { FIXTURE_MARKER_TOKENS } from './support/fixture-markers';
 
@@ -18,29 +19,93 @@ import { FIXTURE_MARKER_TOKENS } from './support/fixture-markers';
 const e2eDir = path.dirname(fileURLToPath(import.meta.url));
 const thisFile = fileURLToPath(import.meta.url);
 
+/**
+ * Every rule in this file ends in `expect(offenders).toEqual([])`, and an empty offender
+ * list is also what a scan that found nothing to scan produces. Issue #382 is a list of five
+ * times an assertion of absence passed for a reason it did not name; eight more would be in
+ * this file if `tests/e2e/` were ever renamed or reorganised, and the whole suite would go
+ * green while guarding nothing.
+ *
+ * So the scan states its own premise. Throwing here rather than asserting at each call site
+ * puts it in the one place the next rule somebody adds cannot forget.
+ */
+function requireSomethingToScan<T>(found: T[], what: string, dir: string): T[] {
+	if (found.length === 0) {
+		throw new Error(
+			`Found no ${what} under ${dir}, so every rule reading this list would pass ` +
+				'without checking anything. The directory has probably moved or been renamed.'
+		);
+	}
+	return found;
+}
+
 function findSpecFiles(dir: string): string[] {
+	return requireSomethingToScan(collectSpecFiles(dir), 'spec files', dir);
+}
+
+function collectSpecFiles(dir: string): string[] {
 	return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
 		const full = path.join(dir, entry.name);
 		if (entry.isDirectory()) {
 			if (entry.name === 'support') return [];
-			return findSpecFiles(full);
+			return collectSpecFiles(full);
 		}
 		return entry.name.endsWith('.spec.ts') ? [full] : [];
 	});
 }
 
+/**
+ * Whether `file` imports a runtime value from `moduleSpecifier`.
+ *
+ * Issue #382. This used to match the text of the import line, so
+ * `import type { Page } from '@playwright/test'` tripped a guard about reaching the network,
+ * with an import that is erased before anything runs and cannot reach anything. An agent
+ * hit that on `bed-pinning.spec.ts` and routed around it by re-exporting `Page` through
+ * `support/fixtures`, which is what every other spec does, so nothing broke. But a guard that
+ * fires on a safe line teaches people to route around guards, and the next one will route
+ * around a real finding.
+ *
+ * So this asks the compiler what the file imports rather than what the line says.
+ * `import type { X }` and `import { type X }` are both erased and neither counts; a named
+ * value import, a default import, a namespace import and a bare side-effect import all do.
+ */
 function importsDirectlyFrom(file: string, moduleSpecifier: string): boolean {
-	const source = readFileSync(file, 'utf-8');
-	const pattern = new RegExp(`from ['"]${moduleSpecifier.replace(/[/]/g, '\\/')}['"]`);
-	return pattern.test(source);
+	const source = ts.createSourceFile(
+		file,
+		readFileSync(file, 'utf-8'),
+		ts.ScriptTarget.Latest,
+		true,
+		ts.ScriptKind.TS
+	);
+
+	return source.statements.some((statement) => {
+		if (!ts.isImportDeclaration(statement)) return false;
+		if (!ts.isStringLiteral(statement.moduleSpecifier)) return false;
+		if (statement.moduleSpecifier.text !== moduleSpecifier) return false;
+
+		const clause = statement.importClause;
+		// `import '@playwright/test'` for its side effects still runs the module.
+		if (!clause) return true;
+		if (clause.isTypeOnly) return false;
+		if (clause.name) return true;
+
+		const bindings = clause.namedBindings;
+		if (!bindings) return false;
+		if (ts.isNamespaceImport(bindings)) return true;
+		return bindings.elements.some((element) => !element.isTypeOnly);
+	});
 }
 
 const repoRoot = path.resolve(e2eDir, '..', '..');
 
 function findFiles(dir: string, matches: (name: string) => boolean): string[] {
+	return requireSomethingToScan(collectFiles(dir, matches), 'matching files', dir);
+}
+
+function collectFiles(dir: string, matches: (name: string) => boolean): string[] {
 	return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
 		const full = path.join(dir, entry.name);
-		if (entry.isDirectory()) return findFiles(full, matches);
+		if (entry.isDirectory()) return collectFiles(full, matches);
 		return matches(entry.name) ? [full] : [];
 	});
 }
