@@ -44,8 +44,10 @@
 	import { Button, Icon, MapDialog } from '$lib/components';
 	import type { Airport, Stay } from '$lib/domain';
 	import { formatPropertyRating } from '$lib/format';
-	import { describePriceComparison, stayDistances, type StayChoice } from './choice';
+	import { describePriceComparison, showsWholeStayFigures, stayDistances, type StayChoice } from './choice';
 	import PhotoCarousel from './PhotoCarousel.svelte';
+	import StayReachLine from './StayReachLine.svelte';
+	import { describeStayReach } from './reach';
 	import { formatMoney } from './pricing';
 	import StaysMap from './StaysMap.svelte';
 
@@ -72,7 +74,6 @@
 
 	const open = $derived(choices.find((choice) => choice.key === selectedKey));
 	const openDelta = $derived(open ? describePriceComparison(open.comparison, nights) : undefined);
-
 </script>
 
 <MapDialog title="Stays near {connectionAirport.city.name}" {onclose} class="stays-dialog">
@@ -124,13 +125,22 @@
 							</dd>
 						</div>
 					{/if}
-					{#if open.total && nights > 0}
+					{#if open.total && showsWholeStayFigures(nights)}
 						<div class="stays-figure">
 							<dt class="stays-figure-label font-mono">{nights} {nights === 1 ? 'night' : 'nights'}</dt>
 							<dd class="stays-figure-value font-mono tabular-nums">{formatMoney(open.total)}</dd>
 						</div>
 					{/if}
 				</dl>
+
+				<!-- Issue #405's "visibly marked as not having". The row upstairs shows the times a
+				     traveller can act on; this panel has the room to say what happened to the modes
+				     that produced none, so a missing walk reads as "too far" rather than as silence. -->
+				<ul class="stays-detail-reach">
+					{#each describeStayReach(open.reach) as line (line)}
+						<li>{line}</li>
+					{/each}
+				</ul>
 
 				{#if openDelta}
 					<p class={['stays-detail-delta', { 'is-cheaper': openDelta.cheaper }]}>
@@ -148,8 +158,8 @@
 				{/if}
 			{:else}
 				<p class="stays-sidebar-lead">
-					Pick a point on the map, or a row here, to see that property. Prices compare against the
-					stay this trip books now.
+					Pick a point on the map, or a row here, to see that property. Prices compare against the stay this
+					trip books now.
 				</p>
 				<ul class="stays-list">
 					{#each choices as choice (choice.key)}
@@ -161,11 +171,12 @@
 								onclick={() => (selectedKey = choice.key)}
 							>
 								<span class="stays-row-name">{choice.property.name}</span>
-								<span class="stays-row-meta">{stayDistances(choice)[0].distance} from airport</span>
+								<span class="stays-row-meta">
+									<StayReachLine reach={choice.reach} distanceToAirportKm={choice.distanceToAirportKm} />
+								</span>
 								{#if choice.cheapest}
 									<span class="stays-row-price font-mono tabular-nums">
-										{formatMoney(choice.cheapest.stay.pricePerNight)}<span class="stays-row-unit"
-											>/night</span
+										{formatMoney(choice.cheapest.stay.pricePerNight)}<span class="stays-row-unit">/night</span
 										>
 									</span>
 								{/if}
@@ -185,7 +196,6 @@
 				</ul>
 			{/if}
 		</div>
-
 	{/snippet}
 	{#snippet map()}
 		<div class="stays-dialog-map">
@@ -195,6 +205,14 @@
 </MapDialog>
 
 <style>
+	.stays-detail-reach {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-1);
+		font-size: var(--font-size-sm);
+		color: var(--color-text-muted);
+	}
+
 	/* The sidebar's own scroll and rhythm. Everything about the surface it sits in, the
 	   near-fullscreen margin, the head, the close button and the 52rem split, is
 	   `MapDialog`'s (issue #324). This file used to carry a copy of all of it. */
@@ -396,14 +414,16 @@
 		white-space: nowrap;
 	}
 
-	.stays-row-unit,
-	.stays-row-meta {
+	.stays-row-unit {
 		font-size: var(--font-size-xs);
 		color: var(--color-text-muted);
 	}
 
 	.stays-row-meta {
 		grid-area: 2 / 1;
+		min-width: 0;
+		font-size: var(--font-size-xs);
+		color: var(--color-text-muted);
 	}
 
 	.stays-row-delta {

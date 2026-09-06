@@ -284,6 +284,12 @@ export class Bench {
 		// A map style, not a provider answer. Served empty so the detail view's map mounts
 		// without reaching a tile CDN, which is neither metered nor interesting here.
 		if (UNBUDGETED_HOSTS.includes(host)) return { version: 8, sources: {}, layers: [] };
+		// Two endpoints on one host, and the path is the only thing that tells them apart.
+		// Matching on host alone handed the table service a `/route/v1/` body, which has no
+		// `durations` array, so the adapter threw and every behavioural check below failed at
+		// its "is there anything on screen" line at once — the exact shape AGENTS.md records
+		// #166 producing, where three unrelated bugs were reported that had not happened.
+		if (host === OSRM_HOST && pathname.includes('/table/v1/')) return recorded.osrmTable(url);
 		if (host === OSRM_HOST) return recorded.osrmRoute();
 		if (host === TRANSITOUS_HOST) return recorded.transitousPlan();
 		return undefined;

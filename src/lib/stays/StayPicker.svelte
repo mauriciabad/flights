@@ -12,13 +12,15 @@
 	import { base } from '$app/paths';
 	import type { Airport, Money, Stay } from '$lib/domain';
 	import { formatPropertyRating } from '$lib/format';
-	import { Button, Card, EmptyState, RoutePreview } from '$lib/components';
+	import { Button, Card, EmptyState, RoutePreview, Select } from '$lib/components';
 	import RoomKindTile from './RoomKindTile.svelte';
 	import StayAlternativeCard from './StayAlternativeCard.svelte';
 	import PhotoCarousel from './PhotoCarousel.svelte';
 	import StaysMapDialog from './StaysMapDialog.svelte';
 	import { stayGenderFitMessage } from './gendered-room-fit';
 	import { describeStayChoices } from './choice';
+	import { stayReachNote, type StayReach } from './reach';
+	import { STAY_SORT_LABELS, availableStaySortKeys, sortStayChoices, type StaySortKey } from './sort';
 	import { formatDistanceKm, haversineDistanceKm } from './distance';
 	import { stayTotalDelta, stayTotalForNights } from './pricing';
 	import { cheapestSelectableOption, isOptionSelectable, rankProperties } from './rank';
@@ -68,6 +70,16 @@
 		 */
 		chosen?: boolean;
 		/**
+		 * Issue #405: how long the journey out from the connection airport takes, per property
+		 * and per mode. Fetched by whoever owns provider access (`SegmentCustomiser`) rather
+		 * than here, so this component stays a pure function of its props and testable without
+		 * a network. Empty means nobody has looked, which every surface renders as the straight
+		 * line it replaced.
+		 */
+		reachByProperty?: ReadonlyMap<string, StayReach>;
+		/** Whatever the reach lookup failed with, in the provider's own words. */
+		reachFailures?: readonly string[];
+		/**
 		 * Hands the bed back to the app, so it follows the recommendation again. Offered only
 		 * where it would change something: the traveller has chosen a bed AND the ranking now
 		 * puts a different property first.
@@ -87,7 +99,9 @@
 		stayProviders = [],
 		unconfiguredStayProviders = [],
 		chosen = false,
-		onuseRecommended
+		onuseRecommended,
+		reachByProperty,
+		reachFailures = []
 	}: Props = $props();
 
 	// Issue #374: the same question asked of a list that is NOT empty. 54 Hostelworld
@@ -151,10 +165,43 @@
 			cityCentre: connectionAirport.city.coordinates,
 			nights,
 			travellers,
-			females
+			females,
+			reachByProperty
 		})
 	);
-	const alternatives = $derived(choices.filter((choice) => choice.group !== openGroup));
+
+	/**
+	 * Issue #406, and the reason it lives up here rather than in the row: the list, the map's
+	 * points and the map's sidebar are three renderings of one answer, and a sort inside
+	 * `StayAlternativeCard` would leave the other two on the old order. `sortStayChoices` takes
+	 * the ranked list and rearranges it; `rankProperties` still decides what "recommended"
+	 * means and is still the default.
+	 */
+	let sortKey = $state<StaySortKey>('recommended');
+	const sortCurrency = $derived(effectiveSelected?.pricePerNight.currency);
+	const sortKeys = $derived(availableStaySortKeys(choices, sortCurrency));
+	// A key can stop being offered under the traveller: a different stopover has no city
+	// centre, or its beds are quoted in another currency. Falling back to the default beats
+	// holding a selection the control no longer shows.
+	const activeSortKey = $derived(sortKeys.includes(sortKey) ? sortKey : 'recommended');
+	const sortedChoices = $derived(sortStayChoices(choices, activeSortKey, sortCurrency));
+
+	/** What the order currently is, in the words of the key that produced it. The default's
+	 * sentence is the one issue #219 needs, and every other key gets a plain statement rather
+	 * than that sentence left standing over a list it no longer describes. */
+	const sortNote = $derived(
+		activeSortKey === 'recommended'
+			? "Cheapest first for this stopover's length, counting the journey out to each."
+			: `Sorted by ${STAY_SORT_LABELS[activeSortKey].toLowerCase()}, shortest first. Stays without that figure are at the end.`
+	);
+
+	/** Why no row has a bus time, said once rather than thirty times. `fetch-reach.ts` holds
+	 * the measurement behind it. */
+	const reachNote = $derived(
+		stayReachNote(sortedChoices.flatMap((choice) => (choice.reach ? [choice.reach] : [])))
+	);
+
+	const alternatives = $derived(sortedChoices.filter((choice) => choice.group !== openGroup));
 
 	/** The map exists while this is true and not one moment longer, which is issue #280's
 	 * rule about where MapLibre may live. Mounting the dialog creates the only instance on
@@ -164,7 +211,9 @@
 	/** Whether anything in the whole candidate list is bookable by this group at all -
 	 * false only when every property's only rooms are a women-only or men-only dorm this
 	 * group can't (fully) use, the one case with nothing safe to fall back to. */
-	const nothingBookable = $derived(properties.length > 0 && ranked.every((g) => !cheapestSelectableOption(g, travellers, females)));
+	const nothingBookable = $derived(
+		properties.length > 0 && ranked.every((g) => !cheapestSelectableOption(g, travellers, females))
+	);
 
 	const distanceToAirportKm = $derived(
 		openProperty ? haversineDistanceKm(openProperty.coordinates, connectionAirport.coordinates) : 0
@@ -290,13 +339,44 @@
 		{#if alternatives.length > 0}
 			<div class="stay-alternatives">
 				<h3 class="stay-alternatives-heading">Other stays near this connection</h3>
-				<!-- The list is ordered by what the whole stopover costs rather than by the rate
-				     alone (issue #219), so a cheaper bed can sit below a dearer one. Saying so is
-				     cheaper than letting the differences below read as a broken sort. -->
+				<!-- The default order is what the whole stopover costs rather than the rate alone
+				     (issue #219), so a cheaper bed can sit below a dearer one. Saying so is cheaper
+				     than letting the differences below read as a broken sort. The sentence changes
+				     with the key, because "cheapest first" is a lie once the traveller has asked
+				     for the shortest walk. -->
 				<p class="stay-alternatives-note">
-					Cheapest first for this stopover's length, counting the journey out to each. Prices compare
-					against the stay this trip books now.
+					{sortNote}
+					Prices compare against the stay this trip books now.
 				</p>
+
+				<!--
+					A native select rather than a row of chips (issue #406). Five keys as chips wrap
+					to three lines in the 312px rail, and on a phone this hands the traveller the
+					platform's own picker. It is keyboard-reachable with a real focus ring, and the
+					active key is a word in the closed control rather than a colour on one chip.
+					Offered only where there is more than one thing to choose between: a list nothing
+					has routed yet has no second key, and a control with one option is furniture.
+				-->
+				{#if sortKeys.length > 1}
+					<Select
+						class="stay-sort"
+						label="Sort these stays by"
+						options={sortKeys.map((key) => ({ value: key, label: STAY_SORT_LABELS[key] }))}
+						bind:value={() => activeSortKey, (next) => (sortKey = next as StaySortKey)}
+					/>
+				{/if}
+
+				<!-- Issue #405. Absence of a bus time on thirty rows would read as "there is no bus
+				     to any of these", which nobody checked. This is the true version of that claim,
+				     said once. -->
+				{#if reachNote}
+					<p class="stay-alternatives-note" data-testid="stay-reach-note">{reachNote}</p>
+				{/if}
+				<!-- AGENTS.md, "show the error you got": the router's own sentence and status code,
+				     not our paraphrase of them. -->
+				{#each reachFailures as failure (failure)}
+					<p class="stay-failure font-mono" data-testid="stay-reach-failure">{failure}</p>
+				{/each}
 
 				<!--
 					Issue #280's architecture, applied to a second map. This picture is an inline
@@ -311,13 +391,16 @@
 						lines={[]}
 						points={[
 							{ coordinates: connectionAirport.coordinates, tone: 'neutral' },
-							...choices.map((choice) => ({ coordinates: choice.property.coordinates, tone: 'stopover' as const }))
+							...sortedChoices.map((choice) => ({
+								coordinates: choice.property.coordinates,
+								tone: 'stopover' as const
+							}))
 						]}
 						width={320}
 						height={120}
 					/>
 					<span class="stay-map-open-label">
-						Open the map of all {choices.length} stays
+						Open the map of all {sortedChoices.length} stays
 						<span class="stay-map-open-hint">Pick a point to compare it against this one</span>
 					</span>
 				</button>
@@ -349,7 +432,9 @@
 			<div class="stay-catalogue-footnote">
 				<p class="stay-catalogue-note" data-testid="stay-catalogue-note">
 					{catalogueNote.description}
-					{#if catalogueNote.action}<a href="{base}{catalogueNote.action.href}">{catalogueNote.action.label}</a>{/if}
+					{#if catalogueNote.action}<a href="{base}{catalogueNote.action.href}"
+							>{catalogueNote.action.label}</a
+						>{/if}
 				</p>
 				{#each catalogueNote.providerFailures as failure (failure)}
 					<p class="stay-failure font-mono" data-testid="stay-provider-failure">{failure}</p>
@@ -359,7 +444,13 @@
 	</div>
 
 	{#if mapOpen}
-		<StaysMapDialog {choices} {connectionAirport} {nights} onchoose={choose} onclose={() => (mapOpen = false)} />
+		<StaysMapDialog
+			choices={sortedChoices}
+			{connectionAirport}
+			{nights}
+			onchoose={choose}
+			onclose={() => (mapOpen = false)}
+		/>
 	{/if}
 {/if}
 
@@ -475,6 +566,10 @@
 	.stay-alternatives-heading {
 		font-size: var(--font-size-base);
 		font-weight: var(--font-weight-semibold);
+	}
+
+	.stay-picker :global(.stay-sort) {
+		margin-bottom: var(--space-3);
 	}
 
 	.stay-alternatives-note {

@@ -1,56 +1,76 @@
 <script lang="ts">
 	/**
-	 * One row in the "cheaper first" alternatives list (issue #27). Clicking a bookable row
-	 * hands its cheapest eligible option to the parent as the new selected stay; a property
-	 * with nothing this group can book still shows, per rank.ts's "sort last, don't drop",
-	 * but as an inert row with the reason stated rather than a price.
+	 * One row in the alternatives list (issue #27). Clicking a bookable row hands its cheapest
+	 * eligible option to the parent as the new selected stay; a property with nothing this
+	 * group can book still shows, per rank.ts's "sort last, don't drop", but as an inert row
+	 * with the reason stated rather than a price.
 	 *
-	 * ## Why the layout changed, with the measurement that forced it
+	 * ## Why the layout changed, twice, with the measurement that forced each
 	 *
-	 * Issue #319, the owner: **"the cards are cramped and not usable in that width."** He is
-	 * describing something specific and it is worse than cramped. This row used to be
-	 * `grid-template-columns: 4.5rem 1fr auto`, and the `auto` price column carried three
-	 * `white-space: nowrap` lines, so it claimed its full intrinsic width before the `1fr`
-	 * body got anything. Measured on this branch in the 312px customise rail, before the
-	 * change: the price column took 132px, the thumbnail 72px, and the property name was
-	 * left a **50px** box holding a 144px string. Every name in the list rendered as four
-	 * characters and an ellipsis, and the three-phrase meta line wrapped down that same 50px
-	 * column into 200px of height. A 312px row 254px tall, saying almost nothing.
+	 * Issue #319, the owner: **"the cards are cramped and not usable in that width."** This row
+	 * used to be `grid-template-columns: 4.5rem 1fr auto`, and the `auto` price column carried
+	 * three `white-space: nowrap` lines, so it claimed its full intrinsic width before the
+	 * `1fr` body got anything. Measured in the 312px customise rail: the price column took
+	 * 132px, the thumbnail 72px, and the property name was left a **50px** box holding a 144px
+	 * string. Every name rendered as four characters and an ellipsis. So the price stopped
+	 * competing with the name for a line, and it stays that way: the name and its facts take
+	 * the full width beside the thumbnail, the money goes underneath, nothing is set smaller to
+	 * make it fit, and the name wraps rather than truncating.
 	 *
-	 * So the price stops competing with the name for one line. The name and its facts take
-	 * the full width beside the thumbnail, and the money goes on its own row underneath.
-	 * Nothing is set smaller to make it fit, which is the other half of what he asked for,
-	 * and the name wraps rather than truncating: a hostel name is the one string on this row
-	 * a traveller has to be able to read.
+	 * Issue #404 is the next pass, and it is about weight rather than width. The owner:
+	 * **"the information distribution, design and visual hierarchy is bad."** What he was
+	 * looking at:
+	 *
+	 * ```
+	 * Easy Host Porto
+	 * rated 7.9/10 13.1 km from airport
+	 * 1.1 km from centre
+	 * from €30.40/night €30.40 total
+	 * +€5.60/night +€5.60 over 1 night
+	 * ```
+	 *
+	 * Three things are wrong with that and each has its own fix.
+	 *
+	 * **Five facts at one weight, so nothing leads.** The rating and both distances were one
+	 * wrapped flex line of `--font-size-xs` muted text, which makes them read as a sentence
+	 * rather than as three separate answers. They are now three tiers: the name, then the
+	 * journey out (issue #405's per-mode times, which is what the airport distance was
+	 * standing in for), then the rating and the centre distance as the quiet supporting line.
+	 *
+	 * **The same number, printed twice.** At one night the whole-stay figures ARE the nightly
+	 * ones. `showsWholeStayFigures` in `choice.ts` decides that once, so the map's sidebar
+	 * stops doing it too.
+	 *
+	 * **The wrong number was the biggest.** The rate was body size and the difference was
+	 * `--font-size-sm`, so the eye landed on `€30.40` when the question the row exists to
+	 * answer is `+€5.60`. That is inverted now: the difference is the largest figure on the
+	 * row and the rate supports it.
+	 *
+	 * `€X total` is gone from the row entirely rather than shrunk. It is the one figure of the
+	 * four a traveller cannot act on without also holding the current pick's whole-stay total,
+	 * and the map dialog's figure rail prints both side by side for anyone comparing in
+	 * earnest. The switch cost over the stay stays, because that is the thing being decided.
 	 *
 	 * One layout, no container query, unlike `PickedBed`: this list is only ever rendered
-	 * inside `SegmentCustomiser`, which is a 312px rail on a desktop and a full-width sheet
-	 * on a phone. Both are in one width band, and a second phase nobody reaches is a second
-	 * phase nobody tests.
-	 *
-	 * ## The price difference is the point of the row now
-	 *
-	 * `choice.ts` decides it, and its doc comment argues both halves: per night rather than
-	 * per stay, because a stopover can book zero nights; and the room only, never the
-	 * assumed fare `rank.ts` orders on, because AGENTS.md forbids presenting an estimate as
-	 * a fact.
+	 * inside `SegmentCustomiser`, which is a 312px rail on a desktop and a full-width sheet on
+	 * a phone. Both are in one width band, and a second phase nobody reaches is a second phase
+	 * nobody tests.
 	 *
 	 * ## No carousel here, deliberately
 	 *
 	 * Issue #319 asks for one and this row is not where it goes. Thirty rows would be thirty
 	 * scrollers, thirty `aria-live` counters and sixty arrows in the tab order, and that
-	 * settles it on its own. The byte argument that used to sit beside it no longer holds.
-	 * Issue #284 called every keyless Hostelworld photograph a 2.8 MB original, and
-	 * `hostelworld-photo.ts` now asks Cloudinary for the card width instead, 96.0% less
-	 * across eight measured photographs. The carousel goes where a property has room and is
-	 * looked at one at a time: the open card above this list, and the sidebar the stay map
-	 * opens. Both are one click from here. This row keeps its single lazy thumbnail.
+	 * settles it on its own. The carousel goes where a property has room and is looked at one
+	 * at a time: the open card above this list, and the sidebar the stay map opens. Both are
+	 * one click from here. This row keeps its single lazy thumbnail.
 	 */
-	import { describePriceComparison, stayDistances, type StayChoice } from './choice';
+	import { describePriceComparison, type StayChoice } from './choice';
 	import { Icon } from '$lib/components';
 	import { formatPropertyRating } from '$lib/format';
+	import { formatDistanceKm } from './distance';
 	import { formatMoney } from './pricing';
 	import { originalStayPhoto } from '$lib/providers/stays/original-photo';
+	import StayReachLine from './StayReachLine.svelte';
 
 	interface Props {
 		choice: StayChoice;
@@ -91,32 +111,35 @@
 
 	<span class="alt-card-name">{property.name}</span>
 
+	<!-- Issue #405. The journey, not the crow flight: a traveller cannot turn "13.1 km" into
+	     "can I walk to this", and that was the question the distance was standing in for. -->
+	<span class="alt-card-reach">
+		<StayReachLine reach={choice.reach} distanceToAirportKm={choice.distanceToAirportKm} />
+	</span>
+
 	<span class="alt-card-meta">
 		<!-- Issue #245: the scale, not just the number. Same wording as the row in the open
 		     card below it and the stopover row in the timeline. -->
 		{#if property.rating !== undefined}
 			<span class="alt-card-rating">rated {formatPropertyRating(property.rating)}</span>
 		{/if}
-		{#each stayDistances(choice) as line (line.from)}
-			<span>{line.distance} from {line.from}</span>
-		{/each}
+		<!-- The airport distance is not repeated here: the line above answers it better. This
+		     is the other question, how central the bed is, and it is the one #406 sorts on. -->
+		{#if choice.distanceToCentreKm !== undefined}
+			<span>{formatDistanceKm(choice.distanceToCentreKm)} from centre</span>
+		{/if}
 	</span>
 
 	{#if choice.unavailableReason}
 		<span class="alt-card-unavailable">{choice.unavailableReason}</span>
-	{:else if choice.cheapest && choice.total}
+	{:else if choice.cheapest}
 		<span class="alt-card-money">
 			<span class="alt-card-price">
-				<span class="alt-card-from">from</span>
-				<span class="font-mono tabular-nums"
-					>{formatMoney(choice.cheapest.stay.pricePerNight)}<span class="alt-card-unit">/night</span
-					></span
+				<!-- "from" stays: one property can offer a dorm and a private room, and this is
+				     the cheapest of them rather than the price of staying here. -->
+				<span class="alt-card-from">from</span><span class="font-mono tabular-nums"
+					>{formatMoney(choice.cheapest.stay.pricePerNight)}<span class="alt-card-unit">/night</span></span
 				>
-				<!-- Only where there is a night to multiply. On a day stopover this would be
-				     "€0.00 total" under every row, which is arithmetic rather than information. -->
-				{#if nights > 0}
-					<span class="alt-card-total font-mono tabular-nums">{formatMoney(choice.total)} total</span>
-				{/if}
 			</span>
 
 			{#if delta}
@@ -133,15 +156,17 @@
 
 <style>
 	/*
-	   Three rows and two columns. The thumbnail spans the first two, so the name and its
-	   facts get everything beside it; the money takes a full-width row of its own, where it
-	   can carry both the rate and the difference without either shortening the name.
+	   Four rows and two columns. The thumbnail spans the first three, so the name, the journey
+	   out and the supporting facts all get the full width beside it; the money takes a
+	   full-width row of its own, where it can carry both the rate and the difference without
+	   either shortening the name.
 	*/
 	.alt-card {
 		display: grid;
 		grid-template-columns: 4rem minmax(0, 1fr);
 		grid-template-areas:
 			'thumb name'
+			'thumb reach'
 			'thumb meta'
 			'money money';
 		align-content: start;
@@ -205,10 +230,14 @@
 	   for - the same treatment `PickedBed` gives the same string. */
 	.alt-card-name {
 		grid-area: name;
-		align-self: end;
 		font-weight: var(--font-weight-semibold);
 		line-height: var(--line-height-sm);
 		overflow-wrap: anywhere;
+	}
+
+	.alt-card-reach {
+		grid-area: reach;
+		min-width: 0;
 	}
 
 	.alt-card-meta {
@@ -250,40 +279,46 @@
 		border-top: 1px solid var(--color-border);
 	}
 
-	.alt-card-price,
-	.alt-card-delta {
+	/* Supporting, not leading (issue #404). The rate says what kind of bed this is; the
+	   difference beside it says what changing to it costs, and that is the decision. */
+	.alt-card-price {
 		display: flex;
 		align-items: baseline;
-		flex-wrap: wrap;
-		gap: 0 var(--space-2);
+		gap: 0 var(--space-1);
+		font-size: var(--font-size-sm);
+		color: var(--color-text-muted);
 		white-space: nowrap;
 	}
 
-	.alt-card-delta {
-		justify-content: flex-end;
+	.alt-card-from {
+		font-size: var(--font-size-xs);
 	}
 
-	.alt-card-from,
-	.alt-card-unit {
-		font-size: var(--font-size-xs);
-		color: var(--color-text-muted);
+	.alt-card-delta {
+		display: flex;
+		flex-direction: column;
+		align-items: flex-end;
+		gap: 0;
+		white-space: nowrap;
 	}
 
 	.alt-card-unit {
 		margin-left: 0.125rem;
+		font-size: var(--font-size-xs);
 	}
 
-	.alt-card-total,
 	.alt-card-delta-stay {
 		font-size: var(--font-size-xs);
+		line-height: var(--line-height-xs);
 		color: var(--color-text-muted);
 	}
 
-	/* The figure issue #319 exists for. Same treatment the alternative-flight rows give
-	   their own delta: plain text weight for dearer, the success colour for cheaper, and
-	   never colour alone - the sign in front of the number carries it too (WCAG 1.4.1). */
+	/* The figure this row exists for, and now the largest thing on it after the name. Same
+	   treatment the alternative-flight rows give their own delta: plain text weight for
+	   dearer, the success colour for cheaper, and never colour alone - the sign in front of
+	   the number carries it too (WCAG 1.4.1). */
 	.alt-card-delta-value {
-		font-size: var(--font-size-sm);
+		font-size: var(--font-size-base);
 		font-weight: var(--font-weight-semibold);
 		font-variant-numeric: tabular-nums;
 		color: var(--color-text);

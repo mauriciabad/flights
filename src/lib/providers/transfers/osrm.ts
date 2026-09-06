@@ -178,8 +178,13 @@ const FASTEST_PLAUSIBLE_WALK_KM_PER_HOUR = 6;
  * production, a stay 48 km from Gatwick had this adapter ask the shared FOSSGIS instance
  * for a 48 km foot route four times; every one came back `net::ERR_CONNECTION_RESET`, and
  * those were the only errors on the page. Asking was the bug, not the reset.
+ *
+ * Exported since issue #405, which asks the same question one layer up: the stay list needs
+ * to know a walk is out before it draws a placeholder for one, and `stays/fetch-reach.ts`
+ * reading this constant is what keeps the row's answer and the adapter's refusal to ask the
+ * same decision rather than two numbers that can drift.
  */
-const MAX_WALK_ROUTE_DISTANCE_KM =
+export const MAX_WALK_ROUTE_DISTANCE_KM =
 	(FASTEST_PLAUSIBLE_WALK_KM_PER_HOUR * MAX_PLAUSIBLE_WALK_MINUTES) / 60;
 
 /** Whether a walking route between these two points could possibly be worth having. */
@@ -420,9 +425,10 @@ async function requestOsrm<T extends OsrmResponseBase>(
 interface RouteData {
 	durationSeconds: number;
 	/** Absent for an entry written by the batched table lookup (findTransfersToMany),
-	 * which never asks OSRM for distance since nothing that calls it needs one. A
-	 * caller that does need distance (getTaxiFareEstimate) treats such an entry as a
-	 * miss and fetches a full single route instead of guessing. */
+	 * which never asks OSRM for distance since nothing that calls it needs one. Its
+	 * presence is therefore what tells a complete entry from a thin one, and
+	 * `getCachedRoute` treats a thin one as a miss for every caller — see its own comment
+	 * for what went wrong when that was opt-in. */
 	distanceMeters?: number;
 	/** Issue #118: the route's shape, present whenever `fetchRoute` got a well-formed
 	 * geometry back — never set by the table lookup, which doesn't ask OSRM for one
@@ -644,10 +650,29 @@ function inFlightFor(signal: AbortSignal): Map<string, InFlightRoute> {
 	return created;
 }
 
-/** Cache-first single-pair lookup shared by searchTransfers and getTaxiFareEstimate.
- * `requireDistance` upgrades a duration-only cache hit (written by the batched table
- * lookup, which never asks for distance) into a fresh fetch, since a taxi estimate
- * must never guess at a distance it does not actually have. */
+/**
+ * Cache-first single-pair lookup, used by every mode `searchTransfers` answers.
+ *
+ * A duration-only entry is a MISS here, always. Two writers share this key and they store
+ * different amounts: `fetchRoute` asks for duration, distance and geometry together, while
+ * `findTransfersToMany` asks the table service for durations alone, since nothing that calls
+ * it needs the rest. Every caller of this function needs the rest — the fare needs the
+ * distance (issue #249) and the itinerary map needs the geometry (issue #118) — so serving
+ * them the thin entry hands back a taxi with no estimate and a map that draws a straight line
+ * where a road exists.
+ *
+ * This used to be opt-in, as a `requireDistance` flag one caller passed. It was safe only
+ * because nothing in `src/` called `findTransfersToMany` at all, so no thin entry was ever
+ * written. Issue #405 gave it a caller: the stay list now routes every candidate property
+ * through the table, including the pair the picked bed's own ground leg uses. The flag would
+ * have left the walking leg, and the driving leg of any query without a country code, reading
+ * a thin entry as a complete answer for the next thirty days.
+ *
+ * That is issue #131's bug in the other direction, and it is invisible in a fresh browser:
+ * it needs the list to have written first and the map to be drawn second. `distanceMeters` is
+ * the discriminator rather than `path`, because a full fetch can legitimately come back with
+ * no usable geometry, while only the table lookup ever omits the distance.
+ */
 async function getCachedRoute(
 	profile: OsrmProfile,
 	origin: Coordinates,
@@ -655,12 +680,11 @@ async function getCachedRoute(
 	ctx: ProviderContext,
 	options: OsrmProviderOptions,
 	store: CacheStore,
-	requestsSoFar: number,
-	requireDistance = false
+	requestsSoFar: number
 ): Promise<CachedRouteOutcome> {
 	const key = routeCacheKey(profile, origin, destination);
 	const cached = await readFreshEntry<RouteData>(store, key);
-	if (cached && (!requireDistance || cached.value.distanceMeters !== undefined)) {
+	if (cached && cached.value.distanceMeters !== undefined) {
 		return { kind: 'value', value: cached.value, requestMade: false, storedAt: cached.storedAt };
 	}
 
@@ -668,9 +692,8 @@ async function getCachedRoute(
 		return { kind: 'skipped-over-budget' };
 	}
 
-	// `requireDistance` needs no second thought here: everything this map ever holds came
-	// from `fetchRoute`, which always asks for distance. Only the batched table lookup
-	// writes a duration-only entry, and it does not go through this function.
+	// Everything this map holds came from `fetchRoute`, which always asks for distance, so a
+	// shared in-flight answer is always a complete one.
 	const pending = inFlightFor(ctx.signal);
 	const shared = pending.get(key.raw);
 	if (shared) {
@@ -856,11 +879,7 @@ async function searchTransfersImpl(
 					ctx,
 					options,
 					store,
-					requestsUsed,
-					// A fare needs the distance, and `findTransfersToMany` writes cache entries
-					// carrying only a duration. Asking for it here re-fetches such an entry in
-					// full instead of quietly returning a taxi with no estimate.
-					requestedModes.includes('taxi') && query.countryCode !== undefined
+					requestsUsed
 				);
 				if (outcome.kind === 'value') {
 					if (outcome.requestMade) requestsUsed++;
