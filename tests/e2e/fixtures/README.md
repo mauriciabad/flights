@@ -14,6 +14,7 @@ an adapter exists (issues #5 through #10).
 | `booking/hotels-search.json` | Booking.com via RapidAPI `booking-com15` | `api/v1/hotels/searchHotels` |
 | `transitous/plan.json` | Transitous/MOTIS (keyless) | `/api/v1/plan` (OTP-style itinerary) |
 | `osrm/route.json` | OSRM (keyless) | `/route/v1/{profile}/{coordinates}` |
+| `osrm/table.json` | OSRM (keyless) | `/table/v1/{profile}/{coordinates}` — one origin against many destinations |
 | `markers.json` | — | the tokens below, read by the specs and by `tools/probe-results.mjs` |
 
 ## `ryanair/active-airports.json` is the whole world, not one provider's answer

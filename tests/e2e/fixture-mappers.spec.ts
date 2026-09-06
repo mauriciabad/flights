@@ -16,7 +16,7 @@ import {
 } from '../../src/lib/providers/flights/kiwi-public-mapper';
 import { buildNetworkSnapshot } from '../../src/lib/providers/flights/ryanair-mapper';
 import { mapSearchFlightsToOffers } from '../../src/lib/providers/flights/skyscanner-map-offers';
-import { createOsrmTransferProvider } from '../../src/lib/providers/transfers/osrm';
+import { createOsrmTransferProvider, findTransfersToMany } from '../../src/lib/providers/transfers/osrm';
 import { mapPlanResponseToTransfer } from '../../src/lib/providers/transfers/transitous-mapper';
 
 /**
@@ -73,6 +73,23 @@ const BEFORE_DEADLINE: TransitPlanMoment = {
 	time: { local: '2027-03-10T09:00:00', timeZone: 'Europe/Vienna', utcOffsetMinutes: 60 },
 	arriveBy: true
 };
+
+/**
+ * The table service, which is a different endpoint and a different response shape from the
+ * one `routeThroughOsrm` exercises. Issue #405: the stay list asks one origin against every
+ * candidate property in a single request, and the answer is a matrix rather than a route.
+ */
+async function tableThroughOsrm(raw: unknown): Promise<number> {
+	const result = await findTransfersToMany('drive', AIRPORT, [CITY], {
+		signal: new AbortController().signal
+	}, {
+		store: new MemoryCacheStore(),
+		fetchImpl: async () =>
+			new Response(JSON.stringify(raw), { headers: { 'content-type': 'application/json' } })
+	});
+	if (!result.ok) throw new Error(`the OSRM adapter refused it: ${result.error.message}`);
+	return result.data.filter(Boolean).length;
+}
 
 async function routeThroughOsrm(raw: unknown): Promise<number> {
 	const provider = createOsrmTransferProvider({
@@ -234,6 +251,11 @@ const CHECKS: Record<string, FixtureCheck> = {
 		readBy: 'providers/transfers/osrm.ts searchTransfers',
 		yields: 'some',
 		map: (raw) => routeThroughOsrm(raw)
+	},
+	'osrm/table.json': {
+		readBy: 'providers/transfers/osrm.ts findTransfersToMany',
+		yields: 'some',
+		map: (raw) => tableThroughOsrm(raw)
 	},
 	'osrm/route-long.json': {
 		readBy: 'providers/transfers/osrm.ts searchTransfers',

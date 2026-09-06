@@ -289,6 +289,11 @@ const bookingSearchBody = readJson('tests/e2e/fixtures/booking/hotels-search.jso
 const bookingRoomsBody = readJson('src/lib/providers/stays/fixtures/booking-room-list-ibis.json');
 const nominatimBody = readJson('src/lib/providers/stays/fixtures/nominatim-vienna.json');
 const osrmBody = readJson('tests/e2e/fixtures/osrm/route.json');
+const osrmTableBody = readJson('tests/e2e/fixtures/osrm/table.json') as {
+	sources: unknown[];
+	destinations: unknown[];
+	durations: number[][];
+};
 const transitousBody = readJson('tests/e2e/fixtures/transitous/plan.json');
 
 /**
@@ -493,6 +498,28 @@ export function kiwiPublicGraphQl(url: URL): unknown {
 
 export function osrmRoute(): unknown {
 	return osrmBody;
+}
+
+/**
+ * OSRM's table service, which is a different endpoint on the same host from `osrmRoute`
+ * above and has to be answered separately. Issue #405 gave it its first caller: the stay
+ * list asks one origin against every candidate property in a single request.
+ *
+ * Projected to the number of destinations the caller actually asked for, the way
+ * `hostelworldProperties` projects its own recording, rather than returned at the fixture's
+ * fixed width. A row shorter than the question reads as "OSRM found no route" for every
+ * destination past the end, which is a perfectly valid answer and therefore a silent one:
+ * the list would simply have no times on most of its rows and nothing would say why.
+ */
+export function osrmTable(url: URL): unknown {
+	const asked = (url.searchParams.get('destinations') ?? '').split(';').filter(Boolean).length;
+	const pool = osrmTableBody.durations[0];
+	return {
+		code: 'Ok',
+		sources: osrmTableBody.sources,
+		destinations: Array.from({ length: asked }, (_, index) => osrmTableBody.destinations[index % osrmTableBody.destinations.length]),
+		durations: [Array.from({ length: asked }, (_, index) => pool[index % pool.length])]
+	};
 }
 
 export function transitousPlan(): unknown {

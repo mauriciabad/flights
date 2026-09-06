@@ -438,8 +438,26 @@ export async function mockTransitousPerLegMoment(
  * the way it already did once — the adapter moved off `router.project-osrm.org` to
  * `routing.openstreetmap.de`, and this mock kept intercepting the old host for months
  * because nothing exercised it. */
-export async function mockOsrm(target: Routable, fixture = 'osrm/route.json') {
+/**
+ * Two endpoints live on this host and they return different shapes. `/route/v1/` answers one
+ * pair with a duration, a distance and a geometry; `/table/v1/` answers one origin against
+ * many destinations with a matrix and nothing else. Issue #405 gave the table its first
+ * caller, and a single host-wide handler served it the route body, which has no `durations`
+ * array. The adapter throws on that, so the stay list would have gone silent while the
+ * failure read as "no journey times exist" rather than as a broken mock.
+ *
+ * `tableFixture` is separate because a spec that wants a specific route (a long one, an
+ * implausible one) still wants an ordinary table beside it.
+ */
+export async function mockOsrm(
+	target: Routable,
+	fixture = 'osrm/route.json',
+	tableFixture = 'osrm/table.json'
+) {
+	// Playwright runs matching handlers in the reverse of their registration order, so the
+	// narrow pattern has to be registered SECOND to win over the host-wide one.
 	await mockJson(target, `${OSRM_BASE_URL}/**`, fixture);
+	await mockJson(target, `${OSRM_BASE_URL}/**/table/v1/**`, tableFixture);
 }
 
 /** Registers every keyless provider (Ryanair — the fare-finder and active-airports, both

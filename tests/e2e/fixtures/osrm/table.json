@@ -1,0 +1,17 @@
+{
+	"code": "Ok",
+	"sources": [
+		{ "hint": "FIXTURE-origin", "distance": 4.2, "name": "FIXTURE Terminal Road", "location": [16.5697, 48.1103] }
+	],
+	"destinations": [
+		{ "hint": "FIXTURE-d0", "distance": 8.1, "name": "FIXTURE Ringstraße", "location": [16.3738, 48.2082] },
+		{ "hint": "FIXTURE-d1", "distance": 9.4, "name": "FIXTURE Gürtel", "location": [16.3362, 48.1966] },
+		{ "hint": "FIXTURE-d2", "distance": 6.7, "name": "FIXTURE Praterstern", "location": [16.3925, 48.2183] },
+		{ "hint": "FIXTURE-d3", "distance": 5.5, "name": "FIXTURE Landstraße", "location": [16.3854, 48.2058] },
+		{ "hint": "FIXTURE-d4", "distance": 7.2, "name": "FIXTURE Westbahnhof", "location": [16.3389, 48.1965] },
+		{ "hint": "FIXTURE-d5", "distance": 8.8, "name": "FIXTURE Schwedenplatz", "location": [16.3775, 48.2118] },
+		{ "hint": "FIXTURE-d6", "distance": 4.9, "name": "FIXTURE Hauptbahnhof", "location": [16.3757, 48.1854] },
+		{ "hint": "FIXTURE-d7", "distance": 6.1, "name": "FIXTURE Stephansplatz", "location": [16.3725, 48.2082] }
+	],
+	"durations": [[1620.5, 1712.0, 1498.25, 1401.75, 1655.5, 1580.0, 1349.5, 1533.25]]
+}
