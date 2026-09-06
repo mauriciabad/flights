@@ -241,3 +241,77 @@ describe('the fare cards themselves', () => {
 		}
 	});
 });
+
+describe('the British cards (issue #415)', () => {
+	it('prices the acceptance trip through Birmingham and Manchester', () => {
+		// docs/ACCEPTANCE.md's trip runs through Birmingham, Gatwick and Manchester, and issue
+		// #415 is open because none of the three had a card. The point of the test is the
+		// list, not the arithmetic: dropping one of these to tidy the table would put the
+		// owner back where he started.
+		for (const code of ['BHX', 'MAN']) {
+			expect(TRANSIT_FARE_TABLE[code], code).toBeDefined();
+			expect(range(code).currency, code).toBe('GBP');
+			expect(range(code).countryCode, code).toBe('GB');
+		}
+	});
+
+	it('still says nothing at Gatwick, whose fare is readable and whose journey is not', () => {
+		// Both of Gatwick's bounds came out of this pass, £6.00 on a National Express coach
+		// and £24.10 on the Gatwick Express, and it is still absent. That band prices a 40 km
+		// ticket into central London, and the stopover this app plans at Gatwick puts the
+		// stay a few kilometres from the runway on a local bus. A card fitting both needs a
+		// floor distance as well as a ceiling; the module header carries the argument and
+		// issue #421 carries the fares, so adding LGW here without that change is a revert.
+		expect(TRANSIT_FARE_TABLE.LGW).toBeUndefined();
+		expect(estimateTransitFare('LGW', 40, 1)).toBeUndefined();
+	});
+
+	it('prices Birmingham from the bus and from the free monorail plus a train', () => {
+		const birmingham = range('BHX');
+		expect(birmingham.lowMinorUnits).toBe(300);
+		expect(birmingham.highMinorUnits).toBe(500);
+	});
+
+	it('does not bill Birmingham per vehicle, because one of its vehicles is free', () => {
+		// An nBus single really does buy one bus journey, so this card would earn an onward
+		// fare on the network's own terms. It does not get one because Transitous returns the
+		// free Air-Rail Link as a ridden leg: the acceptance trip's own Birmingham plan is
+		// `OTHER/AIR + LONG_DISTANCE/Avanti + BUS/16`, three boardings of which the first is
+		// a monorail the airport gives away. Charging per boarding there would overstate the
+		// cheapest way to make the journey, which is the one direction this table may not err
+		// in; see the module header on Rome.
+		expect(range('BHX', 5, 3).lowMinorUnits).toBe(300);
+		expect(range('BHX', 5, 3).highMinorUnits).toBe(500);
+		expect(TRANSIT_FARE_TABLE.BHX.onwardMinorUnits).toBeUndefined();
+	});
+
+	it('leaves Manchester alone whatever the leg count, because its tickets carry changes', () => {
+		const manchester = range('MAN');
+		expect(manchester.lowMinorUnits).toBe(200);
+		expect(manchester.highMinorUnits).toBe(620);
+		expect(range('MAN', 5, 3).lowMinorUnits).toBe(200);
+		expect(range('MAN', 5, 3).highMinorUnits).toBe(620);
+	});
+
+	it('reaches a stay past the city centre at both of them', () => {
+		// Birmingham's runway is 10.7 km from the centre and Manchester's 14.9, and both round
+		// up to the same 15 km, so both are rated to 15 plus the slack. A stay is not at the
+		// centre, and this margin is what decides whether the card answers or refuses.
+		expect(ratedUpToKm(TRANSIT_FARE_TABLE.BHX)).toBe(15 + TRANSIT_FARE_SLACK_KM);
+		expect(ratedUpToKm(TRANSIT_FARE_TABLE.MAN)).toBe(15 + TRANSIT_FARE_SLACK_KM);
+		expect(estimateTransitFare('BHX', 11, 1)?.kind).toBe('estimate');
+		expect(estimateTransitFare('MAN', 15, 1)?.kind).toBe('estimate');
+	});
+
+	it('crosses a pounds card into the currency the flights were quoted in', () => {
+		// Every other card in the table is priced in euros or in a currency the traveller is
+		// unlikely to be holding. These are the first in GBP, so the conversion path matters
+		// here in a way it did not before: issue #339's bug was a pounds figure printed under
+		// a euro total.
+		const inEuros = range('MAN', 5, 1, 'EUR');
+		expect(inEuros.currency).toBe('EUR');
+		expect(inEuros.converted?.from).toBe('GBP');
+		expect(inEuros.converted?.fromLowMinorUnits).toBe(200);
+		expect(inEuros.converted?.fromHighMinorUnits).toBe(620);
+	});
+});
