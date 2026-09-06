@@ -43,6 +43,7 @@
 	 * AGENTS.md's own trap, the one that froze every search in #87. It runs from a click
 	 * and from nowhere else, and `results/pick-bed.ts` says so where it is defined.
 	 */
+	import { untrack } from 'svelte';
 	import { base } from '$app/paths';
 	import type { Airport, Duration, FlightOffer, Itinerary, Stay } from '$lib/domain';
 	import { DEFAULT_LANDING_TO_TRANSPORT_RULES } from '$lib/domain';
@@ -82,7 +83,11 @@
 		pickLandingToTransportTime
 	} from '$lib/search';
 	import { keyStore } from '$lib/keys';
-	import { getProviderRegistry, hasUsableStayProvider, unconfiguredStayProviders } from '$lib/results/provider-setup';
+	import {
+		getProviderRegistry,
+		hasUsableStayProvider,
+		unconfiguredStayProviders
+	} from '$lib/results/provider-setup';
 	import { applyBedToDraft, journeyForBed, routeBedForDraft } from '$lib/results/pick-bed';
 	import type { AutomaticStaySwap, TravellerChoices } from '$lib/results/traveller-choices';
 	import type { ItineraryDraft } from '$lib/results/itinerary-draft.svelte';
@@ -91,13 +96,16 @@
 	import {
 		StayPicker,
 		describeNoStays,
+		fetchStayReach,
 		groupByProperty,
 		isSameProperty,
+		pendingReach,
 		propertyKey,
 		recommendedStay,
+		stayReachTargets,
 		stopoverForRanking
 	} from '$lib/stays';
-	import type { StayProviderOutcome } from '$lib/stays';
+	import type { StayProviderOutcome, StayReach } from '$lib/stays';
 
 	interface Props {
 		/** The trip this panel edits. The card beside it reads the same object, which is
@@ -224,13 +232,7 @@
 	 * cheapest is the honest answer and the ladder below says so.
 	 */
 	function onwardFor(outbound: FlightOffer): FlightOffer | undefined {
-		const pairing = pairingUsing(
-			variants,
-			VARIANT_VIEW,
-			'outbound',
-			outbound,
-			itinerary.nightsInConnection
-		);
+		const pairing = pairingUsing(variants, VARIANT_VIEW, 'outbound', outbound, itinerary.nightsInConnection);
 		return pairing ? flightOn(pairing.score.itinerary, 'onward') : undefined;
 	}
 
@@ -261,7 +263,9 @@
 
 	const stayProperties = $derived(groupByProperty(stayCandidates));
 
-	const originAirportTransferOptions = $derived(outerTransferOptions?.transferToOriginAirport ?? NO_TRANSFER_LEG_OPTIONS);
+	const originAirportTransferOptions = $derived(
+		outerTransferOptions?.transferToOriginAirport ?? NO_TRANSFER_LEG_OPTIONS
+	);
 	const hotelTransferOptions = $derived(transferOptions?.transferToHotel ?? NO_TRANSFER_LEG_OPTIONS);
 	const connectionAirportTransferOptions = $derived(
 		transferOptions?.transferToConnectionAirport ?? NO_TRANSFER_LEG_OPTIONS
@@ -307,7 +311,9 @@
 		itinerary.stay !== undefined && !isSameProperty(itinerary.stay.property, draft.routedProperty)
 	);
 	const pickedPropertyKey = $derived(itinerary.stay ? propertyKey(itinerary.stay.property) : undefined);
-	const transitCheckState = $derived(pickedPropertyKey ? draft.transitChecks.get(pickedPropertyKey) : undefined);
+	const transitCheckState = $derived(
+		pickedPropertyKey ? draft.transitChecks.get(pickedPropertyKey) : undefined
+	);
 
 	/** Which timetable answers describe the two in-city legs as they now stand: the
 	 * traveller's own check when they have made one, the "belongs to another bed" note while
@@ -372,6 +378,71 @@
 	// regardless, so a traveller is never shown a total they cannot inspect.
 	const stayIsRelevant = $derived(itinerary.nightsInConnection > 0 || itinerary.stay !== undefined);
 
+	/**
+	 * Issue #405: how long it takes to reach each candidate bed from the connection airport,
+	 * per mode, so the row can show a journey instead of a straight line.
+	 *
+	 * ## Here rather than in `StayPicker`
+	 *
+	 * This component already owns provider access, and the picker is a pure function of its
+	 * props everywhere else. Two OSRM table requests answer the whole list (`fetch-reach.ts`
+	 * has the measurement and the reason transit is not among them), so this is the cheapest
+	 * thing on the panel and the only one that needs a network at all.
+	 *
+	 * ## The effect, and the trap it is written around
+	 *
+	 * AGENTS.md, "The Svelte trap that cost us a working search": an `$effect` that calls an
+	 * async function without awaiting runs that function's synchronous prefix on the effect's
+	 * own call stack, so any `$state` the prefix touches becomes a dependency the effect both
+	 * reads and writes. That is what froze every search in #87. Everything below the tracked
+	 * read happens inside `untrack`, and the answer lands in a `.then` that is off the effect
+	 * entirely.
+	 *
+	 * The one tracked read is a string, not the candidate list. `groupByProperty` builds a new
+	 * array on every snapshot, so depending on the list itself would restart this lookup on
+	 * every background refresh, flashing the row's placeholder over answers already on screen.
+	 * The string changes only when the airport or the set of properties does.
+	 */
+	let reachByProperty = $state<ReadonlyMap<string, StayReach>>(new Map());
+	let reachFailures = $state<readonly string[]>([]);
+
+	const reachTargets = $derived(stayReachTargets(stayProperties));
+	const reachSignature = $derived(
+		// Only while the picker is actually on screen. A panel showing a flight has no reason
+		// to route thirty beds, cached or not.
+		segment === 'free-time' && stayIsRelevant && connectionAirport && reachTargets.length > 0
+			? `${connectionAirport.iataCode}:${reachTargets.map((target) => target.key).join('|')}`
+			: ''
+	);
+
+	$effect(() => {
+		if (reachSignature === '') return;
+		const controller = new AbortController();
+		untrack(() => startReachLookup(controller.signal));
+		return () => controller.abort();
+	});
+
+	function startReachLookup(signal: AbortSignal) {
+		const airport = connectionAirport;
+		const targets = reachTargets;
+		if (!airport) return;
+		reachByProperty = pendingReach(targets);
+		reachFailures = [];
+		void fetchStayReach(airport.coordinates, targets, { signal })
+			.then((result) => {
+				if (signal.aborted) return;
+				reachByProperty = result.byProperty;
+				reachFailures = result.failures;
+			})
+			.catch((error: unknown) => {
+				if (signal.aborted) return;
+				// AGENTS.md: whatever threw comes through in its own words. The rows fall back to
+				// the straight-line distance rather than holding a placeholder for ever.
+				reachByProperty = new Map();
+				reachFailures = [error instanceof Error ? error.message : String(error)];
+			});
+	}
+
 	// Days rather than nights, because this is what the stay ranking weighs a walk into
 	// town against: a bed near the centre only earns its keep on a day you can go into
 	// town, and a night asleep is not one of those.
@@ -420,10 +491,7 @@
 	 * picker below is drawing at the head of its own list. */
 	const recommendedForNow = $derived(
 		connectionAirport
-			? recommendedStay(
-					stayCandidates,
-					stopoverForRanking(itinerary, connectionAirport, travellers, females)
-				)
+			? recommendedStay(stayCandidates, stopoverForRanking(itinerary, connectionAirport, travellers, females))
 			: undefined
 	);
 
@@ -591,7 +659,11 @@
 
 {#snippet transportPanel(
 	legLabel: string,
-	legField: 'transferToOriginAirport' | 'transferToHotel' | 'transferToConnectionAirport' | 'transferToDestinationLocation',
+	legField:
+		| 'transferToOriginAirport'
+		| 'transferToHotel'
+		| 'transferToConnectionAirport'
+		| 'transferToDestinationLocation',
 	options: TransferLegOptions,
 	transitAnswer: TransitLegAnswer | undefined,
 	referenceMoment?: Itinerary['outboundFlight']['arrival'],
@@ -623,8 +695,8 @@
 		<!-- The desktop rail before anything is picked. A rail that renders nothing reads as
 		     a layout bug; a rail that says what it is for reads as an invitation. -->
 		<p class="customiser-idle">
-			Pick a step on any trip to change it here. Flights, ground transport, how many
-			nights you stay and where you sleep.
+			Pick a step on any trip to change it here. Flights, ground transport, how many nights you stay and where
+			you sleep.
 		</p>
 	{:else}
 		<header class="customiser-head">
@@ -677,15 +749,11 @@
 					     instead of leaving a warning to be read as a bug. -->
 					<div class="onward-pin" data-testid="onward-pin">
 						<p class="onward-pin-line">
-							Priced against the onward flight you picked, {itinerary.onwardFlight.carrier
-								.iataCode}
+							Priced against the onward flight you picked, {itinerary.onwardFlight.carrier.iataCode}
 							{itinerary.onwardFlight.flightNumber}.
 						</p>
-						<Button
-							size="md"
-							variant="secondary"
-							data-testid="follow-outbound"
-							onclick={followOutbound}>Let it follow the outbound</Button
+						<Button size="md" variant="secondary" data-testid="follow-outbound" onclick={followOutbound}
+							>Let it follow the outbound</Button
 						>
 					</div>
 				{/if}
@@ -785,6 +853,8 @@
 							unconfiguredStayProviders={widerProvidersToAdd}
 							chosen={stayIsChosen}
 							onuseRecommended={useRecommendedBed}
+							{reachByProperty}
+							{reachFailures}
 						/>
 					{/if}
 				{/if}
@@ -850,8 +920,8 @@
 		     what the ride beside them leaves, so "every total follows it" stopped being true
 		     the moment a timetable put the traveller at the airport early. -->
 		<p class="customiser-note">
-			Your own minimum, not a measured queue. The card counts the wait the ride really
-			leaves you, which is never less than this.
+			Your own minimum, not a measured queue. The card counts the wait the ride really leaves you, which is
+			never less than this.
 		</p>
 	</div>
 {/snippet}

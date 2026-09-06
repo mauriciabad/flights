@@ -26,8 +26,32 @@ export { cheapestSelectableOption, isOptionSelectable, rankProperties, selectabl
 export type { StopoverForRanking } from './rank';
 export { firstBookableStay, recommendedStay, stopoverForRanking } from './recommended-bed';
 export { groupByProperty, isSameBed, isSameProperty, propertyKey, propertyOf } from './types';
-export { describePriceComparison, describeStayChoices, stayDistances } from './choice';
+export { describePriceComparison, describeStayChoices, showsWholeStayFigures, stayDistances } from './choice';
 export type { StayChoice, StayChoiceContext, StayDistance, StayPriceComparison } from './choice';
+export {
+	REACH_MODES,
+	TRANSIT_NOT_BATCHABLE_NOTE,
+	UNASKED_REACH,
+	describeModeReach,
+	describeStayReach,
+	judgeReach,
+	reachIsPending,
+	reachLimitMinutes,
+	stayReachNote,
+	stayReachPoints,
+	walkCouldBePlausible
+} from './reach';
+export type { ModeReach, ReachMode, ReachPoint, StayReach } from './reach';
+export { fetchStayReach, pendingReach, stayReachTargets } from './fetch-reach';
+export type { ReachLookupResult, ReachTarget } from './fetch-reach';
+export {
+	STAY_SORT_KEYS,
+	STAY_SORT_LABELS,
+	availableStaySortKeys,
+	sortStayChoices,
+	staySortValue
+} from './sort';
+export type { StaySortKey } from './sort';
 export { describeNoStays, describeStayCatalogue } from './no-stays-reason';
 export type {
 	NoStaysContext,
