@@ -35,11 +35,34 @@
  * worth of somebody else's server.
  *
  * The tempting third option is `/api/v1/one-to-all`, which does answer transit and does it in
- * one request: travel time from the airport to every reachable STOP. A property is not a
- * stop, so turning that into a door-to-door figure means adding a walk from the nearest stop
- * and ignoring the wait for the connection. That number would be this app's arithmetic wearing
- * a router's authority, which is the thing AGENTS.md says not to build ("never present an
- * estimate as a fact"), so it is rejected rather than deferred.
+ * one request: travel time from the airport to every reachable STOP. Stitch an OSRM walk from
+ * the nearest stop onto that and every row gets a bus figure for two requests. This app has
+ * the vocabulary to show it honestly, too — `domain/fare.ts` exists so an estimate can reach
+ * a reader's eyes without ever becoming a `price` — so "we do not estimate" is not the reason
+ * to refuse it. AGENTS.md's rule is narrower than that: never present an estimate as a FACT.
+ *
+ * It was measured rather than argued. `.audit/probe-transit-stitch-agent-acc83cf3.mjs`, Munich
+ * airport against Hostelworld's real Munich list, 7 October 2026, 9am:
+ *
+ * - **Coverage is not the problem.** One request returned 8,702 reachable stops inside 90
+ *   minutes, and all 15 properties had one within 250 m. Nearest stop was 0.02 to 0.24 km.
+ * - **The figure is roughly right.** Against what `/plan` answers door to door for the same
+ *   pair, the stitch ran from 13 minutes long to 2 minutes short on journeys of about 50
+ *   minutes.
+ * - **The order is wrong.** Sorted by the stitch and sorted by `/plan`, **1 of 8 properties
+ *   landed in the same position.** The stitch also roughly doubled the apparent spread across
+ *   the list, 42-62 minutes against a true 44-53.
+ *
+ * The third number is the one that decides it, and the reason it is not fixable by adding a
+ * wait allowance or widening it into a range: the error is not a missing wait. `one-to-all`
+ * reports the earliest arrival at each stop, while `/plan` optimises the whole journey and
+ * routinely picks a different one. The two are different quantities, not the same quantity
+ * measured loosely, so no label makes the ranking true.
+ *
+ * A bus column on a list of thirty exists to be compared, and a figure that misorders seven
+ * rows in eight is worst at exactly the job it was added for. So the column stays empty and
+ * says why. If the owner would rather have approximate times than none, the change is small
+ * and the measurement above is what he would be trading away.
  *
  * So transit stays `not-asked` on every row, `stayReachNote` says so once above the list, and
  * the existing one-property lookup (`search/transit-schedule.ts`, the transport row's "check
