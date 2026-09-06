@@ -16,6 +16,7 @@
 import type { Duration, LocalDateTime, Transfer, TransferLeg, TransferMode, TransitPlanMoment } from '../../domain';
 import { maxPlausibleTransitMinutes } from '../../domain';
 import { utcInstantToLocalDateTime } from './transitous-datetime';
+import { transitItineraryPath } from './transitous-geometry';
 import type { TransitousItinerary, TransitousLeg, TransitousPlace, TransitousPlanResponse } from './transitous-types';
 
 /** How many of Transitous's own itineraries this adapter asks for per call: the intended
@@ -204,6 +205,14 @@ export function mapPlanResponseToTransfer(
 		mode: 'transit',
 		duration: secondsToDuration(chosen.itinerary.duration),
 		legs: chosen.itinerary.legs.map(mapLeg),
+		// Issue #416. Built from the SAME itinerary the schedule above describes, which is
+		// the only reason a single `path` can be honest here: the six departures MOTIS
+		// returned are six different journeys, and drawing one of them beside another one's
+		// boarding time would be a picture of a bus nobody is being told to catch.
+		// `undefined` when the plan's shapes do not add up to a route worth drawing, which
+		// keeps the dashed straight line meaning exactly what it has always meant. The rule
+		// for what "add up" means is `transitous-geometry.ts`'s, not this file's.
+		path: transitItineraryPath(chosen.itinerary.legs),
 		transitSchedule: {
 			intended: boardingTime(chosen),
 			arrival: toLocal(chosen.itinerary.endTime, lastLeg.to.tz),

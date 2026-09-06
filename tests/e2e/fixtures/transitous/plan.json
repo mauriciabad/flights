@@ -22,7 +22,12 @@
 						"tz": "Europe/Vienna"
 					},
 					"startTime": "2027-03-08T09:40:00Z",
-					"endTime": "2027-03-08T10:05:00Z"
+					"endTime": "2027-03-08T10:05:00Z",
+					"legGeometry": {
+						"length": 20,
+						"points": "ohest[o}i`{H_nDnxOwhKnmM_kH~gLgol@v|eBws_Afx}Cgc|@~urEgmbCvokF_yuDv_qGgkfDnngHoigCfzaIgyrBfevJwivBvklIodvC~_dJogrCnzbJofyAvzcK_bTn|sF_gE~b[ffFndYvj@~fE",
+						"precision": 7
+					}
 				}
 			]
 		}

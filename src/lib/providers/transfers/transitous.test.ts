@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { MemoryCacheStore } from '../../cache';
-import type { LocalDateTime } from '../../domain';
+import { defineCacheKey, MemoryCacheStore } from '../../cache';
+import type { Duration, LocalDateTime, Transfer } from '../../domain';
 import type { ProviderContext } from '../types';
 import { createTransitousTransferProvider } from './transitous';
 
@@ -195,12 +195,14 @@ describe('createTransitousTransferProvider', () => {
 	});
 
 	it('caches a timetable and nothing a search computed on top of it (issue #407)', async () => {
-		// The cache key has no shape version, which is only safe while every field of the
-		// cached `Transfer` is a function of the key. A fare is not: it is computed for one
-		// traveller count in one currency, and an entry here is served at any age and never
-		// discarded for being stale, so a fare folded in would outlive the search that made
-		// it forever. #407's estimate is applied in `search/transit-schedule.ts` instead, and
-		// this is the assertion that keeps it there.
+		// Every field of the cached `Transfer` has to be a function of the key. A fare is
+		// not: it is computed for one traveller count in one currency, and an entry here is
+		// served at any age and never discarded for being stale, so a fare folded in would
+		// outlive the search that made it forever. #407's estimate is applied in
+		// `search/transit-schedule.ts` instead, and this is the assertion that keeps it
+		// there. The shape version the key carries since #416 does not soften this: it
+		// evicts a value whose SHAPE changed, and can do nothing at all about a value that
+		// is the wrong answer for this traveller.
 		const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(nightGapPlanBody()));
 		const store = new MemoryCacheStore();
 		const provider = createTransitousTransferProvider({ fetchImpl, resolveStore: async () => store });
@@ -229,6 +231,63 @@ describe('createTransitousTransferProvider', () => {
 				expect(transfer.price).toBeUndefined();
 			}
 		}
+	});
+
+	it('refuses a geometry-free entry left by an earlier build (issue #416)', async () => {
+		// The bug this key part exists to stop, written as the returning visitor who has it.
+		//
+		// This entry is exactly what the previous build wrote: the same four key parts, the
+		// same `Transfer[]`, and no `path` on it, because nothing then decoded one. The
+		// entry is served at any age and never discarded for being stale, so without a shape
+		// version the traveller below would keep the straight dashed line for as long as the
+		// cache survived — the app's own #131 lesson, which AGENTS.md records as having
+		// shipped once already.
+		//
+		// The old key is spelled out rather than derived, so this test measures the change
+		// instead of moving with it.
+		const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(nightGapPlanBody()));
+		const store = new MemoryCacheStore();
+		const provider = createTransitousTransferProvider({ fetchImpl, resolveStore: async () => store });
+
+		const query = {
+			from: { latitude: 42.199, longitude: 2.6975 },
+			to: { latitude: 42.1818, longitude: 2.4901 },
+			departure: REQUESTED_LATE_NIGHT_DEPARTURE
+		};
+		const keyBeforeThisIssue = defineCacheKey(
+			'transitous',
+			{
+				from: query.from,
+				to: query.to,
+				departureUtc: '2026-09-10T01:00:00.000Z',
+				arriveBy: false
+			},
+			5 * 60 * 1000
+		);
+		// A duration nothing else in this file produces, so "the old entry was served" and
+		// "the new answer happens to match it" cannot be confused.
+		const staleTransfer: Transfer = {
+			mode: 'transit',
+			duration: 999 as Duration,
+			legs: [{ mode: 'transit', duration: 999 as Duration }]
+		};
+		const now = Date.now();
+		await store.set({
+			key: keyBeforeThisIssue.raw,
+			providerId: 'transitous',
+			value: [staleTransfer],
+			storedAt: now,
+			ttlMs: keyBeforeThisIssue.ttlMs,
+			lastAccessedAt: now,
+			sizeBytes: 0
+		});
+
+		const result = await provider.searchTransfers(query, ctx());
+
+		expect(fetchImpl).toHaveBeenCalledTimes(1);
+		expect(result.ok).toBe(true);
+		if (!result.ok) return;
+		expect(result.data[0]?.duration).not.toBe(staleTransfer.duration);
 	});
 
 	it('answers from an expired schedule without waiting for the refresh (issue #194)', async () => {

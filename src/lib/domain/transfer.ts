@@ -247,9 +247,17 @@ export interface Transfer {
 	 * Issue #118: the actual road/path this transfer follows, when a provider has one to
 	 * give. OSRM's `route` service returns this alongside the duration it was already
 	 * being asked for (`providers/transfers/osrm.ts`), so populating it costs a query
-	 * parameter on a request already being made, never an extra one. `undefined` means
-	 * no real shape is known — a `transit` leg (Transitous returns a schedule, not a
-	 * geometry) or a route OSRM couldn't find — and a consumer (the itinerary map) must
+	 * parameter on a request already being made, never an extra one.
+	 *
+	 * A `transit` leg has one too since issue #416, on the same terms: MOTIS puts a
+	 * `legGeometry` on every leg of the `/plan` response this app already fetches and
+	 * already waits for, and `providers/transfers/transitous-geometry.ts` decodes and
+	 * concatenates them. The line it produces is the walks and the rides together, because
+	 * that is one continuous journey and dropping the walks would draw a straight run from
+	 * the door to the platform.
+	 *
+	 * `undefined` means no real shape is known — a route OSRM could not find, or a plan
+	 * whose legs came back without a usable shape — and a consumer (the itinerary map) must
 	 * fall back to a straight line between the two endpoints, drawn so it visibly reads
 	 * as a schematic hop rather than a real road.
 	 */

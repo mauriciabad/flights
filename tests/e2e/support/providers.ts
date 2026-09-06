@@ -415,6 +415,13 @@ export async function mockTransitous(target: Routable, fixture = 'transitous/pla
  * does the same: the runway leg keeps `plan.json`, and the leg planned backwards from a
  * deadline gets a timetable near that deadline. Register it after the keyless defaults, the
  * way this file's header says.
+ *
+ * The two fixtures also differ in one way that is not about time and is load-bearing since
+ * issue #416: only `plan.json` carries a `legGeometry`. That is what lets one stopover
+ * preview hold a routed leg and a schematic one at once, which
+ * `transitous-transfer.spec.ts` asserts. Adding geometry to `plan-arriveby.json` would not
+ * fail anything — it would quietly delete the only browser-level coverage of the dashed
+ * fallback for a transit leg.
  */
 export async function mockTransitousPerLegMoment(
 	target: Routable,

@@ -1,4 +1,4 @@
-import { test, expect } from './support/fixtures';
+import { test, expect, type Page } from './support/fixtures';
 import { FIXTURE_FLIGHT_NUMBERS, FIXTURE_PRICES } from './support/fixture-markers';
 import {
 	mockAllKeylessProviders,
@@ -40,53 +40,60 @@ import { waitForSearchToSettle } from '../shared/search-wait';
 
 const EMPTY_MAP_STYLE = JSON.stringify({ version: 8, name: 'empty', sources: {}, layers: [] });
 
-test.describe('a Transitous timetable reaches the timeline (issue #242)', () => {
-	test('a stopover with a bed shows its bus and the time it boards', async ({ page }) => {
-		await mockAllKeylessProviders(page.context());
-		// After the defaults so it wins, and per leg so each timetable belongs to the moment
-		// its own lookup was planned for.
-		await mockTransitousPerLegMoment(page.context());
+/** The one search both tests below read, up to the point the detail panel is open. */
+async function stopoverWithTransitBothWays(page: Page): Promise<void> {
+	await mockAllKeylessProviders(page.context());
+	// After the defaults so it wins, and per leg so each timetable belongs to the moment
+	// its own lookup was planned for.
+	await mockTransitousPerLegMoment(page.context());
 
-		// Registered after the defaults so it wins: one Hostelworld city at Vienna airport's
-		// own coordinates with one property on it, which is what gets a bed priced and
-		// therefore what makes `planTransitLegs` ask Transitous anything at all.
-		await mockHostelworld(
-			page.context(),
-			'hostelworld/continents-vienna.json',
-			'hostelworld/properties-vienna.json'
-		);
+	// Registered after the defaults so it wins: one Hostelworld city at Vienna airport's
+	// own coordinates with one property on it, which is what gets a bed priced and
+	// therefore what makes `planTransitLegs` ask Transitous anything at all.
+	await mockHostelworld(
+		page.context(),
+		'hostelworld/continents-vienna.json',
+		'hostelworld/properties-vienna.json'
+	);
 
-		await routeRyanairFlights(page.context(), [
-			{
-				dep: 'BCN',
-				arr: 'VIE',
-				depDate: '2027-03-08T08:00:00',
-				arrDate: '2027-03-08T10:15:00',
-				price: FIXTURE_PRICES.first,
-				flightNumber: FIXTURE_FLIGHT_NUMBERS[5]
-			},
-			{
-				dep: 'VIE',
-				arr: 'TLL',
-				depDate: '2027-03-10T11:00:00',
-				arrDate: '2027-03-10T13:20:00',
-				price: FIXTURE_PRICES.third,
-				flightNumber: FIXTURE_FLIGHT_NUMBERS[6]
-			}
-		]);
+	await routeRyanairFlights(page.context(), [
+		{
+			dep: 'BCN',
+			arr: 'VIE',
+			depDate: '2027-03-08T08:00:00',
+			arrDate: '2027-03-08T10:15:00',
+			price: FIXTURE_PRICES.first,
+			flightNumber: FIXTURE_FLIGHT_NUMBERS[5]
+		},
+		{
+			dep: 'VIE',
+			arr: 'TLL',
+			depDate: '2027-03-10T11:00:00',
+			arrDate: '2027-03-10T13:20:00',
+			price: FIXTURE_PRICES.third,
+			flightNumber: FIXTURE_FLIGHT_NUMBERS[6]
+		}
+	]);
 
-		await page.context().route('https://basemaps.cartocdn.com/**', (route) =>
+	await page
+		.context()
+		.route('https://basemaps.cartocdn.com/**', (route) =>
 			route.fulfill({ status: 200, contentType: 'application/json', body: EMPTY_MAP_STYLE })
 		);
 
-		await page.goto('/results/?dep=2027-03-08&arr=2027-03-27&from=BCN&to=TLL');
-		await waitForSearchToSettle(page, { timeout: 20_000 });
+	await page.goto('/results/?dep=2027-03-08&arr=2027-03-27&from=BCN&to=TLL');
+	await waitForSearchToSettle(page, { timeout: 20_000 });
 
-		const card = page.locator('.result-card').first();
-		await expect(card).toBeVisible();
-		await expect(card).toContainText('VIE');
+	const card = page.locator('.result-card').first();
+	await expect(card).toBeVisible();
+	await expect(card).toContainText('VIE');
 
-		await openTimeline(page);
+	await openTimeline(page);
+}
+
+test.describe('a Transitous timetable reaches the timeline (issue #242)', () => {
+	test('a stopover with a bed shows its bus and the time it boards', async ({ page }) => {
+		await stopoverWithTransitBothWays(page);
 		const timeline = page.locator('.result-detail .itinerary-timeline');
 		await expect(timeline).toBeVisible();
 
@@ -121,5 +128,44 @@ test.describe('a Transitous timetable reaches the timeline (issue #242)', () => 
 		await expect(page.locator('.result-detail .stopover .stopover-edge').last()).toContainText(
 			'until 8:10am'
 		);
+	});
+
+	test('the leg Transitous drew a shape for is a solid route, and the one it did not is still dashed', async ({
+		page
+	}) => {
+		// Issue #416. Both fixtures answer the same host with the same kind of timetable, and
+		// only `plan.json` carries a `legGeometry`. That asymmetry is deliberate and it is the
+		// whole test: the stopover preview owns both in-city legs, so one picture holds the
+		// two states side by side, and neither can pass by accident.
+		await stopoverWithTransitBothWays(page);
+
+		const stopover = page.locator('.result-detail .ground-legs-item').filter({ hasText: 'The stopover' });
+		await expect(stopover).toHaveCount(1);
+
+		const legs = stopover.locator('svg path.rp-leg');
+		await expect(legs).toHaveCount(2);
+
+		// `.is-estimate` is the class `RoutePreview` hangs the dash on, so counting it is
+		// counting the dashes a traveller sees. Counted rather than located, because a
+		// Playwright `filter` matches descendants and these are leaf `<path>`s.
+		const drawn = await legs.evaluateAll((paths) =>
+			paths.map((path) => ({
+				dashed: path.classList.contains('is-estimate'),
+				// A two-point hop's `d` has exactly one `L` in it. A route has one per bend.
+				segments: (path.getAttribute('d') ?? '').split('L').length - 1
+			}))
+		);
+		const dashed = drawn.filter((leg) => leg.dashed);
+		const routed = drawn.filter((leg) => !leg.dashed);
+
+		expect(dashed, 'the arriveBy leg carries no legGeometry, so it must stay a dash').toHaveLength(1);
+		expect(dashed[0].segments, 'a schematic hop is one straight line').toBe(1);
+		expect(routed, 'the ride into town has geometry, so it must draw as a real route').toHaveLength(1);
+		expect(routed[0].segments, 'a real route bends').toBeGreaterThan(5);
+
+		// The same thing in words, once, for the leg that is still a guess. `segments.ts`
+		// writes that caveat and it is the screen-reader half of the dash.
+		const name = (await stopover.locator('.ground-leg').textContent()) ?? '';
+		expect(name.match(/straight-line estimate/g) ?? []).toHaveLength(1);
 	});
 });
