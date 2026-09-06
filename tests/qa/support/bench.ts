@@ -35,6 +35,7 @@ import {
 	providerForUrl
 } from './catalog';
 import * as recorded from './responses';
+import { bundledDataModuleFor } from './bundled-data';
 import { UNBUDGETED_HOSTS } from '../budget';
 
 /** Providers that cost the owner money when called for real. Never reached, in any mode. */
@@ -55,6 +56,11 @@ export interface RecordedRequest {
 	/** Milliseconds since the bench was installed, so a check can ask "did anything reach
 	 * the network before the page painted". */
 	atMs: number;
+	/** The request body, for the providers that put the interesting part there. Kiwi's route
+	 * questions are GraphQL over POST, so the URL says only which query ran and the airports
+	 * are in here — which is the difference between a check that counts route lookups and one
+	 * that can name the pairs they asked about (issue #379). */
+	postData: string | undefined;
 }
 
 export interface BenchOptions {
@@ -162,8 +168,18 @@ export class Bench {
 		} catch {
 			return route.continue();
 		}
-		// The app's own origin: served by the static server, not a provider.
-		if (parsed.hostname === '127.0.0.1' || parsed.hostname === 'localhost') return route.continue();
+		// The app's own origin: served by the static server, not a provider. Three of those
+		// assets are route data the app imports directly rather than fetching from anybody,
+		// and letting them through meant the scenario ranked against Ryanair's real
+		// 224-airport snapshot while its fixture described seven airports (issue #379). They
+		// are answered from `scenario.ts` here, for the same reason images are answered
+		// further down: an asset the bench does not control is a reason a check can pass
+		// that the check does not state.
+		if (parsed.hostname === '127.0.0.1' || parsed.hostname === 'localhost') {
+			const bundled = bundledDataModuleFor(parsed.pathname);
+			if (bundled === undefined) return route.continue();
+			return route.fulfill({ status: 200, contentType: 'text/javascript', body: bundled });
+		}
 
 		const providerId = providerForUrl(url);
 		this.requests.push({
@@ -171,7 +187,8 @@ export class Bench {
 			method: request.method(),
 			providerId,
 			host: parsed.host,
-			atMs: Date.now() - this.#startedAt
+			atMs: Date.now() - this.#startedAt,
+			postData: request.postData() ?? undefined
 		});
 
 		// A picture the page shows, not an answer it reasons about. Answered by resource type

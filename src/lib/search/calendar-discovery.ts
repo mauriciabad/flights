@@ -322,13 +322,13 @@ export async function discoverCandidateViaCalendar(
 				candidate: {
 					airportCode: hub,
 					// No free ranking signal produced any of this — every other candidate's
-					// score comes from connectivity/size/detour computed over free data
+					// score comes from size, detour and balance computed over free data
 					// (algorithm/connections.ts's scoreCandidate). Scoring this 0 rather than
 					// inventing a number is the same "say what you do not know" rule; it never
 					// competes with a real-discovery candidate because this path only ever
 					// runs when there are none.
 					score: 0,
-					breakdown: { connectivity: 0, sizeClass: 0, detour: null, balance: null },
+					breakdown: { sizeClass: 0, detour: null, balance: null },
 					confirmedBy: { outbound: provider.id, inbound: provider.id },
 					meteredRequestSpent: true
 				},

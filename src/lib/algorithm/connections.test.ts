@@ -131,9 +131,10 @@ const ZQB = 'ZQB'; // stand-in for Brussels Charleroi
 
 const ROUTES: Record<IataAirportCode, IataAirportCode[]> = {
 	[ZBC]: [ZVI, ZMX, ZQB],
-	// Vienna's higher route count mirrors it being a genuine long-haul hub (Austrian
-	// Airlines), unlike Milan Malpensa or Brussels Charleroi's shorter reach in this
-	// fixture — connectivity should be able to tell those apart.
+	// Vienna's longer list mirrors it being a genuine long-haul hub (Austrian Airlines),
+	// unlike Milan Malpensa or Brussels Charleroi's shorter reach. Nothing ranks on that
+	// any more — issue #381 removed the out-degree component — but the shape is kept
+	// because it is what a real hub's answer looks like.
 	[ZVI]: [ZBC, ZSF, 'JFK', 'DXB', 'HND', 'SYD', 'GRU', 'ORD'],
 	[ZMX]: [ZBC, ZSF],
 	[ZQB]: [ZBC, ZSF],
@@ -322,13 +323,22 @@ describe('findConnectionCandidates', () => {
 	});
 
 	it('respects the configurable cap, keeping only the highest-scoring candidates', async () => {
+		// Asserted against the same search run uncapped rather than against a named city.
+		// Naming one made this a test of the weights as much as of the cap, and it failed
+		// when issue #381 removed the connectivity component — for a city that was still the
+		// top of its own ranking, which is not what this check is for.
+		const uncapped = await findConnectionCandidates(QUERY, {
+			flightProviders: [fixtureProvider()],
+			airportLookup: fixtureLookup
+		});
+		expect(uncapped.length).toBeGreaterThan(1);
+
 		const candidates = await findConnectionCandidates(QUERY, {
 			flightProviders: [fixtureProvider()],
 			airportLookup: fixtureLookup,
 			maxCandidates: 1
 		});
-		expect(candidates).toHaveLength(1);
-		expect(candidates[0]!.airportCode).toBe(ZVI);
+		expect(candidates.map((c) => c.airportCode)).toEqual([uncapped[0]!.airportCode]);
 	});
 
 	it('reports the confirmed candidates the cap dropped, rather than forgetting them (issue #350)', async () => {
@@ -343,11 +353,18 @@ describe('findConnectionCandidates', () => {
 			onCandidatesBeyondCap: (dropped) => beyondCap.push(dropped.map((c) => c.airportCode))
 		});
 
+		const uncapped = await findConnectionCandidates(QUERY, {
+			flightProviders: [fixtureProvider()],
+			airportLookup: fixtureLookup
+		});
+
 		expect(beyondCap).toHaveLength(1);
-		expect(beyondCap[0]).toContain(ZMX);
-		expect(beyondCap[0]).not.toContain(candidates[0]!.airportCode);
-		// Confirmed on both legs, exactly like the one that was kept — the difference between
+		// Everything the uncapped search confirmed, minus the one that was kept. Each of them
+		// passed the same two confirmations the kept one passed, so the difference between
 		// them is the cap and nothing else.
+		expect(beyondCap[0]).toEqual(
+			uncapped.map((c) => c.airportCode).filter((code) => code !== candidates[0]!.airportCode)
+		);
 		expect(beyondCap[0]!.length).toBeGreaterThan(0);
 	});
 
@@ -518,6 +535,46 @@ describe('findConnectionCandidates', () => {
 		);
 
 		expect(candidates.map((c) => c.airportCode)).not.toContain('LIN');
+	});
+
+	it('asks at most one route question about any one candidate (issue #378)', async () => {
+		// `route-graph-fanout.qa.ts` bounds a cold search at one route question per ranked
+		// position plus the origin's own lookup, and that arithmetic is exact only while a
+		// position cannot cost two. The probe loop has both a `C -> B` check and an
+		// `A -> C` check and they look like they could both fire on one candidate. They
+		// cannot: `candidateCodes` is built from airports the origin already has an outbound
+		// edge to, plus metro siblings, which are proposed only where a bundled source
+		// already says they fly to the destination. So each arrives with one leg proven.
+		//
+		// Issue #378 read the code as permitting two and called the ceiling an observation
+		// because of it. Both branches genuinely fire in this one search: Malpensa is an
+		// airport the origin flies to, so it pays a `C -> B` check, and London's airports
+		// arrive as metro siblings with no outbound edge, so they pay an `A -> C` one. The
+		// two assertions below check that before checking that neither doubles up.
+		const provider = createFakeFlightProvider('one-question-each', {
+			routes: { BVC: ['MXP'], MXP: [] },
+			pairs: { BVC: ['MXP', 'BGY'], BGY: ['PFO'] }
+		});
+
+		await findConnectionCandidates(
+			{ originAirport: 'BVC', destinationAirport: 'PFO', soonestDeparture: SOONEST_DEPARTURE },
+			{ flightProviders: [provider] }
+		);
+
+		const asked = vi.mocked(provider.hasDirectRoute!).mock.calls;
+		// Both branches genuinely ran, so a passing assertion below is not vacuous. The
+		// counts are left open because the candidate list here comes from the real bundled
+		// datasets and moves whenever they are refreshed; which candidate is asked what is
+		// not this test's business, and how often is.
+		expect(asked.filter(([from]) => from === 'BVC').length).toBeGreaterThan(0);
+		expect(asked.filter(([, to]) => to === 'PFO').length).toBeGreaterThan(0);
+
+		const questionsPer = new Map<string, string[]>();
+		for (const [from, to] of asked) {
+			const candidate = from === 'BVC' ? to : from;
+			questionsPer.set(candidate, [...(questionsPer.get(candidate) ?? []), `${from}->${to}`]);
+		}
+		expect([...questionsPer].filter(([, questions]) => questions.length > 1)).toEqual([]);
 	});
 
 	it('confirms an onward leg the destination list samples away (issue #340)', async () => {
