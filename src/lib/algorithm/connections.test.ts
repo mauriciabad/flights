@@ -504,8 +504,13 @@ describe('findConnectionCandidates', () => {
 		// flies BGY to Pafos for EUR 63. The app offered London Gatwick, fifth-fastest of the
 		// ten flightconnections.com lists, and not Bergamo, second at 9h 40.
 		//
-		// `routes` is what the sampled list says. `pairs` is what the provider actually
-		// knows. The gap between them is the bug.
+		// What recovers Bergamo has changed underneath this test twice and the assertion has
+		// not, which is the point of pinning the outcome rather than the mechanism. Issue
+		// #349 recovered it from `METRO_CODE_MEMBERS`, reading "Malpensa" as "some Milan
+		// airport". Issue #361's vendored graph names LIN, MXP and BGY as separate nodes and
+		// gives Boa Vista an edge to Bergamo directly, so issue #380 could delete the
+		// metro-sibling rule and this still passes. `routes` is what the sampled list says
+		// and `pairs` is what the provider actually knows; the gap between them is the bug.
 		const provider = createFakeFlightProvider('one-per-city', {
 			routes: { BVC: ['MXP'], MXP: [] },
 			pairs: { BVC: ['MXP', 'BGY'], BGY: ['PFO'] }
@@ -519,11 +524,13 @@ describe('findConnectionCandidates', () => {
 		expect(candidates.map((c) => c.airportCode)).toContain('BGY');
 	});
 
-	it('does not offer a sibling airport the origin has no flight to (issue #340)', async () => {
-		// The other half of the same change: Milan's third airport reaches Pafos in the
-		// bundled snapshot exactly as Bergamo does, so proposing it costs nothing and is
-		// right. Offering it would be an invention — nothing flies Boa Vista to Linate, and
-		// the pair query is what settles that before the fare stage is ever asked.
+	it('does not offer an airport the origin has no flight to (issue #340)', async () => {
+		// The other half of the same change. Linate reaches Pafos in the bundled snapshot
+		// exactly as Bergamo does, and nothing flies Boa Vista to Linate, so offering it
+		// would be an invention. Under issue #349's metro-sibling rule Linate was proposed
+		// and then dropped for want of an outbound leg; since issue #380 it is never
+		// proposed, because no source says the origin flies there. Both readings of this
+		// assertion are worth holding, so it stays.
 		const provider = createFakeFlightProvider('one-per-city', {
 			routes: { BVC: ['MXP'], MXP: [] },
 			pairs: { BVC: ['MXP', 'BGY'], BGY: ['PFO'], LIN: ['PFO'] }
@@ -537,20 +544,18 @@ describe('findConnectionCandidates', () => {
 		expect(candidates.map((c) => c.airportCode)).not.toContain('LIN');
 	});
 
-	it('asks at most one route question about any one candidate (issue #378)', async () => {
+	it('asks only the onward question, once per candidate (issues #378, #380)', async () => {
 		// `route-graph-fanout.qa.ts` bounds a cold search at one route question per ranked
 		// position plus the origin's own lookup, and that arithmetic is exact only while a
-		// position cannot cost two. The probe loop has both a `C -> B` check and an
-		// `A -> C` check and they look like they could both fire on one candidate. They
-		// cannot: `candidateCodes` is built from airports the origin already has an outbound
-		// edge to, plus metro siblings, which are proposed only where a bundled source
-		// already says they fly to the destination. So each arrives with one leg proven.
+		// position cannot cost two. It cannot, and the reason is now structural rather than
+		// arithmetic: every candidate IS an airport a source says the origin flies to, and it
+		// carries that source's id, so the only question left to ask is whether it flies on.
 		//
-		// Issue #378 read the code as permitting two and called the ceiling an observation
-		// because of it. Both branches genuinely fire in this one search: Malpensa is an
-		// airport the origin flies to, so it pays a `C -> B` check, and London's airports
-		// arrive as metro siblings with no outbound edge, so they pay an `A -> C` one. The
-		// two assertions below check that before checking that neither doubles up.
+		// Issue #378 read the older code as permitting two questions for one position,
+		// because issue #349's metro-sibling rule could propose an airport with no outbound
+		// edge and the loop had a second check to settle it. Issue #380 deleted the rule and
+		// the check with it. So this asserts a shape, not a count: nothing is ever asked
+		// about the origin's own outbound leg, and no candidate is asked twice.
 		const provider = createFakeFlightProvider('one-question-each', {
 			routes: { BVC: ['MXP'], MXP: [] },
 			pairs: { BVC: ['MXP', 'BGY'], BGY: ['PFO'] }
@@ -562,17 +567,16 @@ describe('findConnectionCandidates', () => {
 		);
 
 		const asked = vi.mocked(provider.hasDirectRoute!).mock.calls;
-		// Both branches genuinely ran, so a passing assertion below is not vacuous. The
-		// counts are left open because the candidate list here comes from the real bundled
-		// datasets and moves whenever they are refreshed; which candidate is asked what is
-		// not this test's business, and how often is.
-		expect(asked.filter(([from]) => from === 'BVC').length).toBeGreaterThan(0);
-		expect(asked.filter(([, to]) => to === 'PFO').length).toBeGreaterThan(0);
+		// Non-vacuous: the loop did reach the provider. The count is left open because the
+		// candidate list comes from the real bundled datasets and moves whenever they are
+		// refreshed.
+		expect(asked.length).toBeGreaterThan(0);
+		expect(asked.filter(([from]) => from === 'BVC')).toEqual([]);
+		expect(asked.every(([, to]) => to === 'PFO')).toBe(true);
 
 		const questionsPer = new Map<string, string[]>();
 		for (const [from, to] of asked) {
-			const candidate = from === 'BVC' ? to : from;
-			questionsPer.set(candidate, [...(questionsPer.get(candidate) ?? []), `${from}->${to}`]);
+			questionsPer.set(from, [...(questionsPer.get(from) ?? []), `${from}->${to}`]);
 		}
 		expect([...questionsPer].filter(([, questions]) => questions.length > 1)).toEqual([]);
 	});
