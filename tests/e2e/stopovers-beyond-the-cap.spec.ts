@@ -1,6 +1,10 @@
 import { test, expect, type Page } from './support/fixtures';
 import { FIXTURE_FLIGHT_NUMBERS, FIXTURE_PRICES } from './support/fixture-markers';
-import { mockAllKeylessProviders, routeRyanairFlights } from './support/providers';
+import {
+	mockAllKeylessProviders,
+	mockRyanairNetwork,
+	routeRyanairFlights
+} from './support/providers';
 import { waitForSearchToSettle } from '../shared/search-wait';
 
 /**
@@ -44,52 +48,109 @@ const EMPTY_MAP_STYLE = JSON.stringify({ version: 8, name: 'empty', sources: {},
 /**
  * The candidate universe each test needs, stated rather than inherited.
  *
- * This spec counts stopovers confirmed past the cap, so it needs a known number of them.
- * It used to get one from whatever the bundled sources happened to confirm, which was ten
- * for TLL and eight for HEL. Issue #361 vendored an all-carrier route graph and BCN to TLL
- * now confirms 49, so the counts and the names moved and neither number was ever written
+ * This spec counts stopovers confirmed past the cap, so it needs a known number of them. It
+ * used to get one from whatever the bundled sources happened to confirm, which was ten for
+ * TLL and eight for HEL. Issue #361 vendored an all-carrier route graph and BCN to TLL now
+ * confirms 49, so the counts and the names moved and neither number had ever been written
  * down as a choice.
  *
- * `via` is `allowedConnectionAirports`, so these lists ARE the universe. Ten for TLL gives
- * the cap of six something to drop, and eight for HEL is exactly what #115's fallback sweep
- * re-runs at, which is why that test can assert nothing was withheld. Both are stable across
- * a weekly regeneration of the graph in a way that "whatever ranks well today" is not.
+ * #376 pinned them back with `via=`, which is `allowedConnectionAirports` and does state the
+ * universe honestly. Issue #379 makes a better version of the same statement available: the
+ * bundled route data answers from this list now, so the ten and the eight are what the search
+ * can find rather than what a filter left of what it found, and the URL goes back to being an
+ * ordinary search. Ten for TLL gives the cap of six four to drop; eight for HEL is exactly
+ * what #115's fallback sweep re-runs at, which is why that test can assert nothing was
+ * withheld.
+ *
+ * The zones are not decoration. An airport with no zone has its fares dropped undated by
+ * `ryanair-mapper.ts` and is refused for a reason this spec is not about, which is issue #354
+ * and is how the first version of this file reached its second branch by accident.
  */
-const VIA: Record<'TLL' | 'HEL', readonly string[]> = {
-	TLL: ['PRG', 'VIE', 'DUS', 'AMS', 'FRA', 'BUD', 'HAM', 'MUC', 'SZG', 'BER'],
-	HEL: ['PRG', 'VIE', 'DUS', 'AMS', 'FRA', 'BUD', 'HAM', 'BER']
+const STOPOVERS: Record<'TLL' | 'HEL', readonly (readonly [string, string])[]> = {
+	TLL: [
+		['PRG', 'Europe/Prague'],
+		['VIE', 'Europe/Vienna'],
+		['DUS', 'Europe/Berlin'],
+		['AMS', 'Europe/Amsterdam'],
+		['FRA', 'Europe/Berlin'],
+		['BUD', 'Europe/Budapest'],
+		['HAM', 'Europe/Berlin'],
+		['MUC', 'Europe/Berlin'],
+		['SZG', 'Europe/Vienna'],
+		['BER', 'Europe/Berlin']
+	],
+	HEL: [
+		['PRG', 'Europe/Prague'],
+		['VIE', 'Europe/Vienna'],
+		['DUS', 'Europe/Berlin'],
+		['AMS', 'Europe/Amsterdam'],
+		['FRA', 'Europe/Berlin'],
+		['BUD', 'Europe/Budapest'],
+		['HAM', 'Europe/Berlin'],
+		['BER', 'Europe/Berlin']
+	]
 };
 
+const DESTINATION_ZONES: Record<'TLL' | 'HEL', string> = {
+	TLL: 'Europe/Tallinn',
+	HEL: 'Europe/Helsinki'
+};
+
+/**
+ * Barcelona, the destination, and every stopover between them.
+ *
+ * These ten are the only airports anything says reach the destination, which is what the
+ * counts below are about. `FALLBACK_ROUTES` still names a few more out of Barcelona, and none
+ * of them is confirmed onward, so none survives to be counted.
+ */
+function networkFor(destination: 'TLL' | 'HEL') {
+	const stopovers = STOPOVERS[destination];
+	const both = stopovers.map(([code]) => `airport:${code}`);
+	return [
+		{ iataCode: 'BCN', timeZone: 'Europe/Madrid', routes: both },
+		{ iataCode: destination, timeZone: DESTINATION_ZONES[destination], routes: both },
+		...stopovers.map(([code, timeZone]) => ({
+			iataCode: code,
+			timeZone,
+			routes: ['airport:BCN', `airport:${destination}`]
+		}))
+	];
+}
+
 async function search(page: Page, destination: 'TLL' | 'HEL', onward?: { arrival: string }) {
+	const network = networkFor(destination);
 	await mockAllKeylessProviders(page.context());
-	await routeRyanairFlights(page.context(), [
-		{
-			dep: 'BCN',
-			arr: 'VIE',
-			depDate: '2027-03-08T08:00:00',
-			arrDate: '2027-03-08T10:15:00',
-			price: FIXTURE_PRICES.first,
-			flightNumber: FIXTURE_FLIGHT_NUMBERS[2]
-		},
-		...(onward
-			? [
-					{
-						dep: 'VIE',
-						arr: destination,
-						depDate: '2027-03-10T11:00:00',
-						arrDate: onward.arrival,
-						price: FIXTURE_PRICES.third,
-						flightNumber: FIXTURE_FLIGHT_NUMBERS[4]
-					}
-				]
-			: [])
-	]);
+	await mockRyanairNetwork(page.context(), network);
+	await routeRyanairFlights(
+		page.context(),
+		[
+			{
+				dep: 'BCN',
+				arr: 'VIE',
+				depDate: '2027-03-08T08:00:00',
+				arrDate: '2027-03-08T10:15:00',
+				price: FIXTURE_PRICES.first,
+				flightNumber: FIXTURE_FLIGHT_NUMBERS[2]
+			},
+			...(onward
+				? [
+						{
+							dep: 'VIE',
+							arr: destination,
+							depDate: '2027-03-10T11:00:00',
+							arrDate: onward.arrival,
+							price: FIXTURE_PRICES.third,
+							flightNumber: FIXTURE_FLIGHT_NUMBERS[4]
+						}
+					]
+				: [])
+		],
+		{ airports: network }
+	);
 	await page.context().route('https://basemaps.cartocdn.com/**', (route) =>
 		route.fulfill({ status: 200, contentType: 'application/json', body: EMPTY_MAP_STYLE })
 	);
-	await page.goto(
-		`/results/?dep=2027-03-08&arr=2027-03-27&from=BCN&to=${destination}&via=${VIA[destination].join(',')}`
-	);
+	await page.goto(`/results/?dep=2027-03-08&arr=2027-03-27&from=BCN&to=${destination}`);
 	await waitForSearchToSettle(page, { timeout: 20_000 });
 }
 
