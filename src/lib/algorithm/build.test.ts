@@ -16,6 +16,7 @@ import type {
 import {
 	buildItineraries,
 	deriveLayover,
+	deriveOriginLeg,
 	recomputeItineraryWaitingTimes,
 	type BuildItinerariesInput,
 	type ConnectionResources,
@@ -1153,5 +1154,93 @@ describe('the origin leg, measured against the service that actually runs', () =
 		// The ride is a road leg with nothing to read, so the subtraction still stands and
 		// this whole change is invisible: the 2h buffer at each end and nothing else.
 		expect(roadTrip().times.airportWaiting).toBe(240);
+	});
+
+	it('prints what the ride leaves, not the rule the traveller set', () => {
+		// 11:36pm to 5:50am. The rule stays 2h and the customise panel still edits it.
+		expect(timetabledTrip().times.originAirportWaiting).toBe(374);
+		expect(timetabledTrip().originWaitingTime).toBe(120);
+	});
+
+	it('starts the journey when the traveller leaves, not when the deadline says they could', () => {
+		const leg = deriveOriginLeg(timetabledTrip());
+		expect(leg.departure.local).toBe('2026-09-15T20:00:00');
+		expect(leg.atAirport.local).toBe('2026-09-15T23:36:00');
+	});
+});
+
+/**
+ * The origin leg's half of the property issue #368 gave the layover: the pieces are pieces
+ * OF something. Unlike a layover, what they are pieces of is not fixed by two flights, so
+ * the whole moves with the timetable. That is the defect in issue #399 rather than a
+ * hazard, and the invariant that still has to hold is that nothing falls between the
+ * pieces.
+ */
+describe('the origin leg always adds up to itself', () => {
+	const at = (local: string) => localDateTime(local, 'Europe/Madrid', 120);
+	const rideTo = (duration: number, intended: string, arrival: string | undefined, plannedFor: string): Transfer => ({
+		mode: 'transit',
+		duration: duration as Duration,
+		legs: [],
+		transitSchedule: {
+			intended: at(intended),
+			arrival: arrival === undefined ? undefined : at(arrival),
+			following: [],
+			plannedFor: { time: at(plannedFor), arriveBy: true }
+		}
+	});
+
+	function partsWith(overrides: Partial<ItineraryParts>): ItineraryParts {
+		return {
+			outboundFlight: makeFlight('BCN', 'OPO', at('2026-09-16T05:50:00'), at('2026-09-16T06:50:00'), 120),
+			onwardFlight: makeFlight('OPO', 'BVC', at('2026-09-17T06:10:00'), at('2026-09-17T08:40:00'), 270),
+			originWaitingTime: 120 as Duration,
+			connectionWaitingTime: 120 as Duration,
+			travellers: 2,
+			...overrides
+		};
+	}
+
+	const shapes: Record<string, ItineraryParts> = {
+		'a trip that starts at the airport': partsWith({}),
+		'a road ride to the airport': partsWith({ transferToOriginAirport: makeTransfer(223) }),
+		'a ride on a live timetable': partsWith({
+			transferToOriginAirport: rideTo(223, '2026-09-15T20:00:00', '2026-09-15T23:36:00', '2026-09-16T03:50:00')
+		}),
+		'a timetable that never said when it lands': partsWith({
+			transferToOriginAirport: rideTo(223, '2026-09-15T20:00:00', undefined, '2026-09-16T03:50:00')
+		}),
+		'a timetable planned for a buffer nobody uses any more': partsWith({
+			transferToOriginAirport: rideTo(223, '2026-09-15T20:00:00', '2026-09-15T23:36:00', '2026-09-16T01:20:00')
+		}),
+		'a buffer longer than the ride': partsWith({
+			originWaitingTime: 400 as Duration,
+			transferToOriginAirport: makeTransfer(30)
+		})
+	};
+
+	for (const [name, parts] of Object.entries(shapes)) {
+		it(`splits ${name} into pieces that sum to the whole`, () => {
+			const leg = deriveOriginLeg(parts);
+			expect(leg.toAirport + leg.airportWait).toBe(leg.total);
+		});
+	}
+
+	it('leaves a stale timetable out of the edges rather than quoting it', () => {
+		// The lookup was planned for a 1:20am deadline and the trip now has a 3:50am one, so
+		// the 8pm departure answers a question nobody is asking. Back to the subtraction:
+		// 3:50am minus the 3h 43m ride.
+		const stale = deriveOriginLeg(shapes['a timetable planned for a buffer nobody uses any more']!);
+		expect(stale.departure.local).toBe('2026-09-16T00:07:00');
+		expect(stale.airportWait).toBe(120);
+	});
+
+	it('assumes the ride takes as long as it says when the timetable did not say when it lands', () => {
+		// `arrival` is the only reading of when the service reaches the airport. Without it
+		// the ride's own duration stands, which is the old answer applied from the new
+		// departure: 8pm plus 3h 43m.
+		const partial = deriveOriginLeg(shapes['a timetable that never said when it lands']!);
+		expect(partial.atAirport.local).toBe('2026-09-15T23:43:00');
+		expect(partial.airportWait).toBe(367);
 	});
 });

@@ -126,6 +126,7 @@ export function makeItinerary(
 			inFlight: (outboundFlight.duration + onwardFlight.duration) as Duration,
 			airportWaiting: 240 as Duration,
 			connectionAirportWaiting: 120 as Duration,
+			originAirportWaiting: 120 as Duration,
 			free: freeTimeMinutes as Duration,
 			total: totalMinutes as Duration
 		}

@@ -310,9 +310,15 @@ describe('fetchTransitSchedules', () => {
 		expect(itinerary.transferToOriginAirport?.mode).toBe('transit');
 		expect(itinerary.transferToDestinationLocation?.mode).toBe('transit');
 		// The door-to-door total moves with the swap rather than being left describing
-		// transfers nobody is taking: 150 minutes of walking to BCN becomes a 45-minute bus,
-		// and 200 minutes across Bucharest becomes 45 plus the 15-minute walk out of OTP.
-		expect(itinerary.times.total).toBe(before.times.total - (150 - 45) - (200 - 60));
+		// transfers nobody is taking: 200 minutes across Bucharest becomes 45 plus the
+		// 15-minute walk out of OTP, and the walk to BCN becomes the 5:15am bus.
+		//
+		// The origin leg is read whole since issue #399, so its 270 minutes of walk plus
+		// buffer become 5:15am to the 8:15am flight, 180. The bus takes 45 minutes and
+		// reaches BCN at 6am, which is a quarter of an hour before the 6:15am deadline it
+		// was planned around, and the traveller spends that quarter of an hour in the
+		// terminal rather than nowhere.
+		expect(itinerary.times.total).toBe(before.times.total - (270 - 180) - (200 - 60));
 	});
 
 	it('records "asked, and there is no service here" apart from "nobody asked"', async () => {

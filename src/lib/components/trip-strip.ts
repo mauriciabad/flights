@@ -52,7 +52,7 @@
  * time, and that piece is still the day the traveller lived through.
  */
 
-import { addLocalMinutes, deriveLayover } from '$lib/algorithm/build';
+import { addLocalMinutes, deriveLayover, deriveOriginLeg } from '$lib/algorithm/build';
 import type { ItinerarySegmentId } from '$lib/itinerary-map/segment-id';
 import type {
 	Carrier,
@@ -263,16 +263,15 @@ export function splitFreeTimeAtLocalMidnight(start: LocalDateTime, end: LocalDat
  * leg is not drawn as an empty cell, because an empty cell would claim a duration of zero
  * for a leg nobody measured.
  *
- * The waiting times are the traveller's own buffers (`WaitingTimeRule`), not measured
- * queues; the component's tooltip says so. They are drawn because they are time the
- * traveller spends at the airport, which the brief counts separately from flying and from
- * free time (line 58).
+ * The two waiting cells are what the rides on either side of them leave, not the buffers
+ * the traveller set (`WaitingTimeRule`), which are only ever a minimum: issues #368 and
+ * #399. They are drawn because they are time the traveller spends at the airport, which
+ * the brief counts separately from flying and from free time (line 58).
  */
 export function tripStrip(itinerary: Itinerary): TripStrip {
 	const {
 		transferToOriginAirport,
 		originAirport,
-		originWaitingTime,
 		outboundFlight,
 		transferToHotel,
 		freeTime,
@@ -286,32 +285,38 @@ export function tripStrip(itinerary: Itinerary): TripStrip {
 	// strip, because the metro the app picked leaves an hour and a half before the
 	// subtraction says it does.
 	const layover = deriveLayover(itinerary);
+	// Issue #399, the same split at the other end of the trip and for the same reason.
+	const originLeg = deriveOriginLeg(itinerary);
 
 	const parts: Unshared[] = [];
 
 	// The whole schedule hangs off four stored readings: the two flights' departures and
-	// arrivals. Everything between them is a buffer or a leg measured against one of those,
-	// so each part below is anchored to the flight beside it rather than accumulated from
-	// the front, where one absent leg would shift every later clock.
-	const originWaitStart = addLocalMinutes(outboundFlight.departure, -originWaitingTime);
-
+	// arrivals. Everything around them is a timetable or a buffer measured against one of
+	// those, so each part below is anchored to the flight beside it rather than accumulated
+	// from the front, where one absent leg would shift every later clock.
 	if (transferToOriginAirport) {
 		parts.push({
 			kind: 'transfer',
 			mode: transferToOriginAirport.mode,
 			transfer: transferToOriginAirport,
 			leg: 'to-origin-airport',
-			minutes: transferToOriginAirport.duration,
-			start: addLocalMinutes(originWaitStart, -transferToOriginAirport.duration),
-			end: originWaitStart
+			// Boarding to arrival, which is the ride as the timetable runs it, never
+			// `Transfer.duration` on its own.
+			minutes: originLeg.toAirport,
+			start: originLeg.departure,
+			end: originLeg.atAirport
 		});
 	}
 	parts.push({
 		kind: 'wait',
 		airport: originAirport.iataCode,
 		beforeFlight: outboundFlight,
-		minutes: originWaitingTime,
-		start: originWaitStart,
+		// `originLeg.airportWait`, which is what `times.originAirportWaiting` is built from,
+		// rather than the stored buffer: the cell beside this one comes off the same call,
+		// and a strip that mixed a stored number with a derived one is the drift issue #399
+		// is about.
+		minutes: originLeg.airportWait,
+		start: originLeg.atAirport,
 		end: outboundFlight.departure
 	});
 	const outboundIndex = parts.length;

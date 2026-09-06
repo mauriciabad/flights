@@ -89,6 +89,7 @@ function itineraryFor(overrides: Partial<Itinerary> = {}): Itinerary {
 			inFlight: 630 as Duration,
 			airportWaiting: 240 as Duration,
 			connectionAirportWaiting: 120 as Duration,
+			originAirportWaiting: 120 as Duration,
 			free: 3690 as Duration,
 			total: 4560 as Duration
 		},

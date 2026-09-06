@@ -43,6 +43,18 @@ export interface ItineraryTimes {
 	 * `total` below fixed while the pieces inside it move.
 	 */
 	connectionAirportWaiting: Duration;
+	/**
+	 * The origin half of `airportWaiting`, on its own, and the same distinction
+	 * `connectionAirportWaiting` above draws at the other end of the trip.
+	 *
+	 * `originWaitingTime` is a rule the traveller set. This is what the ride to the airport
+	 * actually leaves them, and issue #399 is the gap between the two. On the owner's own
+	 * card the last set of services out of Begur that makes a 3:50am check-in deadline
+	 * boards at 8pm and reaches BCN at 11:36pm, so the real wait before a 5:50am flight is
+	 * 6h 14m against a 2h rule. The timeline row prints this one; the customise panel's
+	 * stepper still edits the rule.
+	 */
+	originAirportWaiting: Duration;
 	/** Mirrors FreeTime.duration for this summary; FreeTime itself carries the real
 	 * start/end. Brief line 59. */
 	free: Duration;

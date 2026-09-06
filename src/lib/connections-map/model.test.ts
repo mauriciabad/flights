@@ -73,6 +73,7 @@ function makeItinerary(overrides: ItineraryOverrides = {}): Itinerary {
 			inFlight: 240 as Duration,
 			airportWaiting: 0 as Duration,
 			connectionAirportWaiting: 0 as Duration,
+			originAirportWaiting: 0 as Duration,
 			free: 1440 as Duration,
 			total: 1740 as Duration
 		}
