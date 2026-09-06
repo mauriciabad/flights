@@ -541,7 +541,16 @@ function tileGroups(
 	return { land, borders };
 }
 
-/** Boundaries from the bundled layer, for a window wide enough to place one. */
+/**
+ * Boundaries from the bundled layer, for a window wide enough to place one.
+ *
+ * That check does not fire today and is not dead: the boundary layer is 5.8 km out and the
+ * outline is 6.8 km, so anything wide enough for the outline is already wide enough for
+ * the borders. Both numbers are measured by their own generator against the geometry it
+ * wrote, though, and the next rerun can move either. The relationship is a coincidence of
+ * the current data, not an invariant, and the day the coastline gets finer is the day a
+ * border would otherwise be drawn a seventh of the picture out of place.
+ */
 function outlineBorders(frame: PreviewFrame, width: number, height: number): number[][] {
 	if (frameWidthKm(frame) < MIN_BOUNDARY_WINDOW_KM) return [];
 	const spanX = frame.east - frame.west;

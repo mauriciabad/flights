@@ -159,10 +159,17 @@ describe('previewMap: country boundaries', () => {
 		expect(map.borders).not.toContain('Z');
 	});
 
-	it('withholds the bundled boundaries from a window too narrow to place them in', () => {
-		// Geneva, 22 km across, with the tile still in flight. The bundled layer snaps to
-		// 0.05° and would be 5.5 km wrong here, which is a quarter of the picture. Silence
-		// is the right answer until the region's own copy arrives.
+	it('says nothing about a border it has no fine copy of yet', () => {
+		// Geneva, 22 km across, with the region's tile still in flight. The bundled layer
+		// snaps to 0.05° and would be 5.5 km wrong here, a quarter of the picture, so a
+		// window this narrow never reaches it: the source rule sends it to the tiles, and
+		// until they land there is nothing to draw.
+		//
+		// This is deliberately not a test of `MIN_BOUNDARY_WINDOW_KM`. That threshold cannot
+		// be reached today — 5.8 km against the outline's 6.8 means any window wide enough
+		// for the coast is wide enough for the borders — and a test named after it would be
+		// passing on the source rule while claiming to guard the threshold. See
+		// `outlineBorders` for why the unreachable check stays.
 		expect(previewMap(frameAround(6.11, 46.23, 0.1), WIDTH, HEIGHT, NO_POINTS).borders).toBe('');
 	});
 
