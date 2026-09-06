@@ -365,6 +365,37 @@ export async function mockTransitous(target: Routable, fixture = 'transitous/pla
 	await mockJson(target, 'https://api.transitous.org/**', fixture);
 }
 
+/**
+ * Two timetables instead of one, chosen by the question the request asks. Issue #368.
+ *
+ * `mockTransitous` above answers every `/plan` with the same Sunday-morning departure
+ * whatever moment the request names, which is harmless only while a schedule decides what a
+ * row prints. It no longer is: the free-time window's closing edge is the last departure
+ * that makes the check-in deadline, so a canned answer two days out reads as a ride to the
+ * airport leaving before the traveller has landed, and the app refuses it. That refusal is
+ * correct, and the reason for it is entirely the fixture's.
+ *
+ * A real MOTIS answers near the moment it was asked about. This is the smallest mock that
+ * does the same: the runway leg keeps `plan.json`, and the leg planned backwards from a
+ * deadline gets a timetable near that deadline. Register it after the keyless defaults, the
+ * way this file's header says.
+ */
+export async function mockTransitousPerLegMoment(
+	target: Routable,
+	fromLanding = 'transitous/plan.json',
+	toDeadline = 'transitous/plan-arriveby.json'
+) {
+	const bodies = { fromLanding: loadFixture(fromLanding), toDeadline: loadFixture(toDeadline) };
+	await target.route('https://api.transitous.org/**', async (route) => {
+		const asked = new URL(route.request().url()).searchParams.get('arriveBy') === 'true';
+		await route.fulfill({
+			status: 200,
+			contentType: 'application/json',
+			body: asked ? bodies.toDeadline : bodies.fromLanding
+		});
+	});
+}
+
 /** OSRM walking/driving times and routes. Needs no key. Intercepts `OSRM_BASE_URL`,
  * imported straight from the adapter (issue #132) rather than a copy of the host kept
  * here, so this can't silently drift from whatever host `osrm.ts` actually calls again

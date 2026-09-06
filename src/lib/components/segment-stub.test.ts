@@ -85,7 +85,13 @@ function itineraryFor(overrides: Partial<Itinerary> = {}): Itinerary {
 		onwardFlight: onward,
 		destinationAirport: PFO,
 		totalPrice: eur(35000),
-		times: { inFlight: 630 as Duration, airportWaiting: 240 as Duration, free: 3690 as Duration, total: 4560 as Duration },
+		times: {
+			inFlight: 630 as Duration,
+			airportWaiting: 240 as Duration,
+			connectionAirportWaiting: 120 as Duration,
+			free: 3690 as Duration,
+			total: 4560 as Duration
+		},
 		...overrides
 	};
 }

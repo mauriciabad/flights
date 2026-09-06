@@ -27,7 +27,9 @@ import type {
 	WaitingTimeRule
 } from '../domain';
 import { DEFAULT_MIN_LAYOVER_TIME_MINUTES, DEFAULT_TRAVELLERS, DEFAULT_WAITING_TIME_RULES } from '../domain';
+import { addLocalMinutes, minutesBetween } from './datetime';
 import { nightsToPayFor } from './nights';
+import { readStaleSchedule, transitLegMoment } from './transit-schedule';
 
 /**
  * The brief ties waiting-time tiers to "short flight or small airport" vs "long flight or
@@ -76,48 +78,13 @@ function pickWaitingTime(
 	return best.waitingTime;
 }
 
-/**
- * The true instant a LocalDateTime represents, in epoch milliseconds. Every LocalDateTime
- * already carries the correct UTC offset for that specific wall-clock moment (see
- * domain/datetime.ts), so this needs no timezone database of its own: parse the digits as
- * if they were UTC, then remove the stored offset. Two LocalDateTimes on either side of a
- * DST change carry different `utcOffsetMinutes`, so subtracting their instants (see
- * `minutesBetween`) gains or loses the real hour instead of the naive wall-clock difference.
- */
-function toEpochMs(dateTime: LocalDateTime): number {
-	const wallClockAsUtcMs = Date.parse(`${dateTime.local}Z`);
-	return wallClockAsUtcMs - dateTime.utcOffsetMinutes * 60_000;
-}
-
-/** Real elapsed time between two LocalDateTimes, DST-correct per `toEpochMs` above. This is
- * how layover and free time are computed — never by subtracting the `local` strings
- * directly, which is exactly the bug that makes an overnight connection lose an hour.
- * Exported so issue #24's inline waiting-time editor (ItineraryTimeline.svelte) can
- * recompute free time on an edit with the exact same arithmetic that produced it here,
- * rather than a second implementation that could quietly disagree with this one. */
-export function minutesBetween(from: LocalDateTime, to: LocalDateTime): Duration {
-	return Math.round((toEpochMs(to) - toEpochMs(from)) / 60_000) as Duration;
-}
-
-/**
- * Shifts a LocalDateTime by a short local duration — an airport-to-hotel transfer, a
- * pre-boarding buffer — keeping its `timeZone` and `utcOffsetMinutes` unchanged. That is
- * only correct because every duration this is used with (a terminal transfer, a waiting-time
- * buffer) is minutes long and happens well away from the couple of hours around a DST
- * transition; it is not a general "add a duration in this timezone" function. The
- * multi-hour, potentially DST-crossing gap between the two flights is handled the other way
- * round, by subtracting each flight's own already-correct LocalDateTime (`minutesBetween`),
- * never by walking forward minute-by-minute through this one.
- * Exported for the same reason as `minutesBetween` above.
- */
-export function addLocalMinutes(dateTime: LocalDateTime, minutes: number): LocalDateTime {
-	const shiftedMs = Date.parse(`${dateTime.local}Z`) + minutes * 60_000;
-	return {
-		local: new Date(shiftedMs).toISOString().slice(0, 19),
-		timeZone: dateTime.timeZone,
-		utcOffsetMinutes: dateTime.utcOffsetMinutes
-	};
-}
+/** Wall-clock arithmetic moved to `datetime.ts` in issue #368, so that
+ * `algorithm/transit-schedule.ts` can use it without importing the module that now asks it
+ * questions. Still re-exported here: `minutesBetween` and `addLocalMinutes` have been part
+ * of this module's surface since issue #13, and issue #24's inline waiting-time editor
+ * recomputes free time with the exact same arithmetic that produced it here rather than a
+ * second implementation that could quietly disagree with this one. */
+export { addLocalMinutes, minutesBetween } from './datetime';
 
 /** Issue #231 moved the two night rules to `nights.ts`, where `recompute-selection.ts` reads
  * them too and where the argument for the six-hour floor can be written down beside the
@@ -204,6 +171,60 @@ export type ItineraryParts = Pick<
 export type DerivedItinerary = Pick<Itinerary, 'freeTime' | 'nightsInConnection' | 'totalPrice' | 'times'>;
 
 /**
+ * One layover, split into the pieces it is actually made of.
+ *
+ * The layover itself is fixed the moment the two flights are chosen: landing to the onward
+ * departure, and nothing inside it can be longer or shorter than that. What varies is where
+ * the traveller spends it, so this names each piece against the clock rather than adding
+ * durations up and hoping they land on the same number.
+ *
+ * Issue #368 is what a sum of parts cost. `free` used to be the check-in deadline minus the
+ * ride back, and the row beneath it on the card printed the real last metro, 1h 28m earlier.
+ * Both claimed to say when the traveller leaves the hostel. Now the timetable answers, once,
+ * and `airportWait` is whatever is left over, which is the piece with no schedule of its own
+ * and therefore the honest one to make the residual.
+ *
+ * `intoTown` and `backToAirport` are measured, not read off `Transfer.duration`. A ride that
+ * starts at 7:30am because that is when the coach runs takes 40 minutes longer out of the
+ * traveller's day than its 39-minute timetable says, and that difference belongs to the leg
+ * rather than being quietly billed to free time.
+ */
+export interface ConnectionLayover {
+	/** Landing to the onward departure. `intoTown + free.duration + backToAirport +
+	 * airportWait` is exactly this, always. */
+	total: Duration;
+	intoTown: Duration;
+	free: FreeTime;
+	backToAirport: Duration;
+	/** When the traveller is back at the connection airport. */
+	atAirport: LocalDateTime;
+	/** `atAirport` to the onward departure. At least `connectionWaitingTime` when a
+	 * timetable made the traveller leave early, exactly it when nothing did. */
+	airportWait: Duration;
+}
+
+/**
+ * When a leg's stored timetable still describes the trip on screen, and may therefore be
+ * read as fact.
+ *
+ * `readStaleSchedule` is the one derivation of that question (`algorithm/transit-schedule.ts`),
+ * and it clears itself: drag the connection buffer back to where it was and the leg's moment
+ * matches what the lookup was planned for again. A stale timetable is a real answer to a
+ * question nobody is asking any more, so the edges fall back to arithmetic until the
+ * refetch lands.
+ */
+function liveSchedule(parts: ItineraryParts, field: 'transferToHotel' | 'transferToConnectionAirport') {
+	const schedule = parts[field]?.transitSchedule;
+	if (!schedule) return undefined;
+	// `readStaleSchedule` says `undefined` both for "still applies" and for "cannot say", and
+	// the second must not read as the first here. A runway leg with no recorded walk-out has
+	// no derivable moment (`transitLegMoment`), so nothing can check its timetable against
+	// the trip, and an edge that decides whether a bed gets booked should not rest on one.
+	if (!transitLegMoment(parts, field)) return undefined;
+	return readStaleSchedule(parts, field) === undefined ? schedule : undefined;
+}
+
+/**
  * Free time is what is left of the layover after both connection-side transfers and the
  * pre-boarding buffer, as the real check-in/check-out datetimes (brief line 59), not only
  * their difference.
@@ -213,19 +234,68 @@ export type DerivedItinerary = Pick<Itinerary, 'freeTime' | 'nightsInConnection'
  * minutes it takes to get into town come off free time whether or not anyone priced a
  * place to sleep at the other end.
  *
+ * ## Where each edge comes from. Issue #368
+ *
+ * A timetable beats the subtraction whenever there is one, because a metro does not leave
+ * when the arithmetic would like it to.
+ *
+ * The closing edge is `TransitSchedule.intended`, the last departure that still makes the
+ * check-in deadline. That is the same field the timeline row prints, deliberately: the two
+ * were 1h 28m apart on the owner's Porto card and they are one event. `intended` is the
+ * boarding time rather than the moment the traveller stands up, so a walk to the stop sits
+ * on the free-time side of the edge by a few minutes. Correcting for that would invent a
+ * third number for the one event this issue exists to give one number to.
+ *
+ * The opening edge is `TransitSchedule.arrival`, when the service caught actually reaches
+ * the door. Absent, and the arithmetic stands: nobody knows when the traveller gets there,
+ * and guessing is worse than the old answer.
+ *
+ * Both fall back to landing-plus-the-ride and deadline-minus-the-ride for a road leg, which
+ * has no timetable and needs none, and for a stale one.
+ *
  * Separate from `deriveItinerary` for one caller: `buildItineraries` rejects a pairing
  * whose window is negative before it totals anything, and totalling first would throw on a
  * mixed-currency pairing it was about to discard anyway.
  */
 export function deriveFreeTime(parts: ItineraryParts): FreeTime {
-	const { transferToHotel, transferToConnectionAirport, connectionWaitingTime } = parts;
-	const start = transferToHotel
-		? addLocalMinutes(parts.outboundFlight.arrival, transferToHotel.duration)
-		: parts.outboundFlight.arrival;
-	const end = transferToConnectionAirport
-		? addLocalMinutes(parts.onwardFlight.departure, -(transferToConnectionAirport.duration + connectionWaitingTime))
-		: addLocalMinutes(parts.onwardFlight.departure, -connectionWaitingTime);
-	return { start, end, duration: minutesBetween(start, end) };
+	return deriveLayover(parts).free;
+}
+
+/** The whole split, for the two surfaces that draw the layover piece by piece rather than
+ * only asking what is free: `times` in `deriveFromNights` below, and the trip strip. */
+export function deriveLayover(parts: ItineraryParts): ConnectionLayover {
+	const { outboundFlight, onwardFlight, transferToHotel, transferToConnectionAirport, connectionWaitingTime } = parts;
+
+	const start =
+		liveSchedule(parts, 'transferToHotel')?.arrival ??
+		(transferToHotel
+			? addLocalMinutes(outboundFlight.arrival, transferToHotel.duration)
+			: outboundFlight.arrival);
+
+	const deadline = addLocalMinutes(onwardFlight.departure, -connectionWaitingTime);
+	const leaves = liveSchedule(parts, 'transferToConnectionAirport');
+	const end =
+		leaves?.intended ??
+		(transferToConnectionAirport
+			? addLocalMinutes(deadline, -transferToConnectionAirport.duration)
+			: deadline);
+
+	// The ride back gets the traveller somewhere, and that somewhere is the airport, so the
+	// wait after it is whatever the onward flight leaves. `leaves.arrival` is the timetable's
+	// own answer; without one the ride is assumed to take exactly as long as it says.
+	const atAirport =
+		leaves?.arrival ??
+		(transferToConnectionAirport ? addLocalMinutes(end, transferToConnectionAirport.duration) : end);
+
+	const free: FreeTime = { start, end, duration: minutesBetween(start, end) };
+	return {
+		total: minutesBetween(outboundFlight.arrival, onwardFlight.departure),
+		intoTown: minutesBetween(outboundFlight.arrival, start),
+		free,
+		backToAirport: minutesBetween(end, atAirport),
+		atAirport,
+		airportWait: minutesBetween(atAirport, onwardFlight.departure)
+	};
 }
 
 /**
@@ -266,8 +336,9 @@ function nightsPaidFor(parts: ItineraryParts): number {
  * which has to rebuild a trip after taking a bed off it without re-asking the question that
  * took the bed off. */
 function deriveFromNights(parts: ItineraryParts, nightsInConnection: number): DerivedItinerary {
-	const { stay, transferToHotel, transferToConnectionAirport, connectionWaitingTime } = parts;
-	const freeTime = deriveFreeTime(parts);
+	const { stay, transferToHotel, transferToConnectionAirport } = parts;
+	const layover = deriveLayover(parts);
+	const freeTime = layover.free;
 
 	// Issue #106/#109: each flight leg scales to the party by its OWN declared `priceScope`
 	// (`scaleFareForParty`), never a blanket multiply. The stay's per-night rate is never
@@ -310,20 +381,29 @@ function deriveFromNights(parts: ItineraryParts, nightsInConnection: number): De
 
 	const times: ItineraryTimes = {
 		inFlight: sumDurations(parts.outboundFlight.duration, parts.onwardFlight.duration),
-		// Origin + connection buffers, plus a layover the traveller cannot leave the airport
-		// for. Deliberately not a layover they can: issue #13's "airport waiting time is not
-		// layover time" is about the gap a person spends in a city, and `staysAirside` above
-		// is how this tells the two apart.
-		airportWaiting: sumDurations(parts.originWaitingTime, connectionWaitingTime, airsideLayover),
+		// Issue #368 made this the layover's residual rather than `connectionWaitingTime`.
+		// The buffer is a minimum the traveller set, and a timetable that puts them back in
+		// the terminal at 2:38am for a 6:10am flight has given them 3h 32m of it whatever the
+		// rule says. The timeline row and the trip strip both draw this one, between the
+		// stopover and the onward flight, so the airside layover below is deliberately not in
+		// it: those two surfaces already draw that stretch as its own cell.
+		connectionAirportWaiting: layover.airportWait,
+		// The origin buffer and the real connection wait, plus a layover the traveller cannot
+		// leave the airport for. Deliberately not a layover they can: issue #13's "airport
+		// waiting time is not layover time" is about the gap a person spends in a city, and
+		// `staysAirside` above is how this tells the two apart.
+		airportWaiting: sumDurations(parts.originWaitingTime, layover.airportWait, airsideLayover),
 		free: (freeTime.duration - airsideLayover) as Duration,
+		// Door to door, with the layover taken whole. It used to be its four pieces added
+		// back up, which came to the same number only for as long as free time was the
+		// residual: issue #368 moves the closing edge to the last service that makes the
+		// deadline, and a sum would have shortened the journey by 1h 28m while the traveller
+		// was still standing in Porto.
 		total: sumDurations(
 			parts.transferToOriginAirport?.duration,
 			parts.originWaitingTime,
 			parts.outboundFlight.duration,
-			transferToHotel?.duration,
-			freeTime.duration,
-			transferToConnectionAirport?.duration,
-			connectionWaitingTime,
+			layover.total,
 			parts.onwardFlight.duration,
 			parts.transferToDestinationLocation?.duration
 		)

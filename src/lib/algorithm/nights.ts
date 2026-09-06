@@ -136,6 +136,26 @@ export function sleepableMinutes(start: LocalDateTime, end: LocalDateTime): numb
 }
 
 /**
+ * How long the night itself is, 9pm to 9am, and therefore the longest a wait can be and
+ * still be a wait.
+ *
+ * Issue #368. `sleepableMinutes` answers "is there enough night here to sleep through", and
+ * on its own that is not the whole question: a window can miss the bar because it is short
+ * and nocturnal, which is issue #231's terminal wait, or because it ENDS in the small hours
+ * after a full day in the city, which is a stay. Porto on the owner's own card is the second
+ * kind, 8:06am Wednesday to 1:35am Thursday, and it clears only 4h 35m of the 9pm-to-9am
+ * night. Calling that an overnight wait deletes a bed for a traveller who has just spent a
+ * whole day and evening in a city.
+ *
+ * A window longer than the night necessarily has daylight in it, so the ceiling needs no
+ * number of its own beyond the two the night is already made of. It changes nothing in the
+ * table above `MIN_SLEEPABLE_MINUTES`: every row that reads "wait" there is six hours or
+ * less, and this can only ever keep a bed, never delete one, which is the direction that
+ * argument already chose.
+ */
+export const LONGEST_OVERNIGHT_WAIT_MINUTES = 24 * 60 - NIGHT_BEGINS_MINUTES + NIGHT_ENDS_MINUTES;
+
+/**
  * A stopover that crosses one midnight and gives the traveller too little of the night to
  * sleep through. They wait, at the airport or wherever they like, and they book nothing.
  *
@@ -145,7 +165,10 @@ export function sleepableMinutes(start: LocalDateTime, end: LocalDateTime): numb
  * edges. The only reading a bare date subtraction can get wrong is the one crossing.
  */
 export function isOvernightWait(start: LocalDateTime, end: LocalDateTime): boolean {
-	return nightsBetween(start, end) === 1 && sleepableMinutes(start, end) < MIN_SLEEPABLE_MINUTES;
+	if (nightsBetween(start, end) !== 1) return false;
+	const windowMinutes = Math.round((wallClockMs(end) - wallClockMs(start)) / MS_PER_MINUTE);
+	if (windowMinutes > LONGEST_OVERNIGHT_WAIT_MINUTES) return false;
+	return sleepableMinutes(start, end) < MIN_SLEEPABLE_MINUTES;
 }
 
 /**

@@ -7,7 +7,10 @@
  * so the card and the picker can never disagree about whether the 00:10 bus is the last one.
  */
 
-import { addLocalMinutes, minutesBetween, type ItineraryParts } from './build';
+import { addLocalMinutes, minutesBetween } from './datetime';
+// Type-only, and it has to stay that way: `build.ts` imports `readStaleSchedule` below, so
+// a value import here would close a runtime cycle between the two.
+import type { ItineraryParts } from './build';
 import type { Duration, LocalDateTime, TransitLegField, TransitPlanMoment, TransitSchedule } from '../domain';
 
 /**

@@ -4,6 +4,7 @@ import {
 	waitsOvernight,
 	MIN_SLEEPABLE_MINUTES,
 	isOvernightWait,
+	LONGEST_OVERNIGHT_WAIT_MINUTES,
 	nightsBetween,
 	nightsToPayFor,
 	sleepableMinutes
@@ -89,6 +90,25 @@ describe('isOvernightWait', () => {
 		expect(sleepableMinutes(start, at('2026-10-07T04:00:00'))).toBe(MIN_SLEEPABLE_MINUTES);
 		expect(isOvernightWait(start, at('2026-10-07T04:00:00'))).toBe(false);
 		expect(isOvernightWait(start, at('2026-10-07T03:59:00'))).toBe(true);
+	});
+
+	it('is false for a whole day in the city that happens to end in the small hours', () => {
+		// Issue #368, the owner's Porto card once the closing edge became the last metro:
+		// at the property 8:06am Wednesday, leaving 1:35am Thursday. Four and a half hours
+		// of night, and a bed nobody could argue was not occupied.
+		expect(sleepableMinutes(at('2026-10-06T08:06:00'), at('2026-10-07T01:35:00'))).toBeLessThan(
+			MIN_SLEEPABLE_MINUTES
+		);
+		expect(isOvernightWait(at('2026-10-06T08:06:00'), at('2026-10-07T01:35:00'))).toBe(false);
+	});
+
+	it('turns over at the length of the night itself', () => {
+		// A window is a wait while it fits inside the night it crosses. 8:50pm to 8:50am is
+		// twelve hours and still could be one; a minute more has daylight in it.
+		expect(LONGEST_OVERNIGHT_WAIT_MINUTES).toBe(720);
+		expect(isOvernightWait(at('2026-10-06T20:50:00'), at('2026-10-07T02:00:00'))).toBe(true);
+		expect(isOvernightWait(at('2026-10-06T14:00:00'), at('2026-10-07T02:00:00'))).toBe(true);
+		expect(isOvernightWait(at('2026-10-06T13:59:00'), at('2026-10-07T02:00:00'))).toBe(false);
 	});
 });
 
