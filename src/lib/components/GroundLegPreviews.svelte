@@ -22,18 +22,23 @@
 	 * instances per card walks a five-card results page into Chromium's sixteen-context
 	 * ceiling and blanks the first card.
 	 *
-	 * ## Why these three look no different inland after #346
+	 * ## Why these three were grey, and what #408 bought
 	 *
-	 * #346 put land and sea under every preview, and for most of these thumbnails the
-	 * answer is "all land", which is the grey they already had. That is not the feature
-	 * failing to arrive. A ground leg is an airport-to-hotel hop of a few kilometres, and
-	 * `land.ts` will not draw a coast into a window finer than the outline it ships can
-	 * place one in; it fills the box as land instead, which for a taxi ride between two
-	 * places a traveller stands is not a guess. What changed is that an island small
-	 * enough to fit in the window, or a long transfer down a coast, now shows the water.
+	 * #346 put land and sea under every preview and every one of these came out solid,
+	 * because `land.ts` will not draw a coast into a window finer than the outline it has
+	 * can place one in, and a ground leg is a few kilometres across. This file used to
+	 * argue that was the end of it: "the alternative was a coastline fine enough for a
+	 * 20 km window, measured at 218 kB gzipped, on an app with no backend."
 	 *
-	 * The alternative was a coastline fine enough for a 20 km window, measured at 218 kB
-	 * gzipped, on an app with no backend.
+	 * The measurement was right and the conclusion was not. That price is for the whole
+	 * world's shore in the bundle; a ground leg needs one 20 km window somewhere a
+	 * traveller stands. `scripts/prepare-land-tiles.mjs` cuts the same source into regions
+	 * and `land-tiles.svelte.ts` fetches the one a preview is looking at, a median of
+	 * 389 B, from a static file. Nothing was added to the bundle for it.
+	 *
+	 * So these three now show water where there is water and a country boundary where one
+	 * crosses. Inland they still fill solid, and that is the true answer rather than a
+	 * missing one: the tile says the cell is land, and `land.ts` believes it.
 	 */
 	import Icon from './Icon.svelte';
 	import RouteMapDialog from './RouteMapDialog.svelte';
@@ -176,7 +181,9 @@
 		height: 0.75rem;
 		padding: 0.1875rem;
 		border-bottom-left-radius: var(--radius-md);
-		background: var(--color-bg-inset);
+		/* The button's own surface, so the glyph sits in a notch of the card rather than on
+		   a patch of colour that used to be the land's and no longer is (#408). */
+		background: var(--color-bg);
 		color: var(--color-text-faint);
 		transition:
 			color 140ms ease-out,

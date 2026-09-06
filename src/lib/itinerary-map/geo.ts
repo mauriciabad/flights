@@ -136,6 +136,19 @@ export function mercatorY(latitude: number): number {
 	return (Math.log(Math.tan(Math.PI / 4 + (clamped * Math.PI) / 360)) * 180) / Math.PI;
 }
 
+/**
+ * `mercatorY` backwards: the latitude a projected y stands for.
+ *
+ * Nothing is drawn with this. `land.ts` needs it twice, to turn a frame's span in projected
+ * units into one in kilometres, and to work out which whole degrees of latitude a window
+ * covers so it can ask for their tiles. Written here rather than open-coded there, because
+ * it had been open-coded there and a second copy would be a second chance to get the
+ * factor of two in `tan(π/4 + φ/2)` wrong.
+ */
+export function inverseMercatorY(y: number): number {
+	return ((Math.atan(Math.exp((y * Math.PI) / 180)) - Math.PI / 4) * 360) / Math.PI;
+}
+
 /** Where a preview's drawing area starts and stops, in the SVG's own user units. */
 export interface PreviewBox {
 	width: number;
@@ -249,14 +262,38 @@ export function projectToBox(
 					north: maxY + offsetY / scale
 				};
 
+	/**
+	 * Points that round to the same place are dropped rather than written twice.
+	 *
+	 * OSRM returns a road as it is actually shaped, which for a 14.5 km airport run is 446
+	 * points — one every 32 m, against a box unit worth 125 m. Writing them all out is 5 kB
+	 * of path data per preview and four previews per card, for a picture that cannot show
+	 * the difference. The road's shape survives; only the duplicates go.
+	 */
+	const draw = (line: readonly ProjectedPoint[]): string => {
+		let out = '';
+		let lastX = NaN;
+		let lastY = NaN;
+		let drawn = 0;
+		for (const point of line) {
+			const p = place(point);
+			if (p.x === lastX && p.y === lastY) continue;
+			out += `${out === '' ? 'M' : 'L'}${p.x} ${p.y}`;
+			lastX = p.x;
+			lastY = p.y;
+			drawn += 1;
+		}
+		// A leg whose ends land on the same spot collapses to one vertex, and a one-vertex
+		// path strokes as nothing at all. Repeating it gives `stroke-linecap: round` a
+		// zero-length segment to cap, which is the dot this function's own comment promises
+		// for a journey that does not move.
+		if (drawn === 1 && line.length > 1) out += `L${lastX} ${lastY}`;
+		return out;
+	};
+
 	return {
 		frame,
-		paths: projectedLines.map((line) =>
-			line
-				.map(place)
-				.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x} ${p.y}`)
-				.join('')
-		),
+		paths: projectedLines.map(draw),
 		points: projectedPoints.map(place)
 	};
 }
