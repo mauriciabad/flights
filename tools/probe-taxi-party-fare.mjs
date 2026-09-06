@@ -134,7 +134,11 @@ for (let i = 0; i < Math.min(cardCount, 2); i++) {
 			console.log(`    ${selector}:`, clean(await notes.nth(n).innerText()));
 		}
 	}
-	const citations = page.locator('.taxi-citation');
+	// Renamed from '.taxi-citation' by issue #407, which put a second kind of rate card
+	// behind the same disclosure. A probe still looking for the old class would print
+	// nothing and read as a card with no citation, which is the shape of broken instrument
+	// docs/HANDOFF.md warns about hardest.
+	const citations = page.locator('.fare-citation');
 	for (let c = 0; c < (await citations.count()); c++) {
 		const summary = citations.nth(c).locator('summary');
 		await summary.click().catch(() => {});

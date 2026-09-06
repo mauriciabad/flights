@@ -22,7 +22,8 @@ import type {
 	Transfer
 } from '../domain';
 import type { ProviderContext, ProviderId, ProviderResult, TransferProvider, TransferSearchQuery } from '../providers/types';
-import { SourceTracker } from './provenance';
+import { costIsUnknown } from '../domain';
+ import { SourceTracker } from './provenance';
 import {
 	TRANSIT_LEGS_TO_A_PROPERTY,
 	createTransitLookupBudget,
@@ -478,5 +479,118 @@ describe('fetchTransitSchedules', () => {
 			expect(itinerary.transferToOriginAirport?.mode).toBe('transit');
 			expect(itinerary.transferToOriginAirport?.duration).toBe(45);
 		});
+	});
+});
+
+/**
+ * Issue #407: "the price on the public transport is missing. there should be an estimate."
+ *
+ * The fixture trip runs Plaça de Catalunya to BCN to BGY to OTP, which is exactly the
+ * mixture worth testing: Barcelona has a cited fare card and Bergamo and Bucharest do not.
+ * So one leg of one trip gets a number and the rest say so, which is the whole shape of a
+ * partial rate card.
+ */
+describe('a ticket price on the transit leg (issue #407)', () => {
+	it('prices the leg at an airport whose tariff somebody read', async () => {
+		const { provider } = fakeTransitProvider();
+
+		const { itinerary } = await run([provider]);
+		const fare = itinerary.transferToOriginAirport?.fareEstimate;
+
+		expect(fare?.kind).toBe('estimate');
+		if (fare?.kind !== 'estimate') return;
+		expect(fare.countryCode).toBe('ES');
+		expect(fare.lowMinorUnits).toBe(290);
+		expect(fare.highMinorUnits).toBe(590);
+		expect(fare.citation).toContain('tmb.cat');
+	});
+
+	it('leaves the leg unpriced at an airport nobody has read a tariff for', async () => {
+		const { provider } = fakeTransitProvider();
+
+		const { itinerary } = await run([provider], { itinerary: tripItinerary({ withStay: true }) });
+
+		// BGY and OTP are not in the table, and an absent estimate is the app saying so:
+		// `groundFare` reads it as 'unquoted' and the picker prints "Price not available".
+		expect(itinerary.transferToHotel?.mode).toBe('transit');
+		expect(itinerary.transferToHotel?.fareEstimate).toBeUndefined();
+		expect(itinerary.transferToConnectionAirport?.fareEstimate).toBeUndefined();
+		expect(itinerary.transferToDestinationLocation?.fareEstimate).toBeUndefined();
+	});
+
+	it('never lets the estimate reach the price or the total', async () => {
+		const { provider } = fakeTransitProvider();
+		const before = tripItinerary();
+
+		const { itinerary } = await run([provider], { itinerary: before });
+		const leg = itinerary.transferToOriginAirport;
+
+		// The load-bearing line of the whole change. A guess inside `totalPrice` is one a
+		// traveller can sort on, filter by and screenshot, which is worse than a gap because
+		// it is invisible.
+		expect(leg?.price).toBeUndefined();
+		expect(itinerary.totalPrice).toEqual(before.totalPrice);
+		expect(leg && costIsUnknown(leg)).toBe(true);
+	});
+
+	it('reads the currency off the trip, so the fare cannot disagree with the total above it', async () => {
+		const { provider } = fakeTransitProvider();
+
+		const { itinerary } = await run([provider]);
+		const fare = itinerary.transferToOriginAirport?.fareEstimate;
+
+		if (fare?.kind !== 'estimate') throw new Error('expected a priced leg');
+		expect(fare.currency).toBe(itinerary.totalPrice.currency);
+	});
+
+	it('prices one ticket for each traveller the trip was built for', async () => {
+		const { provider } = fakeTransitProvider();
+		const party: Itinerary = { ...tripItinerary(), travellers: 3 };
+
+		const { itinerary } = await run([provider], { itinerary: party });
+		const fare = itinerary.transferToOriginAirport?.fareEstimate;
+
+		if (fare?.kind !== 'estimate') throw new Error('expected a priced leg');
+		expect(fare.lowMinorUnits).toBe(290 * 3);
+		expect(fare.party).toEqual({
+			basis: 'per-person',
+			people: 3,
+			perPersonLowMinorUnits: 290,
+			perPersonHighMinorUnits: 590
+		});
+	});
+
+	it('counts the vehicles the answer actually rides where the network charges per ride', async () => {
+		// Amsterdam sells a train fare that stops at the station and a tram fare on top, so
+		// the boarding count Transitous returned is an input to the price. Barcelona's card
+		// covers its own changes, so this is the one place a leg's own shape moves the number.
+		const twoRides: Transfer = {
+			...transitTransfer(),
+			legs: [
+				{ mode: 'walk', duration: 5 as Duration },
+				{ mode: 'transit', duration: 20 as Duration },
+				{ mode: 'transit', duration: 10 as Duration }
+			]
+		};
+		const { provider } = fakeTransitProvider({
+			answer: () => ({
+				ok: true,
+				data: [twoRides],
+				source: { providerId: 'transitous' as ProviderId, fetchedAt: '2026-10-01T00:00:00Z' },
+				requestsUsed: 1
+			})
+		});
+
+		const fromAmsterdam: Itinerary = {
+			...tripItinerary(),
+			originAirport: airport('AMS', 52.3105, 4.7683),
+			originLocation: { label: 'Dam Square', coordinates: { latitude: 52.373, longitude: 4.8933 } }
+		};
+
+		const { itinerary } = await run([provider], { itinerary: fromAmsterdam });
+		const fare = itinerary.transferToOriginAirport?.fareEstimate;
+
+		if (fare?.kind !== 'estimate') throw new Error('expected a priced leg');
+		expect(fare.lowMinorUnits).toBe(550 + 340);
 	});
 });

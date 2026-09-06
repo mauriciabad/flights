@@ -175,13 +175,15 @@ await withPage(async (page) => {
 	record('picker', 'a bed states its distance', atPicker && rows.length > 0,
 		/km from airport|m from centre/i.test(picker),
 		(picker.match(/[\d.]+ (?:km|m) from (?:airport|centre)/i) ?? [''])[0]);
-	// Issue #405, and named for exactly what it tests. It asserts that a duration appears
-	// on a stay row at all, which today it does not. It does NOT check that there is one
-	// per mode, or that an icon sits beside it, because the markup for that is not built
-	// and a matcher written against a guess is how the checks above drifted in the first
-	// place. Tighten this once #405 has shipped and there is real markup to name.
-	record('picker', 'a bed row states a duration', atPicker && rows.length > 0,
-		/\d+\s?(min|h)\b/.test(picker), (picker.match(/[\d]+\s?(?:min|h)\b/) ?? [''])[0]);
+	// Issue #405. Written against a row I read rather than one I imagined, which is the
+	// third time today that distinction has mattered. The first version wanted `min` or `h`
+	// and the app writes `Taxi 24m`, so it failed against a build that had shipped the
+	// feature. A bare duration match is also wrong in the other direction: `638 m from
+	// centre` is a distance, and only the missing space tells the two apart. So this asks
+	// for what the row actually means, a mode and a time beside each other.
+	const reach = /(walk|taxi|bus|train|transit|drive|ferry)\s+\d+\s*[hm]\b/i;
+	record('picker', 'a bed row states a journey time and the mode it is for', atPicker && rows.length > 0,
+		reach.test(picker), (picker.match(reach) ?? [''])[0]);
 	// Issue #406.
 	// Scoped to the stay list's own container, not the document. Unscoped, this matched
 	// "Sort 3 trips into place" on the results page behind the panel and passed while the

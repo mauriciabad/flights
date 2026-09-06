@@ -230,15 +230,31 @@ export function formatMoneyDelta(deltaMinorUnits: number, currency: string, loca
 	return `${sign}${formatMoney({ minorUnits: Math.abs(deltaMinorUnits), currency }, locale)}`;
 }
 
-/** A taxi estimate's low-high range, e.g. "€18.00-€24.00". Never collapsed to a single
- * number: the whole point of the range is that neither bound is a quote. */
+/**
+ * An estimate's low-high range, e.g. "€18.00-€24.00".
+ *
+ * It used to say "never collapsed to a single number: the whole point of the range is that
+ * neither bound is a quote", and that reason survives while the rule it justified does not.
+ * Issue #407 added a rate card for public transport, and four of its twelve entries are
+ * cities that sell exactly one fare for the airport journey: Berlin's ABC ticket is €5.00
+ * whichever train you take, Lisbon's Carris/Metro ticket is €1.90, Milan's urban ticket is
+ * €2.20, Warsaw's 75-minute ticket is 4.40 zł. For those, "€5.00-€5.00" is not a range
+ * being honest about its width, it is a hyphen where the evidence has none, and it reads
+ * as a rendering fault rather than as caution.
+ *
+ * What keeps the two bounds from reading as a quote is the word "estimate" beside them and
+ * the citation under them, both of which `TransportPicker` prints either way. So a range
+ * whose ends agree prints once, and says the same true thing with one fewer number.
+ */
 export function formatMoneyRange(
 	lowMinorUnits: number,
 	highMinorUnits: number,
 	currency: string,
 	locale = 'en-GB'
 ): string {
-	return `${formatMoney({ minorUnits: lowMinorUnits, currency }, locale)}-${formatMoney({ minorUnits: highMinorUnits, currency }, locale)}`;
+	const low = formatMoney({ minorUnits: lowMinorUnits, currency }, locale);
+	if (lowMinorUnits === highMinorUnits) return low;
+	return `${low}-${formatMoney({ minorUnits: highMinorUnits, currency }, locale)}`;
 }
 
 /** The "40 minutes later" half of issue #28's worked example. `0` reads as "same time",
