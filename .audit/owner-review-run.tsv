@@ -1,0 +1,6 @@
+ts	phase	decision	why	evidence	result
+2026-09-06T08:45:33Z	frame	wrote the predicate as a file before the first iteration	a vague goal stalls and the owner is away, so the stop condition has to outlive my context	.audit/EXIT-PREDICATE-OWNER-REVIEW.md	set
+2026-09-06T08:45:33Z	dispatch	three agents, grouped so no two share a file	the owner has counted running processes himself and asked for fewer, and a shared file is where two agents disagree at the seam	issues 404 405 406 on one, 408 on one, 407 on one	running
+2026-09-06T08:51:34Z	baseline	measured the before state on production before any fix landed	a fix I cannot compare against a measured before is a claim, not a result	.audit/baseline-owner-review.json, 3 itineraries, no console errors, no fixture leak	all four complaints reproduced
+2026-09-06T08:51:34Z	baseline	ground-leg preview land path is 1 of 1 solid full-box fill	confirms 408 is the 81.6 km guard firing and not a rendering fault	.audit/baseline-owner-review.json groundLegs.solid=1 total=1	confirmed on production
+2026-09-06T08:51:34Z	baseline	stay row reads "rated 7.6/10 11.2 km from airport 638 m from centre from EUR34.65/night EUR34.65 total +EUR5.68/night +EUR5.68 over 1 night"	confirms 404: two numbers printed twice at one night, and no journey time anywhere	.audit/baseline-owner-review.json stayRows[0]	confirmed on production

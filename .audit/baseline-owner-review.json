@@ -1,0 +1,83 @@
+{
+  "url": "https://flights.mauri.app/results/?dep=2026-10-06&depLatest=2026-10-09&arr=2026-10-12&from=BVC&to=PFO",
+  "when": "2026-09-06T08:51:01.370Z",
+  "cards": 0,
+  "openedDetail": true,
+  "openedStopover": true,
+  "land": {
+    "total": 3,
+    "solid": 0,
+    "samples": [
+      "M120 92L21.51 92L20.78 90.34L19.7 89.59L20.42 89.22L21.5 87.72L21.68 8",
+      "M22.79 92L22.02 90.23L20.97 89.51L21.67 89.15L22.72 87.7L22.9 86.07L23",
+      "M120 92L19.53 92L18.87 90.5L17.74 89.72L18.49 89.33L19.63 87.76L19.82 "
+    ]
+  },
+  "groundLegs": {
+    "total": 1,
+    "solid": 1,
+    "legLabels": [
+      "The stopover . Transfer to Birmingham Central Backpackers (straight-line estimate). Transfer to BHX (straight-line estimate). Opens the full map."
+    ]
+  },
+  "stayRowCount": 2,
+  "stayRows": [
+    "Malacuna Birminghan | rated 7.6/10 | 11.2 km from airport | 638 m from centre | from | €34.65/night | €34.65 total | +€5.68/night | +€5.68 over 1 night",
+    "YHA Stratford upon Avon | rated 9.1/10 | 28.4 km from airport | 34.8 km from centre | from | €55.30/night | €55.30 total | +€26.33/night | +€26.33 over 1 night"
+  ],
+  "buttons": [
+    "Edit search",
+    "Sort 2 trips into place",
+    "See every connection on a map 6 airports considered, including the ones with no trip, and 8 more confirmed but not priced",
+    "Filter and sort",
+    "Birmingham BHX (1)",
+    "London LGW (1)",
+    "Manchester MAN (1)",
+    "BY (4)",
+    "LS (1)",
+    "U2 (1)",
+    "Airport wait, Aristides Pereira International Airport BVC, 2h",
+    "Flight, TUI Airways BY313, 5h 50m",
+    "Transport, Transit, then train, then bus (2 changes) to Birmingham Central Backpackers, 41m",
+    "Stopover, 1 night in Birmingham, 13h 35m free",
+    "Transport, Bus, then train, then transit (2 changes) to Birmingham Airport BHX, 35m",
+    "Airport wait, Birmingham Airport BHX, 2h 9m",
+    "Flight, Jet2 LS1151, 4h 45m",
+    "1 night in Birmingham , hide the full timeline",
+    "The stopover . Transfer to Birmingham Central Backpackers (straight-line estimate). Transfer to BHX (straight-line estimate). Opens the full map.",
+    "Previous photo",
+    "Next photo",
+    "Sources and when each was fetched: via Kiwi.com (no key required) & Hostelworld (no key required) & Transitous, fetched this minute",
+    "Airport wait, Aristides Pereira International Airport BVC, 2h",
+    "Flight, TUI Airways BY481, 6h",
+    "Transport, Bus, then tram (1 change) to YHA Manchester, 1h 21m",
+    "Stopover, Day stopover in Manchester, 5h 18m free",
+    "Transport, Taxi to Manchester Airport MAN, 20m",
+    "Airport wait, Manchester Airport MAN, 2h",
+    "Flight, easyJet U22269, 4h 50m",
+    "5h 18m in Manchester , show the full timeline",
+    "Sources and when each was fetched: via Kiwi.com (no key required) & Hostelworld (no key required) & Transitous & OSRM (walking & driving), fetched this minute",
+    "Airport wait, Aristides Pereira International Airport BVC, 2h",
+    "Flight, TUI Airways BY625, 5h 55m",
+    "Transport, Walk to The Gatwick White House Hotel, 35m",
+    "Stopover, 1 night in London, 13h 5m free",
+    "Transport, Walk to London Gatwick Airport LGW, 35m",
+    "Airport wait, London Gatwick Airport LGW, 2h",
+    "Flight, TUI Airways BY4664, 4h 25m",
+    "1 night in London , show the full timeline",
+    "Sources and when each was fetched: via Kiwi.com (no key required) & Hostelworld (no key required) & OSRM (walking & driving), fetched this minute",
+    "Done",
+    "1 night this trip",
+    "2 nights +€36.97",
+    "3 nights +€76.94",
+    "4 nights +€64.91",
+    "Previous photo",
+    "Next photo",
+    "Dorm bed €28.97/night €28.97 · 1 night",
+    "Female-only dorm €37.89/night €37.89 · 1 night Assumed available: no gender breakdown was given for this search.",
+    "Open the map of all 3 stays Pick a point to compare it against this one",
+    "Malacuna Birminghan rated 7.6/10 11.2 km from airport 638 m from centre from €34.65/night €34.65 total +€5.68/night +€5.68 over 1 night",
+    "YHA Stratford upon Avon rated 9.1/10 28.4 km from airport 34.8 km from centre from €55.30/night €55.30 total +€26.33/night +€26.33 over 1 night"
+  ],
+  "consoleErrors": []
+}
