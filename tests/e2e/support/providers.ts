@@ -372,8 +372,8 @@ export async function mockTransitous(target: Routable, fixture = 'transitous/pla
  * whatever moment the request names, which is harmless only while a schedule decides what a
  * row prints. It no longer is: the free-time window's closing edge is the last departure
  * that makes the check-in deadline, so a canned answer two days out reads as a ride to the
- * airport leaving before the traveller has landed, and the app refuses it — correctly, and
- * for a reason that is entirely the fixture's.
+ * airport leaving before the traveller has landed, and the app refuses it. That refusal is
+ * correct, and the reason for it is entirely the fixture's.
  *
  * A real MOTIS answers near the moment it was asked about. This is the smallest mock that
  * does the same: the runway leg keeps `plan.json`, and the leg planned backwards from a
