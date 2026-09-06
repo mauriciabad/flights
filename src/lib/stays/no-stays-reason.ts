@@ -39,8 +39,18 @@
  * It is per stopover rather than per page because case 1 is a fact about one city, and it
  * appears only inside the stopover's own fold, which a traveller opens by asking.
  *
- * Kept as a pure function so the wording is unit-testable without mounting Svelte, the same
- * split the rest of `$lib/results/view-model.ts` uses.
+ * ## Issue #374: the other half, which nobody had written
+ *
+ * Everything above answers an EMPTY list, and that turned out to be the smaller problem. A
+ * keyless visitor searching Porto gets 54 hostels off Hostelworld and a screen that reads
+ * as the whole market, because the only function here that could have said otherwise never
+ * runs when there is something to show. The owner's own preferred bed is a Booking.com
+ * listing that was never fetched and never mentioned. `describeStayCatalogue`, at the
+ * bottom of this file, is the same question asked of a POPULATED list, and it shares this
+ * module's helpers so the two cannot name a provider, count it or link to it differently.
+ *
+ * Both are kept as pure functions so the wording is unit-testable without mounting Svelte,
+ * the same split the rest of `$lib/results/view-model.ts` uses.
  */
 
 import type { ProviderAnswer } from '$lib/search';
@@ -76,10 +86,12 @@ export interface NoStaysContext {
 	 * has been recorded, which is a different thing from "they all came back empty" and is
 	 * described as such rather than being folded into the friendlier of the two. */
 	stayProviders?: readonly StayProviderOutcome[];
-	/** Whether a registered stay provider is still waiting on a key. Gates the only link
-	 * this function offers outside case 3: without one, "add a key" is advice the traveller
-	 * has already taken. */
-	hasUnconfiguredStayProvider?: boolean;
+	/** Registry labels of the stay providers still waiting on a key
+	 * (`results/provider-setup.ts`). Gates the only link this function offers outside case
+	 * 3: with an empty list, "add a key" is advice the traveller has already taken. The
+	 * labels themselves are used, not only the length, so the sentence names whoever is
+	 * actually missing (issue #374). */
+	unconfiguredStayProviders?: readonly string[];
 }
 
 export interface NoStaysNotice {
@@ -101,11 +113,30 @@ export interface NoStaysNotice {
  * single search turns up. `StayKeyNotice` picks it for the same reason. */
 const ADD_KEY_ACTION = { label: 'Add an Agoda key', href: '/settings/#agoda' } as const;
 
-/** "Hostelworld", or "Hostelworld and Agoda", or "Hostelworld, Agoda and Booking.com". */
-function nameList(outcomes: readonly StayProviderOutcome[]): string {
-	const labels = outcomes.map((outcome) => outcome.label);
-	if (labels.length <= 1) return labels[0] ?? 'The stay providers';
-	return `${labels.slice(0, -1).join(', ')} and ${labels[labels.length - 1]}`;
+/**
+ * The one "add a key" link, aimed at a provider this traveller is actually missing.
+ *
+ * Issue #374: `ADD_KEY_ACTION` used to be offered on nothing more than "something is
+ * unconfigured", so a visitor who had already saved an Agoda key and was only missing
+ * Booking was sent to the Agoda row he had already filled in. Deriving the link from the
+ * same list the sentence is built from is what stops the two disagreeing.
+ */
+function addKeyAction(unconfigured: readonly string[]): { label: string; href: string } | undefined {
+	if (unconfigured.length === 0) return undefined;
+	if (unconfigured.some((label) => brandOf(label) === 'Agoda')) return ADD_KEY_ACTION;
+	// The settings page anchors each card on the provider's id (`ProviderKeyCard`), and what
+	// this function holds is the registry label. Deriving `#booking` from
+	// `Booking.com (RapidAPI)` is a guess, and a guessed anchor lands nowhere, so the page
+	// itself is the honest target.
+	return { label: `Add a ${brandOf(unconfigured[0])} key`, href: '/settings/' };
+}
+
+/** "Hostelworld", or "Hostelworld and Agoda", or "Hostelworld, Agoda and Booking.com".
+ * Takes names rather than outcomes because callers name providers two ways: by registry
+ * label where the notice sits beside `ProviderStatusStrip`, and by brand mid-sentence. */
+function nameList(names: readonly string[]): string {
+	if (names.length <= 1) return names[0] ?? 'The stay providers';
+	return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
 }
 
 /** `Hostelworld (no key required)` becomes `Hostelworld`. A client labels its own messages
@@ -163,10 +194,14 @@ export function describeNoStays(context: NoStaysContext): NoStaysNotice {
 	const replied = providers.filter(
 		(outcome) => outcome.answer === 'answered' || outcome.answer === 'nothing-found'
 	);
-	const widerProviderOffer = context.hasUnconfiguredStayProvider
-		? ` Agoda and Booking.com reach more of the market than hostels do.`
-		: '';
-	const widerProviderAction = context.hasUnconfiguredStayProvider ? ADD_KEY_ACTION : undefined;
+	const unconfigured = context.unconfiguredStayProviders ?? [];
+	// Brands, not registry labels: "Agoda (RapidAPI) reaches more of the market" tells a
+	// traveller how we call the provider, which is not what the sentence is about.
+	const widerProviderOffer =
+		unconfigured.length > 0
+			? ` ${nameList(unconfigured.map(brandOf))} ${unconfigured.length === 1 ? 'reaches' : 'reach'} more of the market than hostels do.`
+			: '';
+	const widerProviderAction = addKeyAction(unconfigured);
 
 	// Case 2. Everything that ran failed, so there is no answer about this city at all —
 	// only a record of who could not give one. Saying anything about what is or is not near
@@ -184,7 +219,7 @@ export function describeNoStays(context: NoStaysContext): NoStaysNotice {
 	if (failed.length > 0) {
 		return {
 			title: `No stays came back for ${place}`,
-			description: `${nameList(replied)} had nothing near ${place} for these dates, and the rest could not answer.`,
+			description: `${nameList(replied.map((outcome) => outcome.label))} had nothing near ${place} for these dates, and the rest could not answer.`,
 			action: widerProviderAction,
 			providerFailures: failureLines(failed)
 		};
@@ -194,7 +229,7 @@ export function describeNoStays(context: NoStaysContext): NoStaysNotice {
 	if (replied.length > 0) {
 		return {
 			title: `No stays came back for ${place}`,
-			description: `${nameList(replied)} answered with nothing near ${place} for these dates.${widerProviderOffer}`,
+			description: `${nameList(replied.map((outcome) => outcome.label))} answered with nothing near ${place} for these dates.${widerProviderOffer}`,
 			action: widerProviderAction,
 			providerFailures: []
 		};
@@ -207,5 +242,78 @@ export function describeNoStays(context: NoStaysContext): NoStaysNotice {
 		title: `No stays came back for ${place}`,
 		description: `The search finished without a stay provider answering for ${place}.`,
 		providerFailures: []
+	};
+}
+
+/** What a POPULATED stay list is drawn from, and what it is missing. */
+export interface StayCatalogueContext {
+	/** How many properties are on screen right now. */
+	propertyCount: number;
+	stayProviders?: readonly StayProviderOutcome[];
+	unconfiguredStayProviders?: readonly string[];
+}
+
+export interface StayCatalogueNote {
+	description: string;
+	action?: { label: string; href: string };
+	providerFailures: string[];
+}
+
+/**
+ * Issue #374: the footnote under a stay list that came from fewer providers than exist.
+ *
+ * `describeNoStays` only ever renders when the list is empty, so a keyless visitor who got
+ * 54 Porto hostels off Hostelworld saw a screen that read as the whole market. It is one
+ * provider's catalogue. The owner's own preferred bed, Oporto Sea Rooms, is a Booking.com
+ * listing, so it was never asked for and he was never told why.
+ *
+ * This is deliberately quiet. Something IS on screen and it is usable, so the note is a
+ * footnote under the alternatives rather than a banner over them, and it appears only when
+ * a provider is genuinely absent. A complete catalogue says nothing at all.
+ *
+ * Both sentences name brands rather than registry labels. `Hostelworld (no key required)`
+ * is the right way to write a provider on a status plate and noise in the middle of a
+ * sentence about who has the beds.
+ */
+export function describeStayCatalogue(context: StayCatalogueContext): StayCatalogueNote | undefined {
+	const providers = context.stayProviders ?? [];
+	// Only a provider that returned rows can be credited with the list. `nothing-found` was
+	// asked and gave nothing, so "Hostelworld and Agoda listed these 54 properties" would
+	// be a false sentence about Agoda, and it is not missing either — it answered.
+	const listed = providers.filter((outcome) => outcome.answer === 'answered');
+	const failed = providers.filter((outcome) => outcome.answer === 'failed');
+	const unconfigured = context.unconfiguredStayProviders ?? [];
+
+	// Nothing recorded, so there is no source to name, and naming one would be the guess
+	// AGENTS.md forbids. The properties on screen came from somewhere; this function does
+	// not know where, and says nothing rather than something plausible.
+	if (listed.length === 0) return undefined;
+
+	// Nothing is missing, so there is nothing to say. A note here would be the eighth
+	// announcement issue #185 cut back to one.
+	if (failed.length === 0 && unconfigured.length === 0) return undefined;
+
+	const source = `${nameList(listed.map((outcome) => brandOf(outcome.label)))} listed ${
+		context.propertyCount === 1 ? 'this one property' : `these ${context.propertyCount} properties`
+	}.`;
+
+	const missing: string[] = [];
+	if (unconfigured.length > 0) {
+		missing.push(
+			`${nameList(unconfigured.map(brandOf))} ${unconfigured.length === 1 ? 'has' : 'have'} no key saved`
+		);
+	}
+	if (failed.length > 0) {
+		missing.push(`${nameList(failed.map((outcome) => brandOf(outcome.label)))} could not answer`);
+	}
+	// The pronoun agrees with everyone absent, not with the clause it sits behind: one
+	// unconfigured provider plus one that failed is still "they".
+	const absent = unconfigured.length + failed.length;
+	const gap = `${missing.join(' and ')}, so a bed only ${absent === 1 ? 'it carries' : 'they carry'} is missing from this list.`;
+
+	return {
+		description: `${source} ${gap}`,
+		action: addKeyAction(unconfigured),
+		providerFailures: failureLines(failed)
 	};
 }
