@@ -205,13 +205,36 @@ export const TAXI_RATE_TABLE: Readonly<Record<IsoCountryCode, TaxiRateCard>> = {
 
 /**
  * Used when `countryCode` has no entry in `TAXI_RATE_TABLE`. Deliberately spans this
- * table's own extremes (Prague's low end to Switzerland's high end) rather than picking
- * a single "average European" country to stand in for one it knows nothing about.
+ * table's own extremes rather than picking a single "average European" country to stand
+ * in for one it knows nothing about.
+ *
+ * **These four figures used to be wrong, and the way they were wrong is the one this repo
+ * keeps relearning.** They were read off the twelve cards above as bare minor units, but
+ * four of those cards are denominated in GBP, CHF, SEK and CZK. `exchange-rates.ts` says
+ * it outright: "Minor units are NOT interchangeable across currencies and this is where
+ * that bites." Switzerland's 700 is 700 centimes, worth €7.44, and it was copied here as
+ * €7.00; its 500/km is €5.32/km and was copied as €3.00/km. So the card that advertised
+ * itself as the whole table's span reached €22.00 on a 5 km ride while the Swiss card it
+ * claimed to contain reached €34.02, and €97.00 against €166.93 at 30 km.
+ *
+ * The direction matters. This card is what 92.5% of the airports in `data/airports.generated.json`
+ * price against, the owner's own Boa Vista and Paphos among them, and it was understating
+ * its own uncertainty by two thirds at the top on every one of them. A band that is wide
+ * on purpose is a statement about how little is known; a band that is *narrower* than the
+ * evidence it cites is just a fourth invented card.
+ *
+ * The four figures are now the euro extremes of the twelve cards, each converted through
+ * `exchange-rates.ts` and rounded outwards so the band still contains the card it came
+ * from: flag-down from Czechia's €1.65 to Milan's €7.90, per-km from Portugal's €0.90 to
+ * Switzerland's €5.32. They are written down rather than computed at import time because
+ * a fallback must not stop existing on the day the ECB feed goes stale. What keeps them true
+ * is `fallback card contains every country card` in the tests. Add a thirteenth country
+ * outside this span and that test fails with the figure to use.
  */
 const FALLBACK_TAXI_RATE_CARD: TaxiRateCard = {
 	currency: 'EUR',
-	flagDownMinorUnits: [200, 700],
-	perKmMinorUnits: [80, 300],
+	flagDownMinorUnits: [165, 790],
+	perKmMinorUnits: [90, 532],
 	// Issue #344. Every named card above is per vehicle because somebody read its tariff.
 	// This one stands for a country nobody has read a tariff for, and "a taxi meters the
 	// car" is a habit of the twelve countries in the table rather than a fact about
@@ -221,10 +244,12 @@ const FALLBACK_TAXI_RATE_CARD: TaxiRateCard = {
 	// it is the direction that flatters the taxi.
 	basis: 'unknown',
 	citation:
-		'No rate card for this country. Range spans the low and high ends of every country ' +
-		'already in TAXI_RATE_TABLE, so it is wide by construction rather than falsely specific. ' +
-		'Whether a taxi here charges by the car or by the seat is unchecked, so the fare is not ' +
-		'split between travellers.'
+		'Nobody has read a taxi tariff for this country, so this is not one. The range runs from ' +
+		'the cheapest to the dearest of the twelve European tariffs this app does hold, converted ' +
+		'to euros: a Prague flag-down to a Milan one, a Lisbon kilometre to a Zurich one. It is ' +
+		'wide because that is the honest width of knowing nothing, and a real fare here could ' +
+		'still sit outside it. Whether a taxi here charges by the car or by the seat is unchecked, ' +
+		'so the fare is not split between travellers.'
 };
 
 /**
