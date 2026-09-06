@@ -362,7 +362,10 @@ export function tripStrip(itinerary: Itinerary): TripStrip {
 		kind: 'wait',
 		airport: onwardFlight.departureAirport,
 		beforeFlight: onwardFlight,
-		minutes: itinerary.times.connectionAirportWaiting,
+		// `layover.airportWait`, which is what `times.connectionAirportWaiting` is built from,
+		// rather than the stored field: every other cell here comes off this one call, and a
+		// strip that mixed a stored number with a derived one is the drift this issue is about.
+		minutes: layover.airportWait,
 		start: layover.atAirport,
 		end: onwardFlight.departure
 	});

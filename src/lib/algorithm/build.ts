@@ -29,7 +29,7 @@ import type {
 import { DEFAULT_MIN_LAYOVER_TIME_MINUTES, DEFAULT_TRAVELLERS, DEFAULT_WAITING_TIME_RULES } from '../domain';
 import { addLocalMinutes, minutesBetween } from './datetime';
 import { nightsToPayFor } from './nights';
-import { readStaleSchedule } from './transit-schedule';
+import { readStaleSchedule, transitLegMoment } from './transit-schedule';
 
 /**
  * The brief ties waiting-time tiers to "short flight or small airport" vs "long flight or
@@ -216,6 +216,11 @@ export interface ConnectionLayover {
 function liveSchedule(parts: ItineraryParts, field: 'transferToHotel' | 'transferToConnectionAirport') {
 	const schedule = parts[field]?.transitSchedule;
 	if (!schedule) return undefined;
+	// `readStaleSchedule` says `undefined` both for "still applies" and for "cannot say", and
+	// the second must not read as the first here. A runway leg with no recorded walk-out has
+	// no derivable moment (`transitLegMoment`), so nothing can check its timetable against
+	// the trip, and an edge that decides whether a bed gets booked should not rest on one.
+	if (!transitLegMoment(parts, field)) return undefined;
 	return readStaleSchedule(parts, field) === undefined ? schedule : undefined;
 }
 
@@ -261,29 +266,26 @@ export function deriveFreeTime(parts: ItineraryParts): FreeTime {
 export function deriveLayover(parts: ItineraryParts): ConnectionLayover {
 	const { outboundFlight, onwardFlight, transferToHotel, transferToConnectionAirport, connectionWaitingTime } = parts;
 
-	const arrivedInTown = liveSchedule(parts, 'transferToHotel')?.arrival;
-	const start = arrivedInTown
-		? arrivedInTown
-		: transferToHotel
+	const start =
+		liveSchedule(parts, 'transferToHotel')?.arrival ??
+		(transferToHotel
 			? addLocalMinutes(outboundFlight.arrival, transferToHotel.duration)
-			: outboundFlight.arrival;
+			: outboundFlight.arrival);
 
 	const deadline = addLocalMinutes(onwardFlight.departure, -connectionWaitingTime);
 	const leaves = liveSchedule(parts, 'transferToConnectionAirport');
-	const end = leaves
-		? leaves.intended
-		: transferToConnectionAirport
+	const end =
+		leaves?.intended ??
+		(transferToConnectionAirport
 			? addLocalMinutes(deadline, -transferToConnectionAirport.duration)
-			: deadline;
+			: deadline);
 
 	// The ride back gets the traveller somewhere, and that somewhere is the airport, so the
 	// wait after it is whatever the onward flight leaves. `leaves.arrival` is the timetable's
 	// own answer; without one the ride is assumed to take exactly as long as it says.
-	const atAirport = leaves?.arrival
-		? leaves.arrival
-		: transferToConnectionAirport
-			? addLocalMinutes(end, transferToConnectionAirport.duration)
-			: end;
+	const atAirport =
+		leaves?.arrival ??
+		(transferToConnectionAirport ? addLocalMinutes(end, transferToConnectionAirport.duration) : end);
 
 	const free: FreeTime = { start, end, duration: minutesBetween(start, end) };
 	return {

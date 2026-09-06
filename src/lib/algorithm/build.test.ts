@@ -15,9 +15,11 @@ import type {
 } from '../domain';
 import {
 	buildItineraries,
+	deriveLayover,
 	recomputeItineraryWaitingTimes,
 	type BuildItinerariesInput,
-	type ConnectionResources
+	type ConnectionResources,
+	type ItineraryParts
 } from './build';
 import { recomputeItinerarySelection } from './recompute-selection';
 
@@ -975,5 +977,105 @@ describe('the layover, split at the services that actually run', () => {
 		// Wednesday at the property, and `isOvernightWait` is about gaps that fit inside
 		// one night, not about every window that happens to end in the small hours.
 		expect(timetabledTrip().nightsInConnection).toBe(1);
+	});
+});
+
+/**
+ * The property that makes issue #368's fix a shape rather than a patch: whatever the pieces
+ * do, they are pieces OF something, and that something is fixed by the two flights.
+ *
+ * This is the assertion that would have caught the original defect from the other side. The
+ * old `times.total` added the pieces back up, so moving one edge moved the journey; the old
+ * `deriveFreeTime` had no notion of a whole to be a part of, so nothing could have failed.
+ */
+describe('the layover always adds up to itself', () => {
+	const at = (local: string) => localDateTime(local, 'Europe/Lisbon', 60);
+	const transitTo = (duration: number, intended: string, arrival: string, plannedFor: string, arriveBy: boolean): Transfer => ({
+		mode: 'transit',
+		duration: duration as Duration,
+		legs: [],
+		transitSchedule: {
+			intended: at(intended),
+			arrival: at(arrival),
+			following: [],
+			plannedFor: { time: at(plannedFor), arriveBy }
+		}
+	});
+
+	function partsWith(overrides: Partial<ItineraryParts>): ItineraryParts {
+		return {
+			outboundFlight: makeFlight('BCN', 'OPO', at('2026-09-16T05:50:00'), at('2026-09-16T06:50:00'), 120),
+			onwardFlight: makeFlight('OPO', 'BVC', at('2026-09-17T06:10:00'), at('2026-09-17T08:40:00'), 270),
+			originWaitingTime: 120 as Duration,
+			connectionWaitingTime: 120 as Duration,
+			travellers: 2,
+			...overrides
+		};
+	}
+
+	const shapes: Record<string, ItineraryParts> = {
+		'no ground legs at all': partsWith({}),
+		'road rides both ways': partsWith({
+			transferToHotel: makeTransfer(69),
+			transferToConnectionAirport: makeTransfer(67)
+		}),
+		'a ride into town and nothing back': partsWith({ transferToHotel: makeTransfer(69) }),
+		'both rides on a live timetable': partsWith({
+			transferToHotel: transitTo(69, '2026-09-16T07:30:00', '2026-09-16T08:06:00', '2026-09-16T06:50:00', false),
+			transferToConnectionAirport: transitTo(67, '2026-09-17T01:35:00', '2026-09-17T02:38:00', '2026-09-17T04:10:00', true)
+		}),
+		'a timetable planned for a buffer nobody uses any more': partsWith({
+			transferToConnectionAirport: transitTo(67, '2026-09-17T01:35:00', '2026-09-17T02:38:00', '2026-09-17T01:20:00', true)
+		}),
+		'a buffer wider than the layover': partsWith({ connectionWaitingTime: 2000 as Duration })
+	};
+
+	for (const [name, parts] of Object.entries(shapes)) {
+		it(`splits ${name} into pieces that sum to the whole`, () => {
+			const layover = deriveLayover(parts);
+			expect(layover.intoTown + layover.free.duration + layover.backToAirport + layover.airportWait).toBe(
+				layover.total
+			);
+		});
+	}
+
+	it('leaves a stale timetable out of the edges rather than quoting it', () => {
+		// The lookup was planned for a 1:20am deadline and the trip now has a 4:10am one, so
+		// the 1:35am departure answers a question nobody is asking. Back to the subtraction.
+		const stale = deriveLayover(shapes['a timetable planned for a buffer nobody uses any more']!);
+		expect(stale.free.end.local).toBe('2026-09-17T03:03:00');
+	});
+});
+
+/**
+ * Issue #368's one silent hazard. `readStaleSchedule` answers `undefined` for two different
+ * things, and only one of them means "read this timetable as fact".
+ */
+describe('a timetable nothing can check against the trip', () => {
+	const at = (local: string) => localDateTime(local, 'Europe/Lisbon', 60);
+
+	it('does not move the stopover edge, because nobody can say the landing still matches', () => {
+		// A transit ride into town with a real schedule and no recorded walk-out. There is no
+		// moment to compare `plannedFor` against, so the arithmetic stands: 6:50am + 69m.
+		const layover = deriveLayover({
+			outboundFlight: makeFlight('BCN', 'OPO', at('2026-09-16T05:50:00'), at('2026-09-16T06:50:00'), 120),
+			onwardFlight: makeFlight('OPO', 'BVC', at('2026-09-17T06:10:00'), at('2026-09-17T08:40:00'), 270),
+			originWaitingTime: 120 as Duration,
+			connectionWaitingTime: 120 as Duration,
+			travellers: 2,
+			transferToHotel: {
+				mode: 'transit',
+				duration: 69 as Duration,
+				legs: [],
+				transitSchedule: {
+					intended: at('2026-09-16T07:30:00'),
+					arrival: at('2026-09-16T08:06:00'),
+					following: [],
+					plannedFor: { time: at('2026-09-16T07:20:00'), arriveBy: false }
+				}
+			}
+		});
+
+		expect(layover.free.start.local).toBe('2026-09-16T07:59:00');
 	});
 });
