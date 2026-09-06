@@ -73,6 +73,23 @@ export class ItineraryDraft {
 	 * take, which is what the transit timetables are still true about (issue #135). */
 	pickedAnAlternative = $state(false);
 
+	/**
+	 * Issue #387: the onward flight is the traveller's own pick, so nothing may move it.
+	 *
+	 * The outbound and the onward are not equals. Where you land and when follows from the
+	 * outbound, so changing the outbound re-picks the onward that goes with it; that is the
+	 * dependency this issue is about, and the edge is directed. This flag is the one
+	 * exception, and it is HTML's input dirty value flag again, the same rule issue #367
+	 * settled for the bed: a default keeps flowing in until the person touches the field.
+	 *
+	 * On the draft rather than in `TravellerChoices` because it dies with the draft, and
+	 * that is correct rather than a shortcut. Changing the length or the departure date
+	 * rebuilds the draft from a different pairing, and an onward flight picked against the
+	 * old pairing was for a trip that no longer exists, which is the rule this class's
+	 * header already states for every other pick.
+	 */
+	onwardIsChosen = $state(false);
+
 	/** Routing answers by `propertyKey`, for the lifetime of this draft. A `SvelteMap`
 	 * rather than a plain one because the stay rows read it while a click handler writes
 	 * it, and a plain `Map` mutated in place would not repaint. */

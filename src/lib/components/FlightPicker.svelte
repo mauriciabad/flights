@@ -31,8 +31,10 @@
 		diffFlightOffers,
 		recomputeItinerarySelection,
 		selectionIsUnusable,
-		type RecomputedSelection
+		type RecomputedSelection,
+		type SelectionOverrides
 	} from '../algorithm/recompute-selection';
+	import { isSameFlight } from '../algorithm/pairings';
 	import {
 		calendarDayOffset,
 		formatClockTime,
@@ -58,6 +60,21 @@
 		/** Same-route candidates. The itinerary's own current flight for this leg is always
 		 * shown too, whether or not it appears in this list. */
 		alternatives: FlightOffer[];
+		/**
+		 * Issue #387: the flight the OTHER leg should take if this row is picked.
+		 *
+		 * Without it, every row here previewed the traveller's own outbound against whatever
+		 * onward flight the trip already had, which is how a perfectly ordinary "show me the
+		 * 17th" produced "The onward flight leaves before this one lands, so there is no
+		 * connection to make." on a row that also refused to print a price. The owner's own
+		 * words for that: "I have to manually figure out the best outgoing flight".
+		 *
+		 * The policy is the caller's, because it needs the whole pairing set and the
+		 * traveller's own pins, and this component is only ever given two flight lists.
+		 * `undefined` back means nothing should move, which is what re-produces the warning
+		 * for the one case it is still for: two flights the traveller pinned on purpose.
+		 */
+		companionFor?: (flight: FlightOffer) => FlightOffer | undefined;
 		minLayoverTime?: Duration;
 		/** From `SearchSnapshot.widenOptions` (issue #56), computed with no network call.
 		 * Only entries with `kind: 'flight'` whose `candidateAirportCode` matches this leg's
@@ -70,13 +87,26 @@
 		onselect: (result: RecomputedSelection) => void;
 	}
 
-	let { legLabel, itinerary, leg, alternatives, minLayoverTime, widenOptions, onWiden, onselect }: Props =
-		$props();
+	let {
+		legLabel,
+		itinerary,
+		leg,
+		alternatives,
+		companionFor,
+		minLayoverTime,
+		widenOptions,
+		onWiden,
+		onselect
+	}: Props = $props();
 
 	const uid = $props.id();
 	const groupName = `flight-picker-${uid}`;
 
 	const selected = $derived(leg === 'outbound' ? itinerary.outboundFlight : itinerary.onwardFlight);
+	/** The flight on the leg this picker does not edit, which is what a row's companion is
+	 * compared against to decide whether taking that row moves it. */
+	const companionNow = $derived(leg === 'outbound' ? itinerary.onwardFlight : itinerary.outboundFlight);
+	const companionLabel = $derived(leg === 'outbound' ? 'onward' : 'outbound');
 
 	interface FlightRow {
 		flight: FlightOffer;
@@ -85,6 +115,10 @@
 		result: RecomputedSelection;
 		/** Issue #317: no money on a row that is not a trip. See `selectionIsUnusable`. */
 		isUnusable: boolean;
+		/** Issue #387: taking this row also moves the other leg's flight. Said on the row
+		 * rather than announced after the press, because it is what decides whether the price
+		 * beside it is the price of the trip the traveller thinks they are choosing. */
+		movesCompanion: boolean;
 		/** Whole days between this flight's own departure and arrival calendars, so a
 		 * landing after midnight is stamped rather than left to read as the same evening.
 		 * Each side is read in its own airport's local calendar, which is the date printed
@@ -103,7 +137,15 @@
 
 		return sortedFlights.map((flight) => {
 			const isSelected = flightKey(flight) === flightKey(selected);
-			const overrides = leg === 'outbound' ? { outboundFlight: flight } : { onwardFlight: flight };
+			// The row already showing is the trip on screen, so nothing about it may move: a
+			// companion computed for it would quietly re-optimise the leg the traveller is
+			// looking at the moment this list rendered.
+			const companion = isSelected ? undefined : companionFor?.(flight);
+			const movesCompanion = companion !== undefined && !isSameFlight(companion, companionNow);
+			const overrides: SelectionOverrides =
+				leg === 'outbound'
+					? { outboundFlight: flight, ...(companion ? { onwardFlight: companion } : {}) }
+					: { onwardFlight: flight, ...(companion ? { outboundFlight: companion } : {}) };
 			const result = recomputeItinerarySelection(itinerary, overrides, minLayoverTime);
 			return {
 				flight,
@@ -111,6 +153,7 @@
 				delta: isSelected ? null : diffFlightOffers(selected, flight),
 				result,
 				isUnusable: selectionIsUnusable(result),
+				movesCompanion,
 				arrivalDayOffset: calendarDayOffset(flight.departure, flight.arrival)
 			};
 		});
@@ -218,6 +261,13 @@
 				<span class="row-meta">
 					<span class="row-carrier">{row.flight.carrier.iataCode} {row.flight.flightNumber}</span>
 					<span class="row-duration font-mono tabular-nums">{formatDuration(row.flight.duration)}</span>
+					{#if row.movesCompanion}
+						<!-- Said before the press rather than announced after it. The delta on this
+						     row is a whole trip's difference, and this is what else moved to make
+						     that trip exist: without it the price reads as the cost of one flight
+						     swap. Issue #387. -->
+						<span class="row-companion">different {companionLabel} flight</span>
+					{/if}
 				</span>
 				<!-- Issue #317: money for a trip that does not exist. The row itself stays,
 				     greyed, because the flight is real and the traveller reaches it by moving
@@ -408,6 +458,14 @@
 		height: 1rem;
 		color: var(--color-text-faint);
 		flex-shrink: 0;
+	}
+
+	/* A third line in the column that already holds the facts about this row, so it costs
+	   the list no width. Fainter than the carrier and the duration, because it qualifies
+	   the price rather than naming the flight. */
+	.row-companion {
+		color: var(--color-text-faint);
+		white-space: nowrap;
 	}
 
 	.row-meta {

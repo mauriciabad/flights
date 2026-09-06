@@ -44,11 +44,22 @@
 	 * and from nowhere else, and `results/pick-bed.ts` says so where it is defined.
 	 */
 	import { base } from '$app/paths';
-	import type { Airport, Duration, Itinerary, Stay } from '$lib/domain';
+	import type { Airport, Duration, FlightOffer, Itinerary, Stay } from '$lib/domain';
 	import { DEFAULT_LANDING_TO_TRANSPORT_RULES } from '$lib/domain';
 	import type { ItinerarySegmentId } from '$lib/itinerary-map/segment-id';
 	import { recomputeItineraryWaitingTimes } from '$lib/algorithm/build';
-	import { Button, FlightPicker, Skeleton, StopoverNights, TransportPicker, WaitingTimeStepper, visitDaysOf } from '$lib/components';
+	import { flightOn, isSameFlight, pairingUsing } from '$lib/algorithm/pairings';
+	import { recomputeItinerarySelection, type RecomputedSelection } from '$lib/algorithm/recompute-selection';
+	import {
+		Button,
+		DepartureDates,
+		FlightPicker,
+		Skeleton,
+		StopoverNights,
+		TransportPicker,
+		WaitingTimeStepper,
+		visitDaysOf
+	} from '$lib/components';
 	import { segmentStubFor } from '$lib/components/segment-stub';
 	import { unroutedLegNote } from '$lib/components/itinerary-timeline-format';
 	import { waitsOvernight } from '$lib/algorithm/nights';
@@ -75,7 +86,8 @@
 	import { applyBedToDraft, journeyForBed, routeBedForDraft } from '$lib/results/pick-bed';
 	import type { AutomaticStaySwap, TravellerChoices } from '$lib/results/traveller-choices';
 	import type { ItineraryDraft } from '$lib/results/itinerary-draft.svelte';
-	import type { StopoverLengthOption } from '$lib/results/types';
+	import type { DepartureDateOption } from '$lib/results/departure-ladder';
+	import { VARIANT_VIEW, type StopoverLengthOption } from '$lib/results/types';
 	import {
 		StayPicker,
 		describeNoStays,
@@ -101,9 +113,10 @@
 		/** True when the shortest pairing spends no night here, which makes this a flight
 		 * change rather than a stopover (issue #225). */
 		isFlightChange?: boolean;
-		/** Issue #224: whether this trip is at the shortest length this connection can do,
-		 * which is the one `pipeline.ts` refined transit timetables for. */
-		atDefaultLength?: boolean;
+		/** Issue #387: every day this connection can be flown on, priced, for the ladder
+		 * beside the outbound flight. Rides with the outbound panel because that is the leg
+		 * whose date it is. */
+		departureOptions?: readonly DepartureDateOption[];
 		group?: ItineraryGroup;
 		stayCandidates?: Stay[];
 		transferOptions?: ConnectionTransferOptions;
@@ -127,6 +140,7 @@
 		 */
 		transitLookupBudget?: TransitLookupBudget;
 		onNightsChange?: (nights: number) => void;
+		onDateChange?: (date: string) => void;
 		/**
 		 * Issue #367: a bed this app moved when the length last changed, held until the
 		 * traveller answers it. Never set for a bed they chose, because that one never moves.
@@ -155,7 +169,7 @@
 		segment,
 		stopoverOptions = [],
 		isFlightChange = false,
-		atDefaultLength = true,
+		departureOptions = [],
 		group,
 		stayCandidates = [],
 		transferOptions,
@@ -168,6 +182,7 @@
 		stayProviders = [],
 		transitLookupBudget,
 		onNightsChange,
+		onDateChange,
 		staySwap,
 		stayIsChosen = false,
 		onchoice
@@ -191,8 +206,59 @@
 	// `ItineraryGroup.variants`: every (outbound, onward) pair the free tier found for this
 	// stopover. `FlightPicker` dedupes internally, so passing every variant's flight
 	// straight through, current pick included, is enough.
-	const outboundAlternatives = $derived((group?.variants ?? []).map((variant) => variant.score.itinerary.outboundFlight));
-	const onwardAlternatives = $derived((group?.variants ?? []).map((variant) => variant.score.itinerary.onwardFlight));
+	const variants = $derived(group?.variants ?? []);
+	const outboundAlternatives = $derived(variants.map((variant) => variant.score.itinerary.outboundFlight));
+	const onwardAlternatives = $derived(variants.map((variant) => variant.score.itinerary.onwardFlight));
+
+	/**
+	 * Issue #387: the onward flight that goes with an outbound the traveller is considering.
+	 *
+	 * `pairConnections` already built every (outbound, onward) pair that connects, so this
+	 * never invents a pairing: it looks one up. That is why a row answered this way can no
+	 * longer produce "The onward flight leaves before this one lands", which is the sentence
+	 * the owner was reading instead of a price.
+	 *
+	 * The length on screen is the target, so a flight change stays a flight change. A
+	 * traveller moving to Thursday asked to leave on Thursday, not to be moved to Thursday's
+	 * cheapest length as well; where Thursday cannot do the length they have, its own
+	 * cheapest is the honest answer and the ladder below says so.
+	 */
+	function onwardFor(outbound: FlightOffer): FlightOffer | undefined {
+		const pairing = pairingUsing(
+			variants,
+			VARIANT_VIEW,
+			'outbound',
+			outbound,
+			itinerary.nightsInConnection
+		);
+		return pairing ? flightOn(pairing.score.itinerary, 'onward') : undefined;
+	}
+
+	/** Nothing may move an onward flight the traveller picked. Passing `undefined` down is
+	 * what re-produces the out-of-order warning for the one case it is still for: two
+	 * flights somebody pinned into an impossible pair on purpose. */
+	const outboundCompanion = $derived(draft.onwardIsChosen ? undefined : onwardFor);
+
+	/** Picking an onward flight is what makes it the traveller's, and from then on changing
+	 * the outbound leaves it alone. The edge is directed: the outbound decides where and
+	 * when you land, so the onward follows it and never the other way round. */
+	function chooseOnwardFlight(recomputed: RecomputedSelection) {
+		draft.apply(recomputed);
+		draft.onwardIsChosen = true;
+	}
+
+	/**
+	 * Hands the onward flight back to the app: it takes the one that goes with the outbound
+	 * now, and follows it again from here on. Issue #367's "Use the recommended bed" in its
+	 * other half of the trip.
+	 */
+	function followOutbound() {
+		draft.onwardIsChosen = false;
+		const onward = onwardFor(itinerary.outboundFlight);
+		if (!onward || isSameFlight(onward, itinerary.onwardFlight)) return;
+		draft.apply(recomputeItinerarySelection(itinerary, { onwardFlight: onward }, minLayoverTime));
+	}
+
 	const stayProperties = $derived(groupByProperty(stayCandidates));
 
 	const originAirportTransferOptions = $derived(outerTransferOptions?.transferToOriginAirport ?? NO_TRANSFER_LEG_OPTIONS);
@@ -204,11 +270,30 @@
 		outerTransferOptions?.transferToDestinationLocation ?? NO_TRANSFER_LEG_OPTIONS
 	);
 
+	/**
+	 * Whether the trip on screen is the very pairing `pipeline.ts` spent its one timetable
+	 * lookup on, which is `group.best` and nothing else.
+	 *
+	 * This used to be the page's `atDefaultLength`, a night count compared against the
+	 * connection's cheapest. That was exact while the nights were the only thing that could
+	 * move a card off `group.best`, and issue #387 ends that: a departure date can land on
+	 * another day's pairing at the same length, and the old test would have called that the
+	 * default and claimed timetables planned for a flight two days earlier. Comparing the
+	 * two flights asks the question the timetables actually turn on.
+	 */
+	const showsSearchedPairing = $derived(
+		group !== undefined &&
+			isSameFlight(itinerary.outboundFlight, group.best.score.itinerary.outboundFlight) &&
+			isSameFlight(itinerary.onwardFlight, group.best.score.itinerary.onwardFlight)
+	);
+
 	// Issue #135: what each leg's timetable lookup actually said, planned for THIS
 	// itinerary's own flight times. Undefined once a leg has been swapped or the stopover
-	// extended, because the lookups were never planned for the trip that results, and
+	// moved, because the lookups were never planned for the trip that results, and
 	// pretending otherwise is the defect that issue is about.
-	const transitAnswers = $derived(!draft.pickedAnAlternative && atDefaultLength ? group?.best.transit : undefined);
+	const transitAnswers = $derived(
+		!draft.pickedAnAlternative && showsSearchedPairing ? group?.best.transit : undefined
+	);
 
 	/**
 	 * Issue #267: the two in-city legs, once the traveller has swapped to a bed the search
@@ -579,11 +664,37 @@
 					(minutes) => setWaitingTime('originWaitingTime', minutes)
 				)}
 			{:else if segment === 'outbound-flight'}
+				<!-- Issue #387. Which day you leave is a property of the outbound flight, so the
+				     date ladder rides above the picker that changes it, exactly as issue #225's
+				     nights ladder rides above the stay picker in the free-time panel. The owner
+				     asked for the second of these after calling the first "well done". -->
+				<DepartureDates {itinerary} options={departureOptions} {onDateChange} />
+				{#if draft.onwardIsChosen}
+					<!-- Every row below is priced against a flight the traveller chose rather than
+					     the one that goes with it, and some of them will not connect at all. That
+					     is what they asked for, and it is the one case the out-of-order warning is
+					     still the right answer to, so the panel says which of the two is happening
+					     instead of leaving a warning to be read as a bug. -->
+					<div class="onward-pin" data-testid="onward-pin">
+						<p class="onward-pin-line">
+							Priced against the onward flight you picked, {itinerary.onwardFlight.carrier
+								.iataCode}
+							{itinerary.onwardFlight.flightNumber}.
+						</p>
+						<Button
+							size="md"
+							variant="secondary"
+							data-testid="follow-outbound"
+							onclick={followOutbound}>Let it follow the outbound</Button
+						>
+					</div>
+				{/if}
 				<FlightPicker
 					legLabel={`Outbound: ${itinerary.originAirport.iataCode} to ${itinerary.outboundFlight.arrivalAirport}`}
 					{itinerary}
 					leg="outbound"
 					alternatives={outboundAlternatives}
+					companionFor={outboundCompanion}
 					{minLayoverTime}
 					onselect={(recomputed) => draft.apply(recomputed)}
 				/>
@@ -705,7 +816,7 @@
 					leg="onward"
 					alternatives={onwardAlternatives}
 					{minLayoverTime}
-					onselect={(recomputed) => draft.apply(recomputed)}
+					onselect={chooseOnwardFlight}
 				/>
 			{:else if segment === 'transfer-to-destination-location'}
 				{#if itinerary.destinationLocation && itinerary.transferToDestinationLocation}
@@ -857,6 +968,28 @@
 	.bed-swap :global(.bed-swap-action) {
 		white-space: normal;
 		text-align: center;
+	}
+
+	/* Issue #387, and the same rule the bed swap wears, because it says the same kind of
+	   thing: a decision the traveller made is still in force, and here is how to undo it. */
+	.onward-pin {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: var(--space-2) var(--space-3);
+		padding: var(--space-3);
+		background: var(--color-surface);
+		border: 1px solid var(--color-border);
+		border-left: 3px solid var(--color-accent);
+		border-radius: var(--radius-md);
+	}
+
+	.onward-pin-line {
+		flex: 1 1 12rem;
+		margin: 0;
+		font-size: var(--font-size-sm);
+		color: var(--color-text);
+		text-wrap: pretty;
 	}
 
 	.stay-notice {

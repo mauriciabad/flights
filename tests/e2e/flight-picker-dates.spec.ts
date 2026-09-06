@@ -22,11 +22,24 @@ import { waitForSearchToSettle } from '../shared/search-wait';
  *
  * ## The fixture, and why it has four flights rather than three
  *
- * Two outbound-and-onward pairings, a fortnight apart. The picker's alternatives are every
- * variant's outbound flight, previewed against the onward the card is currently on, so the
- * late pairing's outbound lands on 12 March against an onward that left on 10 March. That
- * cross-pairing is the row production printed a price on, and three flights on one
- * connection cannot produce it.
+ * Two outbound-and-onward pairings, a fortnight apart. The late pairing's outbound lands on
+ * 12 March, and the onward the card is currently on left on 10 March. That cross-pairing is
+ * the row production printed a price on, and three flights on one connection cannot produce
+ * it.
+ *
+ * ## What issue #387 changed underneath this spec, and what it did not
+ *
+ * The rule #317 established is that **a row the app has ruled out must not be priced**. That
+ * rule is untouched. What changed is how often a row is ruled out at all: a picker row is a
+ * whole pairing now, so the 12 March outbound is previewed against the 14 March onward that
+ * goes with it rather than against an onward that left two days before it lands. The row is
+ * a real trip, so it is priced, and that is correct.
+ *
+ * The two tests below therefore assert the new truth on this fixture. #317's own rule is
+ * still proved, in the two places where a row can still be unusable: `FlightPicker.test.ts`
+ * mounts the component with no companion at all, and `departure-ladder.spec.ts` reaches it
+ * on the real page the only way a traveller now can, by pinning an onward flight that the
+ * outbound cannot meet.
  */
 
 const EMPTY_MAP_STYLE = JSON.stringify({ version: 8, name: 'empty', sources: {}, layers: [] });
@@ -104,26 +117,29 @@ test.describe('alternative flights across several dates (issue #317)', () => {
 		}
 	});
 
-	test('a row with no connection to make carries no price and no delta', async ({ page }) => {
+	test('the row that could not connect is a trip now, on the onward flight that goes with it', async ({
+		page
+	}) => {
+		// Issue #387. This row is the one production priced under its own sentence saying no
+		// such connection exists. It is not ruled out any more, because the app looks up the
+		// onward flight that pairs with this outbound instead of leaving the old one in place.
 		const picker = customiser(page).getByRole('radiogroup', { name: /Outbound/ });
-		const ruledOut = picker.locator('.picker-row', { hasText: 'no connection to make' });
+		const late = picker.locator('.picker-row', { hasText: FIXTURE_FLIGHT_NUMBERS[3] });
 
-		await expect(ruledOut).toHaveCount(1);
-		await expect(ruledOut.locator('.row-price')).toHaveCount(0);
-		await expect(ruledOut.locator('.delta-text')).toHaveCount(0);
-		await expect(ruledOut).not.toContainText('€');
-
-		// Shown, not deleted. The flight is real, and moving the onward leg is what makes it
-		// reachable, so hiding it would hide the reason to move that leg.
-		await expect(ruledOut).toContainText(FIXTURE_FLIGHT_NUMBERS[3]);
-		await expect(ruledOut.locator('input[type="radio"]')).toHaveCount(1);
+		await expect(picker).not.toContainText('no connection to make');
+		await expect(late.locator('.row-price')).toHaveCount(1);
+		await expect(late.locator('.delta-text')).toHaveCount(1);
+		// Said before the press: this row's price is a whole trip's, and the onward leg is
+		// part of what moved to make that trip exist.
+		await expect(late.locator('.row-companion')).toContainText('different onward flight');
 	});
 
-	test('the takeable rows keep the comparison they exist for', async ({ page }) => {
+	test('every row keeps the comparison it exists for', async ({ page }) => {
 		const picker = customiser(page).getByRole('radiogroup', { name: /Outbound/ });
-		const takeable = picker.locator('.picker-row').filter({ hasNotText: 'no connection to make' });
+		const rows = picker.locator('.picker-row');
 
-		await expect(takeable).toHaveCount(1);
-		await expect(takeable.locator('.row-current')).toHaveText('Current pick');
+		await expect(rows).toHaveCount(2);
+		await expect(picker.locator('.row-current')).toHaveText('Current pick');
+		await expect(picker.locator('.delta-text')).toHaveCount(1);
 	});
 });

@@ -23,7 +23,8 @@
  */
 
 import { waitsOvernight } from '$lib/algorithm/nights';
-import type { FlightOffer, Itinerary } from '$lib/domain';
+import { isSameFlight } from '$lib/algorithm/pairings';
+import type { Itinerary } from '$lib/domain';
 import { formatDuration, formatMoneyDelta } from '$lib/format';
 
 /** "Flight change", "1 night", "3 nights". The one string the control's value and every
@@ -82,30 +83,14 @@ export function overnightWaitNote(itinerary: Itinerary): string | undefined {
  * length up comes from a different day's outbound as well as a later onward. */
 export type ChangedFlights = 'none' | 'outbound' | 'onward' | 'both';
 
-/**
- * Whether two offers describe the same flight, by what identifies a flight rather than by
- * object identity: carrier, number, and the wall-clock departure that separates today's
- * FR3143 from tomorrow's.
- *
- * Object identity would be simpler and is wrong here. `build.ts` does pass provider offers
- * through by reference, but these two itineraries reach this function through a Svelte
- * `$state` array, and Svelte 5 deep-proxies state: the same underlying offer read through
- * `result.itinerary` and through `result.stopover.minimumItinerary` comes back as two
- * different proxies. Measured on production for BVC to PFO, that printed "Same price, on
- * different flights both ways" under every card's nights control, on trips where nothing
- * had changed at all.
- */
-function sameFlight(a: FlightOffer, b: FlightOffer): boolean {
-	return (
-		a.carrier.iataCode === b.carrier.iataCode &&
-		a.flightNumber === b.flightNumber &&
-		a.departure.local === b.departure.local
-	);
-}
-
+/** Issue #387 moved this comparison to `algorithm/pairings.ts`, where the pairing search
+ * needs the same answer. Its doc comment carries the reason it is not `===`, which was
+ * found here: Svelte deep-proxies `$state`, so one offer read through two paths is two
+ * objects, and reference equality printed "Same price, on different flights both ways"
+ * under every card on production. */
 function flightsChanged(shown: Itinerary, minimum: Itinerary): ChangedFlights {
-	const outbound = !sameFlight(shown.outboundFlight, minimum.outboundFlight);
-	const onward = !sameFlight(shown.onwardFlight, minimum.onwardFlight);
+	const outbound = !isSameFlight(shown.outboundFlight, minimum.outboundFlight);
+	const onward = !isSameFlight(shown.onwardFlight, minimum.onwardFlight);
 	if (outbound && onward) return 'both';
 	if (outbound) return 'outbound';
 	if (onward) return 'onward';

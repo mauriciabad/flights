@@ -10,19 +10,24 @@
  * list underneath it can disagree: `FlightPicker` collapses two rows carrying the same
  * carrier, number and departure into one, so counting the raw array would claim a choice
  * that renders as a single "Current pick" row. Hence `flightKey` lives here and
- * `FlightPicker` imports it rather than keeping its own copy.
+ * `FlightPicker` imports it rather than keeping its own copy. Since issue #387 the
+ * definition itself lives in `algorithm/pairings.ts`, because the pairing search needs the
+ * same identity and `algorithm/` may not import from `components/`.
  */
 
 import type { FlightOffer } from '../domain';
+import { flightKey } from '../algorithm/pairings';
 
 /**
  * One flight's identity for picker purposes: the same physical departure offered twice by
- * two providers is one row, not two. Carrier, number and local departure together, because
- * a flight number alone repeats daily and the picker lists several days at once.
+ * two providers is one row, not two.
+ *
+ * Issue #387 moved the definition to `algorithm/pairings.ts` and left this re-export, for
+ * the reason the header above gives: the picker's dedupe and the pairing search now have to
+ * agree on when two offers are the same flight, and the pairing search cannot import a
+ * component module. Every existing caller keeps importing it from here.
  */
-export function flightKey(flight: FlightOffer): string {
-	return `${flight.carrier.iataCode}${flight.flightNumber}@${flight.departure.local}`;
-}
+export { flightKey };
 
 /** How many rows `FlightPicker` would actually draw for this pool. */
 export function distinctFlightCount(flights: readonly FlightOffer[]): number {

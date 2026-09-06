@@ -32,6 +32,17 @@ import type { StopoverForRanking } from '$lib/stays';
  * and absent means "whatever the app recommends". */
 export interface TravellerChoices {
 	nights?: number;
+	/**
+	 * Issue #387: which day this trip leaves, `YYYY-MM-DD` in the origin airport's own
+	 * calendar.
+	 *
+	 * The second axis of a stopover's pairings, and a pin for the same reason `nights` is:
+	 * every snapshot rebuilds every group, so a date held anywhere else would be lost the
+	 * moment an unrelated provider answered. A date this connection cannot do resolves back
+	 * to the pairing the card would have opened on, and the pin stays recorded rather than
+	 * being quietly rewritten to something the traveller did not ask for.
+	 */
+	departureDate?: string;
 	stay?: Stay;
 	originWaitingTime?: Duration;
 	connectionWaitingTime?: Duration;

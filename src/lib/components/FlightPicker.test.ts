@@ -107,6 +107,7 @@ function mountPicker(props: {
 	itinerary: ReturnType<typeof baseItinerary>;
 	alternatives: FlightOffer[];
 	onselect: (result: RecomputedSelection) => void;
+	companionFor?: (flight: FlightOffer) => FlightOffer | undefined;
 	widenOptions?: WidenOption[];
 	onWiden?: (option: WidenOption) => void;
 }) {
@@ -119,6 +120,7 @@ function mountPicker(props: {
 			itinerary: props.itinerary,
 			leg: 'outbound',
 			alternatives: props.alternatives,
+			companionFor: props.companionFor,
 			onselect: props.onselect,
 			widenOptions: props.widenOptions,
 			onWiden: props.onWiden
@@ -462,5 +464,131 @@ describe('FlightPicker: widen options (issue #56 cost awareness)', () => {
 		const root = mountPicker({ itinerary, alternatives: [], onselect: () => {}, widenOptions: [option] });
 
 		expect(root.querySelector('.widen-options')).toBeNull();
+	});
+});
+
+
+/**
+ * Issue #387, the owner:
+ *
+ * > if I want to know what's the best combination for flying on the 17 for example I can't
+ * > because it shows this message and I have to manually figure out the best outgoing flight
+ *
+ * The message is the one the block above tests: a later outbound left the onward flight
+ * where it was, so the row had no price and a sentence explaining why. `companionFor` is
+ * the caller answering "what onward flight goes with this outbound", and a row answered
+ * that way is a trip again.
+ */
+describe('FlightPicker: re-pairing the onward flight (issue #387)', () => {
+	/** Two days after the current outbound lands, so the onward flight the trip is on has
+	 * long gone. This is exactly the fixture the #317 block uses to produce the warning. */
+	function twoDaysLater() {
+		const daysLate = localDateTime('2026-06-03T11:15:00');
+		return makeFlight('FR107', daysLate, daysLate, 175, 7500);
+	}
+
+	/** The onward flight that would go with it: 90 minutes after it lands. */
+	function onwardFor(): FlightOffer {
+		const departure = localDateTime('2026-06-03T12:45:00');
+		return {
+			...makeFlight('FR201', departure, departure, 90, 4000),
+			departureAirport: 'VIE',
+			arrivalAirport: 'IST'
+		};
+	}
+
+	it('turns a row that had no connection into a trip with a price', () => {
+		const itinerary = baseItinerary();
+
+		const root = mountPicker({
+			itinerary,
+			alternatives: [twoDaysLater()],
+			companionFor: onwardFor,
+			onselect: () => {}
+		});
+
+		const row = [...root.querySelectorAll('.picker-row')].find((candidate) =>
+			candidate.textContent?.includes('FR107')
+		);
+		expect(row?.textContent).not.toContain('no connection to make');
+		expect(row?.className).not.toContain('is-unusable');
+		expect(row?.querySelector('.row-price')).not.toBeNull();
+	});
+
+	it('says on the row that the onward flight moves, before it is pressed', () => {
+		const itinerary = baseItinerary();
+
+		const root = mountPicker({
+			itinerary,
+			alternatives: [twoDaysLater()],
+			companionFor: onwardFor,
+			onselect: () => {}
+		});
+
+		const row = [...root.querySelectorAll('.picker-row')].find((candidate) =>
+			candidate.textContent?.includes('FR107')
+		);
+		expect(row?.querySelector('.row-companion')?.textContent).toContain('different onward flight');
+	});
+
+	it('hands the caller both flights when the row is picked', () => {
+		const itinerary = baseItinerary();
+		let picked: RecomputedSelection | undefined;
+
+		const root = mountPicker({
+			itinerary,
+			alternatives: [twoDaysLater()],
+			companionFor: onwardFor,
+			onselect: (result) => {
+				picked = result;
+			}
+		});
+
+		const row = [...root.querySelectorAll('.picker-row')].find((candidate) =>
+			candidate.textContent?.includes('FR107')
+		);
+		row?.querySelector<HTMLInputElement>('input[type="radio"]')?.click();
+		flushSync();
+
+		expect(picked?.itinerary.outboundFlight.flightNumber).toBe('FR107');
+		expect(picked?.itinerary.onwardFlight.flightNumber).toBe('FR201');
+		expect(picked?.warnings).toEqual([]);
+	});
+
+	it('leaves the row on the trip already shown exactly as it was', () => {
+		// Re-pairing the row the traveller is looking at would move the onward leg the moment
+		// this list rendered, which is a re-optimisation nobody asked for.
+		const itinerary = baseItinerary();
+
+		const root = mountPicker({
+			itinerary,
+			alternatives: [twoDaysLater()],
+			companionFor: onwardFor,
+			onselect: () => {}
+		});
+
+		const current = [...root.querySelectorAll('.picker-row')].find((candidate) =>
+			candidate.textContent?.includes('Current pick')
+		);
+		expect(current?.querySelector('.row-companion')).toBeNull();
+	});
+
+	it('keeps the warning when the caller says nothing may move', () => {
+		// A traveller who pinned the onward flight has made an impossible pair on purpose,
+		// and that is the one case the sentence is still the right answer to.
+		const itinerary = baseItinerary();
+
+		const root = mountPicker({
+			itinerary,
+			alternatives: [twoDaysLater()],
+			companionFor: () => undefined,
+			onselect: () => {}
+		});
+
+		const row = [...root.querySelectorAll('.picker-row')].find((candidate) =>
+			candidate.textContent?.includes('FR107')
+		);
+		expect(row?.textContent).toContain('no connection to make');
+		expect(row?.className).toContain('is-unusable');
 	});
 });

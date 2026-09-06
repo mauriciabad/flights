@@ -394,7 +394,7 @@ describe('deriveScoredResult, stopover lengths (issue #224)', () => {
 	});
 
 	it('shows the length the traveller asked for', () => {
-		const result = deriveScoredResult(ladder([6, 3, 1]), { providers: {}, done: true }, 1, 3);
+		const result = deriveScoredResult(ladder([6, 3, 1]), { providers: {}, done: true }, 1, { nights: 3 });
 
 		expect(result.itinerary.nightsInConnection).toBe(3);
 		// The baseline the card's "the price moved" line compares against never moves with
@@ -404,7 +404,7 @@ describe('deriveScoredResult, stopover lengths (issue #224)', () => {
 
 	it('falls back to the shortest rather than the nearest when a length is gone', () => {
 		// A length the traveller cannot have is not silently rounded to another trip.
-		const result = deriveScoredResult(ladder([1, 6]), { providers: {}, done: true }, 1, 3);
+		const result = deriveScoredResult(ladder([1, 6]), { providers: {}, done: true }, 1, { nights: 3 });
 
 		expect(result.itinerary.nightsInConnection).toBe(1);
 	});
@@ -434,7 +434,7 @@ describe('deriveScoredResult, stopover lengths (issue #224)', () => {
 			onwardFlight: { providerId: 'flights-sky', fetchedAt: ONE_HOUR_AGO }
 		};
 
-		const result = deriveScoredResult(group, { providers: {}, done: true }, 1, 2);
+		const result = deriveScoredResult(group, { providers: {}, done: true }, 1, { nights: 2 });
 
 		expect(result.price.parts.map((part) => part.providerId)).toEqual(['ryanair', 'flights-sky']);
 	});
