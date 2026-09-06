@@ -253,4 +253,14 @@ for (const r of results) {
 }
 console.log(`\n${results.length - bad - skipped} passed, ${bad} failed, ${skipped} could not be reached.`);
 if (skipped) console.log('A SKIP is not a pass. It means the check never got to the thing it asserts.');
-process.exit(bad === 0 ? 0 : 1);
+
+// A skip has to be non-zero too, and it took until 2026-09-06 to notice that it was not.
+// This file printed "A SKIP is not a pass" and then returned success on the next line. Run
+// that morning it reported four unreachable checks, said the sentence, and exited 0, so any
+// caller reading the exit code learned that production was fine. The sentence was doing all
+// the work and nothing was reading it.
+//
+// 1 means a check failed, 3 means a check never reached its subject. Different problems: the
+// first is the app, the second is this file. 2 is taken by a fixture leak, which is worse
+// than both because it means the run was never evidence at all.
+process.exit(bad > 0 ? 1 : skipped > 0 ? 3 : 0);
