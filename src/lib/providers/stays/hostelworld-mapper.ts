@@ -12,6 +12,7 @@
 import { moneyFromDecimalString } from '../../domain';
 import type { Coordinates, Money, RoomKind, Stay } from '../../domain';
 import { haversineDistanceKm } from './agoda-geo';
+import { hostelworldCardPhoto } from './hostelworld-photo';
 import type {
 	HostelworldContinentCountriesResponse,
 	HostelworldPrice,
@@ -143,13 +144,23 @@ function listsAMixedDorm(dorms: readonly HostelworldRoom[] | undefined): boolean
 	return dorms.some((room) => classifyRoomKind(room) === 'dorm');
 }
 
-/** `{prefix, suffix}` is a URL with its scheme missing, and nothing else. Confirmed 200
- * `image/jpeg` for the joined form on 2026-09-04. */
+/** `{prefix, suffix}` is a URL with its scheme missing, and nothing else. The joined form
+ * is 200 `image/jpeg` (2026-09-04), but it is the stored original, which is far more
+ * photograph than a card draws.
+ *
+ * Measured 2026-09-06 by running this function over both `fixtures/hostelworld-properties-*.json`
+ * and fetching every address it returned. The nine distinct photographs cost 12,502,391
+ * bytes at the addresses Hostelworld publishes and 685,030 at the ones returned here, 94.5%
+ * less, every one of them 200 `image/webp`. The heaviest single photograph in the two
+ * fixtures falls from 5,398,803 bytes to 74,540.
+ *
+ * `hostelworld-photo.ts` carries the transformation, the width it is set to, and the reverse
+ * direction that makes the rewrite safe against a shape nobody has measured. */
 function imageUrls(property: HostelworldProperty): string[] {
 	return (property.images ?? [])
 		.map((image) =>
 			typeof image?.prefix === 'string' && typeof image?.suffix === 'string'
-				? `https://${image.prefix}${image.suffix}`
+				? hostelworldCardPhoto(`https://${image.prefix}${image.suffix}`)
 				: undefined
 		)
 		.filter((url): url is string => url !== undefined);

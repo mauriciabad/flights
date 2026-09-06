@@ -955,6 +955,58 @@ None of the unverified rows is load-bearing: the adapter that shipped does not d
 any of them being dead, only on `api.m.hostelworld.com` being alive, which is the one row
 measured hardest.
 
+### The photographs are on a Cloudinary account, and the API says so itself
+
+Measured 2026-09-06, after issue #284 recorded the opposite conclusion. Correcting it here
+rather than only on the issue, because #284's own purpose was to stop the next person
+spending an afternoon on this.
+
+Each property carries `images`, a list of `{prefix, suffix}` halves that join into
+`https://a.hwstatic.com/propertyimages/3/330521/wb28ggqjivwcpqxl19oo.jpg`. That address is
+the photographer's original and it is enormous. Across the 114 properties one BCN to PFO
+search returns, the first photograph of each has a median of 1,172,072 bytes, a mean of
+2,637,329 and a worst case of 22,163,218. Fifty-eight of the 114 are over a megabyte. The
+app draws them into a box roughly 300px across.
+
+**The same response carries a second field, `imagesGallery`, which the mapper ignored for
+two days.** Its halves join into
+`https://a.hwstatic.com/image/upload/f_auto,q_auto/v1/propertyimages/3/303252/krs2x2vibbytsaim4rde`.
+That is a Cloudinary delivery URL, and it is Hostelworld's own: their public website serves
+the same photographs from the same host with a named transformation,
+`a.hwstatic.com/image/upload/f_auto,q_auto,t_40/propertyimages/1/14348/bal7l15984pdvbwv5vkb.jpg`.
+
+So `a.hwstatic.com` is an image CDN after all. Issue #284 concluded it was not, and the
+experiment behind that conclusion was sound but aimed at the wrong path. It sent imgix-style
+**query parameters** to `/propertyimages/...`, which is the raw origin path and ignores them.
+Transformations live in a **path segment**, the way Booking's size does, and they only parse
+under `/image/upload/`.
+
+One photograph, four addresses, sent with a real Chrome User-Agent and a browser `Accept`:
+
+| address | status | bytes | type |
+|---|---|---|---|
+| `/propertyimages/3/330521/wb28ggqjivwcpqxl19oo.jpg` | 200 | 2,794,252 | image/jpeg |
+| `/image/upload/f_auto,q_auto/v1/propertyimages/3/330521/wb28ggqjivwcpqxl19oo` | 200 | 1,424,980 | image/webp |
+| `/image/upload/c_limit,w_800,f_auto,q_auto/v1/propertyimages/3/330521/wb28ggqjivwcpqxl19oo` | 200 | 99,478 | image/webp |
+| `/image/upload/zzz_bogus,w_400/v1/propertyimages/3/330521/wb28ggqjivwcpqxl19oo` | **400** | 0 | image/gif |
+
+The last row is the control #284's run lacked. A transformation Cloudinary cannot parse is
+refused rather than ignored, which is how you tell a CDN that honours a size from an origin
+that serves the same bytes whatever you ask for.
+
+Four more facts worth not re-measuring. `/v1/` is optional and so is the trailing `.jpg`,
+and all four combinations return the same bytes. `f_auto` respects the request rather than
+the extension, so the same URL that returns 99,478 bytes of webp to a browser offering webp
+returns 96,917 bytes of jpeg to one that does not. A public id that does not exist answers
+**400**, not 404, and a zero-byte `image/gif` fires an `<img>` element's `onerror`, so the
+fallback to the published address still works. `c_limit` never upscales, so an original
+already smaller than the requested width comes back at its own size rather than blown up.
+
+`hostelworld-photo.ts` ships `c_limit,w_800,f_auto,q_auto`. The 800 is Agoda's number, from
+`agoda-photo.ts`, which measured the card's media box at four viewports and found 766px the
+widest it ever draws. Sharing it keeps the two adapters from disagreeing about how wide a
+card photograph is.
+
 ### Limits, stated plainly
 
 1. **This is an undocumented app backend, not a published API.** No ToS grant, no stability

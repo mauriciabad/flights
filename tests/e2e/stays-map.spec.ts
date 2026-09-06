@@ -31,8 +31,10 @@ function photo(label: string): string {
 }
 
 /** Every photograph the page actually asked the network for, in order. The count is the
- * point: Hostelworld serves 2.8 MB originals and honours no resize (issue #284), so how many
- * of these a screen pulls at once is a number this branch has to keep small. */
+ * point. Hostelworld publishes 2.8 MB originals, and `hostelworld-photo.ts` asks Cloudinary
+ * for a card-width copy instead (issue #284 concluded there was no resize, having tested the
+ * origin path rather than the delivery one). How many of these a screen pulls at once is
+ * still a number this branch keeps small. */
 async function openStays(page: Page): Promise<string[]> {
 	const requested: string[] = [];
 	await mockAllKeylessProviders(page.context());

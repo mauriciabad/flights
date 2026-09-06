@@ -102,8 +102,35 @@ export interface HostelworldProperty {
 	};
 	/** `{prefix, suffix}` halves of a URL with the scheme and the dot missing, e.g.
 	 * `a.hwstatic.com/propertyimages/8/88047/k8pspacni1k2krc0boap` + `.jpg`.
-	 * hostelworld-mapper.ts joins them and prepends `https://`; confirmed 200 image/jpeg. */
+	 * hostelworld-mapper.ts joins them and prepends `https://`. That address is 200
+	 * image/jpeg, but it is the STORED ORIGINAL. The heaviest one the two fixtures point at
+	 * is 5,398,803 bytes, so the mapper passes the joined form through
+	 * `hostelworld-photo.ts` for a card-sized address rather than putting this one in front
+	 * of a user. */
 	images?: { prefix?: string; suffix?: string }[];
+
+	/**
+	 * The one field modelled here that the adapter never reads, against this module's rule
+	 * that only what it reads is modelled. It earns the exception by being the evidence that
+	 * `hostelworld-photo.ts` did not invent an address. Captured live from
+	 * `api.m.hostelworld.com` on 2026-09-06:
+	 *
+	 *   {"prefix":"a.hwstatic.com/image/upload/f_auto,q_auto",
+	 *    "suffix":"/v1/propertyimages/3/303252/krs2x2vibbytsaim4rde"}
+	 *
+	 * So `/image/upload/<transformations>/v1/<public id>` is Hostelworld's own delivery
+	 * form, published by Hostelworld, and not a shape this repo made up.
+	 *
+	 * Neither fixture carries the field, which is why it went unnoticed while #284 concluded
+	 * this host was a dumb origin. The module comment above says both were trimmed of "the
+	 * image galleries", so the evidence was in the response and cut before it reached here.
+	 *
+	 * The mapper still builds its URL from `images`, because the prefix Hostelworld
+	 * publishes here carries `f_auto,q_auto` and NO WIDTH. Measured 2026-09-06, that is
+	 * 1,424,980 bytes for one photograph where `c_limit,w_800` in front of the same
+	 * transformation is 99,478. Hostelworld's own prefix is still far too heavy for a card.
+	 */
+	imagesGallery?: { prefix?: string; suffix?: string }[];
 }
 
 export interface HostelworldPropertiesResponse {

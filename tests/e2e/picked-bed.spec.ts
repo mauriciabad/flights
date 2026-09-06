@@ -20,8 +20,9 @@ import { waitForSearchToSettle } from '../shared/search-wait';
  * So this file asks about size, and about the one thing a photograph uniquely threatens:
  * arriving late and shoving the page under the reader's thumb. Every photograph here is
  * served on a delay for exactly that reason. A test where the image is already there when
- * layout runs cannot fail the way the real keyless path fails, where a 2.8 MB Hostelworld
- * original lands seconds after the card does.
+ * layout runs cannot fail the way the real keyless path fails, where a photograph lands
+ * after the card does. `hostelworld-photo.ts` took that photograph from 2.8 MB to about
+ * 65 KB, which shortens the wait and does not remove it: a request still crosses a network.
  */
 
 const EMPTY_MAP_STYLE = JSON.stringify({ version: 8, name: 'empty', sources: {}, layers: [] });
@@ -117,8 +118,9 @@ test.describe('the picked bed on the card (issue #279)', () => {
 		expect(drawn!.width).toBeCloseTo(empty!.width, 0);
 		expect(drawn!.height).toBeCloseTo(empty!.height, 0);
 
-		// 4. Only the first photograph was ever fetched. Hostelworld's originals run to
-		//    2.8 MB with no resize, so the second one is the reader's to ask for.
+		// 4. Only the first photograph was ever fetched. The second one is the reader's to
+		//    ask for, which was worth 2.8 MB before `hostelworld-photo.ts` and is worth
+		//    about 65 KB after it.
 		expect(requested).toHaveLength(1);
 		expect(requested[0]).toContain('FIXTURE-one');
 	});

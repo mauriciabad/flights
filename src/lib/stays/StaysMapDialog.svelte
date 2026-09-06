@@ -32,12 +32,14 @@
 	 *
 	 * ## The sidebar list carries no photographs, on purpose
 	 *
-	 * Hostelworld is the keyless default and serves the photographer's originals - 2.8 MB,
-	 * no resize, no CDN (issue #284). A thumbnail on every row of a thirty-property list
-	 * would fetch one per visible row for a panel the reader is scanning by name and price.
-	 * So the list is text, and the only photographs in this dialog are the open property's,
-	 * one at a time, behind a click that already says the traveller is interested. Nothing
-	 * is fetched here until a point is chosen.
+	 * Hostelworld is the keyless default, and issue #284 recorded its photographs as 2.8 MB
+	 * originals with no resize and no CDN. Half of that is wrong. `a.hwstatic.com` is a
+	 * Cloudinary account, `hostelworld-photo.ts` asks it for the card width, and eight
+	 * measured photographs fall from 13,157,409 bytes to 523,570. Thirty rows is still thirty
+	 * requests and about 2 MB for a panel the reader is scanning by name and price. So the
+	 * list is text, and the only photographs in this dialog are the open property's, one at a
+	 * time, behind a click that already says the traveller is interested. Nothing is fetched
+	 * here until a point is chosen.
 	 */
 	import { Button, Icon, MapDialog } from '$lib/components';
 	import type { Airport, Stay } from '$lib/domain';

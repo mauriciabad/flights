@@ -28,9 +28,10 @@ describe('agodaCardPhoto', () => {
 	});
 
 	it('leaves every other host untouched', () => {
-		// Hostelworld's origin does no URL-level resizing at all (issue #281), and Booking's
-		// size is a path segment handled elsewhere. Rewriting either here would be inventing
-		// a parameter neither host has.
+		// Hostelworld and Booking both put the size in the PATH, one as a Cloudinary
+		// transformation and one as a segment, and each has its own adapter. Agoda's `s` is a
+		// query parameter neither host reads, so setting it here would add bytes to a URL and
+		// change nothing about the picture that came back.
 		const hostelworld = 'https://a.hwstatic.com/image/upload/propertyimages/5/527/x.jpg';
 		expect(agodaCardPhoto(hostelworld)).toBe(hostelworld);
 		const booking = 'https://cf.bstatic.com/xdata/images/hotel/square60/751028262.jpg';
