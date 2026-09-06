@@ -47,3 +47,25 @@ export function compareResults(mode: SortMode): (a: ScoredResult, b: ScoredResul
 export function sortResults(results: readonly ScoredResult[], mode: SortMode): ScoredResult[] {
 	return results.slice().sort(compareResults(mode));
 }
+
+/**
+ * The cards sitting somewhere other than where `mode` says they belong.
+ *
+ * Measured against a fresh sort of the same list rather than accumulated as results arrive,
+ * which is what lets it see the two quite different ways this page gets out of order: an
+ * arrival held at the end so it would not shove a visible card off a phone
+ * (`stream-order.ts`), and a card already placed whose price then changed underneath it
+ * because the traveller lengthened that stopover. Only the second one needs saying twice:
+ * the new price lives in the page's rendered results and never reaches the standing order,
+ * so nothing watching arrivals can notice it.
+ *
+ * The count is therefore exactly the number of cards that change slot when the traveller
+ * asks for a sort, and it falls back to nothing on its own once they undo whatever caused it.
+ */
+export function outOfSortedPlace(
+	results: readonly ScoredResult[],
+	mode: SortMode
+): ScoredResult[] {
+	const sorted = sortResults(results, mode);
+	return results.filter((result, index) => sorted[index]?.id !== result.id);
+}

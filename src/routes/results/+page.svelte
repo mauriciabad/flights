@@ -81,9 +81,14 @@
 		ConnectionsMapDialog,
 		type ConnectionBlock
 	} from '$lib/connections-map';
-	import { compareResults, sortResults } from '$lib/results/sort';
+	import { compareResults, outOfSortedPlace } from '$lib/results/sort';
 	import type { SortMode } from '$lib/results/sort';
-	import { insertStable, insertWithoutDisplacing, slotsToResults, toSlot } from '$lib/results/stream-order';
+	import {
+		insertWithoutDisplacing,
+		reorderBy,
+		slotsToResults,
+		toSlot
+	} from '$lib/results/stream-order';
 	import type { StreamSlot } from '$lib/results/stream-order';
 	import { connectionAirportCode, deriveScoredResult, summarizePriceCalendarOutcome, widenOptionGroupKey } from '$lib/results/types';
 	import type {
@@ -233,16 +238,6 @@
 	});
 
 	let order = $state<StreamSlot[]>([]);
-	/**
-	 * Issue #314: the results that are on screen but not where the sort control says they
-	 * should be, because putting them there would have pushed a card the traveller can see
-	 * off the bottom of the screen.
-	 *
-	 * Ids rather than a count, so a provider re-answering the same stopover twice does not
-	 * offer to re-sort the same trip twice. The status line above the list offers to put them
-	 * right, and `showHeldResults` does it in one go.
-	 */
-	let arrivedOutOfOrder = $state<string[]>([]);
 	/** The `<ul>` itself, so `displacedCardIsOffScreen` can find a card by its id and ask
 	 * the browser where it ended up. */
 	let listEl = $state<HTMLUListElement | undefined>(undefined);
@@ -587,6 +582,28 @@
 	const currency = $derived(results[0]?.itinerary.totalPrice.currency ?? DEFAULT_SEARCH_CURRENCY);
 	const filterOptions = $derived(deriveFilterOptions(results));
 	const filteredResults = $derived(applyFilters(results, filters));
+
+	/**
+	 * Issue #314: the cards on screen that are not where the sort says they should be.
+	 *
+	 * Two ways to get here. An arrival whose sorted place would have pushed a card the
+	 * traveller can see off the bottom went to the end of the list instead
+	 * (`insertWithoutDisplacing`). Or a card was placed correctly and then changed underneath
+	 * itself: a bed price landing, a fare revalidating, or the traveller adding four nights to
+	 * that stopover. Neither moves a card on its own. The status line offers, and
+	 * `sortIntoPlace` does it in one go.
+	 *
+	 * Derived from what is rendered rather than accumulated as the stream runs, because only
+	 * the rendered value knows the second case: a refinement's new price lives in `results`
+	 * and never reaches `order` (see `results` above for why it must not). It also makes the
+	 * count self-clearing and exactly true, since it is measured the same way the button acts:
+	 * these are the cards that change slot when it is pressed, no more and no fewer. Undo the
+	 * refinement and the offer goes away on its own.
+	 *
+	 * `filteredResults`, not `results`: a card a filter is hiding is not one the traveller can
+	 * see sitting in the wrong place.
+	 */
+	const outOfPlace = $derived(outOfSortedPlace(filteredResults, sortMode));
 	const providerStatusList = $derived(Object.values(providerStatuses));
 
 	/**
@@ -803,27 +820,22 @@
 		return box.bottom <= 0 || box.top >= window.innerHeight;
 	}
 
-	function noteOutOfOrder(id: string): void {
-		if (!arrivedOutOfOrder.includes(id)) arrivedOutOfOrder = [...arrivedOutOfOrder, id];
-	}
-
 	/**
 	 * Issue #314: the traveller asking for the list to be put in order.
 	 *
-	 * Through `sortResults`, which is the reordering path, because this is the case that
-	 * function was written for: a re-sort somebody asked for, where the list moving is the
-	 * answer rather than a jump. The layout shift it causes carries `hadRecentInput`, which
-	 * is the browser's own way of saying the same thing.
+	 * A re-sort somebody asked for, where the list moving is the answer rather than a jump.
+	 * The layout shift it causes carries `hadRecentInput`, which is the browser's own way of
+	 * saying the same thing. `results` rather than the slots' own scores, because that is
+	 * where a card the traveller lengthened keeps the price it is showing.
 	 */
-	function sortArrivalsIntoPlace(): void {
-		order = sortResults(slotsToResults(order), sortMode).map(toSlot);
-		arrivedOutOfOrder = [];
+	function sortIntoPlace(): void {
+		order = reorderBy(order, results, compareResults(sortMode));
 	}
 
 	/**
 	 * Drains one search stream (the primary `runSearch`, or a `widenSearch` the
 	 * traveller triggered) into the shared page state. Every itinerary group merges
-	 * through `insertStable` keyed by connection airport, so a widen result for a
+	 * through `insertWithoutDisplacing` keyed by connection airport, so a widen result for a
 	 * stopover already on screen updates that card in place rather than adding a
 	 * second one or reordering the list, the "already on screen do not move"
 	 * guarantee `stream-order.ts` provides applies here exactly as it does to the
@@ -873,14 +885,15 @@
 					// see off the bottom of a phone goes to the end of the list instead. It is on
 					// screen either way; what waits is the reordering, and the status row offers
 					// it.
-					const placement = insertWithoutDisplacing(
+					// The `sortedIntoPlace` half of the answer is not read here: `outOfPlace` above
+					// measures the rendered list instead, which catches this case and the refined
+					// ones this loop never sees.
+					order = insertWithoutDisplacing(
 						order,
 						toSlot(scored),
 						compare,
 						displacedCardIsOffScreen
-					);
-					order = placement.order;
-					if (!placement.sortedIntoPlace) noteOutOfOrder(scored.id);
+					).order;
 				}
 				stayCandidatesByConnection = { ...stayCandidatesByConnection, ...snapshot.stayCandidatesByConnection };
 				transferOptionsByConnection = { ...transferOptionsByConnection, ...snapshot.transferOptionsByConnection };
@@ -964,7 +977,6 @@
 	$effect(() => {
 		const activeQuery = query;
 		order = [];
-		arrivedOutOfOrder = [];
 		providerStatuses = {};
 		widenOptions = [];
 		calendarSummaries = [];
@@ -1030,16 +1042,14 @@
 
 	/** An explicit sort-mode change re-sorts everything gathered so far, a deliberate
 	 * user action, unlike the streaming merge above, so a full re-sort here is expected
-	 * (see sort.ts's own comment on `sortResults`). Reads/writes `order` `untrack`'d so
-	 * this effect's only real dependency is `sortMode` itself, not every streamed
-	 * arrival. */
+	 * (see sort.ts's own comment on `sortResults`). Through `reorderBy`, so switching to
+	 * "Cheapest" ranks a lengthened stopover on the price it is showing. Reads/writes `order`
+	 * `untrack`'d so this effect's only real dependency is `sortMode` itself, not every
+	 * streamed arrival. */
 	$effect(() => {
 		const mode = sortMode;
 		untrack(() => {
-			order = sortResults(slotsToResults(order), mode).map(toSlot);
-			// Issue #314: a full re-sort puts every arrival where it belongs, including the
-			// ones that had been appended, so there is nothing left to offer.
-			arrivedOutOfOrder = [];
+			order = reorderBy(order, results, compareResults(mode));
 		});
 	});
 
@@ -1548,10 +1558,10 @@
 				</p>
 				<!-- Outside the live region on purpose: the count next door re-announces on every
 				     arrival, and a button inside it would be read out again each time. -->
-				{#if arrivedOutOfOrder.length > 0}
-					<button type="button" class="sort-arrivals" onclick={sortArrivalsIntoPlace}>
-						Sort {arrivedOutOfOrder.length}
-						{arrivedOutOfOrder.length === 1 ? 'trip' : 'trips'} into place
+				{#if outOfPlace.length > 0}
+					<button type="button" class="sort-arrivals" onclick={sortIntoPlace}>
+						Sort {outOfPlace.length}
+						{outOfPlace.length === 1 ? 'trip' : 'trips'} into place
 					</button>
 				{/if}
 			</div>

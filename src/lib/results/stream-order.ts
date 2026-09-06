@@ -92,9 +92,14 @@ export function insertStable(
  * progress.
  *
  * What is deferred is the reordering, not the trip: `sortedIntoPlace: false` says this one is
- * sitting at the end rather than where the sort control claims it should be, and the page
- * offers to put it right. A card three screens down can be displaced all day, so most
- * arrivals come back `true` and land exactly where they belong.
+ * sitting at the end rather than where the sort control claims it should be. A card three
+ * screens down can be displaced all day, so most arrivals come back `true` and land exactly
+ * where they belong.
+ *
+ * The page does not read that flag to decide what to offer. It compares the rendered list
+ * against the sort instead, because a card the traveller has refined carries its new price
+ * outside this module altogether and an append is only one of the two ways a list gets out
+ * of order. The flag stays as this function's own record of which branch it took.
  *
  * A repeat id never moves. It is a fresher read of a card already on screen (a price
  * revalidating, a bed arriving) and it updates in place.
@@ -130,6 +135,32 @@ export function insertWithoutDisplacing(
 
 	next.splice(insertAt, 0, incoming);
 	return { order: next, sortedIntoPlace: true };
+}
+
+/**
+ * Reorders a standing order by scores measured somewhere else.
+ *
+ * `shown[i]` is the result `order[i]` is currently rendering, which is not always the result
+ * the slot holds: the page re-derives a card the traveller has lengthened, and deliberately
+ * does not write that back (an effect reading and writing one piece of state is what froze
+ * this page once). Sorting the slots on their own scores therefore sorts by prices nobody is
+ * looking at, and put a EUR 185.58 stopover back under the EUR 88.53 the stream had
+ * delivered.
+ *
+ * Paired by index rather than by id, so no card can go missing if the two lists ever stop
+ * agreeing about names, and the slots themselves are carried over so each card keeps the
+ * result it was holding and only its position moves. For an explicit re-sort, so a full sort
+ * is the point rather than a jump; `insertWithoutDisplacing` is what streaming arrivals use.
+ */
+export function reorderBy(
+	order: readonly StreamSlot[],
+	shown: readonly ScoredResult[],
+	compare: ResultComparator
+): StreamSlot[] {
+	return order
+		.map((slot, index) => ({ slot, shown: shown[index] ?? slot.result }))
+		.sort((a, b) => compare(a.shown, b.shown))
+		.map((pair) => pair.slot);
 }
 
 /** `StreamSlot`, not `ScoredResult`, is this module's storage shape purely so `insertStable`
