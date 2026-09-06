@@ -7,7 +7,7 @@
  * two modules would have imported each other. Datetime arithmetic sits below both, which
  * is where it always belonged: none of it knows what an itinerary is.
  *
- * `build.ts` still re-exports all three, so nothing else moved.
+ * `build.ts` still re-exports the two public ones, so nothing else moved.
  */
 
 import type { Duration, LocalDateTime } from '../domain';
