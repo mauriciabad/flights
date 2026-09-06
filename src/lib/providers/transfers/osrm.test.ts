@@ -638,6 +638,82 @@ describe('a taxi carries the rate card\'s estimate for its own ride', () => {
 		expect(taxiIn(result.data).fareEstimate?.kind).toBe('estimate');
 	});
 
+	/**
+	 * Issue #405 gave `findTransfersToMany` its first production caller, and this is the
+	 * damage that would have followed. The batch writes duration-only entries under the same
+	 * key `searchTransfers` reads full routes from, so for thirty days afterwards every leg
+	 * this app drew between those two points would have come back with no geometry: issue
+	 * #131's straight-line map, arriving from a completely different direction. Nothing in a
+	 * fresh browser can show it, because the list has to write first and the map second.
+	 */
+	it('re-fetches a walk whose only cached entry came from the batch, so the map still gets a path', async () => {
+		const store = new MemoryCacheStore();
+		const geometry = {
+			type: 'LineString',
+			coordinates: [
+				[2.0785, 41.2971],
+				[2.0925, 41.3128]
+			]
+		};
+		const fetchImpl = vi
+			.fn()
+			.mockResolvedValueOnce(jsonResponse(tableBody([600]))) // batch: duration only
+			.mockResolvedValueOnce(jsonResponse(routeBody(600, 2100, geometry)));
+		const provider = createOsrmTransferProvider({ store, fetchImpl });
+
+		await findTransfersToMany('walk', AIRPORT, [HOTEL], ctxFor(), { store, fetchImpl });
+		const result = await provider.searchTransfers({ from: AIRPORT, to: HOTEL, modes: ['walk'] }, ctxFor());
+
+		expect(fetchImpl).toHaveBeenCalledTimes(2);
+		expect(result.ok).toBe(true);
+		if (!result.ok) return;
+		expect(result.data[0].path).toHaveLength(2);
+	});
+
+	it('re-fetches a drive from a batch entry even with no country to rate a fare against', async () => {
+		// The old rule only upgraded the entry when a taxi fare needed the distance, so this
+		// query — a drive, no `countryCode` — read the thin entry as a complete answer.
+		const store = new MemoryCacheStore();
+		const geometry = {
+			type: 'LineString',
+			coordinates: [
+				[2.0785, 41.2971],
+				[2.0925, 41.3128]
+			]
+		};
+		const fetchImpl = vi
+			.fn()
+			.mockResolvedValueOnce(jsonResponse(tableBody([600])))
+			.mockResolvedValueOnce(jsonResponse(routeBody(600, 5000, geometry)));
+		const provider = createOsrmTransferProvider({ store, fetchImpl });
+
+		await findTransfersToMany('drive', AIRPORT, [HOTEL], ctxFor(), { store, fetchImpl });
+		const result = await provider.searchTransfers({ from: AIRPORT, to: HOTEL, modes: ['drive'] }, ctxFor());
+
+		expect(fetchImpl).toHaveBeenCalledTimes(2);
+		expect(result.ok).toBe(true);
+		if (!result.ok) return;
+		expect(result.data[0].path).toHaveLength(2);
+	});
+
+	it('still answers the batch itself from a full entry the search already wrote, at no cost', async () => {
+		// The saving that makes one shared key worth keeping: a pair the search has already
+		// routed in full needs no table slot, so the stay list asks about fewer destinations
+		// rather than re-asking about all of them under a key of its own.
+		const store = new MemoryCacheStore();
+		const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(routeBody(600, 5000)));
+		const provider = createOsrmTransferProvider({ store, fetchImpl });
+
+		await provider.searchTransfers({ from: AIRPORT, to: HOTEL, modes: ['drive'] }, ctxFor());
+		const batch = await findTransfersToMany('drive', AIRPORT, [HOTEL], ctxFor(), { store, fetchImpl });
+
+		expect(batch.requestsUsed).toBe(0);
+		expect(fetchImpl).toHaveBeenCalledTimes(1);
+		expect(batch.ok).toBe(true);
+		if (!batch.ok) return;
+		expect(batch.data[0]?.duration).toBe(10);
+	});
+
 	it('spends no extra request rating a route the same call already fetched', async () => {
 		// The estimate is arithmetic over a distance OSRM returns anyway, so asking for one
 		// must never cost the shared demo server a second lookup (issue #213).
