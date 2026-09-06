@@ -1273,6 +1273,30 @@ it is not the timetable horizon. Barcelona airport to Plaça Catalunya (12.6 km)
 unaffected either way: the same six bus itineraries, 50 to 62 minutes. Do not read
 Transitous's silence on a British or Austrian airport run as this adapter being broken.
 
+**Every leg carries its own shape, and it costs nothing extra** (issue #416). `legGeometry`
+is on every leg of every `/plan` response, in the response this app already fetches and
+already waits for, so drawing a transit transfer as a real route rather than a dashed
+straight line is a decode and no request at all. Measured on the acceptance route
+(BVC to PFO via BHX) against `origin/main` and against the change, cold cache both times:
+6 requests to `api.transitous.org` either way, and every other provider's count identical
+too.
+
+Three facts about the field, all measured on 2026-09-06 and none of them guessable:
+
+- **`precision` is 7, not the 5 an OTP-compatible API is usually assumed to use.** Decode a
+  precision-7 line at 5 and Berlin lands at latitude 5252. It is sent per leg, so read it
+  rather than assuming either number.
+- **A leg can carry an empty shape.** The BHX acceptance route answers a
+  platform-to-platform walk with `{"points": "", "length": 0, "precision": 6}`, its two ends
+  83 m apart. `transitous-geometry.ts` bridges a gap that small and refuses the whole path
+  for a large one, and the bound is written down there.
+- **`distance` is on WALK legs only.** Re-checked against Berlin, Paris and Birmingham
+  plans. A transit leg cannot state its length from the payload, so nothing does.
+
+Rail geometry is coarse: a 14 km `LONG_DISTANCE` leg came back as 4 points. That is the
+provider's own answer and the app draws it as one, the same way #408 drew OSRM's
+`simplified` overview before it asked for `full`.
+
 **The same server also geocodes** (issue #64), which turned out to matter more for
 timezones than for the search form it was originally asked for. Two endpoints:
 

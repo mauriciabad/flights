@@ -2,13 +2,18 @@ import { describe, expect, it } from 'vitest';
 import { mapPlanResponseToTransfer, TransitousMapMalformedResponseError } from './transitous-mapper';
 import type { TransitPlanMoment } from '../../domain';
 import type { TransitousPlanResponse } from './transitous-types';
+import berlinFixture from './fixtures/transitous-plan-ber-leg-geometry.json';
 
 /**
  * Fixtures below are trimmed from real `/api/v1/plan` responses captured on 2026-09-04
- * (routing geometry, walking turn-by-turn steps and the `debugOutput` counters block
- * removed — this adapter reads none of them). Real values matter here specifically
- * because the whole point of this adapter is trusting what a live GTFS feed actually
- * says, not a plausible-looking guess at its shape.
+ * (walking turn-by-turn steps and the `debugOutput` counters block removed). Real values
+ * matter here specifically because the whole point of this adapter is trusting what a live
+ * GTFS feed actually says, not a plausible-looking guess at its shape.
+ *
+ * `legGeometry` was trimmed out of these too, and since issue #416 that is a fact about
+ * these fixtures rather than a fact about the adapter: a plan with no geometry is exactly
+ * the case that must still map to a transfer with no `path`, and the assertions at the
+ * bottom of this file pin both halves against a plan captured with geometry intact.
  */
 
 const DAYTIME_BARCELONA_RESPONSE: TransitousPlanResponse = {
@@ -476,5 +481,38 @@ describe('runtime validation of an unverified field type (corrupted fixture)', (
 			]
 		};
 		expect(() => mapPlanResponseToTransfer(response, DEPART_AFTER, BARCELONA_KM)).toThrow(TransitousMapMalformedResponseError);
+	});
+});
+
+/**
+ * Issue #416. The mapper is where a plan's geometry becomes a `Transfer.path`, and the
+ * only thing that decides whether a stopover transfer draws a route or a dashed straight
+ * line. `transitous-geometry.test.ts` covers the decoding; these two cover the wiring, and
+ * the second is the more important of the pair — a fallback that quietly stops happening
+ * is how "the dash means nobody routed this" turns into a lie.
+ */
+describe('the shape of the chosen itinerary (issue #416)', () => {
+	const BERLIN = berlinFixture as TransitousPlanResponse;
+	/** Berlin Brandenburg to Alexanderplatz, about 20 km apart, well inside the bound. */
+	const BERLIN_KM = 20;
+	const BERLIN_MOMENT: TransitPlanMoment = {
+		time: { local: '2026-09-06T10:00:00', timeZone: 'Europe/Berlin', utcOffsetMinutes: 120 },
+		arriveBy: false
+	};
+
+	it('carries the route the response drew, not a straight line between the ends', () => {
+		const transfer = mapPlanResponseToTransfer(BERLIN, BERLIN_MOMENT, BERLIN_KM);
+
+		// A straight hop between the ends is what `segments.ts` falls back to, and it is two
+		// points. This has to be visibly more than a line with a bend in it, or the preview
+		// it feeds is a schematic wearing a solid stroke.
+		expect(transfer?.path?.length).toBeGreaterThan(20);
+	});
+
+	it('leaves the path absent when the response carried no geometry', () => {
+		const transfer = mapPlanResponseToTransfer(DAYTIME_BARCELONA_RESPONSE, DEPART_AFTER, BARCELONA_KM);
+
+		expect(transfer).toBeDefined();
+		expect(transfer?.path).toBeUndefined();
 	});
 });

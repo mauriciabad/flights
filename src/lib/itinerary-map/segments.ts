@@ -48,10 +48,12 @@ export type ItineraryPointPrecision = 'exact' | 'city';
  * route (`'real'`) or a straight hop between two known endpoints because no route shape
  * was available (`'schematic'`). A flight's great-circle arc is always `'real'` — it is
  * the exact path a flight actually follows, even though no single point on it is where a
- * plane physically was. A transfer is `'real'` only when its `Transfer.path` (OSRM's own
- * route geometry, `providers/transfers/osrm.ts`) came through; otherwise it's
- * `'schematic'`, and `ItineraryMap`'s dashed, translucent transfer styling is what keeps
- * that schematic hop from being mistaken for a real road on the basemap underneath it.
+ * plane physically was. A transfer is `'real'` only when its `Transfer.path` came through,
+ * from OSRM's route geometry (`providers/transfers/osrm.ts`) or, since issue #416, from
+ * the `legGeometry` MOTIS puts on every leg of a transit plan
+ * (`providers/transfers/transitous-geometry.ts`); otherwise it's `'schematic'`, and
+ * `ItineraryMap`'s dashed, translucent transfer styling is what keeps that schematic hop
+ * from being mistaken for a real road on the basemap underneath it.
  */
 export type ItineraryLineGeometryKind = 'real' | 'schematic';
 
@@ -109,14 +111,14 @@ export interface ItineraryMapModel {
 }
 
 /**
- * Coordinates and honesty tag for one ground-transfer leg (issue #118). Draws OSRM's own
- * route geometry (`transfer.path`) when it exists, with its first and last points
- * replaced by the itinerary's own exact endpoint coordinates — OSRM snaps to the nearest
- * routable node, which is rarely the exact hotel or airport point this map already knows,
- * and leaving that snap in place would draw a line stopping visibly short of the marker
- * it is meant to touch. Falls back to a plain two-point hop, tagged `'schematic'`, when
- * no path was ever fetched: a `transit` leg (Transitous returns a schedule, not a
- * geometry) or a pair OSRM couldn't route between at all.
+ * Coordinates and honesty tag for one ground-transfer leg (issue #118). Draws the
+ * provider's own route geometry (`transfer.path`) when it exists, with its first and last
+ * points replaced by the itinerary's own exact endpoint coordinates — both OSRM and MOTIS
+ * snap to the nearest routable node or stop, which is rarely the exact hotel or airport
+ * point this map already knows, and leaving that snap in place would draw a line stopping
+ * visibly short of the marker it is meant to touch. Falls back to a plain two-point hop,
+ * tagged `'schematic'`, when no path was ever fetched: a pair OSRM couldn't route between,
+ * or a transit plan whose legs came back with no usable shape (issue #416).
  */
 function transferLine(
 	from: Coordinates,

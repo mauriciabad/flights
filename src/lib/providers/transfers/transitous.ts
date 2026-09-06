@@ -54,6 +54,17 @@ import { mapPlanResponseToTransfer, TransitousMapMalformedResponseError } from '
  */
 const CACHE_TTL_MS = 5 * 60 * 1000;
 
+/**
+ * What the cached `Transfer[]` is shaped like, as a key part, so a widened value cannot be
+ * confused with the narrower one a returning visitor already holds. See the long comment
+ * beside `defineCacheKey` below for the two rules this is half of.
+ *
+ * `'with-leg-geometry'` is issue #416: the transfer now carries `path`, decoded from the
+ * `legGeometry` the response always had. Bump this string, and pick a name that says what
+ * changed, the next time a field is added to or removed from the cached value.
+ */
+const PLAN_CACHE_SHAPE_VERSION = 'with-leg-geometry';
+
 export interface CreateTransitousTransferProviderOptions {
 	/** Overrides the global `fetch`, for tests only. */
 	fetchImpl?: typeof fetch;
@@ -162,23 +173,34 @@ export function createTransitousTransferProvider(
 
 			// What this entry holds is a TIMETABLE, and it has to stay one.
 			//
-			// There is no shape version here, unlike `ROUTE_CACHE_SHAPE_VERSION` in osrm.ts,
-			// and that is a claim rather than an oversight: every field of the `Transfer[]`
-			// below is a function of the four key parts, so the same key can only ever mean
-			// the same answer. Two things about this entry make that worth stating. It is
-			// served at any age and never discarded for being stale (see the read below), so
-			// nothing ages a wrong entry out; and `Transfer` is a type the whole app widens.
+			// Two separate rules apply to it, and issue #407's version of this comment ran
+			// them together, which is how #416 nearly widened the cached value without
+			// touching the key.
 			//
-			// So: anything computed per SEARCH rather than per journey — a fare in the
-			// traveller's currency, a party size, a landing buffer — must be applied after
-			// this cache rather than folded into it. Issue #407's transit fare estimate is
-			// computed in `search/transit-schedule.ts` for exactly this reason, and
-			// `transitous.test.ts` asserts the cached value carries none. Widen the cached
-			// `Transfer` with anything the key does not determine and you owe this key a
-			// shape version, or every returning visitor keeps the old answer forever.
+			// **What may go in.** Every field of the `Transfer[]` below has to be a function
+			// of the key parts alone. Anything computed per SEARCH rather than per journey —
+			// a fare in the traveller's currency, a party size, a landing buffer — must be
+			// applied after this cache instead. Issue #407's transit fare estimate is
+			// computed in `search/transit-schedule.ts` for exactly that reason, and
+			// `transitous.test.ts` asserts the cached value carries none. This matters more
+			// here than almost anywhere: the entry is served at any age and never discarded
+			// for being stale (see the read below), so nothing ages a wrong one out.
+			//
+			// **What the key must then say.** Passing that test is not enough on its own. A
+			// value whose SHAPE changed needs a key that no longer resolves to the old one,
+			// however honestly the new field was derived — otherwise every returning visitor
+			// is served the narrower value they already hold, forever, and the fix ships to
+			// nobody who has used the app before. That is AGENTS.md's own #131 lesson and
+			// `ROUTE_CACHE_SHAPE_VERSION` in osrm.ts is the same device.
+			//
+			// #416 is a worked example of the pair. A leg's geometry is entirely determined
+			// by these four parts, so it passes the first rule and belongs in the cache; and
+			// it widens `Transfer` with a `path`, so it owes the second one the version
+			// below.
 			const cacheKey = defineCacheKey(
 				TRANSITOUS_PROVIDER_ID,
 				{
+					shape: PLAN_CACHE_SHAPE_VERSION,
 					from: query.from,
 					to: query.to,
 					departureUtc: departureUtc.toISOString(),
