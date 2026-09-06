@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { compareResults, sortResults } from './sort';
+import { compareResults } from './sort';
 import { insertStable, insertWithoutDisplacing, reorderBy, slotsToResults, toSlot } from './stream-order';
 import { makeScoredResult } from './test-support';
 
