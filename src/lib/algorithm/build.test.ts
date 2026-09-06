@@ -1079,3 +1079,79 @@ describe('a timetable nothing can check against the trip', () => {
 		expect(layover.free.start.local).toBe('2026-09-16T07:59:00');
 	});
 });
+
+/**
+ * Issue #399, measured on production on 2026-09-06 with `tools/probe-origin-leg.mjs`
+ * against the owner's own search URL. Every number below is read off that run: the flight
+ * and the buffer from the card, the timetable from the Transitous response the page
+ * received.
+ *
+ * The card printed "Waiting at BCN 2h" over a flight that leaves 6h 14m after the ride
+ * drops the traveller there, and `times.total` started the door-to-door clock at 12:07am
+ * for a ride that boards at 8pm. Unlike issue #368 at the other end of the trip, no two
+ * printed figures contradicted each other; the three origin rows simply did not add up to
+ * the flight beneath them, and nobody adds up rows.
+ */
+describe('the origin leg, measured against the service that actually runs', () => {
+	const bcn = (local: string) => localDateTime(local, 'Europe/Madrid', 120);
+	const opo = (local: string) => localDateTime(local, 'Europe/Lisbon', 60);
+	const outbound = makeFlight('BCN', 'OPO', bcn('2026-09-16T05:50:00'), opo('2026-09-16T06:50:00'), 120, 3099);
+	const onward = makeFlight('OPO', 'BVC', opo('2026-09-17T06:10:00'), opo('2026-09-17T08:40:00'), 270, 8300);
+
+	/** Four rides with three changes out of Begur, the last set that still makes the 3:50am
+	 * check-in deadline: boarding 8pm and at BCN at 11:36pm. `duration` is the whole
+	 * itinerary Transitous returned, 7:53pm to 11:36pm, so it counts the walk to the first
+	 * stop that `intended` does not. */
+	const toAirport: Transfer = {
+		mode: 'transit',
+		duration: 223 as Duration,
+		legs: [],
+		transitSchedule: {
+			intended: bcn('2026-09-15T20:00:00'),
+			arrival: bcn('2026-09-15T23:36:00'),
+			following: [],
+			earlier: [bcn('2026-09-15T16:10:00'), bcn('2026-09-15T17:00:00')],
+			plannedFor: { time: bcn('2026-09-16T03:50:00'), arriveBy: true }
+		}
+	};
+
+	/** The trip as the pipeline has it before the timetable lands: a road ride of the same
+	 * length, which is what `buildItineraries` is given. */
+	function roadTrip() {
+		return buildItineraries(
+			baseInput({
+				outboundOffers: [outbound],
+				onwardOffers: [onward],
+				connectionAirports: { OPO: makeAirport('OPO') },
+				connectionResources: { OPO: { stay: makeStay(1240), transferAnchor: 'stay' } },
+				originLocation: { label: 'Begur', coordinates: { latitude: 41.9546686, longitude: 3.2067269 } },
+				transferToOriginAirport: makeTransfer(223),
+				waitingTimeRules: flatWaitingTime(120)
+			})
+		)[0]!;
+	}
+
+	/** The same trip once `fetchTransitSchedules` has folded the timetable in. */
+	function timetabledTrip() {
+		return recomputeItinerarySelection(roadTrip(), { transferToOriginAirport: toAirport }).itinerary;
+	}
+
+	it('waits at the origin airport for however long the last service in time leaves', () => {
+		// At BCN at 11:36pm for a 5:50am flight is 6h 14m, and the 2h buffer is a minimum
+		// the traveller set that no timetable is obliged to meet exactly. Plus the 2h this
+		// pairing's layover leaves at OPO, which nothing here touches.
+		expect(timetabledTrip().times.airportWaiting).toBe(374 + 120);
+	});
+
+	it('counts the evening the traveller spends travelling, not the one the subtraction assumed', () => {
+		// 8pm to 5:50am is 9h 50m of origin leg. The subtraction had 3h 43m of ride plus the
+		// 2h buffer, 5h 43m, which starts the clock at 12:07am.
+		expect(timetabledTrip().times.total - roadTrip().times.total).toBe(247);
+	});
+
+	it('leaves the numbers alone when no timetable answered', () => {
+		// The ride is a road leg with nothing to read, so the subtraction still stands and
+		// this whole change is invisible: the 2h buffer at each end and nothing else.
+		expect(roadTrip().times.airportWaiting).toBe(240);
+	});
+});
