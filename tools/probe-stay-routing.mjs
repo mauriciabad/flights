@@ -91,7 +91,11 @@ async function reading(label) {
 	console.log('BLOCK    :', flat(await detail.locator('.stopover').first().innerText()));
 	console.log('TO-BED   :', await rowText('transfer-to-hotel'));
 	console.log('FROM-BED :', await rowText('transfer-to-connection-airport'));
-	console.log('TOTALS   :', flat(await detail.locator('.itinerary-timeline-totals').first().innerText()));
+	// `.itinerary-timeline-totals` was deleted from the markup and this line waited on it
+	// until it timed out, so this probe reported nothing on every run rather than reporting
+	// a missing total. `.metric-rail` is where the figures live now.
+	const totals = detail.locator('.metric-rail').first();
+	console.log('TOTALS   :', (await totals.count()) ? flat(await totals.innerText()) : '(no metric rail on this card)');
 }
 
 if ((await detail.locator('.stay-picker, .stay-notice').count()) === 0) {
