@@ -1,0 +1,186 @@
+{
+	"itineraries": [
+		{
+			"duration": 2460,
+			"startTime": "2026-10-08T21:41:00Z",
+			"endTime": "2026-10-08T22:22:00Z",
+			"transfers": 2,
+			"legs": [
+				{
+					"mode": "WALK",
+					"duration": 300,
+					"startTime": "2026-10-08T21:41:00Z",
+					"endTime": "2026-10-08T21:46:00Z",
+					"from": {
+						"name": "START",
+						"lat": 52.4524,
+						"lon": -1.7348,
+						"tz": "Europe/London"
+					},
+					"to": {
+						"name": "Birmingham International Airport",
+						"lat": 52.453067999999995,
+						"lon": -1.7322732,
+						"tz": "Europe/London"
+					},
+					"distance": 313,
+					"legGeometry": {
+						"points": "omkmg^hmia`@nd@~AfcEuxE??eNmm@??ksDsBksGaU}uCgeJ??ph@wo@??vWvw@??xL{L??goCc_K",
+						"precision": 7,
+						"length": 17
+					}
+				},
+				{
+					"mode": "OTHER",
+					"duration": 120,
+					"startTime": "2026-10-08T21:46:00Z",
+					"endTime": "2026-10-08T21:48:00Z",
+					"from": {
+						"name": "Birmingham International Airport",
+						"lat": 52.453067999999995,
+						"lon": -1.7322732,
+						"tz": "Europe/London"
+					},
+					"to": {
+						"name": "Birmingham Intl Rail Station",
+						"lat": 52.45047399999999,
+						"lon": -1.7261825000000004,
+						"tz": "Europe/London"
+					},
+					"routeShortName": "AIR",
+					"headsign": "B'ham Int Rail Stn",
+					"agencyName": "Air-Rail Link",
+					"legGeometry": {
+						"points": "o~xmg^vmh``@ftq@u}uB",
+						"precision": 7,
+						"length": 2
+					}
+				},
+				{
+					"mode": "WALK",
+					"duration": 120,
+					"startTime": "2026-10-08T21:49:00Z",
+					"endTime": "2026-10-08T21:51:00Z",
+					"from": {
+						"name": "Birmingham Intl Rail Station",
+						"lat": 52.45047399999999,
+						"lon": -1.7261825000000004,
+						"tz": "Europe/London"
+					},
+					"to": {
+						"name": "Birmingham International",
+						"lat": 52.45063,
+						"lon": -1.7250532,
+						"tz": "Europe/London"
+					},
+					"legGeometry": {
+						"points": "",
+						"precision": 6,
+						"length": 0
+					}
+				},
+				{
+					"mode": "LONG_DISTANCE",
+					"duration": 660,
+					"startTime": "2026-10-08T21:51:00Z",
+					"endTime": "2026-10-08T22:02:00Z",
+					"from": {
+						"name": "Birmingham International",
+						"lat": 52.45063,
+						"lon": -1.7250532,
+						"tz": "Europe/London"
+					},
+					"to": {
+						"name": "Birmingham New Street",
+						"lat": 52.477818,
+						"lon": -1.9002054,
+						"tz": "Europe/London"
+					},
+					"routeShortName": "Avanti",
+					"routeLongName": "Avanti West Coast",
+					"headsign": "Wolverhampton",
+					"agencyName": "Avanti West Coast",
+					"legGeometry": {
+						"points": "wjilg^fm{{_@wwzSpcns@btaAt}yf@bbeAzyqM",
+						"precision": 7,
+						"length": 4
+					}
+				},
+				{
+					"mode": "WALK",
+					"duration": 120,
+					"startTime": "2026-10-08T22:02:00Z",
+					"endTime": "2026-10-08T22:04:00Z",
+					"from": {
+						"name": "Birmingham New Street",
+						"lat": 52.477818,
+						"lon": -1.9002054,
+						"tz": "Europe/London"
+					},
+					"to": {
+						"name": "Old Repertory Theatre",
+						"lat": 52.476879999999994,
+						"lon": -1.8985116,
+						"tz": "Europe/London"
+					},
+					"distance": 273,
+					"legGeometry": {
+						"points": "_k||g^hhxfc@rmHdgArFhDv^fdA??zHxXh_@zsA??diBw{B??rLmL??zQiUlcDozD??zhBgqDnIo\\??Mct@Qav@??wIc^??w^gpBmXizAaw@ooE??ut@yaE??m]|T",
+						"precision": 7,
+						"length": 30
+					}
+				},
+				{
+					"mode": "BUS",
+					"duration": 120,
+					"startTime": "2026-10-08T22:10:00Z",
+					"endTime": "2026-10-08T22:12:00Z",
+					"from": {
+						"name": "Old Repertory Theatre",
+						"lat": 52.476879999999994,
+						"lon": -1.8985116,
+						"tz": "Europe/London"
+					},
+					"to": {
+						"name": "Markets",
+						"lat": 52.476226999999994,
+						"lon": -1.8928618,
+						"tz": "Europe/London"
+					},
+					"routeShortName": "16",
+					"headsign": "Markets",
+					"agencyName": "National Express West Midlands",
+					"legGeometry": {
+						"points": "_aj|g^vhwec@naIsjc@rb@o|AbVm~@j\\q`@jdAi{@b[yXjnAucArfCs|BzoDgbDnvA_t@wVw~DwLipBgh@ebDce@etBcG{SsNog@wQkx@skCweKwrAgnF{Je^gTgeAkdAoyCw[{dAk_AiS",
+						"precision": 7,
+						"length": 25
+					}
+				},
+				{
+					"mode": "WALK",
+					"duration": 600,
+					"startTime": "2026-10-08T22:12:00Z",
+					"endTime": "2026-10-08T22:22:00Z",
+					"from": {
+						"name": "Markets",
+						"lat": 52.476226999999994,
+						"lon": -1.8928618,
+						"tz": "Europe/London"
+					},
+					"to": {
+						"name": "END",
+						"lat": 52.4763977,
+						"lon": -1.8859854,
+						"tz": "Europe/London"
+					},
+					"distance": 614,
+					"legGeometry": {
+						"points": "sd}{g^`yhbc@gLk`@??is@wbC??cL{I??oScH??t@k|@??t@g{@??_TuX??{Zea@??hmAouC??fvEc_M??t`@ie@|bAqpCiBg}A{[otA}Ro\\uY_H??@a~@???_t@??mVejG??}XiO??wa@{T??uW{n@??zHe~@??rBiV??zB}W??tF_p@??z\\{b@|\\a`Dry@_{H??|ZuhD??nLqs@??ko@w_@qfAo~@??asA_dB??kh@wj@_lCyvCajCqtA??ibAq]??hMyq@neD_fP??x{B_cK",
+						"precision": 7,
+						"length": 71
+					}
+				}
+			]
+		}
+	]
+}

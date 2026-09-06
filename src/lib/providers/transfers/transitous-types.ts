@@ -3,13 +3,18 @@
  * REST API is OTP-compatible). Verified against real responses on 2026-09-04 — see the
  * commit that added this file for the captured examples this was trimmed from.
  *
- * Only the fields this adapter actually reads. The real payload is much larger (routing
- * geometry, turn-by-turn walking steps, a `debugOutput` counters block), and typing those
- * too would make an unrelated schema change somewhere this adapter never looks a breaking
- * change here. `direct` (walk/bike/car door-to-door itineraries with no transit vehicle)
- * is intentionally untyped beyond its presence: this adapter answers the transit-timetable
- * question only (docs/PROVIDERS.md splits walking/driving duration to a future OSRM
- * adapter), so nothing here ever reads inside it.
+ * Only the fields this adapter actually reads. The real payload is much larger (turn-by-turn
+ * walking steps, a `debugOutput` counters block), and typing those too would make an
+ * unrelated schema change somewhere this adapter never looks a breaking change here.
+ * `legGeometry` used to be on that list and issue #416 moved it off: a leg's shape is worth
+ * reading now that a preview draws each ground leg at its own zoom (#408), and it arrives in
+ * the response this adapter already makes. The "only what we read" rule did not change, what
+ * we read did.
+ *
+ * `direct` (walk/bike/car door-to-door itineraries with no transit vehicle) is intentionally
+ * untyped beyond its presence: this adapter answers the transit-timetable question only
+ * (docs/PROVIDERS.md splits walking/driving duration to a future OSRM adapter), so nothing
+ * here ever reads inside it.
  */
 
 export interface TransitousPlace {
@@ -49,6 +54,30 @@ export type TransitousLegMode =
 	| 'HIGHSPEED_RAIL'
 	| (string & {});
 
+/**
+ * The path a leg follows, as a Google-encoded polyline. Issue #416.
+ *
+ * `precision` is the number of decimal places the encoded integers are scaled by, and
+ * MOTIS sends `7` — not the `5` an OTP-compatible API is usually assumed to use. It is
+ * typed optional because the wire may stop sending it, and `transitous-geometry.ts`
+ * refuses to decode without it rather than assuming either number: getting this wrong does
+ * not blur a route, it moves it off the planet.
+ *
+ * `length` is the point count, verified against the decoded output on every leg of a live
+ * plan. Nothing reads it — the decoder counts what it decodes — and it is typed only so a
+ * reader of a captured response knows what it is.
+ *
+ * A present `legGeometry` is not the same as a shape. MOTIS answers a leg it did not route
+ * with `{"points": "", "length": 0, "precision": 6}`, seen on a platform-to-platform walk
+ * on the owner's own acceptance route. `transitous-geometry.ts` is where that case is
+ * handled and where the measurement lives.
+ */
+export interface TransitousLegGeometry {
+	points: string;
+	length?: number;
+	precision?: number;
+}
+
 export interface TransitousLeg {
 	mode: TransitousLegMode;
 	from: TransitousPlace;
@@ -61,8 +90,13 @@ export interface TransitousLeg {
 	 * timetable said before today's delays. */
 	startTime: string;
 	endTime: string;
-	/** Metres. Present on WALK legs, absent on transit legs. */
+	/** Metres. Present on WALK legs, absent on transit legs — re-measured on 2026-09-06
+	 * against Berlin, Paris and Birmingham plans, and still true, which is why issue #416's
+	 * suggestion that a transit leg could state its length from this field went nowhere. */
 	distance?: number;
+	/** Issue #416: the leg's real path. Present on every leg of every plan measured, though
+	 * `points` is sometimes the empty string — see `TransitousLegGeometry`. */
+	legGeometry?: TransitousLegGeometry;
 	/** e.g. "46", "L1". Absent for some feeds; fall back to `routeLongName`. */
 	routeShortName?: string;
 	/** e.g. "Pl. Espanya / Aeroport BCN". */

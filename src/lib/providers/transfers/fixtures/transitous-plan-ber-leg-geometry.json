@@ -1,0 +1,136 @@
+{
+	"itineraries": [
+		{
+			"duration": 2940,
+			"startTime": "2026-09-06T18:02:00Z",
+			"endTime": "2026-09-06T18:51:00Z",
+			"transfers": 1,
+			"legs": [
+				{
+					"mode": "WALK",
+					"duration": 840,
+					"startTime": "2026-09-06T18:02:00Z",
+					"endTime": "2026-09-06T18:16:00Z",
+					"from": {
+						"name": "START",
+						"lat": 52.3667,
+						"lon": 13.5033,
+						"tz": "Europe/Berlin"
+					},
+					"to": {
+						"name": "Flughafen BER",
+						"lat": 52.364062999999994,
+						"lon": 13.509307,
+						"tz": "Europe/Berlin"
+					},
+					"distance": 958,
+					"legGeometry": {
+						"points": "}mzxe^}hss`GkTo{A??i_@mfC??oDsT??vUcD??|d@}Hno@iX??mHsl@iJoq@bgDwiB??zuBklA??hmBufA??`bCevA??tpAcr@??dlF{qC??gY_jB??_Iqi@??qDqV??}Uu`B??qT{yA??gLiv@??cLqx@??f[mQ`ToL??d~BioA??}AaL??iB_L??_]c`C??_YynB??r`A{i@??py@qb@??}E_]??{Iin@??ec@}{C??~fBaaA??sBuN??{r@m}E??uAoJ??rZeP??`gBtvL??nyGvsc@",
+						"precision": 7,
+						"length": 76
+					}
+				},
+				{
+					"mode": "REGIONAL_RAIL",
+					"duration": 1380,
+					"startTime": "2026-09-06T18:16:00Z",
+					"endTime": "2026-09-06T18:39:00Z",
+					"from": {
+						"name": "Flughafen BER",
+						"lat": 52.364062999999994,
+						"lon": 13.509307,
+						"tz": "Europe/Berlin"
+					},
+					"to": {
+						"name": "S+U Berlin Hauptbahnhof",
+						"lat": 52.52514300000001,
+						"lon": 13.369612000000002,
+						"tz": "Europe/Berlin"
+					},
+					"routeShortName": "FEX (21934)",
+					"headsign": "S+U Berlin Hauptbahnhof",
+					"agencyName": "DB Regio AG Nordost",
+					"legGeometry": {
+						"points": "{bnwe^y}lt`GrqH`ag@xf@vuD~_Gb{c@bAzHbhEfk\\l~@heHd_BhmLtdFzh[b~Mvl~@lAlIz~Mtz~@jwCzgSj{BvuUfmA|iShiAp~[de@nl_@m[xp^gfAxd]chC~q]mmCxoWa|XttgBatChxReUj}AwvCtoUg}@fmIeZtsCuv@brI{q@huIovA`uSed@v}Hca@j~Iyt@faT_s@b}Rqi@~oMut@xvMeaA|lMon@vsGa{@prIkiBlzNmeFnt\\{zDrjWuuAb{Jwg@jbEyd@~eEy`AnlKgZhiEaYrlEcTpoE}SjlF_GhqB}ElwBmHd|CqDvrCeAfyC]v}HlEhfGhJj|FjXfeJpc@ddJ~V|~Db_@ziFx`@ljEtx@dkHj_AdhHjhC~|NvqC~aNvpClmKxvAlwE~yAjsEzcEz~LrhE~yLdmGzpQtoExbMfvMvz_@pof@jgvAhRvj@x|Spfn@beFplOtaFdtO~_@jrApkDphLhiCzfJhiCdkJxxD`eO~kE`{Qr_@hfBb|D`oQjmBnjJhiBhmJdyDpzSnhDb|ShKzn@p~E|lZl{EhyYvp@zcEn`AjkGvu@jvEnkCbiPbtCffQ|wCfyQddCtsO|xFbu]bRp~A`bArvHtbAjkItf@dvEbw@vlJbL|gD`NrhEpCrlNoWxhI}\\j{Fkg@rnFo\\lsD{a@bxDkyAhrHuv@||Dyt@n~Bi`BhgFycBxjE}cCjtFqvC~iEyaAvpAqqC~~DevDptDmlD|cCyjFjnC{`@`OkgI~{B_{Bhi@erKv_Co~F~qA{fEfy@sdErt@qfGpsAikObqCygJvqBq{StiFenDn|@uiCjo@k~^|cJ_c_@trJera@xgKkzAp[edD~w@_kW`jGe~Cfr@mnBvc@mr]t|Ik_LzgCkxAx]qpOjrDurDty@ufZfjHivj@nrNy|YbaIc}Ape@qeDt}@gy@bUegIrtCusSteIw~Kp`F{hN~|Gei^dhQ}_[tjO_nB|`AceV|wL_vAtr@ehNjyG{qEvxBgfGjpC{}JhoEws@v\\uhFfzB_xX`qLsoDd~AugSn|IsuEz|BieAnk@_gCbuAstW~pNiaEpyBou]buRygBb_AuoWd_NsvK|lFycMrkGs{CfzA{wI~gEqc\\pbPyn@`[uqDtgB_lSh_Kc{IpmEaiBr_AskYljNykQp{IqhJrjEg|FtlCoePfcHm|B|`A}wObcHc_VjoKw`GriCyyW~mLqjD`yAo}H`tDwmJ|yEanN|rHeqNrrH_oBzcAube@nlVqbHtzD_`CxlAqgCfoAgbJzwEukBt`AkZpOkoHzsDglBlaAqoKjoFamKzmFmzNhcHelKd~E_b@vPgqIxjDsiNnkG}lS`{JodRtfJya]lsPy\\nPwvGfdDsbGtuCgfLprGwiBndAu~BvsAs}BjsAixPj|JmxFz{C_aNbnHoiLdcG{zTp{KaaR`kJ}yS~lKitIrgE}d]vvPqsChvAmmIteEioI|cEq{Ed`CalLv{Fa|U|vK_r[pzNcqAvq@ilE`zBycIh|De|HpwDap@`\\ql^hmQ_|MhvGqoKpiFwfK|lEqc@tQilMnzFk{J|gEi{DxdBizUhjKomDl}AyOtGw\\|NuyAno@m~D`zAezAla@s|DfzAalA`g@oqL`iFwyGjwCkuDpaByfQdrHqoAji@gpGhsCgy@r^eDxAqtIlxDweDnyAwaCh_A{aAx\\itCnaAcuBjp@mqAt_@e{Dr|@u}@nOqj@nJy~Bh]}kCx[gpBpJcqB~JseB|B_jCF_cDeD}rFs^}iAoMabEoj@epD}p@{uFemAghFaqAswAy]k_Mi_DwjS{fF{zByk@kbI_pB_jRapEsuLwoCmsNgnDezWk|GwjW_uGcqCas@cnQwqEkaNwhDs{EipA{`AqUeQiEsbRoxEiyBgk@u{C_w@qmC{q@ecJa~BwIwBsmDs}@ggJc`C_`HcfBuaSceF_hHooBadB}h@}gBik@{{B{t@w_DwgA}sEufB{cEk`BklAog@i]qNm`Bgt@a{Aas@k`Bqx@{}@ed@wkAgl@s`D__BefCioAaKeFeuHgwDgaAif@gbJ}qEwzAou@a}I{nE_wEg_CupEo{B}cA}g@gaDa`ByZsOsMqF{tNwdHa|D_bB}jOonGyjE{cBikBuu@}iFo_CaqFimCwyCm{AwwQueJu_Aqc@mpMepG_yK{wF{sP_hJau@m`@_qCkyAonFccCgcC}gAacBqo@qbAg_@_`Cez@wUkIapGgmB}cAqVaoEefAu|D_v@{yDge@atDyg@sdCoV{gA}H{gAoGwdDcPcfBwGkzCkIizCoGso@qAitGiO_fVwj@{kVwj@mwFgMsdBaEadd@adAw`N_\\yqMmY}iDeH}iDkFqoBy@_oB]udH|FkqKxd@mqBjLurDhSyzJ|i@ujJxFamDyGwlDsRgoEsd@coEcu@_gDoq@skDgdAo|E}wAchPmoFinJo`D{kJyqDigW{~L{aK}`FckK_hEuoKemCkhEwp@qhEqe@wlAkJ}|Hw_@axOyZg_AiBsiMiTqYw@of@_AauEoIm_H_OyeGkI{cGl@keGlQswFjd@utFpt@eyFvp@o}Dnj@_fE`gA_jFzxAoeHdyCkfJv{D_wHldDekZ`cNw~B~eAigExbBsrHlyCy|@j[mb`@xfO_dD|tAgcQt`Hce@tQimBtz@{kBx`Aa_Azh@slBlaAeoBvy@mfF`{BitCzuAsqCj`Bk{H~zEkkXdxP_jDxvB",
+						"precision": 7,
+						"length": 471
+					}
+				},
+				{
+					"mode": "WALK",
+					"duration": 120,
+					"startTime": "2026-09-06T18:39:00Z",
+					"endTime": "2026-09-06T18:41:00Z",
+					"from": {
+						"name": "S+U Berlin Hauptbahnhof",
+						"lat": 52.52514300000001,
+						"lon": 13.369612000000002,
+						"tz": "Europe/Berlin"
+					},
+					"to": {
+						"name": "S+U Berlin Hauptbahnhof",
+						"lat": 52.52514600000001,
+						"lon": 13.369354000000001,
+						"tz": "Europe/Berlin"
+					},
+					"distance": 50,
+					"legGeometry": {
+						"points": "suxyh^ogd_~FalAts@??~Jzk@??x_@aU??o`@~VpApc@??lz@eK??pB~d@",
+						"precision": 7,
+						"length": 13
+					}
+				},
+				{
+					"mode": "METRO",
+					"duration": 360,
+					"startTime": "2026-09-06T18:41:00Z",
+					"endTime": "2026-09-06T18:47:00Z",
+					"from": {
+						"name": "S+U Berlin Hauptbahnhof",
+						"lat": 52.52514600000001,
+						"lon": 13.369354000000001,
+						"tz": "Europe/Berlin"
+					},
+					"to": {
+						"name": "S+U Alexanderplatz Bhf (Berlin)",
+						"lat": 52.52152,
+						"lon": 13.411226,
+						"tz": "Europe/Berlin"
+					},
+					"routeShortName": "S5",
+					"headsign": "S Strausberg Nord",
+					"agencyName": "S-Bahn Berlin GmbH",
+					"legGeometry": {
+						"points": "gwxyh^ge__~FscBoav@naDck[rrQ_dg@joa@csa@nqK_pWj|DwpVk\\_es@~wSggxA{aAjuJn}@skHfOcaB~f@gfF~p@wbIfm@{}GzE_q@zJcaBnFg_BjCgdBnA_zC{E{zF_IkwDgEoeBcB{aA{E_|BwGwtEoKssD{Y{fK{OkgGwQozDgTsdDce@svEkz@_`F{aAgwEsl@kqB_DkHgYgaAgaA{lCk_F_kM{kK{qWswBcdHwcAsvEku@kfEwj@onEg^cyEwQc{DoKweEwBo_E_NguKkHgnGcB_}DwB{xBoAwaB_DogAoFwkBgOsuC{Ecy@sScsCwQ{dBwQcfB{h@sqE?oAw[kdA{O_|Bo}@cwF_g@wnCkMsq@{YgdB_jAc|F_`Aw~EwQk_AgOwcAg^{gCw[c}C{JknAoKkxAkHcfBgE_hBcGwaB{@sjAoAoqA?_NnAwkBz@ckBbGckBvB_jAnF_yAjHcmAzJgkAfJ_tAvQoeB~WklB~W_mB~RwmArg@ciCrb@o`B~a@gdB~dA_iDfY_`Av`@soAnrCozI~z@{lCns@_rBzr@wfBrS{h@nd@gaA~f@{fA~k@_jA~cDgdGnaDg_GjC{EsI~M",
+						"precision": 7,
+						"length": 112
+					}
+				},
+				{
+					"mode": "WALK",
+					"duration": 240,
+					"startTime": "2026-09-06T18:47:00Z",
+					"endTime": "2026-09-06T18:51:00Z",
+					"from": {
+						"name": "S+U Alexanderplatz Bhf (Berlin)",
+						"lat": 52.52152,
+						"lon": 13.411226,
+						"tz": "Europe/Berlin"
+					},
+					"to": {
+						"name": "END",
+						"lat": 52.5219,
+						"lon": 13.4132,
+						"tz": "Europe/Berlin"
+					},
+					"distance": 262,
+					"legGeometry": {
+						"points": "kbrwh^ohqx~FxDaH??lmBmkD??kQ_`@??nIeO??fp@yjA??|EyI??}f@}jA??iV}g@??tnBezD??n`AwlB??s@y\\gR{vB??cRyuBglAi_D??adBxjCqQpX??q~Bq_F??a_A}xB",
+						"precision": 7,
+						"length": 33
+					}
+				}
+			]
+		}
+	]
+}
