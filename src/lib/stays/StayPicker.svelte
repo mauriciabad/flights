@@ -23,7 +23,7 @@
 	import { stayTotalDelta, stayTotalForNights } from './pricing';
 	import { cheapestSelectableOption, isOptionSelectable, rankProperties } from './rank';
 	import { firstBookableStay } from './recommended-bed';
-	import { describeNoStays, describeStayCatalogue, type StayProviderOutcome } from './no-stays-reason';
+	import { describeStayCatalogue, type StayProviderOutcome } from './no-stays-reason';
 	import { isSameBed, isSameProperty, propertyOf, type PropertyStayOptions } from './types';
 
 	interface Props {
@@ -53,11 +53,6 @@
 		 * already multiplied by `nights`, so a caller holding an `Itinerary.totalPrice`
 		 * can add this directly instead of recomputing the whole total. */
 		onchange?: (stay: Stay, deltaForStay: Money) => void;
-		/** Issue #140: the two facts that turn an empty list from "nothing yet" into a
-		 * statement of what happened. Defaults describe a search that has not started, the
-		 * only state in which "still looking" is true without either being supplied. */
-		stayProviderConfigured?: boolean;
-		searchDone?: boolean;
 		/** Issue #203: what each stay provider did in this search. Empty means nothing has
 		 * been recorded, which `describeNoStays` reports as such rather than as "they had
 		 * nothing here" — the false claim this prop exists to stop. */
@@ -89,25 +84,11 @@
 		females,
 		selected = $bindable(),
 		onchange,
-		stayProviderConfigured = true,
-		searchDone = false,
 		stayProviders = [],
 		unconfiguredStayProviders = [],
 		chosen = false,
 		onuseRecommended
 	}: Props = $props();
-
-	// Issue #140: why this list is empty, never "not yet". Issue #203: and never "they had
-	// nothing here" when what actually happened is that they failed. See no-stays-reason.ts.
-	const noStays = $derived(
-		describeNoStays({
-			stayProviderConfigured,
-			searchDone,
-			cityName: connectionAirport.city.name,
-			stayProviders,
-			unconfiguredStayProviders
-		})
-	);
 
 	// Issue #374: the same question asked of a list that is NOT empty. 54 Hostelworld
 	// hostels look like the market until something says they are one provider's catalogue,
@@ -218,33 +199,13 @@
 	}
 </script>
 
-{#snippet noStaysAction()}
-	{#if noStays.action}
-		<!-- `md`, not `sm`: Button's own comment says only md and lg clear the 44px touch
-		     minimum, and this is the single action in a centred empty state with room for it. -->
-		<Button href={noStays.action.href} size="md">{noStays.action.label}</Button>
-	{/if}
-{/snippet}
-
-{#snippet stayFailures()}
-	<!-- Issue #203: the failed provider's own sentence and status code, verbatim and
-	     visually apart from ours, so nobody has to guess which half the app wrote. -->
-	{#each noStays.providerFailures as failure (failure)}
-		<p class="stay-failure font-mono" data-testid="stay-provider-failure">{failure}</p>
-	{/each}
-{/snippet}
-
-{#if properties.length === 0}
-	<!-- Both snippets are passed only when they have something in them, so an empty state
-	     with nothing to offer renders neither a bare action slot nor an evidence rule with
-	     nothing under it. -->
-	<EmptyState
-		title={noStays.title}
-		description={noStays.description}
-		action={noStays.action ? noStaysAction : undefined}
-		evidence={noStays.providerFailures.length > 0 ? stayFailures : undefined}
-	/>
-{:else if nothingBookable}
+<!-- Issue #389: there is no empty-list arm here. `SegmentCustomiser` is this component's
+     only caller and it asks `stayProperties.length === 0` before it reaches for
+     `StayPicker`, so an empty state written here could never render. It had one, and the two
+     copies had already drifted apart over how they build the key link's href, which is what
+     a second unreachable derivation of one answer buys you. `describeNoStays` now has one
+     caller and one place on screen. -->
+{#if nothingBookable}
 	<EmptyState
 		title="No stay this group can book"
 		description="Every property found here only offers a women-only or men-only dorm that doesn't fit this group's travellers. Try adding a stopover with more room types, or adjust who's travelling."
