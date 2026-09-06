@@ -487,6 +487,32 @@ at the same moment.
 
 So when a provider looks down from a browser, try it from Node before believing the browser.
 
+## And Transitous blocks Node, which is the same trap facing the other way
+
+The rule above sends you to Node when a browser looks blocked. Do not read the answer without
+checking what Node is calling itself, because `api.transitous.org` refuses its default
+User-Agent.
+
+Measured on 2026-09-06, one request, three callers:
+
+| caller | status |
+| --- | --- |
+| `node -e "fetch(...)"`, default User-Agent | `403` |
+| `curl` | `400` |
+| `node`, with a Chrome User-Agent header | `400` |
+
+The `400` is the endpoint rejecting deliberately loose query parameters, so it is the *good*
+answer here. It means the request was served. Only Node's own default was turned away, and a
+`403` with no body reads exactly like a rate limit, a quota, or the volunteer-run service
+being down, none of which were true.
+
+So the two rules together are one rule. When a provider looks down, ask it again from a
+different caller, and make that caller look like a browser in both directions.
+`tools/probe-browser.mjs` exports `PROBE_USER_AGENT` for Playwright; a bare `fetch` in a
+`tools/*.mjs` script needs the same string passed as a header, because Node will not send one
+for you.
+
+
 ## A string in the markup is not a thing on the page
 
 Finding a name in a page's source does not mean the page lists it. A search URL echoes its
