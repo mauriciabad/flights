@@ -57,12 +57,13 @@ export interface FareConversion {
  * same column as though they answered the same question. For one traveller that is roughly
  * fair. For four it is wrong in the direction that hides the better option.
  *
- * A union rather than a per-person pair of numbers, because there are two different facts
- * here and only one of them is arithmetic:
+ * A union rather than a per-person pair of numbers, because there are three different facts
+ * here and only two of them are arithmetic:
  *
  * | basis | what the bounds are | may a screen divide them |
  * | --- | --- | --- |
  * | `per-vehicle` | the whole party's fare, every car it needs | yes, `perPerson*` is that division |
+ * | `per-person` | the whole party's fare, one ticket each | yes, `perPerson*` is one ticket |
  * | `unknown` | one vehicle's fare, unmultiplied | **no** |
  *
  * `'unknown'` is the fallback rate card (`taxi-rate-table.ts`), which stands in for a
@@ -71,6 +72,15 @@ export interface FareConversion {
  * thing in the places that card covers. So the party size is carried and the arithmetic is
  * not done, and the screen says so rather than quietly showing one car's fare to four
  * people.
+ *
+ * `'per-person'` is issue #407's transit card (`transit-fare-table.ts`), and it is the
+ * other direction from `'per-vehicle'` rather than a variation on it. A meter divides: one
+ * car, four people, a quarter each. A turnstile multiplies: four tickets, and the party
+ * pays four times what one traveller does. The two used to be the same absent field, which
+ * is exactly the confusion issue #344 opened about, one mode further along. A screen
+ * printing "for 4" over a taxi range is describing a division that already happened; over
+ * a transit range it is describing a multiplication that already happened, and both are
+ * true statements about `FareRange.lowMinorUnits`.
  *
  * Absent on a `FareRange` is a third thing again: nobody named a party size, or the party
  * is one traveller, where the car's fare and the head's are the same number and a split
@@ -92,6 +102,18 @@ export type FareParty =
 			perVehicleHighMinorUnits: number;
 			/** The party's fare divided by heads: what each traveller pays if they split it,
 			 * which is the figure that compares with a bus ticket. */
+			perPersonLowMinorUnits: number;
+			perPersonHighMinorUnits: number;
+	  }
+	| {
+			basis: 'per-person';
+			/** How many travellers the range covers. Always more than one; see above. */
+			people: number;
+			/** What one ticket costs, which is what the fare table actually describes and
+			 * what a machine will charge for one journey. The party's fare is this times
+			 * `people`, and it is kept rather than recomputed by dividing for the same
+			 * reason `per-vehicle` keeps `perVehicle*`: a screen that divided would be
+			 * showing this function's rounding as though it were the tariff. */
 			perPersonLowMinorUnits: number;
 			perPersonHighMinorUnits: number;
 	  }

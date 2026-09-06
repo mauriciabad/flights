@@ -194,6 +194,43 @@ describe('createTransitousTransferProvider', () => {
 		if (second.ok) expect(second.data).toEqual(first.ok ? first.data : undefined);
 	});
 
+	it('caches a timetable and nothing a search computed on top of it (issue #407)', async () => {
+		// The cache key has no shape version, which is only safe while every field of the
+		// cached `Transfer` is a function of the key. A fare is not: it is computed for one
+		// traveller count in one currency, and an entry here is served at any age and never
+		// discarded for being stale, so a fare folded in would outlive the search that made
+		// it forever. #407's estimate is applied in `search/transit-schedule.ts` instead, and
+		// this is the assertion that keeps it there.
+		const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(nightGapPlanBody()));
+		const store = new MemoryCacheStore();
+		const provider = createTransitousTransferProvider({ fetchImpl, resolveStore: async () => store });
+
+		const query = {
+			from: { latitude: 42.199, longitude: 2.6975 },
+			to: { latitude: 42.1818, longitude: 2.4901 },
+			departure: REQUESTED_LATE_NIGHT_DEPARTURE,
+			// The three fields a rate card reads. None of them is in the key, and none of
+			// them may reach the cached value either.
+			countryCode: 'ES',
+			displayCurrency: 'GBP',
+			travellers: 4
+		};
+
+		const fresh = await provider.searchTransfers(query, ctx());
+		const cached = await provider.searchTransfers(query, ctx());
+
+		expect(fetchImpl).toHaveBeenCalledTimes(1);
+		for (const result of [fresh, cached]) {
+			expect(result.ok).toBe(true);
+			if (!result.ok) continue;
+			expect(result.data.length).toBeGreaterThan(0);
+			for (const transfer of result.data) {
+				expect(transfer.fareEstimate).toBeUndefined();
+				expect(transfer.price).toBeUndefined();
+			}
+		}
+	});
+
 	it('answers from an expired schedule without waiting for the refresh (issue #194)', async () => {
 		// The refresh never resolves. That is the whole assertion: if this call awaited it,
 		// the test would hang, which is exactly what the results page did — blank for 24

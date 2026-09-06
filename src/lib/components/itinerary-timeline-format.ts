@@ -232,14 +232,20 @@ export function transitDepartureWaitNote(wait: Duration | undefined, intended: L
  */
 export function fareAudience(party: FareParty | undefined): string | undefined {
 	if (party === undefined || party.basis === 'unknown') return undefined;
+	// Issue #407. A ticket has no vehicle count to report: the party bought one each, and
+	// "for 4" is the whole of what the column has room to say. The taxi's extra clause
+	// exists because five people do not fit in the saloon its tariff describes, and a
+	// turnstile has no such limit.
+	if (party.basis === 'per-person') return `for ${party.people}`;
 	return party.vehicles > 1
 		? `for ${party.people} in ${party.vehicles} taxis`
 		: `for ${party.people}`;
 }
 
-/** What one traveller pays of `estimate` if the party splits it, or nothing when nothing
- * licenses the division. Issue #344, and absent in exactly the cases `fareAudience` is.
- * Unexported because a caller wanting this wants the whole note. */
+/** What one traveller pays of `estimate`: their share of the car (issue #344) or their own
+ * ticket (issue #407). Nothing when nothing licenses either, which is exactly the cases
+ * `fareAudience` is absent in. Unexported because a caller wanting this wants the whole
+ * note. */
 function fareEachShare(estimate: FareRange): string | undefined {
 	const { party } = estimate;
 	if (party === undefined || party.basis === 'unknown') return undefined;
