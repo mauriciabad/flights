@@ -54,6 +54,33 @@ import { inTravellerCurrency } from './fare-currency';
  * Neither are Stansted, Gatwick, Heathrow, Luton, Dublin, Malpensa or Vienna, each for the
  * same reason and each named in this PR's description with the fare that was missing.
  *
+ * ## Why no British airport is in this table, which is worth naming
+ *
+ * `docs/ACCEPTANCE.md`'s own trip connects through Birmingham, Gatwick and Manchester, so
+ * the gap is on the one route this repo measures, and it is not for want of trying.
+ *
+ * Every British rail operator publishes its walk-up single through a booking widget rather
+ * than as a page, and every site that owns one of those widgets refuses an automated
+ * browser. Measured on 2026-09-06, with `tools/probe-browser.mjs`'s own context, a real
+ * Chrome User-Agent, a London locale and `--disable-blink-features=AutomationControlled`:
+ * gatwickexpress.com, thameslinkrailway.com, southernrailway.com, westmidlandsrailway.co.uk,
+ * crosscountrytrains.co.uk and northernrailway.co.uk all answer 403; tfgm.com and
+ * beenetwork.com answer 202 with an empty body. `curl` reaches gatwickexpress.com's tickets
+ * page with a 200 and 162 KB, and the only fare in that HTML is the £2 child ticket, because
+ * the adult price is fetched by the widget. The airports' own pages render and carry no
+ * adult fare at all.
+ *
+ * What the coach operator publishes IS readable, and it is the cheap end: National Express
+ * service 025 runs London Victoria to Gatwick from £6.00 one way, and its Stansted service
+ * from £7.00 (nationalexpress.com, read 2026-09-06). So Gatwick and Stansted have a cited
+ * low bound and no cited high one, which fails this table's rule from the opposite side to
+ * Rome and would understate a £20 rail journey rather than overstate a €8 one. Wrong in a
+ * kinder direction is still wrong, so they stay out.
+ *
+ * The missing number is the same one at every British airport: the anytime rail single. The
+ * next pass wants a source that publishes fares as data rather than as a booking form, and
+ * `docs/PROVIDERS.md`'s CORS rule applies to any of them that might also be called live.
+ *
  * Every figure below was read on the operator's own page on **2026-09-06**, and each
  * citation names the operator, the product and the page. A fare with no source in it is
  * worse than an empty row, because the next reader cannot tell a researched number from a
