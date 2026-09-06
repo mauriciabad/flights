@@ -678,3 +678,52 @@ describe('ItineraryTimeline, the wait after a ride that leaves when the metro do
 		expect(row?.querySelector('.tl-duration')?.textContent).toBe('3h 32m');
 	});
 });
+
+/**
+ * Issue #399, the same reading at the origin end. Nothing here contradicts anything on
+ * screen, which is what makes it worse: the row simply prints the traveller's own rule
+ * back at them, and the three rows above the outbound flight do not reach it.
+ */
+describe('ItineraryTimeline, the wait before a flight the coach beats by hours', () => {
+	function begurTimeline() {
+		const bcn = (local: string) => localDateTime(local, 'Europe/Madrid', 120);
+		const [built] = buildItineraries({
+			originAirport: origin,
+			destinationAirport: destination,
+			outboundOffers: [makeFlight('LGW', 'VIE', bcn('2026-09-16T05:50:00'), bcn('2026-09-16T06:50:00'), 120)],
+			onwardOffers: [makeFlight('VIE', 'IST', bcn('2026-09-17T06:10:00'), bcn('2026-09-17T08:40:00'), 270)],
+			connectionAirports: { VIE: connection },
+			connectionResources: { VIE: { stay: makeStay(1240), transferAnchor: 'stay' } },
+			originLocation: { label: 'Begur', coordinates: { latitude: 41.9546686, longitude: 3.2067269 } },
+			transferToOriginAirport: makeTransfer(223),
+			waitingTimeRules: [{ waitingTime: 120 as Duration }]
+		});
+		const timetabled = recomputeItinerarySelection(built!, {
+			transferToOriginAirport: {
+				mode: 'transit',
+				duration: 223 as Duration,
+				legs: [],
+				transitSchedule: {
+					intended: bcn('2026-09-15T20:00:00'),
+					arrival: bcn('2026-09-15T23:36:00'),
+					following: [],
+					plannedFor: { time: bcn('2026-09-16T03:50:00'), arriveBy: true }
+				}
+			}
+		}).itinerary;
+		return renderTimeline(timetabled);
+	}
+
+	it('prints the wait the coach leaves, not the two-hour rule', () => {
+		const row = begurTimeline().querySelector('[data-segment="origin-waiting"]');
+		expect(row?.querySelector('.tl-duration')?.textContent).toBe('6h 14m');
+	});
+
+	it('puts the ride on the same clock the wait starts from', () => {
+		// 8pm boarding on the row above, then 6h 14m, then a 5:50am flight. The three rows
+		// reach each other, which is the whole of this issue.
+		const timeline = begurTimeline();
+		const ride = timeline.querySelector('[data-segment="transfer-to-origin-airport"]');
+		expect(ride?.querySelector('.tl-when')?.textContent?.trim()).toBe('8pm');
+	});
+});

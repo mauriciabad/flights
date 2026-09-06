@@ -43,6 +43,7 @@ import type {
 	Airport,
 	BaggageAllowance,
 	Coordinates,
+	Duration,
 	Itinerary,
 	LocalDateTime,
 	Transfer,
@@ -292,16 +293,39 @@ function waitStub(segment: Extract<TripStripSegment, { kind: 'wait' }>, context:
 		// reader nothing they did not have.
 		end: endClock(segment.start, segment.end, clockAt(segment.end), true),
 		duration: formatDuration(segment.minutes),
-		// AGENTS.md, on never presenting an estimate as a fact. This is the one part of the
-		// schedule the traveller set themselves, so the panel says whose number it is and
-		// where to change it instead of letting it read as a measured queue.
-		footnote: `Your own buffer, not a measured queue. ${formatDuration(segment.minutes)} is the setting for this airport, and picking this wait is where you change it.`,
+		// AGENTS.md, on never presenting an estimate as a fact. Nobody measured this queue,
+		// so the panel says where the number comes from and where the traveller's own half of
+		// it is changed.
+		//
+		// It used to say the whole thing was their setting. That stopped being true when
+		// issues #368 and #399 made both wait cells what the ride beside them leaves: on the
+		// owner's card this panel would have read "6h 14m is the setting for this airport"
+		// over a 2h setting. The minimum is still theirs and still the floor, and saying both
+		// is shorter than either of them being wrong.
+		footnote:
+			`Not a measured queue: it is what the ride before it leaves you. Never under the ` +
+			`${formatDuration(waitMinimum(segment, context))} minimum you set for this airport, ` +
+			`and picking this wait is where you change that.`,
 		facts: [
 			{ label: 'Before', value: `${next.carrier.name} ${next.flightNumber} to ${to}, ${formatClockTime(next.departure)}` }
 		],
 		rendersStopoverBlock: false,
 		label: `Airport wait, ${title}, ${formatDuration(segment.minutes)}`
 	};
+}
+
+/** The traveller's own floor under this wait: which of the two buffers on the itinerary
+ * this cell sits over. Read off the flight the wait ends in rather than off the airport
+ * code, because a trip that flies out of the airport it connects through would give the
+ * same code twice and this must never name the wrong buffer. */
+function waitMinimum(
+	segment: Extract<TripStripSegment, { kind: 'wait' }>,
+	context: StubContext
+): Duration {
+	const { itinerary } = context;
+	return segment.beforeFlight === itinerary.outboundFlight
+		? itinerary.originWaitingTime
+		: itinerary.connectionWaitingTime;
 }
 
 /** Where a ground leg is going, in the words the rest of the card uses. The leg into the

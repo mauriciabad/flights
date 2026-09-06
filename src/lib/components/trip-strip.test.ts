@@ -102,6 +102,7 @@ function makeItinerary(shape: Shape): Itinerary {
 			inFlight: (shape.outboundMinutes + shape.onwardMinutes) as Duration,
 			airportWaiting: (waiting * 2) as Duration,
 			connectionAirportWaiting: waiting as Duration,
+			originAirportWaiting: waiting as Duration,
 			free: freeMinutes as Duration,
 			total: (shape.outboundMinutes + shape.stopoverMinutes + shape.onwardMinutes) as Duration
 		}
@@ -566,5 +567,59 @@ describe('the strip, over a layover with a timetable in it', () => {
 		const segments = porto().segments;
 		const between = segments.slice(segments.findIndex((s) => s.kind === 'flight') + 1, segments.length - 1);
 		expect(between.reduce((sum, segment) => sum + segment.minutes, 0)).toBe(1400);
+	});
+});
+
+/**
+ * Issue #399, the origin end of the same reading. The strip drew a 3h 43m ride ending
+ * exactly on the check-in deadline and a 2h wait after it, for a traveller the timetable
+ * has boarding at 8pm and standing in BCN from 11:36pm.
+ */
+describe('the strip, over a ride to the airport with a timetable on it', () => {
+	function begur() {
+		const base = makeItinerary({
+			departs: '2026-09-16T05:50:00',
+			outboundMinutes: 120,
+			stopoverMinutes: 1400,
+			onwardMinutes: 270,
+			toOriginAirport: {
+				mode: 'transit',
+				duration: 223 as Duration,
+				legs: [{ mode: 'transit', duration: 223 as Duration }],
+				transitSchedule: {
+					intended: at('2026-09-15T20:00:00'),
+					arrival: at('2026-09-15T23:36:00'),
+					following: [],
+					plannedFor: { time: at('2026-09-16T03:50:00'), arriveBy: true }
+				}
+			}
+		});
+		return tripStrip({ ...base, ...deriveItinerary(base) });
+	}
+
+	it('draws the ride between boarding and arriving, not backwards off the deadline', () => {
+		const ride = begur().segments.find((segment) => segment.kind === 'transfer');
+		expect([ride?.start.local, ride?.end.local]).toEqual(['2026-09-15T20:00:00', '2026-09-15T23:36:00']);
+		expect(ride?.minutes).toBe(216);
+	});
+
+	it('draws the wait from the moment the traveller reaches the terminal', () => {
+		const wait = begur().segments.find((segment) => segment.kind === 'wait');
+		expect(wait?.start.local).toBe('2026-09-15T23:36:00');
+		expect(wait?.minutes).toBe(374);
+	});
+
+	it('tiles the origin leg with no gap and no overlap', () => {
+		// Boarding to take-off is 9h 50m and the two cells before the outbound flight have to
+		// account for one of those minutes exactly once.
+		const segments = begur().segments;
+		const flightIndex = segments.findIndex((segment) => segment.kind === 'flight');
+		const before = segments.slice(0, flightIndex);
+		expect(before.reduce((sum, segment) => sum + segment.minutes, 0)).toBe(590);
+		for (const [index, segment] of before.entries()) {
+			if (index === 0) continue;
+			expect(segment.start.local).toBe(before[index - 1]!.end.local);
+		}
+		expect(before.at(-1)!.end.local).toBe(segments[flightIndex]!.start.local);
 	});
 });

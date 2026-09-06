@@ -24,6 +24,7 @@ import type {
 	Stay,
 	Transfer,
 	TransferAnchor,
+	TransitLegField,
 	WaitingTimeRule
 } from '../domain';
 import { DEFAULT_MIN_LAYOVER_TIME_MINUTES, DEFAULT_TRAVELLERS, DEFAULT_WAITING_TIME_RULES } from '../domain';
@@ -204,6 +205,31 @@ export interface ConnectionLayover {
 }
 
 /**
+ * The run from the traveller's own door to the outbound flight, split into the pieces it
+ * is actually made of. Issue #399, and the same shape as `ConnectionLayover` above.
+ *
+ * The one difference is what is fixed. A layover is pinned at both ends by flights, so its
+ * total cannot move; this leg is pinned at one end only, and when the timetable says the
+ * last set of services out of Begur that makes a 3:50am check-in boards at 8pm, the trip
+ * really does start at 8pm. `total` moving is the whole point rather than a side effect:
+ * the old number began the journey at 12:07am, the check-in deadline minus the ride, and
+ * put four hours of the traveller's evening in nothing the card printed.
+ */
+export interface OriginLeg {
+	/** Leaving home to the outbound departure. `toAirport + airportWait` is exactly this. */
+	total: Duration;
+	/** When the traveller leaves. The ride's boarding time where a timetable answered, so
+	 * it is the clock the timeline row already prints for that leg and not a second one. */
+	departure: LocalDateTime;
+	toAirport: Duration;
+	/** When the traveller is at the origin airport. */
+	atAirport: LocalDateTime;
+	/** `atAirport` to the outbound departure. At least `originWaitingTime` when a timetable
+	 * made the traveller leave early, exactly it when nothing did. */
+	airportWait: Duration;
+}
+
+/**
  * When a leg's stored timetable still describes the trip on screen, and may therefore be
  * read as fact.
  *
@@ -213,7 +239,7 @@ export interface ConnectionLayover {
  * question nobody is asking any more, so the edges fall back to arithmetic until the
  * refetch lands.
  */
-function liveSchedule(parts: ItineraryParts, field: 'transferToHotel' | 'transferToConnectionAirport') {
+function liveSchedule(parts: ItineraryParts, field: TransitLegField) {
 	const schedule = parts[field]?.transitSchedule;
 	if (!schedule) return undefined;
 	// `readStaleSchedule` says `undefined` both for "still applies" and for "cannot say", and
@@ -299,6 +325,44 @@ export function deriveLayover(parts: ItineraryParts): ConnectionLayover {
 }
 
 /**
+ * The origin leg's split, for `times` below and for the trip strip. Issue #399.
+ *
+ * Both edges come from the same two fields `deriveLayover` reads at the other end, and for
+ * the same reasons. `intended` is the departure the traveller is told to catch, and the
+ * timeline row beside this prints it, so reading anything else here would be issue #368's
+ * two-clocks-for-one-event all over again. `arrival` is when that service reaches the
+ * airport, which is the only honest place for the wait to start.
+ *
+ * `Transfer.duration` is deliberately not the ride's length here. Transitous measures it
+ * from the walk to the first stop, 7 minutes before boarding on the owner's own card, and
+ * `intended` is the boarding. Preferring `duration` would put a third clock on the leg;
+ * this way the seven minutes sit before the trip starts, which is the same rounding
+ * `deriveLayover` already accepts at the hostel end.
+ */
+export function deriveOriginLeg(parts: ItineraryParts): OriginLeg {
+	const { outboundFlight, transferToOriginAirport, originWaitingTime } = parts;
+
+	const deadline = addLocalMinutes(outboundFlight.departure, -originWaitingTime);
+	const leaves = liveSchedule(parts, 'transferToOriginAirport');
+	const departure =
+		leaves?.intended ??
+		(transferToOriginAirport ? addLocalMinutes(deadline, -transferToOriginAirport.duration) : deadline);
+	// Without a timetable the ride is assumed to take exactly as long as it says, which
+	// lands the traveller on the deadline: the arithmetic this leg has always used.
+	const atAirport =
+		leaves?.arrival ??
+		(transferToOriginAirport ? addLocalMinutes(departure, transferToOriginAirport.duration) : deadline);
+
+	return {
+		total: minutesBetween(departure, outboundFlight.departure),
+		departure,
+		toAirport: minutesBetween(departure, atAirport),
+		atAirport,
+		airportWait: minutesBetween(atAirport, outboundFlight.departure)
+	};
+}
+
+/**
  * Every number an itinerary carries but nobody picks. One implementation, called by all
  * three paths that produce an itinerary: `buildItineraries` from a candidate pool,
  * `recomputeItineraryWaitingTimes` from a hand-edited buffer, and
@@ -338,6 +402,7 @@ function nightsPaidFor(parts: ItineraryParts): number {
 function deriveFromNights(parts: ItineraryParts, nightsInConnection: number): DerivedItinerary {
 	const { stay, transferToHotel, transferToConnectionAirport } = parts;
 	const layover = deriveLayover(parts);
+	const originLeg = deriveOriginLeg(parts);
 	const freeTime = layover.free;
 
 	// Issue #106/#109: each flight leg scales to the party by its OWN declared `priceScope`
@@ -388,20 +453,25 @@ function deriveFromNights(parts: ItineraryParts, nightsInConnection: number): De
 		// stopover and the onward flight, so the airside layover below is deliberately not in
 		// it: those two surfaces already draw that stretch as its own cell.
 		connectionAirportWaiting: layover.airportWait,
-		// The origin buffer and the real connection wait, plus a layover the traveller cannot
-		// leave the airport for. Deliberately not a layover they can: issue #13's "airport
-		// waiting time is not layover time" is about the gap a person spends in a city, and
-		// `staysAirside` above is how this tells the two apart.
-		airportWaiting: sumDurations(parts.originWaitingTime, layover.airportWait, airsideLayover),
+		// Issue #399 made this the origin leg's residual, for the reason directly above. The
+		// last coach out of Begur that makes a 3:50am check-in puts the traveller at BCN at
+		// 11:36pm, so the 2h rule buys them 6h 14m and the row was printing the rule.
+		originAirportWaiting: originLeg.airportWait,
+		// Both real airport waits, plus a layover the traveller cannot leave the airport for.
+		// Deliberately not a layover they can: issue #13's "airport waiting time is not
+		// layover time" is about the gap a person spends in a city, and `staysAirside` above
+		// is how this tells the two apart.
+		airportWaiting: sumDurations(originLeg.airportWait, layover.airportWait, airsideLayover),
 		free: (freeTime.duration - airsideLayover) as Duration,
-		// Door to door, with the layover taken whole. It used to be its four pieces added
-		// back up, which came to the same number only for as long as free time was the
-		// residual: issue #368 moves the closing edge to the last service that makes the
-		// deadline, and a sum would have shortened the journey by 1h 28m while the traveller
-		// was still standing in Porto.
+		// Door to door, with the origin leg and the layover each taken whole. Both used to be
+		// their pieces added back up, which came to the same number only for as long as the
+		// pieces were arithmetic: issue #368 moved the stopover's closing edge to the last
+		// service that makes the deadline, and issue #399 moved the start of the journey to
+		// the first one the traveller actually boards. Summing would have shortened the trip
+		// by 1h 28m while the traveller was still standing in Porto, and started the clock
+		// 4h 7m after they left home.
 		total: sumDurations(
-			parts.transferToOriginAirport?.duration,
-			parts.originWaitingTime,
+			originLeg.total,
 			parts.outboundFlight.duration,
 			layover.total,
 			parts.onwardFlight.duration,

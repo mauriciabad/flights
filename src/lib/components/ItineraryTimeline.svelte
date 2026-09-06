@@ -591,10 +591,16 @@
 		)}
 	{/if}
 
+	<!-- Issue #399: the wait is what the ride to the airport leaves, not the buffer the
+	     traveller set, which is the same reading the connection wait further down already
+	     takes. The row above this prints the real last service out of Begur, which on the
+	     owner's card puts him at BCN at 11:36pm for a 5:50am flight while this row said 2h.
+	     The three rows did not add up to the flight beneath them, and nobody adds up rows.
+	     The stepper that edits the rule is in the customise panel, where a minimum belongs. -->
 	{@render waitingRow(
 		`${itinerary.originAirport.name} (${itinerary.originAirport.iataCode})`,
 		itinerary.originAirport.iataCode,
-		itinerary.originWaitingTime,
+		itinerary.times.originAirportWaiting,
 		'origin-waiting'
 	)}
 

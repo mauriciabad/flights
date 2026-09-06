@@ -845,10 +845,13 @@
 {#snippet waitPanel(label: string, minutes: number, max: number, onChange: (minutes: number) => void)}
 	<div class="wait-panel">
 		<WaitingTimeStepper {label} {minutes} {max} inputId={`${uid}-wait`} {onChange} />
-		<!-- The one thing a reader has to know about this number: nobody measured it. It is
-		     the traveller's own buffer, and every total on the card is computed from it. -->
+		<!-- The one thing a reader has to know about this number: nobody measured it, and it
+		     is a floor rather than the wait itself. Issues #368 and #399 made both wait rows
+		     what the ride beside them leaves, so "every total follows it" stopped being true
+		     the moment a timetable put the traveller at the airport early. -->
 		<p class="customiser-note">
-			Your own buffer, not a measured queue. Every total on the card follows it.
+			Your own minimum, not a measured queue. The card counts the wait the ride really
+			leaves you, which is never less than this.
 		</p>
 	</div>
 {/snippet}
