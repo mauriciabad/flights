@@ -81,10 +81,9 @@
 		ConnectionsMapDialog,
 		type ConnectionBlock
 	} from '$lib/connections-map';
-	import { compareResults, outOfSortedPlace, sortResults } from '$lib/results/sort';
+	import { compareResults, outOfSortedPlace } from '$lib/results/sort';
 	import type { SortMode } from '$lib/results/sort';
 	import {
-		insertStable,
 		insertWithoutDisplacing,
 		reorderBy,
 		slotsToResults,
@@ -836,7 +835,7 @@
 	/**
 	 * Drains one search stream (the primary `runSearch`, or a `widenSearch` the
 	 * traveller triggered) into the shared page state. Every itinerary group merges
-	 * through `insertStable` keyed by connection airport, so a widen result for a
+	 * through `insertWithoutDisplacing` keyed by connection airport, so a widen result for a
 	 * stopover already on screen updates that card in place rather than adding a
 	 * second one or reordering the list, the "already on screen do not move"
 	 * guarantee `stream-order.ts` provides applies here exactly as it does to the
@@ -895,7 +894,6 @@
 						compare,
 						displacedCardIsOffScreen
 					).order;
-
 				}
 				stayCandidatesByConnection = { ...stayCandidatesByConnection, ...snapshot.stayCandidatesByConnection };
 				transferOptionsByConnection = { ...transferOptionsByConnection, ...snapshot.transferOptionsByConnection };
@@ -1044,9 +1042,10 @@
 
 	/** An explicit sort-mode change re-sorts everything gathered so far, a deliberate
 	 * user action, unlike the streaming merge above, so a full re-sort here is expected
-	 * (see sort.ts's own comment on `sortResults`). Reads/writes `order` `untrack`'d so
-	 * this effect's only real dependency is `sortMode` itself, not every streamed
-	 * arrival. */
+	 * (see sort.ts's own comment on `sortResults`). Through `reorderBy`, so switching to
+	 * "Cheapest" ranks a lengthened stopover on the price it is showing. Reads/writes `order`
+	 * `untrack`'d so this effect's only real dependency is `sortMode` itself, not every
+	 * streamed arrival. */
 	$effect(() => {
 		const mode = sortMode;
 		untrack(() => {
