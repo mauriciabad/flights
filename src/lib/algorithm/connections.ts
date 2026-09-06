@@ -36,26 +36,35 @@
  * next (ultimately the bundled table for the free path). Same contract every other caller
  * of a `ProviderResult` in this codebase follows.
  *
- * ## Where a candidate comes from, and what this module still cannot propose
+ * ## Where a candidate comes from, and what this module cannot propose
  *
- * Candidates come from two places. The origin's own direct-destination list, which is what
- * a provider answers, and a vendored all-carrier route graph that ships with the app
- * (`../data/direct-routes`, issue #361). Issue #349's `METRO_CODE_MEMBERS` recovers an
- * airport hidden by a one-row-per-city collapse on top of both, which is what makes Bergamo
- * reachable from a list that only names Milan.
+ * Every candidate is an airport the ORIGIN is known to fly to. That set is the origin's own
+ * direct-destination list, which is what a provider answers, unioned with a vendored
+ * all-carrier route graph that ships with the app (`../data/direct-routes`, issue #361).
+ * Nothing else proposes, and the search then asks each candidate whether it flies on to the
+ * destination.
  *
  * The graph exists because the provider's list is a sample. Issue #350 measured the gap:
  * `EMA` (Nottingham / East Midlands) is one of flightconnections.com's ten stopovers for
  * `BVC -> PFO` and Kiwi sells both of its legs, yet Boa Vista's
- * `onewayOnePerCityItineraries` answer is 20 price-sorted rows that do not name it, and it
- * is nobody's metro sibling. No post-processing recovers a row that is not there, so the
- * row now comes from somewhere else.
+ * `onewayOnePerCityItineraries` answer is 20 price-sorted rows that do not name it. No
+ * post-processing recovers a row that is not there, so the row comes from somewhere else.
  *
- * The graph's node set is bounded by the codes the other bundled sources already name, so
- * it adds EDGES and never AIRPORTS, and that bound is the remaining limit: an airport no
- * bundled source has ever named still cannot be a stopover. It is also hand-edited text,
- * which makes it a floor and never a ceiling. `confirmsRoute` returning `false` there means
- * "this table does not say so", never "no such route".
+ * Enumerating from the DESTINATION's inbound side as well was issue #380, and it is not
+ * here because it was measured and does not pay. Such a candidate arrives with `C -> B`
+ * known and `A -> C` unknown, so proving it costs a request, and the budget it draws on is
+ * the same eighteen ranked positions the origin's own candidates use. Over 300 routes it
+ * spent 37% more keyless requests and cost three routes a confirmed stopover, two of them
+ * their only one. Giving the origin's candidates first claim on the budget removed the
+ * losses and left the additions inert, because a route with eighteen origin-side candidates
+ * never reaches the rest. Reproduce it with `tools/probe-candidate-sources.mjs` against
+ * this file and against a tree that proposes both ways.
+ *
+ * So the limit is the origin's known out-degree, plus the graph's node set, which is bounded
+ * by the codes the other bundled sources already name: the graph adds EDGES and never
+ * AIRPORTS, and an airport no bundled source has ever named cannot be a stopover. Every
+ * source here is a floor, never a ceiling, and `confirmsRoute` returning `false` means "this
+ * table does not say so", never "no such route".
  *
  * Written down here rather than left implicit, because the next reader's question is why a
  * route they can see on a third-party map does or does not appear in this app's results.
@@ -270,14 +279,17 @@ export const DEFAULT_MAX_CANDIDATES = 6;
  * with budget left over. Measured on `pnpm qa`'s own scenario: twelve candidates ranked,
  * four confirmed for free, eight questions asked, out of eighteen positions.
  *
- * One position costs at most one route question per source, and never two of them, because
- * every candidate reaches the loop with one leg already proven. `candidateCodes` is built
- * from exactly two sets: airports the origin has a known outbound edge to, and metro
- * siblings, which are proposed only when a bundled source already says they fly to the
- * destination. So the `C -> B` check and the `A -> C` check below can never both fire for
- * the same candidate. connections.test.ts holds that ("asks at most one route question
- * about any one candidate"), because it is what makes the ceiling in
- * `route-graph-fanout.qa.ts` arithmetic rather than an observation.
+ * One position costs at most one route question per source, because the loop has exactly one
+ * question to ask: does this candidate fly on to the destination. Every candidate is already
+ * an airport a source says the origin flies to, and it carries that source's id with it, so
+ * there is no second `A -> C` check to pay for. That is what makes the ceiling in
+ * `route-graph-fanout.qa.ts` arithmetic rather than an observation, and connections.test.ts
+ * holds it directly ("asks only the onward question, once per candidate").
+ *
+ * Issue #378 read a two-request position out of the older shape, where issue #349's
+ * metro-sibling rule could propose an airport with no outbound edge. Issue #395 answered
+ * that the two checks could not both fire; issue #380 removed the rule that made a second
+ * check reachable at all.
  *
  * Swapping the index for a spend counter is not the fix, and was measured during #361's
  * design work: a bare counter walks until the budget is gone rather than stopping after
@@ -570,23 +582,6 @@ async function confirmDirectRoute(
 		if (destinations.includes(destination)) return source.id;
 	}
 	return undefined;
-}
-
-/**
- * The other airports serving `code`'s city, from `METRO_CODE_MEMBERS` below. Empty for an
- * airport that is its own city, which is nearly all of them.
- *
- * Issue #340 needs this for the opposite direction to the one that table was written for.
- * `hasKnownDirectRoute` uses it to resolve a city code a source reported (PAR) down to the
- * airport a caller asked about; this resolves an airport a source reported (MXP) back up to
- * the city and out to its siblings (LIN, BGY), because a one-row-per-city source names one
- * of them and means any of them.
- */
-function metroSiblingsOf(code: IataAirportCode): IataAirportCode[] {
-	for (const members of Object.values(METRO_CODE_MEMBERS)) {
-		if (members.includes(code)) return members.filter((member) => member !== code);
-	}
-	return [];
 }
 
 /** What one attempt at the metered, last-resort path produced. `sourceId` is `undefined`
@@ -890,36 +885,12 @@ export async function findConnectionCandidates(
 		}
 	}
 
-	// Issue #340: put a multi-airport city's OTHER airports back on the table.
-	//
-	// `outboundEdges` comes from `listDirectDestinations`, and `kiwi-public`'s comes from a
-	// query that returns one row per destination *city*. Boa Vista's twenty-row answer names
-	// Milan once, as Malpensa, so Bergamo is absent from the candidate list even though Kiwi
-	// sells Neos NO3865 BVC to BGY and Ryanair flies BGY to Pafos. London is Gatwick only,
-	// Rome Fiumicino only, Paris Orly only, everywhere, on every search.
-	//
-	// A sibling is only proposed when a bundled source ALREADY says it flies to the
-	// destination, which costs no request and is what keeps this from being a fan-out: for
-	// BVC to PFO it proposes three airports rather than ten, because Ryanair's snapshot
-	// reaches Pafos from Bergamo, Stansted and Beauvais and from none of the other seven
-	// siblings. Each of the three then costs exactly one keyless request to confirm its
-	// outbound leg, and the two that do not fly from Boa Vista are dropped before the fare
-	// stage ever sees them.
-	//
-	// Proposing is not asserting. A sibling carries no outbound edge until something
-	// confirms one, which is why it goes in its own set rather than into `outboundEdges`.
-	const siblingsNeedingOutboundProof = new Set<IataAirportCode>();
-	for (const code of [...outboundEdges.keys()]) {
-		for (const sibling of metroSiblingsOf(code)) {
-			if (sibling === origin || sibling === destination) continue;
-			if (outboundEdges.has(sibling) || siblingsNeedingOutboundProof.has(sibling)) continue;
-			const reachesDestination = await unionDirectDestinations(bundledSources, sibling);
-			if (reachesDestination.has(destination)) siblingsNeedingOutboundProof.add(sibling);
-		}
-	}
-
-	let candidateCodes = [...outboundEdges.keys(), ...siblingsNeedingOutboundProof].filter(
-		(code) => code !== origin && code !== destination
+	// A candidate is an airport a source says the origin flies to, carrying the id of that
+	// source. Paired rather than looked up again later, so a candidate whose outbound leg
+	// nothing vouches for cannot be built at all — see the probe loop, which now has one
+	// question to ask rather than two.
+	let proposed: [IataAirportCode, string][] = [...outboundEdges].filter(
+		([code]) => code !== origin && code !== destination
 	);
 	if (allowList) {
 		// An explicit allow-list narrows the universe rather than replacing it: an
@@ -927,15 +898,19 @@ export async function findConnectionCandidates(
 		// addressable here without a metered call per allow-listed code just to test
 		// reachability, which would defeat "last resort" for a list that could be long.
 		// A caller who needs that supplies a provider with better outbound coverage.
-		candidateCodes = candidateCodes.filter((code) => allowList.has(code));
+		proposed = proposed.filter(([code]) => allowList.has(code));
 	}
 
 	// Step 2, and the whole of issue #187: rank every candidate on what costs nothing to
 	// know, so the requests in step 3 are spent on the airports most likely to survive.
 	// Geography comes from the bundled dataset, so this pass touches no network at all.
-	const ranked: { code: IataAirportCode; scored: ScoredCandidate }[] = [];
+	const ranked: {
+		code: IataAirportCode;
+		outboundSourceId: string;
+		scored: ScoredCandidate;
+	}[] = [];
 
-	for (const code of candidateCodes) {
+	for (const [code, outboundSourceId] of proposed) {
 		// Forbidden airports are filtered here, not downstream, so a forbidden candidate
 		// never reaches a fare search that would spend a request on it (issue #12: "filtered
 		// out here rather than later"). Checked before the allow-list interaction above
@@ -977,7 +952,7 @@ export async function findConnectionCandidates(
 		// — the score if the candidate turned out to fly nowhere onward — and step 3
 		// recomputed it once a probe had learned the real out-degree. With connectivity
 		// gone there is nothing left a request can teach the scorer.
-		ranked.push({ code, scored: combineScore(geography, weights) });
+		ranked.push({ code, outboundSourceId, scored: combineScore(geography, weights) });
 	}
 
 	ranked.sort((a, b) => b.scored.score - a.scored.score || a.code.localeCompare(b.code));
@@ -988,7 +963,7 @@ export async function findConnectionCandidates(
 	// out in an order fixed by bundled data alone, which is what makes a reload cheap
 	// (issue #194): the first load caches exactly the set the second load asks for, so the
 	// second asks for nothing.
-	for (const [index, { code, scored }] of ranked.entries()) {
+	for (const [index, { code, outboundSourceId, scored }] of ranked.entries()) {
 		// `maxRouteProbes` bounds RANKED POSITIONS, which is what `index` is, and not
 		// requests — issue #378, where the constant's own doc comment said requests for a
 		// long time. Past it every source that would cost something is dropped and the
@@ -1060,18 +1035,6 @@ export async function findConnectionCandidates(
 
 		if (!inboundSourceId) continue; // No source, free or metered, confirms C -> destination.
 
-		// Issue #340: a candidate that exists only because it shares a city with an airport
-		// the origin flies to has no outbound edge yet — nothing has said the origin flies
-		// HERE. Confirm it or drop it. Deliberately last, so the request is only spent on a
-		// sibling whose onward leg already checked out, and never on the seven Milan and
-		// London and Paris airports that reach nothing.
-		let outboundSourceId = outboundEdges.get(code);
-		if (!outboundSourceId) {
-			if (!withinRequestBudget) continue;
-			outboundSourceId = await confirmDirectRoute(freeSources, origin, code);
-			if (!outboundSourceId) continue;
-		}
-
 		candidates.push({
 			airportCode: code,
 			score: scored.score,
@@ -1128,6 +1091,11 @@ export async function findConnectionCandidates(
  * plausibly matter, not every multi-airport city on earth. A city missing from this
  * table degrades to the same "not confirmed" answer as any other unlisted route,
  * never a wrong one.
+ *
+ * One caller, and only that one. Issue #349 also read this table the other way round, to
+ * propose an airport a source's one-row-per-city answer had hidden behind its city's other
+ * airport, and issue #380 deleted that: the vendored route graph names LIN, MXP and BGY
+ * separately, so it recovers those airports without needing to know they share a city.
  */
 const METRO_CODE_MEMBERS: Readonly<Record<string, readonly IataAirportCode[]>> = {
 	PAR: ['CDG', 'ORY', 'BVA'],
