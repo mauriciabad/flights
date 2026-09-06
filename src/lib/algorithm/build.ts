@@ -388,10 +388,10 @@ function deriveFromNights(parts: ItineraryParts, nightsInConnection: number): De
 		// stopover and the onward flight, so the airside layover below is deliberately not in
 		// it: those two surfaces already draw that stretch as its own cell.
 		connectionAirportWaiting: layover.airportWait,
-		// The two buffers, plus a layover the traveller cannot leave the airport for.
-		// Deliberately not a layover they can: issue #13's "airport waiting time is not
-		// layover time" is about the gap a person spends in a city, and `staysAirside` above
-		// is how this tells the two apart.
+		// The origin buffer and the real connection wait, plus a layover the traveller cannot
+		// leave the airport for. Deliberately not a layover they can: issue #13's "airport
+		// waiting time is not layover time" is about the gap a person spends in a city, and
+		// `staysAirside` above is how this tells the two apart.
 		airportWaiting: sumDurations(parts.originWaitingTime, layover.airportWait, airsideLayover),
 		free: (freeTime.duration - airsideLayover) as Duration,
 		// Door to door, with the layover taken whole. It used to be its four pieces added

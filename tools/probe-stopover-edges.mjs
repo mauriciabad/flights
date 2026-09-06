@@ -2,7 +2,11 @@
  * Issue #368: does the stopover block agree with the timeline about when the traveller
  * leaves for the connection airport, and about when the stopover starts?
  *
- *   node tools/probe-stopover-edges.mjs '<results url>' [--keep-cache]
+ *   node tools/probe-stopover-edges.mjs '<results url>' [--city=OPO] [--keep-cache]
+ *
+ * `--city` picks the card whose text mentions it, since the card a search opens on moves
+ * (#369 changed it once already) and a probe pinned to index 0 measures whatever happens to
+ * be there. Without it, the first card.
  *
  * Both edges of `itinerary.freeTime` used to be arithmetic: landing plus the ride out, and
  * the check-in deadline minus the ride back. The timeline row beside each of them prints
@@ -11,8 +15,11 @@
  *
  * So this reads the block's two edge lines and the two transfer rows' clocks off one card
  * and prints them together, plus the wait rows and the flights, so the whole layover can be
- * added up by eye. It asserts nothing: which number is right is the issue's argument, and a
- * probe that decided it would only be able to confirm itself.
+ * added up by eye, and the raw Transitous responses underneath, which carry the one number
+ * no row prints: `arrival`, when the service caught actually reaches the door.
+ *
+ * It asserts nothing. Which number is right is the issue's argument, and a probe that
+ * decided that would only be able to confirm itself.
  *
  * Its own Chromium, closed at the end, IndexedDB cleared unless told not to.
  */
@@ -99,7 +106,11 @@ try {
 	const leaked = FIXTURE_TOKENS.filter((token) => pageText.includes(token));
 	if (leaked.length > 0) {
 		console.log('MEASUREMENT INVALID: fixture markers on the page:', leaked.join(', '));
-		process.exit(2);
+		// `process.exitCode` and a throw, never `process.exit`: exiting here would skip the
+		// `finally` that closes the browser, and a probe that leaks a Chromium is the thing
+		// AGENTS.md spends a section on.
+		process.exitCode = 2;
+		throw new Error('fixture markers on the page');
 	}
 
 	const cards = page.locator('.result-card');
@@ -121,7 +132,8 @@ try {
 			for (let i = 0; i < count; i += 1) {
 				console.log(`  card ${i}: ${(await cards.nth(i).innerText()).split('\n').slice(0, 3).join(' | ')}`);
 			}
-			process.exit(1);
+			process.exitCode = 1;
+			throw new Error(`no card mentions "${wanted}"`);
 		}
 	}
 
