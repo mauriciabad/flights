@@ -51,40 +51,70 @@ import { inTravellerCurrency } from './fare-currency';
  * the argument in full: "a band that is narrower than the evidence it cites is just a
  * fourth invented card". Pricing Rome's airport at the €14 Leonardo Express while the FL1
  * regional train does the same trip for less would be exactly that, so Rome is not here.
- * Neither are Stansted, Gatwick, Heathrow, Luton, Dublin, Malpensa or Vienna, each for the
- * same reason and each named in this PR's description with the fare that was missing.
+ * Neither are Stansted, Heathrow, Luton, Dublin, Malpensa or Vienna, each for the same
+ * reason and each named below or in issue #407 with the fare that was missing. Gatwick is
+ * out for a different reason, which has its own section.
  *
- * ## Why no British airport is in this table, which is worth naming
+ * ## What made Britain readable, after a pass that decided it was not
  *
- * `docs/ACCEPTANCE.md`'s own trip connects through Birmingham, Gatwick and Manchester, so
- * the gap is on the one route this repo measures, and it is not for want of trying.
+ * `docs/ACCEPTANCE.md`'s own trip connects through Birmingham, Gatwick and Manchester, and
+ * issue #407 shipped with none of the three. Its measurement was real and its conclusion was
+ * a step too wide: six rail operator sites answered 403, tfgm.com answered 202, and
+ * gatwickexpress.com served 162 KB whose only fare was a £2 child ticket, so the anytime
+ * rail single looked unreadable everywhere in Britain.
  *
- * Every British rail operator publishes its walk-up single through a booking widget rather
- * than as a page, and every site that owns one of those widgets refuses an automated
- * browser. Measured on 2026-09-06, with `tools/probe-browser.mjs`'s own context, a real
- * Chrome User-Agent, a London locale and `--disable-blink-features=AutomationControlled`:
- * gatwickexpress.com, thameslinkrailway.com, southernrailway.com, westmidlandsrailway.co.uk,
- * crosscountrytrains.co.uk and northernrailway.co.uk all answer 403; tfgm.com and
- * beenetwork.com answer 202 with an empty body. `curl` reaches gatwickexpress.com's tickets
- * page with a 200 and 162 KB, and the only fare in that HTML is the £2 child ticket, because
- * the adult price is fetched by the widget. The airports' own pages render and carry no
- * adult fare at all.
+ * Two things were wrong with that, and issue #415 is the second pass. The 202 from tfgm.com
+ * is a bot challenge that renders the page anyway, so read in a browser rather than judged
+ * by its status code it carries TfGM's whole fare table. And a train operating company is
+ * not the only publisher of a rail fare. National Rail Enquiries, the operators' own
+ * enquiry service, renders the walk-up ticket list for a named journey as ordinary
+ * server-rendered HTML at
+ * `ojp.nationalrail.co.uk/service/timesandfares/FROM/TO/DDMMYY/HHMM/dep`, ticket names
+ * included, and answers a Chrome User-Agent with a 200. Every Anytime Day Single below came
+ * from there. `tools/probe-uk-transit-fares.mjs` re-reads all of it and prints what it found
+ * beside what is written here, because a citation nobody can re-run is a claim rather than
+ * a source.
  *
- * What the coach operator publishes IS readable, and it is the cheap end: National Express
- * service 025 runs London Victoria to Gatwick from £6.00 one way, and its Stansted service
- * from £7.00 (nationalexpress.com, read 2026-09-06). So Gatwick and Stansted have a cited
- * low bound and no cited high one, which fails this table's rule from the opposite side to
- * Rome and would understate a £20 rail journey rather than overstate a €8 one. Wrong in a
- * kinder direction is still wrong, so they stay out.
+ * The rule did not move to let Birmingham and Manchester in. Each carries a cited fare for
+ * its cheapest published option and a cited fare for its dearest, which is what issue #415
+ * hoped for and why `domain/fare.ts` did not need the one-sided bound that issue proposed as
+ * its fallback.
  *
- * The missing number is the same one at every British airport: the anytime rail single. The
- * next pass wants a source that publishes fares as data rather than as a booking form, and
- * `docs/PROVIDERS.md`'s CORS rule applies to any of them that might also be called live.
+ * ## Gatwick is readable now and still not here, for a new reason
  *
- * Every figure below was read on the operator's own page on **2026-09-06**, and each
- * citation names the operator, the product and the page. A fare with no source in it is
- * worse than an empty row, because the next reader cannot tell a researched number from a
- * remembered one.
+ * Both its bounds came out: National Express service 025 runs London Victoria to Gatwick
+ * from £6.00 one way (nationalexpress.com, read 2026-09-06), and the Gatwick Express Anytime
+ * single is £24.10, the £21.30 Anytime Day Single carrying "Not valid for travel on Gatwick
+ * Express services" and £24.10 being what the non-stop service those conditions exclude
+ * sells (National Rail Enquiries, read 2026-09-06). By the rule above that is a card.
+ *
+ * What stops it is the assumption every other card rests on without saying so: **a flat band
+ * may be applied to any journey inside `ratedUpToKm` only where the fare does not depend on
+ * the distance.** Barcelona sells one integrated single whether you ride two stops or twelve,
+ * so stretching it over a shorter journey costs nothing. Gatwick sells a 40 km ticket into
+ * central London, and the stay this app pairs with a Gatwick stopover is usually not in
+ * London at all. That is deliberate and it is the owner's own issue #204: he asked for the
+ * hostels in Horley, thirty minutes on foot from the terminal, and `docs/PROVIDERS.md` has
+ * the adapter now reaching them. On the acceptance trip the stay came back 3.2 km from the
+ * runway with Transitous planning bus 100 to reach it (`tools/probe-transit-legs.mjs`,
+ * 2026-09-06). Pricing that hop at £6.00 to £24.10 would overstate the cheapest way to make
+ * it several times over, which is the Rome mistake in a British accent. A card that fits
+ * Gatwick needs a floor distance as well as a ceiling, and that is a change to this module's
+ * shape rather than another row in it. Issue #421 carries both fares so the next pass does
+ * not read them again, and Stansted, Heathrow and Luton sit behind the same change.
+ *
+ * Three more British airports fail on narrower points than "the fare is unreadable".
+ * Stansted's cheap end is National Express's £7.00 lead fare, and the page carrying it says
+ * those fares are correct for travel until 13.09.2026, a week from this reading, so it would
+ * be stale before most travellers met it. Heathrow's cheapest option is the Piccadilly line,
+ * whose single fare TfL publishes only through a fare-finder tool this pass could not drive.
+ * Luton's rail journey is a DART ride from the terminal plus a separate fare onward from
+ * Luton Airport Parkway, and only the second half of that (£19.20 to St Pancras) was read.
+ *
+ * Every figure below was read on **2026-09-06**, on the operator's own page or, for the
+ * British rail fares, on the operators' own National Rail Enquiries, and each citation names
+ * the operator, the product and the page. A fare with no source in it is worse than an empty
+ * row, because the next reader cannot tell a researched number from a remembered one.
  *
  * ## The party multiplies
  *
@@ -118,6 +148,13 @@ interface TransitFareCard {
 	 * count Transitous actually returned is what the arithmetic multiplies. Amsterdam and
 	 * Budapest are the two here that work that way, for different reasons their citations
 	 * give.
+	 *
+	 * Birmingham is the exception to that reading and its citation says so: its network sells
+	 * a ride, so it has earned an onward fare, and it does not get one because the boarding
+	 * count it would multiply is wrong. Transitous returns the free Air-Rail Link as a ridden
+	 * leg, so a card charging per boarding would bill a fare for a monorail the airport gives
+	 * away. Where a field like this can be absent for two different reasons, the citation has
+	 * to say which one, because the arithmetic cannot.
 	 */
 	onwardMinorUnits?: readonly [number, number];
 	/** Straight-line kilometres from the runway to the city centre this card prices a
@@ -211,6 +248,28 @@ export const TRANSIT_FARE_TABLE: Readonly<Record<IataAirportCode, TransitFareCar
 			'same ABC ticket. Berlin really does sell one fare for this journey, which is why the ' +
 			'two bounds are the same number.'
 	},
+	BHX: {
+		city: 'Birmingham',
+		countryCode: 'GB',
+		currency: 'GBP',
+		journeyMinorUnits: [300, 500],
+		centreKm: 10.7,
+		citation:
+			'National Express West Midlands prices an nBus adult single trip at £3.00 on its own ' +
+			'fares page (nxbus.co.uk/west-midlands/tickets-prices/single-trips-day-tickets, read ' +
+			'2026-09-06), and the airport says the X1 and X12 call at stops K and L on the terminal ' +
+			'forecourt (birminghamairport.co.uk, read 2026-09-06). The dear end is rail. The ' +
+			'Air-Rail Link to Birmingham International is free, "a complimentary service" in the ' +
+			"airport's own words, and the Anytime Day Single from there to Birmingham New Street is " +
+			'£5.00 (National Rail Enquiries journey planner, read 2026-09-06). The leg count does ' +
+			'not enter this fare, and here that is a compromise rather than a fact about the ' +
+			'network. An nBus single buys one bus journey, so a change onto a second bus really is ' +
+			'another £3.00. But Transitous returns the free Air-Rail Link as a ridden leg (mode ' +
+			'OTHER, route AIR, measured on the acceptance trip 2026-09-06), so charging per ' +
+			'boarding would bill £3.00 for a monorail the airport gives away. Missing a change is ' +
+			'the smaller error of the two, and the West Midlands Metro tram, the other change a ' +
+			'traveller might make, publishes its singles only through a fare finder anyway.'
+	},
 	BUD: {
 		city: 'Budapest',
 		countryCode: 'HU',
@@ -276,6 +335,25 @@ export const TRANSIT_FARE_TABLE: Readonly<Record<IataAirportCode, TransitFareCar
 			'or from the airport terminals adds a €3.00 airport supplement per passenger. The ' +
 			'supplement is charged once and the metro journey it attaches to carries changes, so ' +
 			'€4.50 to €5.00 is the whole fare.'
+	},
+	MAN: {
+		city: 'Manchester',
+		countryCode: 'GB',
+		currency: 'GBP',
+		journeyMinorUnits: [200, 620],
+		centreKm: 14.9,
+		citation:
+			"TfGM's own bus ticket page (tfgm.com/tickets-and-passes/bus-tickets, read 2026-09-06) " +
+			"prices the Bee Bus single 'hopper' at £2.00 for adults, and the airport names 43, 103, " +
+			'130, 199, 248, 288, 313 and 368 as the Bee Network services linking it to the city ' +
+			'centre (manchesterairport.co.uk, read 2026-09-06). The dear end is the Anytime Day ' +
+			'Single from Manchester Airport to Manchester Piccadilly at £6.20 (National Rail ' +
+			'Enquiries journey planner, read 2026-09-06). Metrolink sits between the two at £4.60, ' +
+			"TfGM's all-zones adult single, because its own fare-zone page puts the airport in zone " +
+			'4 and the city centre in zone 1 (tfgm.com, read 2026-09-06). The leg count is not an ' +
+			'input to any of the three: the hopper carries further Bee Network buses for 60 minutes, ' +
+			'a Metrolink zone ticket covers the whole zonal journey, and TfGM says a train ticket to ' +
+			'MANCHESTER CTLZ is valid on Metrolink in zone 1.'
 	},
 	ORY: {
 		city: 'Paris',
