@@ -22,8 +22,18 @@ else
   unreached=$(printf '%s\n' "$out" | sed -n 's/.*, \([0-9][0-9]*\) could not be reached\./\1/p')
   [ "${unreached:-1}" = 0 ] && say PASS "E5 every check reached its subject" || say FAIL "E5 $unreached checks could not be reached"
 
-  for c in "ground previews draw a coast" "a bed row states a duration" "the stay list offers a sort key"; do
-    if printf '%s\n' "$out" | grep -q "^PASS.*$c"; then say PASS "E3 $c"; else say FAIL "E3 $c"; fi
+  # A name that matches NO line is this file being wrong, not the app. Six hours after the
+  # last drift repair, `a bed row states a duration` was renamed in verify-production.mjs and
+  # this list still held the old string, which would have reported E3 red forever while the
+  # app was fine. Same disease, same day, my own file. So an unmatched name says so.
+  for c in "ground previews draw a coast" "a bed row states a journey time" "the stay list offers a sort key"; do
+    if ! printf '%s\n' "$out" | grep -q "$c"; then
+      say FAIL "E3 no check named '$c' ran at all — this predicate has drifted, fix it before reading it"
+    elif printf '%s\n' "$out" | grep -q "^PASS.*$c"; then
+      say PASS "E3 $c"
+    else
+      say FAIL "E3 $c"
+    fi
   done
 fi
 
