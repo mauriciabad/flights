@@ -670,8 +670,6 @@
 							{females}
 							selected={itinerary.stay}
 							onchange={applyStaySelection}
-							{stayProviderConfigured}
-							{searchDone}
 							{stayProviders}
 							unconfiguredStayProviders={widerProvidersToAdd}
 							chosen={stayIsChosen}
