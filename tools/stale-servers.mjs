@@ -59,7 +59,12 @@ for (const entry of listeners()) {
 		unreadable++;
 		continue;
 	}
-	if (!/Projects\/flights|vite|sirv|preview/.test(command)) continue;
+	// `static-server` is in here because leaving it out made this script lie a second time.
+	// Every agent works in a git worktree, so the one server this repo actually leaks is
+	// `node tests/e2e/support/static-server.mjs build <port>`, launched with a relative path
+	// from a worktree. No absolute path, no "vite", no "preview", so the old pattern skipped
+	// it and printed a clean machine over four of them holding ports for up to 26 hours.
+	if (!/Projects\/flights|vite|sirv|preview|static-server/.test(command)) continue;
 	found.push({ pid, port, minutes: Math.round(seconds / 60), command: command.slice(0, 80) });
 }
 
