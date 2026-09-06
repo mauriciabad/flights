@@ -17,10 +17,26 @@
 	 * stopover is a detour north or a straight run down a coast, and that comparison is the
 	 * entire job of this drawing.
 	 *
-	 * So there is exactly one thing under the geometry: `land.ts` fills the land grey and
-	 * leaves the sea as whatever the parent element's background is. No stroke on the
-	 * coast, no second colour, nothing that could be read as a route. What competes with an
-	 * arc is a line, and this draws none.
+	 * So `land.ts` fills the land grey and leaves the sea as whatever the parent element's
+	 * background is. No stroke on the coast, no second colour, nothing that could be read
+	 * as a route. What competes with an arc is a line, and this draws none.
+	 *
+	 * ## The country boundaries #408 asked for, and why they are not lines
+	 *
+	 * The owner: "I also expect the country boundaries to show". A boundary is a line, and
+	 * the paragraph below about the `baseline` is this file's own argument for why a faint
+	 * line under an arc is the most expensive thing that can be added here.
+	 *
+	 * So a boundary is not drawn. It is *cut*: the land goes down as a masked rectangle and
+	 * the boundary is a hairline of black in that mask, so the country line is a place
+	 * where the land is not, showing whatever the parent paints — the same nothing the sea
+	 * is. A route on this drawing is always ink laid on top, always accent-coloured, always
+	 * two or more units wide, and always ending in a dot. A seam has no colour of its own,
+	 * ends at a coast or at the edge of the box, and touches no dot. Nobody reads a gap as
+	 * a journey.
+	 *
+	 * The mask is built only when there is a boundary in the window, which for a ground leg
+	 * is rare, so the common preview is the same three elements it always was.
 	 *
 	 * It is also the only shape of picture that works. `tools/probe-map-cost.mjs` renders both
 	 * approaches on a throttled 375px phone: four MapLibre instances per card settle in
@@ -53,7 +69,7 @@
 	 */
 	import type { Coordinates } from '$lib/domain';
 	import { projectToBox } from '$lib/itinerary-map/geo';
-	import { landPath } from '$lib/itinerary-map/land';
+	import { previewMap } from '$lib/itinerary-map/land';
 	import type { PreviewLine, PreviewPoint } from '$lib/itinerary-map/previews';
 
 	interface Props {
@@ -86,7 +102,16 @@
 	// The projected endpoint dots go in, so `land.ts` can refuse to draw a coast that would
 	// leave one of them offshore. They are the only places on this drawing whose being
 	// ashore is a fact rather than a guess.
-	const land = $derived(landPath(shape.frame, width, height, shape.points));
+	//
+	// This reads reactive state that a fetch fills in later (`land-tiles.svelte.ts`), so a
+	// ground leg paints the honest solid fill first and its real coast when the region's
+	// tile lands. Reading is all that happens here; nothing in this component writes, which
+	// is what keeps it clear of the self-retriggering effect that cost this app a release.
+	const map = $derived(previewMap(shape.frame, width, height, shape.points));
+	// Unique per instance, and only referenced when there is a boundary to cut: five cards
+	// put twenty of these on a page and a shared id would mask them all with the first
+	// one's geography.
+	const maskId = $props.id();
 </script>
 
 <svg
@@ -97,8 +122,18 @@
 	aria-hidden="true"
 	focusable="false"
 >
-	{#if land}
-		<path class="rp-land" d={land} fill-rule="evenodd" />
+	{#if map.borders}
+		<mask id={maskId} maskUnits="userSpaceOnUse" x="0" y="0" {width} {height}>
+			{#each map.land as d, index (index)}
+				<path d={d} fill="#fff" fill-rule="evenodd" />
+			{/each}
+			<path class="rp-border" d={map.borders} />
+		</mask>
+		<rect class="rp-land" x="0" y="0" {width} {height} mask="url(#{maskId})" />
+	{:else}
+		{#each map.land as d, index (index)}
+			<path class="rp-land" d={d} fill-rule="evenodd" />
+		{/each}
 	{/if}
 	{#if baselinePath}
 		<path class="rp-baseline" d={baselinePath} />
@@ -138,16 +173,33 @@
 		background: transparent;
 	}
 
-	/* "current gray is fine" — the same `--color-bg-inset` the previews used as a
-	   background before this was geography rather than decoration.
-
-	   Filled and never stroked. #280's objection to a basemap here was that "coastline
+	/* Filled and never stroked. #280's objection to a basemap here was that "coastline
 	   under that competes with the only thing it exists to show", and it is a real risk
 	   that a stroked coast would run straight into: a thin line next to the trip's own
 	   thin lines is a second route the eye has to rule out. A flat fill has no line in it
-	   at all, so the only strokes on this drawing remain the ones that mean something. */
+	   at all, so the only strokes on this drawing remain the ones that mean something.
+
+	   `--color-map-land` rather than `--color-bg-inset`, which is what #346 used and which
+	   sits 1.1:1 from the card behind it. See the token's own comment: an invisible coast
+	   is the other half of "they are a solid gray always". */
 	.rp-land {
-		fill: var(--color-bg-inset);
+		fill: var(--color-map-land);
+	}
+
+	/* A country boundary, and it is black because it is only ever seen inside a `<mask>`:
+	   black in a luminance mask means "cut", so this takes the land away along the border
+	   rather than putting a line on top of it. Nothing on this drawing is painted this
+	   colour.
+
+	   Wide enough to survive at 100px and no wider. A boundary that reads as a stroke is a
+	   boundary that reads as a route, which is the whole thing this may not do. */
+	.rp-border {
+		fill: none;
+		stroke: #000;
+		stroke-width: 1.25;
+		vector-effect: non-scaling-stroke;
+		stroke-linecap: round;
+		stroke-linejoin: round;
 	}
 
 	/* Stroke widths in screen pixels, not viewBox units: the same route drawn 100px wide
@@ -192,7 +244,7 @@
 		   an endpoint rather than a thickening. Land rather than sea because every dot on
 		   these drawings is an airport, a hotel or a city centre, and those are ashore.
 		   Never `transparent`: the ring's whole job is to cut the line. */
-		stroke: var(--color-bg-inset);
+		stroke: var(--color-map-land);
 		stroke-width: 1.5;
 		vector-effect: non-scaling-stroke;
 	}

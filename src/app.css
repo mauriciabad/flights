@@ -64,6 +64,19 @@
 	--color-surface: #161f3d;
 	--color-surface-hover: #1d274a;
 
+	/* The land on a frozen route preview. The sea is whatever the parent
+	   element paints, which is the owner's own instruction from #305: "i
+	   expect tat it shows the sea white (same as bg in parent element) and
+	   land a but gray (current gray is fine)".
+
+	   Its own token rather than --color-bg-inset, which is what #346 used and
+	   is 1.1:1 against the card it sits on. That was invisible, and it is half
+	   of why #408 reads as "they are a solid gray always": on the previews
+	   where a coast *was* drawn you could not see it either. 1.6:1 here, which
+	   is a shape you can read at 104px without competing with the arcs on top
+	   — those are a saturated amber and teal, and this is neither. */
+	--color-map-land: #2b3663;
+
 	/* Decorative dividers only. Not for anything that needs to be seen to
 	   be used — that's --color-border-strong. */
 	--color-border: #232d54;
@@ -251,6 +264,9 @@
 		--color-bg-inset: #eceef5;
 		--color-surface: #ffffff;
 		--color-surface-hover: #eef1fa;
+
+		/* Darker than the page here rather than lighter, same 1.5:1 apart. */
+		--color-map-land: #c3c9dd;
 
 		--color-border: #d9dded;
 		--color-border-strong: #818ab0;

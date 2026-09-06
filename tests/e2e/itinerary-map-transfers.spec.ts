@@ -315,12 +315,18 @@ test.describe('itinerary map: every transfer leg, distinct markers, honest geome
 		// three is the count. The map itself is behind them, in a dialog.
 		await expect(detail.locator('.ground-legs-item')).toHaveCount(3);
 
-		// Every OSRM route request this search made asked for a simplified GeoJSON
-		// overview — a parameter on a request already being made (this PR's whole
-		// premise), never an extra one.
+		// Every OSRM route request this search made asked for the geometry as a parameter
+		// on a request already being made — #118's whole premise — and never as an extra
+		// one. That claim is what this loop is for and it has not changed.
+		//
+		// The value has. #118 asked for `overview=simplified`; #408 asks for `full`,
+		// because a ground preview fits its leg to its own window and `simplified` draws a
+		// 14.5 km airport run as ten points. What is *kept* is thinned back down
+		// (`thinRoutePath`), which is a decision about the cache rather than about the
+		// request, and `osrm.test.ts` is where that half is pinned.
 		expect(osrmRouteRequests.length).toBeGreaterThan(0);
 		for (const requested of osrmRouteRequests) {
-			expect(requested).toContain('overview=simplified');
+			expect(requested).toContain('overview=full');
 			expect(requested).toContain('geometries=geojson');
 		}
 		expect(bookingSearches.length).toBeGreaterThan(0);
