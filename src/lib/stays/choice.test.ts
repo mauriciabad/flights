@@ -1,7 +1,13 @@
-import type { Coordinates, Property, RoomKind, Stay } from '$lib/domain';
+import type { Coordinates, Duration, Property, RoomKind, Stay } from '$lib/domain';
 import { describe, expect, it } from 'vitest';
-import { describePriceComparison, describeStayChoices, stayDistances } from './choice';
-import type { PropertyStayOptions, StayOption } from './types';
+import {
+	describePriceComparison,
+	describeStayChoices,
+	showsWholeStayFigures,
+	stayDistances
+} from './choice';
+import type { StayReach } from './reach';
+import { propertyKey, type PropertyStayOptions, type StayOption } from './types';
 
 const AIRPORT: Coordinates = { latitude: 48.11, longitude: 16.57 };
 const CENTRE: Coordinates = { latitude: 48.2082, longitude: 16.3738 };
@@ -67,6 +73,46 @@ describe('describeStayChoices', () => {
 			kind: 'difference',
 			perNight: { minorUnits: 1200, currency: 'EUR' }
 		});
+	});
+
+	/**
+	 * Issue #404: at one night the whole-stay figure IS the nightly figure, and printing both
+	 * is the "same number twice" the owner was looking at.
+	 */
+	it('drops the whole-stay difference at one night, where it would only repeat the nightly one', () => {
+		const [, theirs] = describeStayChoices([group({ stay: pickedStay }), group({ stay: makeStay(rival, 'dorm', 3200) })], {
+			picked: pickedStay,
+			connectionAirport: AIRPORT,
+			nights: 1
+		});
+		expect(theirs.comparison).toEqual({ kind: 'difference', perNight: { minorUnits: 1200, currency: 'EUR' } });
+		expect(showsWholeStayFigures(1)).toBe(false);
+		expect(showsWholeStayFigures(2)).toBe(true);
+	});
+
+	it('carries the routed journey times through to the row, keyed by property', () => {
+		const reach: StayReach = {
+			walk: { kind: 'routed', minutes: 18 as Duration },
+			transit: { kind: 'not-asked' },
+			taxi: { kind: 'routed', minutes: 6 as Duration }
+		};
+		const [choice] = describeStayChoices([group({ stay: makeStay(rival, 'dorm', 1800) })], {
+			picked: pickedStay,
+			connectionAirport: AIRPORT,
+			nights: 2,
+			reachByProperty: new Map([[propertyKey(rival), reach]])
+		});
+		expect(choice.reach).toBe(reach);
+	});
+
+	it('leaves the reach absent for a property nothing was looked up for', () => {
+		const [choice] = describeStayChoices([group({ stay: makeStay(rival, 'dorm', 1800) })], {
+			picked: pickedStay,
+			connectionAirport: AIRPORT,
+			nights: 2,
+			reachByProperty: new Map()
+		});
+		expect(choice.reach).toBeUndefined();
 	});
 
 	it('says which currency rather than subtracting two of them', () => {
@@ -149,17 +195,17 @@ describe('describePriceComparison', () => {
 		).toEqual({ headline: '+€12.00/night', overStay: '+€36.00 over 3 nights', cheaper: false });
 	});
 
-	it('writes one night singular', () => {
+	it('signs a cheaper stay negative on both figures', () => {
 		expect(
 			describePriceComparison(
 				{
 					kind: 'difference',
 					perNight: { minorUnits: -600, currency: 'EUR' },
-					overStay: { minorUnits: -600, currency: 'EUR' }
+					overStay: { minorUnits: -1200, currency: 'EUR' }
 				},
-				1
+				2
 			)
-		).toEqual({ headline: '-€6.00/night', overStay: '-€6.00 over 1 night', cheaper: true });
+		).toEqual({ headline: '-€6.00/night', overStay: '-€12.00 over 2 nights', cheaper: true });
 	});
 
 	it('says nothing for the row that is already picked, and nothing for one with no price', () => {

@@ -22,8 +22,8 @@
  * rendered for one that already carries a stay), and at zero nights every whole-stay total
  * is zero, so every whole-stay delta is zero: a column that says "same price" against thirty
  * different beds. The nightly rate is the figure that always separates them. So
- * `perNight` is always present on a difference and `overStay` only when there is a night to
- * multiply.
+ * `perNight` is always present on a difference and `overStay` only when there is more than
+ * one night to multiply — see `showsWholeStayFigures`, which is issue #404's half of this.
  *
  * ## What the difference deliberately does NOT include
  *
@@ -47,6 +47,7 @@
 
 import type { Coordinates, Money, Property, Stay } from '$lib/domain';
 import { formatDistanceKm, haversineDistanceKm } from './distance';
+import type { StayReach } from './reach';
 import { formatMoney, stayTotalDelta, stayTotalForNights } from './pricing';
 import { cheapestSelectableOption } from './rank';
 import { stayGenderFitMessage } from './gendered-room-fit';
@@ -80,8 +81,15 @@ export interface StayChoice {
 	 * Present exactly when `cheapest` is absent. */
 	unavailableReason?: string;
 	/** Straight line to the connection airport, the same figure and formatter every other
-	 * stay surface prints. */
+	 * stay surface prints. Issue #405 demoted this on the row in favour of `reach`, because a
+	 * traveller cannot turn a straight line into "can I walk to this", but it is still what
+	 * the map's sidebar prints as a labelled figure and what the row falls back to before any
+	 * router has answered. */
 	distanceToAirportKm: number;
+	/** How long the journey out from the connection airport takes, per mode. Issue #405.
+	 * Absent when nothing has been looked up for this list at all, which is the state a unit
+	 * test or a caller with no provider access sits in; `fetch-reach.ts` fills it. */
+	reach?: StayReach;
 	/** Absent unless this airport has a hand-checked city point (issue #162). */
 	distanceToCentreKm?: number;
 	/** `cheapest`'s nightly rate, multiplied out for the stopover's nights. */
@@ -102,6 +110,26 @@ export interface StayChoiceContext {
 	nights: number;
 	travellers?: number;
 	females?: number;
+	/** Issue #405's journey times, keyed by `propertyKey`. Passed in rather than fetched
+	 * here because this module is pure and the lookup is two OSRM requests; `fetch-reach.ts`
+	 * owns that and states what it costs. A key with no entry leaves `StayChoice.reach`
+	 * absent, which every surface already has to handle for a list nothing has routed. */
+	reachByProperty?: ReadonlyMap<string, StayReach>;
+}
+
+/**
+ * Whether the whole-stay figures say anything the nightly ones do not.
+ *
+ * Issue #404, the owner: the money row **"repeats itself four times"**. At one night
+ * `from €30.40/night`, `€30.40 total`, `+€5.60/night` and `+€5.60 over 1 night` are two
+ * numbers printed twice, and the duplication is what the eye lands on instead of the
+ * comparison the row exists to make. Multiplying by one is arithmetic, not information.
+ *
+ * Here rather than in the card, for the reason the rest of this file exists: the map's
+ * sidebar prints the same pair of figures and would otherwise keep printing both.
+ */
+export function showsWholeStayFigures(nights: number): boolean {
+	return nights > 1;
 }
 
 function compare(candidate: Stay | undefined, context: StayChoiceContext, isPicked: boolean): StayPriceComparison {
@@ -120,10 +148,9 @@ function compare(candidate: Stay | undefined, context: StayChoiceContext, isPick
 	return {
 		kind: 'difference',
 		perNight,
-		overStay:
-			context.nights > 0
-				? stayTotalDelta(picked.pricePerNight, candidate.pricePerNight, context.nights)
-				: undefined
+		overStay: showsWholeStayFigures(context.nights)
+			? stayTotalDelta(picked.pricePerNight, candidate.pricePerNight, context.nights)
+			: undefined
 	};
 }
 
@@ -158,6 +185,7 @@ export function describeStayChoices(
 			distanceToCentreKm: context.cityCentre
 				? haversineDistanceKm(property.coordinates, context.cityCentre)
 				: undefined,
+			reach: context.reachByProperty?.get(propertyKey(property)),
 			total: cheapest ? stayTotalForNights(cheapest.stay.pricePerNight, context.nights) : undefined,
 			comparison: compare(cheapest?.stay, context, isPicked),
 			isPicked
@@ -186,8 +214,12 @@ export function describePriceComparison(
 			const magnitude = (money: Money) => formatMoney({ ...money, minorUnits: Math.abs(money.minorUnits) });
 			return {
 				headline: `${sign}${magnitude(comparison.perNight)}/night`,
+				// Always plural: `compare` only builds `overStay` where `showsWholeStayFigures`
+				// is true, and that is two nights or more. A singular branch here would be a
+				// case nothing can reach, which is the shape of check this repo keeps catching
+				// itself keeping.
 				overStay: comparison.overStay
-					? `${sign}${magnitude(comparison.overStay)} over ${nights} ${nights === 1 ? 'night' : 'nights'}`
+					? `${sign}${magnitude(comparison.overStay)} over ${nights} nights`
 					: undefined,
 				cheaper
 			};
