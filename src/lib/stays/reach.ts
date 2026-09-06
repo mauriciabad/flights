@@ -204,8 +204,16 @@ export function describeStayReach(reach: StayReach | undefined): string[] {
  * on the rows beside it is a real absence and this sentence would be describing something
  * that is no longer true.
  */
+/**
+ * The wording is about what a traveller can do, not about how the app fetches. An earlier
+ * draft opened "routed for the whole list in two requests", which tells somebody choosing a
+ * hostel nothing they can act on, and was wrong besides: `fetch-reach.ts` measured one
+ * request cold on both lists it tried, because a candidate inside walking range is rare
+ * enough that the foot table is usually never sent. The reason a bus time is missing belongs
+ * in that file's header, where the next person to widen this will read it.
+ */
 export const TRANSIT_NOT_BATCHABLE_NOTE =
-	'Walking and taxi times are routed for the whole list in two requests. Public transport has no such lookup, so a bus time is checked one property at a time, from the transport row of the trip you pick.';
+	'Walking and taxi times cover every stay here. A bus time is checked one stay at a time, on the transport row of the trip you pick.';
 
 export function stayReachNote(reaches: Iterable<StayReach>): string | undefined {
 	let sawTransit = false;
