@@ -3,6 +3,7 @@ import { FIXTURE_FLIGHT_NUMBERS, FIXTURE_PRICES } from './support/fixture-marker
 import {
 	mockAllKeylessProviders,
 	mockHostelworld,
+	mockTransitousPerLegMoment,
 	routeRyanairFlights
 } from './support/providers';
 import { openTimeline } from './support/results-ui';
@@ -27,6 +28,14 @@ import { waitForSearchToSettle } from '../shared/search-wait';
  * 10:40am is the fixture's own `2027-03-08T09:40:00Z` read in `Europe/Vienna`, the zone
  * the leg's own `from.tz` names. Not the browser's, not UTC. AGENTS.md: every time the app
  * prints is local to the place it refers to.
+ *
+ * Issue #368 gave the two legs two timetables. One canned answer for both was already
+ * wrong, and only invisibly so: the ride back to the airport is planned backwards from a
+ * Wednesday check-in deadline and this row was printing a Sunday-morning departure at it,
+ * which is exactly the "a schedule with no stated moment is a coincidence" that #135 exists
+ * to prevent. Now that the closing edge of the stopover reads that departure, a bus leaving
+ * two days before the traveller lands is refused by the connection-time check and the row
+ * keeps its walk, which is what this spec caught.
  */
 
 const EMPTY_MAP_STYLE = JSON.stringify({ version: 8, name: 'empty', sources: {}, layers: [] });
@@ -34,6 +43,9 @@ const EMPTY_MAP_STYLE = JSON.stringify({ version: 8, name: 'empty', sources: {},
 test.describe('a Transitous timetable reaches the timeline (issue #242)', () => {
 	test('a stopover with a bed shows its bus and the time it boards', async ({ page }) => {
 		await mockAllKeylessProviders(page.context());
+		// After the defaults so it wins, and per leg so each timetable belongs to the moment
+		// its own lookup was planned for.
+		await mockTransitousPerLegMoment(page.context());
 
 		// Registered after the defaults so it wins: one Hostelworld city at Vienna airport's
 		// own coordinates with one property on it, which is what gets a bed priced and
@@ -82,7 +94,14 @@ test.describe('a Transitous timetable reaches the timeline (issue #242)', () => 
 		// each is its own Transitous question: `planTransitLegs` asks about the ride into
 		// town at the moment the flight lands, and about the ride back at the check-in
 		// deadline for the onward flight.
-		for (const segment of ['transfer-to-hotel', 'transfer-to-connection-airport']) {
+		// 10:40am is `plan.json`'s 09:40Z, the ride out of the airport. 8:10am is
+		// `plan-arriveby.json`'s 07:10Z on the 10th, the last bus that still makes the 9am
+		// check-in deadline for an 11am flight.
+		const boards: Record<string, string> = {
+			'transfer-to-hotel': '10:40am',
+			'transfer-to-connection-airport': '8:10am'
+		};
+		for (const [segment, clock] of Object.entries(boards)) {
 			const row = timeline.locator(`.tl-row[data-segment="${segment}"]`);
 			// The two things a road answer never produces: the vehicle Transitous named, and
 			// the clock time that only `transitSchedule.intended` fills in. Asserting them
@@ -93,7 +112,14 @@ test.describe('a Transitous timetable reaches the timeline (issue #242)', () => 
 				row.locator('.tl-when-clock'),
 				`${segment} should show the boarding time from the Transitous fixture, read in ` +
 					"the leg's own Europe/Vienna zone"
-			).toHaveText('10:40am');
+			).toHaveText(clock);
 		}
+
+		// Issue #368: the stopover block's closing edge and the row's clock are one event.
+		// Before the split they were the deadline minus the ride and the real last bus,
+		// 25 minutes apart here and 1h 28m apart on the owner's own production card.
+		await expect(page.locator('.result-detail .stopover .stopover-edge').last()).toContainText(
+			'until 8:10am'
+		);
 	});
 });
