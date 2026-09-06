@@ -149,10 +149,16 @@ test.describe('PWA', () => {
 		// stale-then-fresh with per-entry TTLs and an expired-fallback tier that reports
 		// *why* a refresh failed, and a second cache underneath it in the service worker
 		// would make results inexplicable. vite.config.ts's workbox block only precaches
-		// this app's own build output (globPatterns matches local js/css/html/assets) and
-		// sets no runtimeCaching, so a cross-origin provider call should never have a
-		// service-worker fetch handler to answer it from Cache Storage in the first
-		// place. This proves that against a real provider host, not just by reading config.
+		// this app's own build output (globPatterns matches local js/css/html/assets), so
+		// a cross-origin provider call should never have a service-worker fetch handler to
+		// answer it from Cache Storage. This proves that against a real provider host, not
+		// just by reading config.
+		//
+		// "and sets no runtimeCaching" used to be part of that argument and no longer is.
+		// #408 added exactly one rule, for the app's own /land/*.txt coastline tiles.
+		// Workbox matches a RegExp against a cross-origin request from the start of the
+		// whole URL, and no provider's URL begins "/land/", so the rule cannot reach one —
+		// which is a claim this test is now the thing that checks.
 		await mockRyanair(context);
 
 		let hits = 0;

@@ -47,7 +47,7 @@ import type {
 	TransferLeg,
 	TransferMode
 } from '../../domain';
-import { greatCircleDistanceKm, MAX_PLAUSIBLE_WALK_MINUTES } from '../../domain';
+import { greatCircleDistanceKm, MAX_PLAUSIBLE_WALK_MINUTES, thinRoutePath } from '../../domain';
 import type {
 	ProviderContext,
 	ProviderError,
@@ -436,16 +436,22 @@ interface RouteData {
  * `geometry: 'simplified-geojson'` is not a real query parameter — it is a discriminator
  * that exists purely so this key changes when the *shape of the cached value* changes.
  * Before this field existed, a route was fetched with `overview=false` and cached as
- * `{ durationSeconds, distanceMeters }`; `fetchRoute` now asks for
- * `overview=simplified&geometries=geojson` and caches `path` alongside those two. Both
- * versions hash to the exact same key for the same origin/destination/profile, and the
- * cache TTL is 30 days, so without this discriminator every entry written by the old
- * code would keep being read back as a "fresh" hit with no `path` for up to a month —
- * silently reverting this fix to a straight line for anyone who had already used the
- * app, the owner very much included. Bump this string again the next time this
- * function's cached value shape changes, for the same reason.
+ * `{ durationSeconds, distanceMeters }`; `fetchRoute` now asks for the shape too and
+ * caches `path` alongside those two. Both versions hash to the exact same key for the
+ * same origin/destination/profile, and the cache TTL is 30 days, so without this
+ * discriminator every entry written by the old code would keep being read back as a
+ * "fresh" hit with no `path` for up to a month — silently reverting this fix to a
+ * straight line for anyone who had already used the app, the owner very much included.
+ * Bump this string again the next time this function's cached value shape changes, for
+ * the same reason.
+ *
+ * Bumped for #408, which moved `overview` from `simplified` to `full` and thins what
+ * comes back before storing it. A `path` cached last week is a ten-point sketch of a
+ * road, and it would have been served back as a fresh hit into a preview whose whole
+ * point in that issue is showing the road. This is the second time on this one key; the
+ * merge note in `AGENTS.md` about #131 is about the first time it was missed.
  */
-const ROUTE_CACHE_SHAPE_VERSION = 'simplified-geojson';
+const ROUTE_CACHE_SHAPE_VERSION = 'full-geojson-thinned';
 
 function routeCacheKey(profile: OsrmProfile, origin: Coordinates, destination: Coordinates): CacheKey {
 	return defineCacheKey(
@@ -523,17 +529,26 @@ async function fetchRoute(
 		profile,
 		'route',
 		coords,
-		// Issue #118: `overview=simplified` (OSRM's own default, tuned for exactly this —
-		// drawing a route on a map, not turn-by-turn precision) plus
-		// `geometries=geojson` asks this SAME request for the route's shape alongside
-		// the duration/distance it was already fetching — one more field in the JSON
-		// body, not a second request. `overview=false` (the previous value here) was
-		// this file's own explicit choice to ask OSRM for nothing more than the number
-		// this adapter used to need; there was never a request-count reason not to ask
-		// for the shape too. `geometries=geojson` avoids also needing a polyline
-		// decoder for OSRM's terser default encoding, at the cost of a larger response
-		// body — worth it for `simplified`'s point count (tens, not hundreds).
-		{ overview: 'simplified', geometries: 'geojson' },
+		// Issue #118 asked this SAME request for the route's shape alongside the
+		// duration/distance it was already fetching — one more field in the JSON body,
+		// never a second request. `geometries=geojson` avoids also needing a polyline
+		// decoder for OSRM's terser default encoding.
+		//
+		// Issue #408 moved `overview` from `simplified` to `full`. `simplified` is OSRM's
+		// default and is tuned for drawing a route at overview zoom, which is not what
+		// these pictures are: `RoutePreview` fits each ground leg to its own window, so a
+		// 14.5 km airport run is drawn across the whole box and every bend in it shows.
+		// Measured on that leg, `simplified` returns 10 points and `full` returns 446 — the
+		// difference between a schematic zigzag and the road. The owner asked for exactly
+		// this: "the ground transport to show more details because they are zoomed in."
+		//
+		// What arrives is not what is kept. `thinRoutePath` cuts it to the detail something
+		// here can actually draw, because caching `full` whole is 40.4 kB a route against
+		// `simplified`'s 1.1 kB, and `cache/constants.ts` gives every provider 5 MB between
+		// them. See that function for the measurement; the short version is that 120 routes
+		// of raw `full` is 92% of the budget, and an eviction there does not look like a
+		// full cache, it looks like the map going back to straight lines for no reason.
+		{ overview: 'full', geometries: 'geojson' },
 		options,
 		signal
 	);
@@ -545,10 +560,14 @@ async function fetchRoute(
 	if (!isFiniteNumber(route.duration) || !isFiniteNumber(route.distance)) {
 		throw new OsrmMalformedResponseError('OSRM route had a non-numeric duration or distance');
 	}
+	const path = parseGeoJsonLineString(route.geometry);
 	return {
 		durationSeconds: route.duration,
 		distanceMeters: route.distance,
-		path: parseGeoJsonLineString(route.geometry)
+		// Thinned before it is cached, not before it is drawn: this value goes into a store
+		// with a 5 MB budget shared across every provider and a 30-day TTL, so the shape
+		// kept here is the shape every later reader gets. See `thinRoutePath`.
+		path: path && thinRoutePath(path)
 	};
 }
 

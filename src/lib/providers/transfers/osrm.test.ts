@@ -101,7 +101,7 @@ describe('createOsrmTransferProvider / searchTransfers', () => {
 		expect(byMode.taxi.price).toBeUndefined();
 	});
 
-	it('asks for a simplified GeoJSON overview and turns it into the Transfer\'s path (issue #118)', async () => {
+	it('asks for the full GeoJSON overview and turns it into the Transfer\'s path (issues #118, #408)', async () => {
 		const geometry = { type: 'LineString', coordinates: [[2.0785, 41.2971], [2.12, 41.34], [2.1686, 41.3874]] };
 		const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(routeBody(600, 800, geometry)));
 		const provider = createOsrmTransferProvider({ store: new MemoryCacheStore(), fetchImpl });
@@ -109,7 +109,11 @@ describe('createOsrmTransferProvider / searchTransfers', () => {
 		const result = await provider.searchTransfers({ from: AIRPORT, to: HOTEL, modes: ['walk'] }, ctxFor());
 
 		const [url] = fetchImpl.mock.calls[0] as [string];
-		expect(url).toContain('overview=simplified');
+		// `full`, not `simplified`. #408: a ground preview fits one leg to its own window,
+		// so `simplified`'s ten points across a 14.5 km airport run draw a zigzag where the
+		// road has bends. What is kept is thinned back down before it reaches the cache;
+		// the test below this one is where that half is pinned.
+		expect(url).toContain('overview=full');
 		expect(url).toContain('geometries=geojson');
 		// Still one request — the geometry rides along on the same route fetch this
 		// adapter already made for the duration, not a second one.
@@ -123,6 +127,36 @@ describe('createOsrmTransferProvider / searchTransfers', () => {
 			{ latitude: 41.34, longitude: 2.12 },
 			{ latitude: 41.3874, longitude: 2.1686 }
 		]);
+	});
+
+	it('thins the road before caching it, so full geometry does not eat the shared budget (#408)', async () => {
+		// `overview=full` on a real 14.5 km airport transfer returns 446 points and caches
+		// as 19 kB. `cache/constants.ts` gives every provider 5 MB between them, and 120
+		// such routes would be 92% of it — an eviction that reads to a traveller as the map
+		// silently reverting to straight lines. What is kept is the detail something can
+		// actually draw. Six hundred points of gently wobbling road here, none of the
+		// wobble bigger than the leg over 1,200.
+		const coordinates = Array.from({ length: 600 }, (_, i) => [
+			2.0785 + (0.09 * i) / 599 + Math.cos(i / 5) * 0.00002,
+			41.2971 + (0.08 * i) / 599 + Math.sin(i / 7) * 0.00002
+		]);
+		const fetchImpl = vi
+			.fn()
+			.mockResolvedValue(jsonResponse(routeBody(600, 800, { type: 'LineString', coordinates })));
+		const provider = createOsrmTransferProvider({ store: new MemoryCacheStore(), fetchImpl });
+
+		const result = await provider.searchTransfers({ from: AIRPORT, to: HOTEL, modes: ['walk'] }, ctxFor());
+
+		expect(result.ok).toBe(true);
+		if (!result.ok) return;
+		const path = result.data[0].path;
+		expect(path).toBeDefined();
+		expect(path!.length).toBeLessThan(50);
+		// Both ends survive thinning exactly as OSRM sent them. That matters beyond tidiness:
+		// `segments.ts` splices the itinerary's own endpoints back over them, and a path
+		// whose ends had wandered would leave a kink where the splice lands.
+		expect(path![0].longitude).toBeCloseTo(coordinates[0][0], 5);
+		expect(path![path!.length - 1].longitude).toBeCloseTo(coordinates[599][0], 5);
 	});
 
 	it('leaves Transfer.path undefined, without throwing, when OSRM omits or malforms the geometry', async () => {

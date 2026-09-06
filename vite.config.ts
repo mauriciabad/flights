@@ -74,10 +74,39 @@ export default defineConfig({
 				]
 			},
 			workbox: {
+				// static/land/*.txt is deliberately outside this. Those are the 1,001
+				// regional coastline tiles from scripts/prepare-land-tiles.mjs, 762 kB
+				// gzipped in total, of which a traveller needs the two or three their
+				// own trip touches. Adding txt here, or shipping them as generated
+				// modules so the js glob swept them up, would download all of it on
+				// install for every visitor — the same bytes-up-front cost the region
+				// split exists to avoid, moved out of the bundle and into the service
+				// worker. The runtimeCaching rule below keeps the ones used instead.
 				globPatterns: ['**/*.{js,css,html,svg,png,woff2}'],
 				// Provider responses are cached by the app's own layered cache, not
 				// by the service worker, so it must not shadow them.
 				navigateFallback: null,
+				// The one runtime rule, and it is same-origin by construction: workbox
+				// matches a RegExp against a cross-origin request from the start of the
+				// whole URL, and no provider's URL begins "/land/". `pwa.spec.ts` proves
+				// that separately against a real provider host, because "there is no
+				// runtimeCaching at all" used to be the argument and no longer is.
+				//
+				// CacheFirst because a tile is immutable at its URL: `?v=` is a content
+				// hash over every tile, so changed data is a changed URL rather than a
+				// stale hit. This is what makes a preview that showed water keep showing
+				// it in aeroplane mode, which is where a traveller often is.
+				runtimeCaching: [
+					{
+						urlPattern: /\/land\/-?\d+_-?\d+\.txt/,
+						handler: 'CacheFirst',
+						options: {
+							cacheName: 'land-tiles',
+							expiration: { maxEntries: 200, maxAgeSeconds: 60 * 60 * 24 * 180 },
+							cacheableResponse: { statuses: [0, 200] }
+						}
+					}
+				],
 				cleanupOutdatedCaches: true,
 				// These two are what actually make 'autoUpdate' happen, and they have to
 				// be written out by hand here. vite-plugin-pwa only translates
