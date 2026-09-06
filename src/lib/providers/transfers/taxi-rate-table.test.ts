@@ -310,4 +310,33 @@ describe('the rate cards themselves', () => {
 		if (fallback.kind !== 'estimate') throw new Error('expected a fare range');
 		expect(fallback.party?.basis).toBe('unknown');
 	});
+
+	it('the fallback card contains every country card, in euros, at every rated distance', () => {
+		// The fallback's whole claim is that it spans the twelve cards, and for a long time it did
+		// not. Its four figures were copied off cards denominated in GBP, CHF, SEK and CZK as
+		// though a minor unit meant the same thing in each, so it topped out at €22.00 on a 5 km
+		// ride against Switzerland's €34.02. Asserting the claim is cheaper than restating it in a
+		// comment, and it is the only thing standing between a thirteenth country and the same
+		// mistake. Add one outside this span and this fails with the figure that would fix it.
+		for (const countryCode of Object.keys(TAXI_RATE_TABLE)) {
+			for (let km = 0; km <= MAX_RATED_TAXI_DISTANCE_KM; km += 1) {
+				const card = estimateTaxiFare(km * 1000, countryCode, 'EUR');
+				const fallback = estimateTaxiFare(km * 1000, 'ZZ');
+				if (card.kind !== 'estimate' || fallback.kind !== 'estimate') {
+					throw new Error(`expected fare ranges for ${countryCode} at ${km}km`);
+				}
+				// A card that came back in its own currency because the ECB feed went stale would
+				// otherwise be compared minor unit against minor unit, which is the bug itself.
+				expect(card.currency, `${countryCode} at ${km}km did not convert to euros`).toBe('EUR');
+				expect(
+					fallback.lowMinorUnits,
+					`fallback low is above ${countryCode}'s low at ${km}km`
+				).toBeLessThanOrEqual(card.lowMinorUnits);
+				expect(
+					fallback.highMinorUnits,
+					`fallback high is below ${countryCode}'s high at ${km}km`
+				).toBeGreaterThanOrEqual(card.highMinorUnits);
+			}
+		}
+	});
 });
