@@ -175,16 +175,18 @@ describe('insertWithoutDisplacing', () => {
 	});
 
 	it('puts an appended arrival in its place once the traveller asks for a sort', () => {
-		// What the "sort N trips into place" control does. `sortResults` rather than
-		// `insertStable`, because a re-sort somebody asked for is meant to reorder.
+		// What the "sort N trips into place" control does. A full sort rather than another
+		// insertion, because a re-sort somebody asked for is meant to reorder. The page reaches
+		// it through `reorderBy`, which sorts on what the cards show; here nothing has been
+		// refined, so the slots' own scores are what the cards show and the two agree.
 		const worse = makeScoredResult({ priceMinorUnits: 30_000, nightsInConnection: 0 });
 		const better = makeScoredResult({ priceMinorUnits: 6_000, nightsInConnection: 3 });
 		let order = insertWithoutDisplacing([], toSlot(worse), byScore, allOnScreen).order;
 		order = insertWithoutDisplacing(order, toSlot(better), byScore, allOnScreen).order;
 
-		const sorted = sortResults(slotsToResults(order), 'score');
+		const sorted = reorderBy(order, slotsToResults(order), byScore);
 
-		expect(sorted.map((r) => r.id)).toEqual([better.id, worse.id]);
+		expect(sorted.map((slot) => slot.id)).toEqual([better.id, worse.id]);
 	});
 });
 
