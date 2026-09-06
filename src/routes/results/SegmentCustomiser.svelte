@@ -71,7 +71,7 @@
 		pickLandingToTransportTime
 	} from '$lib/search';
 	import { keyStore } from '$lib/keys';
-	import { getProviderRegistry, hasUnconfiguredStayProvider, hasUsableStayProvider } from '$lib/results/provider-setup';
+	import { getProviderRegistry, hasUsableStayProvider, unconfiguredStayProviders } from '$lib/results/provider-setup';
 	import { applyBedToDraft, journeyForBed, routeBedForDraft } from '$lib/results/pick-bed';
 	import type { AutomaticStaySwap, TravellerChoices } from '$lib/results/traveller-choices';
 	import type { ItineraryDraft } from '$lib/results/itinerary-draft.svelte';
@@ -263,10 +263,11 @@
 	// The same expression the banner above the results list uses (`StayKeyNotice`), so the
 	// two cannot say different things about whether a bed was ever searched for.
 	const stayProviderConfigured = $derived(hasUsableStayProvider(keyStore.availableKeys));
-	// Issue #203: whether "add a key" is still something this traveller could do. Since
-	// #202 made a keyless provider always usable, the expression above is always true and
-	// stopped being able to answer that.
-	const hasWiderProviderToAdd = $derived(hasUnconfiguredStayProvider(keyStore.availableKeys));
+	// Issue #203: which providers "add a key" could still reach. Since #202 made a keyless
+	// provider always usable, the expression above is always true and stopped being able to
+	// answer that. Issue #374 wants the labels, not a yes/no: a notice that names Booking
+	// alone must not send a traveller to the Agoda row he already filled in.
+	const widerProvidersToAdd = $derived(unconfiguredStayProviders(keyStore.availableKeys));
 
 	/** Issue #185/#203: the one place that says WHY there is no bed and what could change
 	 * it. Everything else about a missing bed states its own fact and leaves the cause
@@ -277,7 +278,7 @@
 			searchDone,
 			cityName: connectionAirport?.city.name,
 			stayProviders,
-			hasUnconfiguredStayProvider: hasWiderProviderToAdd
+			unconfiguredStayProviders: widerProvidersToAdd
 		})
 	);
 
@@ -672,7 +673,7 @@
 							{stayProviderConfigured}
 							{searchDone}
 							{stayProviders}
-							hasUnconfiguredStayProvider={hasWiderProviderToAdd}
+							unconfiguredStayProviders={widerProvidersToAdd}
 							chosen={stayIsChosen}
 							onuseRecommended={useRecommendedBed}
 						/>

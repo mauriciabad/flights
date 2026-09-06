@@ -32,8 +32,8 @@
 	 * - The room kind is `ROOM_KIND_LABELS`, the same table the stay picker's tiles use, and
 	 *   the distance beside it is `stays/distance.ts`, the same straight line and the same
 	 *   formatter every row of that picker prints (issue #219).
-	 * - The transfer's duration, mode and fare are `itinerary.transferToHotel` through
-	 *   `formatDuration`, `transferModeLabel` and `transferFareNote`, and when nothing
+	 * - The transfer's duration, shape and fare are `itinerary.transferToHotel` through
+	 *   `formatDuration`, `transferDetailLine` and `transferFareNote`, and when nothing
 	 *   routed to the bed at all, `unroutedLegNote`.
 	 *
 	 * ## The two format decisions worth naming
@@ -45,10 +45,15 @@
 	 * called probably wrong and is. The later ruling wins, so this reads `€52.82/night` and
 	 * `€10.00 each way` through the existing formatter, and no money formatting changes.
 	 *
-	 * **The transport line names its mode instead of drawing an icon.** He asked for an
-	 * icon; the app has no transfer-mode icon set, and every other transfer surface spells
-	 * the mode out through `transferModeLabel`. Inventing four glyphs here would be a second
-	 * vocabulary for the same four modes.
+	 * **The transport line is words, not a glyph.** He asked for an icon; the app had no
+	 * transfer-mode icon set when this was written, and inventing four glyphs here would
+	 * have been a second vocabulary for the same four modes.
+	 *
+	 * What those words are changed with issue #373. This used to read the bare mode through
+	 * `transferModeLabel`, on the reasoning that every other transfer surface did. That had
+	 * stopped being true: `ItineraryTimeline` and `segment-stub.ts` both moved to
+	 * `transferDetailLine`, and this block was left printing "Public transport" beside a
+	 * timeline row reading "Bus, then metro (1 change)" about the same journey.
 	 *
 	 * ## The stay half has three states, not two
 	 *
@@ -79,8 +84,8 @@
 	import { freeTimeDays } from './free-time-days';
 	import {
 		landingBufferNote,
+		transferDetailLine,
 		transferFareNote,
-		transferModeLabel,
 		unroutedLegNote
 	} from './itinerary-timeline-format';
 
@@ -184,7 +189,15 @@
 		// rather than being dropped: the two time lines at the top of this same block are
 		// built off the full duration, and "from 12:48am" beside a bare 38m would look like an
 		// arithmetic mistake.
-		const ride = `${transferModeLabel(toHotel.mode)}, ${formatDuration(transferRideDuration(toHotel))} from the airport, ${fare}`;
+		//
+		// Issue #373: `transferDetailLine`, not `transferModeLabel`. The owner's criterion for
+		// a bed is "no transport hoping to change bus or metro line", and "Public transport"
+		// cannot answer it while "Bus, then metro (1 change)" can. The timeline row four
+		// centimetres below already printed the second sentence for this very transfer, so
+		// the block was the one surface still discarding a count the app had. Falls back to
+		// the plain mode label for a taxi, a walk, or a journey whose legs nobody itemised,
+		// which is what `summariseTransferLegs` returning `undefined` means.
+		const ride = `${transferDetailLine(toHotel)}, ${formatDuration(transferRideDuration(toHotel))} from the airport, ${fare}`;
 		const walkOut = landingBufferNote(toHotel);
 		return walkOut ? `${ride}. ${walkOut}` : ride;
 	});

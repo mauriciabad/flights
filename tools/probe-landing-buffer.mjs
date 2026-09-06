@@ -55,9 +55,13 @@ async function reading(label, target) {
 		});
 	}
 	await page.goto(target);
-	await page.waitForFunction(() => !document.body.innerText.includes('still searching'), null, {
-		timeout: 180_000
-	});
+	// Issue #388. "still searching" is absent before a search starts as well as after one has
+	// finished, so waiting for it to go away is a wait satisfied by absence, which is #337.
+	// `data-search-phase` is written from a snapshot carrying `done`, so `settled` is evidence
+	// the search actually happened.
+	await page
+		.locator('[data-search-phase="settled"]')
+		.waitFor({ state: 'attached', timeout: 180_000 });
 
 	console.log(`\n================ ${label} ================`);
 

@@ -28,6 +28,12 @@ export { firstBookableStay, recommendedStay, stopoverForRanking } from './recomm
 export { groupByProperty, isSameBed, isSameProperty, propertyKey, propertyOf } from './types';
 export { describePriceComparison, describeStayChoices, stayDistances } from './choice';
 export type { StayChoice, StayChoiceContext, StayDistance, StayPriceComparison } from './choice';
-export { describeNoStays } from './no-stays-reason';
-export type { NoStaysContext, NoStaysNotice, StayProviderOutcome } from './no-stays-reason';
+export { describeNoStays, describeStayCatalogue } from './no-stays-reason';
+export type {
+	NoStaysContext,
+	NoStaysNotice,
+	StayCatalogueContext,
+	StayCatalogueNote,
+	StayProviderOutcome
+} from './no-stays-reason';
 export type { PropertyStayOptions, StayOption } from './types';

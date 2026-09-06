@@ -9,6 +9,7 @@
 	 * alternative, both flow through `choose` so `onchange` always fires with the same
 	 * shape of delta regardless of which list the click came from.
 	 */
+	import { base } from '$app/paths';
 	import type { Airport, Money, Stay } from '$lib/domain';
 	import { formatPropertyRating } from '$lib/format';
 	import { Button, Card, EmptyState, RoutePreview } from '$lib/components';
@@ -22,7 +23,7 @@
 	import { stayTotalDelta, stayTotalForNights } from './pricing';
 	import { cheapestSelectableOption, isOptionSelectable, rankProperties } from './rank';
 	import { firstBookableStay } from './recommended-bed';
-	import { describeNoStays, type StayProviderOutcome } from './no-stays-reason';
+	import { describeNoStays, describeStayCatalogue, type StayProviderOutcome } from './no-stays-reason';
 	import { isSameBed, isSameProperty, propertyOf, type PropertyStayOptions } from './types';
 
 	interface Props {
@@ -61,9 +62,10 @@
 		 * been recorded, which `describeNoStays` reports as such rather than as "they had
 		 * nothing here" — the false claim this prop exists to stop. */
 		stayProviders?: readonly StayProviderOutcome[];
-		/** Whether a registered stay provider is still waiting on a key, so "add a key" is
-		 * offered only where it could change the answer. */
-		hasUnconfiguredStayProvider?: boolean;
+		/** Issue #374: the registry labels of the stay providers still waiting on a key, so
+		 * both notices can name whoever is actually missing instead of a hardcoded pair, and
+		 * "add a key" is offered only where it could change the answer. */
+		unconfiguredStayProviders?: readonly string[];
 		/**
 		 * Issue #367: whether the bed on screen is one the traveller picked rather than this
 		 * app's own answer. The card says which, because those two are the same object and
@@ -90,7 +92,7 @@
 		stayProviderConfigured = true,
 		searchDone = false,
 		stayProviders = [],
-		hasUnconfiguredStayProvider = false,
+		unconfiguredStayProviders = [],
 		chosen = false,
 		onuseRecommended
 	}: Props = $props();
@@ -103,8 +105,15 @@
 			searchDone,
 			cityName: connectionAirport.city.name,
 			stayProviders,
-			hasUnconfiguredStayProvider
+			unconfiguredStayProviders
 		})
+	);
+
+	// Issue #374: the same question asked of a list that is NOT empty. 54 Hostelworld
+	// hostels look like the market until something says they are one provider's catalogue,
+	// and the bed the traveller wanted can be sitting behind a key he never saved.
+	const catalogueNote = $derived(
+		describeStayCatalogue({ propertyCount: properties.length, stayProviders, unconfiguredStayProviders })
 	);
 
 	// Issue #219: the ordering weighs each property's distance from the terminal against
@@ -367,6 +376,25 @@
 				</ul>
 			</div>
 		{/if}
+
+		<!-- Issue #374: the footnote sits after the alternatives, not inside them, because a
+		     single-property list came from one provider too. The line break belongs OUTSIDE
+		     the block: Svelte trims whitespace at the start of a block's content, so a
+		     newline after `{#if}` is not a space and the sentence runs on as "...missing from
+		     this list.Add an Agoda key". -->
+		{#if catalogueNote}
+			<!-- One flex child, not four: the failure lines are the evidence for the sentence
+			     above them and have to sit with it rather than at the picker's own 1.5rem. -->
+			<div class="stay-catalogue-footnote">
+				<p class="stay-catalogue-note" data-testid="stay-catalogue-note">
+					{catalogueNote.description}
+					{#if catalogueNote.action}<a href="{base}{catalogueNote.action.href}">{catalogueNote.action.label}</a>{/if}
+				</p>
+				{#each catalogueNote.providerFailures as failure (failure)}
+					<p class="stay-failure font-mono" data-testid="stay-provider-failure">{failure}</p>
+				{/each}
+			</div>
+		{/if}
 	</div>
 
 	{#if mapOpen}
@@ -465,6 +493,20 @@
 	}
 
 	.stay-data-note {
+		font-size: var(--font-size-xs);
+		color: var(--color-text-faint);
+	}
+
+	.stay-catalogue-footnote {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-2);
+	}
+
+	/* A footnote about what the list is missing, not an alarm about it: the beds above are
+	   real and bookable, so this reads at the weight of the dorm note rather than louder. */
+	.stay-catalogue-note {
+		margin: 0;
 		font-size: var(--font-size-xs);
 		color: var(--color-text-faint);
 	}

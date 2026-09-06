@@ -1,6 +1,6 @@
 import { flushSync, mount, unmount } from 'svelte';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import type { Coordinates, Itinerary } from '../domain';
+import type { Coordinates, Duration, Itinerary, Transfer, TransferLeg } from '../domain';
 import { makeItinerary } from '../results/test-support';
 import { timeFormat } from '../settings/time-format.svelte';
 import StopoverBlock from './StopoverBlock.svelte';
@@ -309,5 +309,53 @@ describe('StopoverBlock, the ride and the walk-out are two numbers (issue #290)'
 	it('adds no second line to a leg nothing padded', () => {
 		expect(render(londonStopover())).toContain('Walk, 15m from the airport, no fare');
 		expect(render(londonStopover())).not.toContain('to get out of the airport');
+	});
+});
+
+/**
+ * Issue #373. The owner's criterion for a bed, in his words, is that it be "very easy to
+ * reach with public transport (no transport hoping to change bus or metro line)". Every
+ * transit journey answered that question and this block threw the answer away, printing the
+ * mode label while the timeline row under it printed the rides.
+ *
+ * Measured on origin/main at `a2dbc35` against his own acceptance URL, one screen: the bed
+ * read "Public transport, 25m from the airport" and the timeline row for the same transfer
+ * read "Bus, then metro (1 change)".
+ */
+describe('StopoverBlock names the rides in the journey to the bed (issue #373)', () => {
+	function ridingTo(legs: TransferLeg[], mode: Transfer['mode'] = 'transit'): Itinerary {
+		return {
+			...londonStopover(),
+			transferToHotel: { mode, duration: 29 as Duration, legs }
+		};
+	}
+
+	const ride = (vehicle?: string): TransferLeg => ({ mode: 'transit', vehicle, duration: 12 as Duration });
+
+	it('names a single ride, so a bed one metro away says so', () => {
+		expect(render(ridingTo([ride('Metro')]))).toContain('Metro, 29m from the airport');
+	});
+
+	it('names the change, which is the whole of what the owner asked to see', () => {
+		expect(render(ridingTo([ride('Bus'), ride('Metro')]))).toContain(
+			'Bus, then metro (1 change), 29m from the airport'
+		);
+	});
+
+	it('counts the rides when the provider named no vehicles', () => {
+		expect(render(ridingTo([ride(), ride()]))).toContain('2 rides (1 change), 29m from the airport');
+	});
+
+	// Walking to the stop is not a change of vehicle, and charging it as one would turn every
+	// ordinary metro trip into a journey with two changes.
+	it('does not count the walks between rides', () => {
+		const walk: TransferLeg = { mode: 'walk', duration: 4 as Duration };
+		expect(render(ridingTo([walk, ride('Metro'), walk]))).toContain('Metro, 29m from the airport');
+	});
+
+	// The safe fallback, and the reason this change cannot make any existing line worse: a
+	// transfer nobody itemised still has a mode, and that is what it said before.
+	it('falls back to the mode when there is nothing to summarise', () => {
+		expect(render(ridingTo([]))).toContain('Public transport, 29m from the airport');
 	});
 });
