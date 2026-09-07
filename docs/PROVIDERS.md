@@ -1007,6 +1007,46 @@ already smaller than the requested width comes back at its own size rather than 
 widest it ever draws. Sharing it keeps the two adapters from disagreeing about how wide a
 card photograph is.
 
+### Which providers photograph the room, and not only the building (issue #442)
+
+The owner's hunch: "I think the hotels offer a different set of images for the room
+selected." He is right about the hotels and wrong about the endpoints this app calls. One
+provider publishes room photographs, on a response this app does not fetch, and the other
+two publish none anywhere we have ever seen.
+
+Measured 2026-09-07 from responses already on disk. Nothing here spent a request, and
+nothing here asked a metered provider anything.
+
+| provider | endpoint this app calls | room photographs | what a room actually carries |
+|---|---|---|---|
+| Hostelworld | `GET /2.2/cities/{id}/properties/?show-rooms=1` | **none** | `id, token, name, capacity, basicType, ensuite, grade, extendedType, averagePrice, stp, conditions` |
+| Hostelworld | per-property availability, **not called here** | **yes**, `rooms.dorms[].images` and `rooms.privates[].images` | the summary above plus `description`, `bedTypes`, `facilities`, `ratePlans`, `images` |
+| Booking | `getRoomList` | **none** | `room_name, is_dormitory, max_occupancy, product_price_breakdown` |
+| Agoda | `hotels-homes/get-prices` | **none** | `name, isDormitory, maxOccupancy, rooms[]` (prices only) |
+| Agoda | `hotels-homes/overnight-stays/search` | property only | `content.images.hotelImages[].urls[].value`, the building |
+
+The Hostelworld city row is the one worth stating carefully, because a fixture cannot prove
+it. `fixtures/hostelworld-properties-*.json` were trimmed of image galleries when they were
+cut, so their silence is not evidence. Three untrimmed captures settle it instead: Rome with
+30 properties, London with 30 and London with 3, each fetched with `show-rooms=1`, each
+giving the eleven-field room summary above and no image field on any room.
+
+The availability response is real and its rooms are photographed properly. One capture,
+property 312244: the female dorm carries four addresses, the mixed dorm three, the private
+four, and the two dorms publish the same three photographs as each other. So a room
+photograph is not unique to a room, and two rooms sharing one is normal rather than a bug.
+
+Two reasons this app does not fetch it. It is a request per property where the search
+already costs one per city, and its CORS behaviour has never been measured from a browser
+here, which the first rule of this document says has to happen before anything is built
+against it. `hostelworld-types.ts` models the field and `hostelworld-mapper.ts` reads it, so
+the day a room summary carries one it is drawn, sized and labelled with no further work.
+
+Booking's `getRoomList` is worth writing down once so nobody looks again. Its `data` also
+holds a `rooms` map beside `block`, which is where a room gallery would plausibly live, and
+the one full-envelope capture on disk returned `"rooms": {}` alongside zero blocks. So the
+map exists and has never been seen holding anything.
+
 ### Limits, stated plainly
 
 1. **This is an undocumented app backend, not a published API.** No ToS grant, no stability

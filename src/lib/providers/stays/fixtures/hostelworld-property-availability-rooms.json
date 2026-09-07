@@ -1,0 +1,96 @@
+{
+	"id": "312244",
+	"rooms": {
+		"dorms": [
+			{
+				"id": 851743,
+				"name": "Superior 4 Bed Female Dorm Ensuite",
+				"capacity": "4",
+				"basicType": "Female Dorm",
+				"ensuite": "1",
+				"images": [
+					{
+						"prefix": "a.hwstatic.com/image/upload/f_auto,q_auto",
+						"suffix": "/v1/propertyimages/3/312244/yoe4nqle0gqlcocnnzfe"
+					},
+					{
+						"prefix": "a.hwstatic.com/image/upload/f_auto,q_auto",
+						"suffix": "/v1/propertyimages/3/312244/u7fhfsh5dm3epy6rvnqk"
+					},
+					{
+						"prefix": "a.hwstatic.com/image/upload/f_auto,q_auto",
+						"suffix": "/v1/propertyimages/3/312244/lrxuqqjzctzjeh4ucjj9"
+					},
+					{
+						"prefix": "a.hwstatic.com/image/upload/f_auto,q_auto",
+						"suffix": "/v1/propertyimages/3/312244/ry6dtdqcczyzwbt4jkzj"
+					}
+				],
+				"averagePrice": {
+					"value": "66.10",
+					"currency": "EUR"
+				}
+			},
+			{
+				"id": 851742,
+				"name": "Superior 4 Bed Mixed Dorm Ensuite",
+				"capacity": "4",
+				"basicType": "Mixed Dorm",
+				"ensuite": "1",
+				"images": [
+					{
+						"prefix": "a.hwstatic.com/image/upload/f_auto,q_auto",
+						"suffix": "/v1/propertyimages/3/312244/yoe4nqle0gqlcocnnzfe"
+					},
+					{
+						"prefix": "a.hwstatic.com/image/upload/f_auto,q_auto",
+						"suffix": "/v1/propertyimages/3/312244/u7fhfsh5dm3epy6rvnqk"
+					},
+					{
+						"prefix": "a.hwstatic.com/image/upload/f_auto,q_auto",
+						"suffix": "/v1/propertyimages/3/312244/lrxuqqjzctzjeh4ucjj9"
+					}
+				],
+				"averagePrice": {
+					"value": "67.49",
+					"currency": "EUR"
+				}
+			}
+		],
+		"privates": [
+			{
+				"id": 911545,
+				"name": "Superior Twin Private Ensuite",
+				"capacity": "2",
+				"basicType": "Private",
+				"ensuite": "1",
+				"images": [
+					{
+						"prefix": "a.hwstatic.com/image/upload/f_auto,q_auto",
+						"suffix": "/v1/propertyimages/3/312244/rv6h2yb6946t212wtrxq"
+					},
+					{
+						"prefix": "a.hwstatic.com/image/upload/f_auto,q_auto",
+						"suffix": "/v1/propertyimages/3/312244/h9nhhuozatp4kdflkycv"
+					},
+					{
+						"prefix": "a.hwstatic.com/image/upload/f_auto,q_auto",
+						"suffix": "/v1/propertyimages/3/312244/ztbwmntiwhhjt5rtcu47"
+					},
+					{
+						"prefix": "a.hwstatic.com/image/upload/f_auto,q_auto",
+						"suffix": "/v1/propertyimages/3/312244/qcl7r7b1duhlb7gex6ci"
+					},
+					{
+						"prefix": "a.hwstatic.com/image/upload/f_auto,q_auto",
+						"suffix": "/v1/propertyimages/3/312244/iod95jwpoaidlrbv7w0x"
+					}
+				],
+				"averagePrice": {
+					"value": "217.00",
+					"currency": "EUR"
+				}
+			}
+		]
+	}
+}

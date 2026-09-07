@@ -53,6 +53,31 @@ export interface HostelworldPrice {
 export interface HostelworldRoom {
 	name?: string;
 	basicType?: string;
+	/**
+	 * Photographs of this room rather than of the building, issue #442, and the only
+	 * room-level photographs any provider in this repo publishes.
+	 *
+	 * `{prefix, suffix}` halves like the property's, but pointing at the DELIVERY path
+	 * rather than the origin: `a.hwstatic.com/image/upload/f_auto,q_auto` +
+	 * `/v1/propertyimages/3/312244/yoe4nqle0gqlcocnnzfe`. That transformation carries no
+	 * width, so `hostelworld-photo.ts` overrides it rather than respecting it; its
+	 * `PUBLISHED_TRANSFORMATION` comment holds the 1,424,980-against-99,478 measurement.
+	 *
+	 * **The city endpoint this adapter calls does not send it.** Measured against three
+	 * untrimmed `show-rooms=1` captures (Rome 30 properties, London 30, London 3), where a
+	 * room is exactly `id, token, name, capacity, basicType, ensuite, grade, extendedType,
+	 * averagePrice, stp, conditions`. The field is real on the per-property availability
+	 * response, which `fixtures/hostelworld-property-availability-rooms.json` is cut from
+	 * and which nothing here fetches. Modelled anyway, against this module's "only what the
+	 * adapter reads" rule and for the same reason `imagesGallery` below earns its exception:
+	 * the mapper reads it, so the day a room summary carries one the app draws it, and the
+	 * fixture is the evidence that the shape was measured rather than guessed.
+	 *
+	 * Not unique per room. At property 312244 the female dorm and the mixed dorm publish the
+	 * same three photographs and the private publishes four different ones, so two rooms
+	 * sharing a picture is normal rather than a sign of a mix-up.
+	 */
+	images?: { prefix?: string; suffix?: string }[];
 	/** Per night, averaged across the stay, for this one room type. Confirmed per-night,
 	 * not per-stay: asking for 1 night and for 3 nights returns different values for the
 	 * same room (63.56 vs 53.91 at Wombat's London, 2026-09-04), which a per-stay total

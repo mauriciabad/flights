@@ -75,10 +75,27 @@ const IMAGE_HOST = 'a.hwstatic.com';
 
 /** Every Cloudinary delivery address on this host begins here, whatever transformation
  * follows. A path already under it is Hostelworld having chosen a transformation of its own
- * (its website serves `f_auto,q_auto,t_40/...`), which is a decision to respect. */
+ * (its website serves `f_auto,q_auto,t_40/...`), which is a decision to respect, with the
+ * one measured exception `PUBLISHED_TRANSFORMATION` names. */
 const DELIVERY_ROOT = '/image/upload/';
 
 const CARD_PREFIX = `${DELIVERY_ROOT}c_limit,w_800,f_auto,q_auto/v1`;
+
+/**
+ * The one published transformation this file overrides instead of respecting.
+ *
+ * Hostelworld hands out `/image/upload/f_auto,q_auto/v1/<public id>` in two places: the
+ * property-level `imagesGallery` that `hostelworld-types.ts` records, and every room in
+ * `rooms.dorms[].images` on its property availability response, which is where issue #442's
+ * room photographs live. It names a format and a quality and NO WIDTH, so Cloudinary serves
+ * the full frame. Measured in docs/PROVIDERS.md against one photograph: 1,424,980 bytes
+ * there against 99,478 at the card transformation, same host, same public id, same day.
+ *
+ * A width-less transformation is not a size decision, so respecting it would put 1.4 MB in
+ * a 269px box. `t_40` and anything else Hostelworld chooses is still left alone, because a
+ * named preset is a size decision and this file has not measured it.
+ */
+const PUBLISHED_TRANSFORMATION = `${DELIVERY_ROOT}f_auto,q_auto/v1`;
 
 function parseHostelworldImageUrl(url: string): URL | undefined {
 	let parsed: URL;
@@ -94,15 +111,36 @@ function parseHostelworldImageUrl(url: string): URL | undefined {
 }
 
 /**
- * The card-sized address for a Hostelworld photograph. A URL on another host, one that
- * cannot be parsed, and one already under `/image/upload/` all come back untouched. The
- * last of those is the same rule `agodaCardPhoto` applies to an `s` Agoda already set, and
- * it is what makes this safe to run twice over the same address.
+ * The stored original's path for a Hostelworld image address, or `undefined` when this file
+ * should not touch it.
+ *
+ * One place decides what a public id is, so `hostelworldCardPhoto` writes one shape and
+ * `originalHostelworldPhoto` reads one shape back. Both of Hostelworld's published forms
+ * reduce to the same `/propertyimages/...` path, so a room photograph and a property
+ * photograph end up at addresses that differ only in the id.
+ */
+function publishedOriginPath(pathname: string): string | undefined {
+	if (!pathname.startsWith(DELIVERY_ROOT)) return pathname;
+	// The trailing slash is the segment boundary, for the reason `originalHostelworldPhoto`
+	// gives below: without it a longer transformation starting with these characters would
+	// be sliced into an address nobody published.
+	if (pathname.startsWith(`${PUBLISHED_TRANSFORMATION}/`)) {
+		return pathname.slice(PUBLISHED_TRANSFORMATION.length);
+	}
+	return undefined;
+}
+
+/**
+ * The card-sized address for a Hostelworld photograph. A URL on another host and one that
+ * cannot be parsed come back untouched, as does one already carrying a transformation this
+ * file has not measured, which is what makes it safe to run twice over the same address.
  */
 export function hostelworldCardPhoto(url: string): string {
 	const parsed = parseHostelworldImageUrl(url);
-	if (!parsed || parsed.pathname.startsWith(DELIVERY_ROOT)) return url;
-	parsed.pathname = CARD_PREFIX + parsed.pathname;
+	if (!parsed) return url;
+	const origin = publishedOriginPath(parsed.pathname);
+	if (origin === undefined) return url;
+	parsed.pathname = CARD_PREFIX + origin;
 	return parsed.toString();
 }
 
