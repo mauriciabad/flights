@@ -106,7 +106,6 @@
 	import ProviderStatusStrip from './ProviderStatusStrip.svelte';
 	import ResultCard from './ResultCard.svelte';
 	import ResultCardSkeleton from './ResultCardSkeleton.svelte';
-	import ResultDetail from './ResultDetail.svelte';
 	import SegmentCustomiser from './SegmentCustomiser.svelte';
 	import StayKeyNotice from './StayKeyNotice.svelte';
 	import WidenOptionsPanel from './WidenOptionsPanel.svelte';
@@ -300,13 +299,6 @@
 	let searchesInFlight = $state(0);
 	let pendingWidenKey = $state<string | undefined>(undefined);
 	/**
-	 * Issue #278: which single card, if any, has its full timeline unfolded under its trip
-	 * strip. One at a time, the same rule the card-level expander had: two timelines open
-	 * is a wall of rows to scroll past, and this list exists for comparing cards.
-	 */
-	let openTimelineId = $state<string | null>(null);
-
-	/**
 	 * Issue #278: which card the customise rail is showing, and which stretch of it.
 	 *
 	 * One selection for the whole page, not one per card. There is one rail, so picking a
@@ -325,9 +317,9 @@
 	 * edits one. A draft is created on the first edit and never re-synced afterwards:
 	 * `SearchSnapshot.itineraryGroups` is rebuilt whole on every snapshot, so a card that
 	 * re-read its prop would throw away the flight the traveller just picked the moment an
-	 * unrelated provider answered. `ResultDetail` used to freeze its own copy for exactly
-	 * this reason; the copy moved out here because the rail that edits it is a sibling of
-	 * the card that shows it, not a child.
+	 * unrelated provider answered. The card's own fold used to freeze a copy for exactly this
+	 * reason; the copy moved out here because the inspector that edits it is a sibling of the
+	 * card that shows it, not a child.
 	 *
 	 * A `SvelteMap` because the cards read it while the handlers below write it.
 	 */
@@ -347,9 +339,9 @@
 	let outerTransferOptions = $state<OuterTransferOptions | undefined>(undefined);
 	/**
 	 * Issue #267: this search's ration of Transitous lookups, owned here because two
-	 * different things spend it. `runSearch` and `widenSearch` take it as an option, and
-	 * `ResultDetail`'s "check public transport" claims from the same object, so the twelve
-	 * are twelve across both rather than twelve each. Replaced with the query, in the same
+	 * different things spend it. `runSearch` and `widenSearch` take it as an option, and the
+	 * inspector's "check public transport" claims from the same object, so the twelve are
+	 * twelve across both rather than twelve each. Replaced with the query, in the same
 	 * effect that clears everything else a new search invalidates.
 	 */
 	let transitLookupBudget = $state(createTransitLookupBudget());
@@ -991,8 +983,7 @@
 		// Issue #293: yesterday's revalidation has nothing to say about this query's cards.
 		revalidationPending = false;
 		// A new query is an unrelated search: yesterday's connection codes have no business
-		// staying open, selected, or carrying an edit against whatever streams in next.
-		openTimelineId = null;
+		// staying selected, or carrying an edit against whatever streams in next.
 		customising = null;
 		drafts.clear();
 		// Issue #224: a new query is a new set of stopovers, so a length or a bed chosen for
@@ -1207,26 +1198,25 @@
 	 *
 	 * The map answers "which stopovers exist and what is each worth"; choosing one, swapping
 	 * its flights and pricing its bed all still belong to the card, so this hands over rather
-	 * than growing a second place to do them. Scrolling is deferred to `tick()` because the
-	 * card's timeline has to exist before it can be brought into view.
+	 * than growing a second place to do them.
+	 *
+	 * Issue #440 changed what "hands over" means. There is no fold to open any more, so this
+	 * selects the stopover itself, which fills the inspector with that trip's timeline, the
+	 * stopover block, the nights ladder and the stay picker: strictly more than the fold gave,
+	 * and the segment a traveller arriving from the stopover map is asking about. Scrolling is
+	 * deferred to `tick()` because the card has to be selected before it can be brought into
+	 * view.
 	 */
 	function openStopoverFromMap(code: IataAirportCode) {
 		connectionsMapOpen = false;
 		const result = results.find((candidate) => candidate.id === code);
 		if (!result) return;
-		openTimelineId = result.id;
-		draftFor(result.id, result.itinerary);
+		selectSegment(result.id, result.itinerary, 'free-time');
 		void tick().then(() => {
 			document
 				.querySelector(`[data-result-id="${CSS.escape(result.id)}"]`)
 				?.scrollIntoView({ block: 'start', behavior: 'smooth' });
 		});
-	}
-
-	function toggleTimeline(result: ScoredResult) {
-		const opening = openTimelineId !== result.id;
-		openTimelineId = opening ? result.id : null;
-		if (opening) draftFor(result.id, result.itinerary);
 	}
 
 	/**
@@ -1244,9 +1234,9 @@
 	 *
 	 * Only ever called from an event handler. Writing a `SvelteMap` while a template or a
 	 * `$derived` is evaluating is `state_unsafe_mutation`, and a lazily-created draft read
-	 * during render is exactly that. Every path that can lead to an edit goes through a
-	 * handler first: you unfold a timeline or pick a segment before you can change
-	 * anything, and both of those create the draft on the way in.
+	 * during render is exactly that. Every path that can lead to an edit goes through
+	 * `selectSegment` first: picking a stretch of a trip is what fills the inspector, and it
+	 * creates the draft on the way in.
 	 */
 	function draftFor(id: string, streamed: Itinerary): ItineraryDraft {
 		const existing = drafts.get(id);
@@ -1576,6 +1566,8 @@
 		<SegmentCustomiser
 			draft={customisingDraft}
 			segment={customisingSegment}
+			onSelectSegment={(segment) => selectSegment(customisingResult.id, customisingResult.itinerary, segment)}
+			compact={!sidebarIsColumn}
 			stopoverOptions={customisingResult.stopover.options}
 			isFlightChange={customisingResult.stopover.isFlightChange}
 			group={groupsByConnection[customisingResult.id]}
@@ -1828,28 +1820,9 @@
 									selectedSegmentId={selected}
 									onSelectSegment={(segment) =>
 										selectSegment(result.id, result.itinerary, selected === segment ? null : segment)}
-									timelineOpen={openTimelineId === result.id}
-									onToggleTimeline={() => toggleTimeline(result)}
 									savedTrip={savedTripFor(itinerary)}
 									onToggleSave={() => toggleSaved(result)}
-								>
-									{#snippet timeline()}
-										{@const draft = draftOf(result.id)}
-										{#if draft}
-										<ResultDetail
-											{draft}
-											selectedSegmentId={selected}
-											onSelectSegment={(segment) => selectSegment(result.id, result.itinerary, segment)}
-											group={groupsByConnection[result.id]}
-											stayCandidates={stayCandidatesByConnection[code] ?? []}
-											transferOptions={transferOptionsByConnection[code]}
-											{outerTransferOptions}
-											connectionAirport={connectionAirports[code]}
-											minLayoverTime={query.minLayoverTime}
-										/>
-										{/if}
-									{/snippet}
-								</ResultCard>
+								/>
 							</li>
 						{/each}
 						<!-- Issue #314: the space the results will need, held open from the first

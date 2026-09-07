@@ -60,7 +60,7 @@
 	 * Escape and a click outside come free from `popover="auto"`, as does closing card
 	 * one's panel when card two's opens.
 	 *
-	 * ## Issue #278: it became a selector, and the preview became the expander
+	 * ## Issue #278: it became a selector
 	 *
 	 * Activating a cell hands its segment to the customise rail (a column beside the
 	 * results list on a wide screen, a sheet at the foot of a phone), which is where every
@@ -75,10 +75,14 @@
 	 * instantaneous, and this panel mounts a stay list, a flight radiogroup or a transport
 	 * radiogroup.
 	 *
-	 * The stopover caption is now the control that unfolds the full timeline, because the
-	 * thing being unfolded is this preview and "1 night in Vienna" is the honest name for
-	 * the trip it opens. It costs the card no row: the control it replaced was a 54px band
-	 * under a dashed rule.
+	 * ## Issue #440: the stopover caption is a caption again
+	 *
+	 * #278 made it the control that unfolded a second timeline under this preview. #440
+	 * deleted that fold, and the full timeline moved into the inspector this strip's cells
+	 * already fill. So the caption went back to printing "1 night in Vienna" and nothing
+	 * else, and the `expanded`, `onToggleExpanded` and `controlsId` props went with the
+	 * chevron. Nothing on the card promises a disclosure that no longer exists, and every
+	 * cell here still opens the trip in full.
 	 */
 	import type { Airport, Itinerary } from '$lib/domain';
 	import { transferRideDuration } from '$lib/domain';
@@ -88,7 +92,6 @@
 	import { durationStampSize, segmentIdOf, tripStrip } from './trip-strip';
 	import type { TripStripFreeSegment, TripStripTransferSegment } from './trip-strip';
 	import AirlineLogo from './AirlineLogo.svelte';
-	import Icon from './Icon.svelte';
 	import ModeIcon from './ModeIcon.svelte';
 	import { transferIconKind } from './mode-icon';
 	import SegmentStub from './SegmentStub.svelte';
@@ -117,11 +120,6 @@
 		/** Activating a segment. Absent on a strip with nowhere to put a selection, which
 		 * makes the cells hover-and-focus previews and nothing more. */
 		onSelectSegment?: (segment: ItinerarySegmentId) => void;
-		/** Whether the full timeline is unfolded under this strip. */
-		expanded?: boolean;
-		onToggleExpanded?: () => void;
-		/** `id` of the element the caption button unfolds, for `aria-controls`. */
-		controlsId?: string;
 	}
 
 	let {
@@ -131,10 +129,7 @@
 		connectionAirport,
 		deprioritized = false,
 		selectedSegmentId = null,
-		onSelectSegment,
-		expanded = false,
-		onToggleExpanded,
-		controlsId
+		onSelectSegment
 	}: Props = $props();
 
 	const strip = $derived(tripStrip(itinerary));
@@ -552,51 +547,20 @@
 			style:grid-column={outboundFlightColumn}>{formatDuration(itinerary.outboundFlight.duration)}</span
 		>
 
-		<!-- Issue #278: the preview is what unfolds, so the control lives on the preview and
-		     on its loudest line. The nights ARE the trip this app is selling, so "1 night in
-		     Vienna" is both the caption a reader wants and the honest label for "show me
-		     this trip in full". It costs the card no row of its own, which is the point: the
-		     control it replaced was a 54px band with a dashed rule above it.
-
-		     The visible words come first in the accessible name and the rest is appended
-		     out of sight, which is what WCAG 2.5.3 asks for; an `aria-label` starting with
-		     "Show the full timeline" would have put the spoken name and the printed one in
-		     different orders. -->
-		{#if onToggleExpanded}
-			<button
-				type="button"
-				class="trip-strip-caption trip-strip-caption-mid trip-strip-unfold"
-				style:grid-column={stopoverColumns}
-				aria-expanded={expanded}
-				aria-controls={controlsId}
-				onclick={() => onToggleExpanded?.()}
-			>
-				<span class="trip-strip-unfold-text">
-					{#if nights > 0}
-						<strong class="trip-strip-nights font-mono tabular-nums">{nights}</strong>
-						{nights === 1 ? 'night' : 'nights'} in {stopoverName}{:else}<strong
-							class="trip-strip-nights font-mono tabular-nums"
-							>{formatLongDuration(itinerary.freeTime.duration)}</strong
-						>
-						in {stopoverName}{/if}<!--
-					Issue #318: no whitespace between the name and the comma. The indentation
-					between two elements is a text node, and it put a space in front of the
-					comma in the accessible name: "8h 22m in Napoli , show the full timeline".
-					--><span class="visually-hidden">, {expanded ? 'hide' : 'show'} the full timeline</span>
-				</span>
-				<Icon name="chevron-down" class={['trip-strip-chevron', { 'is-open': expanded }]} />
-			</button>
-		{:else}
-			<span class="trip-strip-caption trip-strip-caption-mid" style:grid-column={stopoverColumns}>
-				{#if nights > 0}
-					<strong class="trip-strip-nights font-mono tabular-nums">{nights}</strong>
-					{nights === 1 ? 'night' : 'nights'} in {stopoverName}
-				{:else}
-					<strong class="trip-strip-nights font-mono tabular-nums">{formatLongDuration(itinerary.freeTime.duration)}</strong>
-					in {stopoverName}
-				{/if}
-			</span>
-		{/if}
+		<!-- Issue #278 made this caption the card's expander and issue #440 took the fold
+		     away, so it is a caption again. The nights ARE the trip this app is selling, so
+		     "1 night in Vienna" is what a reader wants here whether or not it opens anything.
+		     What opens the trip in full is now picking any part of the strip, which fills the
+		     inspector beside the list. -->
+		<span class="trip-strip-caption trip-strip-caption-mid" style:grid-column={stopoverColumns}>
+			{#if nights > 0}
+				<strong class="trip-strip-nights font-mono tabular-nums">{nights}</strong>
+				{nights === 1 ? 'night' : 'nights'} in {stopoverName}
+			{:else}
+				<strong class="trip-strip-nights font-mono tabular-nums">{formatLongDuration(itinerary.freeTime.duration)}</strong>
+				in {stopoverName}
+			{/if}
+		</span>
 
 		<!-- Issue #310 took the "√ scale" footnote off the caption that used to carry it. The
 		     fact it printed is true and still holds: widths follow the square root of each
@@ -784,87 +748,6 @@
 		border-radius: var(--radius-sm);
 	}
 
-	/* The unfold control: the stopover caption, with a chevron. Styled from the caption it
-	   replaces so the row reads as text with an affordance rather than as a button bar. */
-	.trip-strip-unfold {
-		position: relative;
-		display: inline-flex;
-		align-items: baseline;
-		justify-content: center;
-		gap: var(--space-1);
-		min-width: 0;
-		padding-inline: 0;
-		border: 0;
-		background: none;
-		font: inherit;
-		cursor: pointer;
-		transition: color var(--transition-fast);
-	}
-
-	/* Issue #316: the control's own box is 24px tall, not a 19px box with a taller
-	   pseudo-element over it. An audit reads `getBoundingClientRect()`, and so does anyone
-	   checking this against SC 2.5.8; a target whose measured height is 19px is a finding
-	   whatever is painted around it. Padding grows the box and a matching negative margin
-	   gives the height back to the layout, so the strip is exactly as tall as it was.
-
-	   The `::before` still extends the area downward into the card's own gap, which is free
-	   room below the last row of the strip. It stops short of the cells' 44px hit areas
-	   above rather than overlapping them. */
-	.trip-strip-unfold {
-		padding-block: 0.3rem;
-		margin-block: -0.3rem;
-	}
-
-	.trip-strip-unfold::before {
-		content: '';
-		position: absolute;
-		top: -0.2rem;
-		right: -0.25rem;
-		bottom: -0.5rem;
-		left: -0.25rem;
-	}
-
-	.trip-strip-unfold:hover {
-		color: var(--color-accent);
-	}
-
-	.trip-strip-unfold:focus-visible {
-		outline: 2px solid var(--color-focus-ring);
-		outline-offset: 3px;
-		border-radius: var(--radius-sm);
-	}
-
-	.trip-strip-unfold-text {
-		min-width: 0;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
-
-	/* The one mark on this row that says "this does something". The words stay teal because
-	   teal is what the stopover is, and the chevron takes the accent because accent is what
-	   is interactive everywhere else in this app. Without it the control reads as a caption:
-	   a phone has no hover to discover it with, and colour alone would be the only signal. */
-	/* `:global` throughout for the icons: the `<svg>` is `Icon.svelte`'s element, not one
-	   this component's scoping class lands on. */
-	.trip-strip-unfold :global(.trip-strip-chevron) {
-		width: 0.85rem;
-		height: 0.85rem;
-		align-self: center;
-		color: var(--color-accent);
-		transition:
-			transform var(--transition-fast),
-			color var(--transition-fast);
-	}
-
-	.trip-strip-unfold:hover :global(.trip-strip-chevron) {
-		color: var(--color-accent-hover);
-	}
-
-	.trip-strip-unfold :global(.trip-strip-chevron.is-open) {
-		transform: rotate(180deg);
-	}
-
 	/* Hidden until the cell is wide enough to hold it; a clipped mark or a clipped
 	   weekday would be worse than none. A container query measures the content box, and
 	   the free cell's 1px dashed border sits outside it: a six-night stopover at 375px
@@ -1013,12 +896,6 @@
 	.is-quiet .trip-strip-caption-mid,
 	.is-quiet .trip-strip-stamp-day {
 		color: var(--color-text-deprioritized);
-	}
-
-	/* The hover colour is an interaction colour, so it stays accent gold even here; what
-	   steps back is the resting state, which the rule above already handles. */
-	.is-quiet .trip-strip-unfold:hover {
-		color: var(--color-accent);
 	}
 
 	.is-quiet .trip-strip-cell-flight {

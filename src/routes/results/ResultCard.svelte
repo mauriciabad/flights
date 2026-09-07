@@ -25,9 +25,14 @@
 	 *   own reason for asking is that "it is way better a hotel with no transfers and a bit
 	 *   more expensive than one with changes", which is a judgement he can only make if both
 	 *   cards say it. Free time is a day count since issue #228, "2 full days" rather than
-	 *   the "2d 15h" the owner called misleading; the edge times and the stay it buys are in
-	 *   the unfolded timeline, because seven lines times four cards is not a results
-	 *   screen.
+	 *   the "2d 15h" the owner called misleading; the edge times are in the trip inspector,
+	 *   because seven lines times four cards is not a results screen.
+	 * - **The bed** (`CardStay`), in the half of the first row that was blank. Issue #435,
+	 *   the owner: "on the card, there's a empty space on the right, it is a great spot to
+	 *   put info about the hotel, including image carrousel." Which property, how it is
+	 *   rated on its provider's own scale, what room, how far out, and its photographs.
+	 *   Deliberately not the nightly rate, which the receipt beside it already prints, and
+	 *   nothing at all when the trip books no bed.
 	 *
 	 * ## Issue #309: this card owns every summary figure, and nothing repeats it
 	 *
@@ -40,28 +45,26 @@
 	 *
 	 * So the rule is now a rule and not an accident. Every summary figure has exactly one
 	 * surface: the four above are this rail's, the night count is the trip strip's caption,
-	 * and the total is the headline with its receipt under it. The timeline unfolds detail,
-	 * step by step, and restates none of it. Anything added to the timeline that this card
-	 * already prints is the same defect coming back.
+	 * the nightly rate is the receipt's, and the total is the headline with that receipt
+	 * under it. Anything printed twice on this card is the same defect coming back, which is
+	 * why the bed panel names the property and says nothing about what it costs.
 	 *
-	 * ## Issue #278: the card stopped being a thing you open
+	 * ## Issue #440: the card stopped being a thing you open, for the second and last time
 	 *
-	 * There was a "Show details" button under a dashed rule, and everything worth doing
-	 * was behind it. The owner: **"the card does not need to be expandable like now. we now
-	 * have a nice timeline preview already in the card, so the other timeline that is
-	 * hidden barely adds any info. we can keep bot timelines, basically we make the preview
-	 * expandable."**
+	 * #278 took away a "Show details" button and made the trip strip's own caption the
+	 * expander. #440 took the fold away entirely. The owner: **"Delete the expandible part
+	 * of the card. Make sure all info is already in other places, and no funcionality is
+	 * lost."**
 	 *
-	 * So the strip is the thing that opens, from its own caption, and the full timeline
-	 * unfolds directly under the preview it belongs to. Two blocks left this file for the
-	 * customise rail: `StopoverNights`, the "staying longer" ladder, which is now part of
-	 * the stopover's own panel because how long you stay is a property of the stopover;
-	 * and the control row itself. That is 76px and 54px of a 646px phone card, plus the
-	 * gaps around them.
+	 * So the caption is a caption again, `timelineOpen`, `onToggleTimeline` and the
+	 * `timeline` snippet are gone with it, and `ResultDetail.svelte` is deleted. What that
+	 * fold held now lives in the trip inspector beside the list: the full timeline with its
+	 * option marks, the stopover block, and the map for whichever leg is selected. Picking
+	 * any part of any card fills it, which is one gesture where there used to be two.
 	 *
-	 * `variantsLabel` went with them. "+2 more flight times through here" existed to
-	 * advertise what the button hid, and nothing hides them now: the timeline marks the
-	 * rows that have alternatives, and the flight picker in the rail lists them.
+	 * `variantsLabel` went in #278. "+2 more flight times through here" existed to advertise
+	 * what a button hid, and nothing hides them now: the timeline marks the rows that have
+	 * alternatives, and the flight picker in the inspector lists them.
 	 *
 	 * The header's freshness badge renders only when its tone is not neutral. "Current
 	 * price" and "Priced 3m ago" said the same thing as the footer's "fetched 3m ago" one
@@ -69,7 +72,7 @@
 	 * card a row it could not spare: 635px of card against 620px of screen.
 	 *
 	 * What was cut, deliberately: per-flight prices and per-leg times (they are in the
-	 * expanded panel, where a leg can also be swapped, and five prices on a card is a
+	 * inspector, where a leg can also be swapped, and five prices on a card is a
 	 * spreadsheet); the airline name chips, now carried by the logos on the strip and the
 	 * names in the footer; the free-time start and end timestamps, since the strip already
 	 * says how long it runs and the exact clock readings only matter once you are planning
@@ -80,7 +83,6 @@
 	 * `view-model.ts`, all pure and tested. This file arranges markup and picks classes; it
 	 * never recomputes a duration or a price.
 	 */
-	import type { Snippet } from 'svelte';
 	import {
 		AirlineLogo,
 		Card,
@@ -112,6 +114,7 @@
 		describeStaleSources
 	} from '$lib/results/view-model';
 	import { technicalStopDetail, technicalStopLabel } from '$lib/components/technical-stop-note';
+	import CardStay from './CardStay.svelte';
 	import PriceBand from './PriceBand.svelte';
 
 	interface Props {
@@ -138,9 +141,6 @@
 		 * rail is showing another card or nothing. */
 		selectedSegmentId?: ItinerarySegmentId | null;
 		onSelectSegment?: (segment: ItinerarySegmentId) => void;
-		/** Whether the full timeline is unfolded under the strip. */
-		timelineOpen?: boolean;
-		onToggleTimeline?: () => void;
 		/**
 		 * Issue #434: this trip's saved record, when the traveller has kept it. It fills the
 		 * heart, and its price log is what the note under the route compares against.
@@ -155,9 +155,6 @@
 		 * mints the visit token the first price observation is filed under. Absent leaves
 		 * the heart off the card entirely. */
 		onToggleSave?: () => void;
-		/** The full timeline, map and stopover block. Rendered by the page so this card does
-		 * not have to know what any of them need. */
-		timeline?: Snippet;
 	}
 
 	let {
@@ -167,14 +164,9 @@
 		priceBand,
 		selectedSegmentId = null,
 		onSelectSegment,
-		timelineOpen = false,
-		onToggleTimeline,
 		savedTrip,
-		onToggleSave,
-		timeline
+		onToggleSave
 	}: Props = $props();
-
-	const timelineId = $props.id();
 
 	const connectionCode = $derived(connectionAirportCode(itinerary));
 
@@ -448,6 +440,10 @@
 				<FlightDetour shape={flightShape} />
 			{/if}
 			<PriceLine {itinerary} requiredNights={result.stopover.minimum} />
+			<!-- Issue #435: the bed, in the half of this row that used to be blank. It renders
+			     nothing at all for a trip with no bed, so the row goes back to the pair #305
+			     arranged. -->
+			<CardStay {itinerary} {connectionAirport} />
 		</div>
 
 		<!-- Issue #232: directly under the receipt, because the band is about the figure in
@@ -464,9 +460,10 @@
 			/>
 		{/if}
 
-		<!-- Issue #278: the preview is the expander. Its stopover caption carries the
-		     control, so the affordance sits on the thing that opens and the card spends no
-		     row on a button of its own. -->
+		<!-- Issue #440 took the fold off this card, and the caption went back to being a
+		     caption. Picking any part of the strip fills the trip inspector beside the list,
+		     which is where the full timeline, the selected leg's map and every picker now
+		     live. -->
 		<div class="card-strip" bind:this={stripEl}>
 			<TripStrip
 				{itinerary}
@@ -476,17 +473,8 @@
 				deprioritized={isDeprioritized}
 				{selectedSegmentId}
 				{onSelectSegment}
-				expanded={timelineOpen}
-				onToggleExpanded={onToggleTimeline}
-				controlsId={timelineId}
 			/>
 		</div>
-
-		<!-- Under the preview it unfolds, because the brief's own words are that the
-		     preview opens into the full timeline. -->
-		{#if timelineOpen && timeline}
-			<div id={timelineId}>{@render timeline()}</div>
-		{/if}
 
 		<MetricRail {itinerary} ids={CARD_METRIC_IDS} />
 	</div>
@@ -850,11 +838,27 @@
 	   receipt takes what is left and `min-width: 0` is what lets its long labels wrap
 	   inside the column instead of widening it. Top-aligned rather than centred: the
 	   headline is the thing a reader lands on, and it has to sit on the card's own first
-	   line whatever height the receipt below it turns out to be. */
+	   line whatever height the receipt below it turns out to be.
+
+	   Issue #435 made it three, and `flex-wrap` plus the two bases below are the whole
+	   responsive rule. This card is the middle column of a three-column page, so its width
+	   does not track the viewport: about 310px of content at a 1024px viewport and about
+	   630px at 1440px, which is why no media query could get this right. 6.5rem of drawing
+	   plus 11rem of receipt plus 15rem of bed plus two gaps needs roughly 34rem, and under
+	   that the bed drops to its own line while the pair #305 arranged stays together. */
 	.card-getting-there {
 		display: flex;
+		flex-wrap: wrap;
 		align-items: flex-start;
 		gap: var(--space-4);
+	}
+
+	/* The receipt's own file has no opinion about how much of a row it should take, because
+	   it is also drawn in places that are not this row. 11rem is its floor here: below that
+	   "2 nights x EUR 13.00 each" wraps to three lines and the row costs more height than the
+	   bed beside it saves. */
+	.card-getting-there :global(.price-line) {
+		flex: 1 1 11rem;
 	}
 
 	/* One line, always, and since issue #312 a short one. The provenance used to be a

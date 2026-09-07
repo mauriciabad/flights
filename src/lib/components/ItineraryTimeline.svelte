@@ -1243,8 +1243,16 @@
 	 * line existed for the duration and price and cost every flight row a
 	 * line for two short figures. Same children, same order, same
 	 * `data-segment` contract, placed differently.
+	 *
+	 * A container query, not a viewport one, since issue #440. This
+	 * timeline's only home is the trip inspector, which is 20rem at a
+	 * 64rem viewport and 24rem at 90rem. A media query read the screen
+	 * where the rows needed their own width, and answered "wide" to a
+	 * column with 112px for the WHAT column. Every caller therefore has
+	 * to be inside a size container; `SegmentCustomiser`'s `.customiser`
+	 * already is one, for the same reason and with the same note.
 	 * ------------------------------------------------------------------- */
-	@media (max-width: 34rem) {
+	@container (max-width: 34rem) {
 		.itinerary-timeline {
 			grid-template-columns: 1.5rem minmax(0, 1fr) auto;
 		}

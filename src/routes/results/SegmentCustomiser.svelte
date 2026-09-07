@@ -1,6 +1,7 @@
 <script lang="ts">
 	/**
-	 * Everything a traveller can change about one stretch of one trip, in one panel.
+	 * The trip inspector: the whole trip, the leg you picked, and everything you can change
+	 * about it.
 	 *
 	 * Issue #278, the owner: **"we should move the nested collapasables (transport, flight,
 	 * hotel picking...) to the card itself (not nested into the timeline) ... in the
@@ -22,6 +23,37 @@
 	 *
 	 * So there is one level now. Pick a part of the trip on either timeline, and its
 	 * controls appear here while the card keeps showing the price they change.
+	 *
+	 * ## Issues #439 and #440: the panel became the whole trip, not just one step of it
+	 *
+	 * The owner: **"Delete the expandible part of the card. Make sure all info is already in
+	 * other places, and no funcionality is lost."** and **"The transport maps should be moved
+	 * to the right sidebar when the respective timeline segment is selected."**
+	 *
+	 * `ResultDetail.svelte` held four things and is gone. Three of them are here now, in the
+	 * order a traveller asks for them:
+	 *
+	 * - **The full `ItineraryTimeline`**, at the top, because it is the navigator. Its rows
+	 *   write the same selection the strip's cells do, so the timeline and the panel under it
+	 *   are one control rather than two views of one. Open on the wide rail; closed inside the
+	 *   phone sheet, which is deliberately capped under half the screen and would otherwise
+	 *   open on a wall of rows instead of the picker the tap asked for.
+	 * - **The map for the leg that is selected**, and only that one. `GroundLegPreviews` drew
+	 *   all three at once inside the card, so a reader looking at one ride was shown three.
+	 *   `groundLegPreviewIdFor` decides which picture a segment belongs to, from the table the
+	 *   previews are built off.
+	 * - **`StopoverBlock`**, above the nights ladder in the free-time panel, because what you
+	 *   get at the stopover is the question you ask before choosing how long to stay.
+	 *
+	 * The fourth was a hint sentence, "Pick a step to change it", and it is deleted rather
+	 * than moved. The idle state of this very panel already says it, in more words and in the
+	 * place a reader is looking when they have not picked anything.
+	 *
+	 * The row marks and the refusal notes are `option-marks.ts`, a tested pure function, built
+	 * here from props this component already had. The rule they encode is that a mark on a row
+	 * must never promise a choice this panel will not open, and a derivation copied into
+	 * whichever component inherits it is how those two start disagreeing. There were three
+	 * copies of its four-leg table before this, and one of them was wrong.
 	 *
 	 * ## Why the nights ladder is the stopover's panel and not a fixed header
 	 *
@@ -55,13 +87,23 @@
 		Button,
 		DepartureDates,
 		FlightPicker,
+		GroundLegPreviews,
+		ItineraryTimeline,
 		Skeleton,
+		StopoverBlock,
 		StopoverNights,
 		TransportPicker,
 		WaitingTimeStepper,
 		visitDaysOf
 	} from '$lib/components';
+	import { buildItineraryMapModel } from '$lib/itinerary-map/segments';
+	import { buildGroundLegPreviews, groundLegPreviewIdFor } from '$lib/itinerary-map/previews';
 	import { segmentStubFor } from '$lib/components/segment-stub';
+	import {
+		optionMarksFor,
+		withheldTransfersByLeg,
+		type AlternativesPool
+	} from '$lib/components/option-marks';
 	import { unroutedLegNote } from '$lib/components/itinerary-timeline-format';
 	import { waitsOvernight } from '$lib/algorithm/nights';
 	import type { UnroutedLeg } from '$lib/components/itinerary-timeline-format';
@@ -116,6 +158,19 @@
 		/** Which stretch of it. `null` is the desktop rail with nothing picked yet; the
 		 * phone sheet never mounts in that state. */
 		segment: ItinerarySegmentId | null;
+		/**
+		 * Picking a row on the timeline in here, or tapping the leg's map. The same callback
+		 * the card's strip writes through, because there is one selection for the whole page
+		 * and two copies of it is what issue #278 spent a PR removing.
+		 */
+		onSelectSegment: (segment: ItinerarySegmentId | null) => void;
+		/**
+		 * True inside the phone sheet, which is capped under half the screen on purpose.
+		 * The timeline starts closed there: a sheet that opened on eleven rows would bury the
+		 * picker the tap asked for. It is still one press away, which is what makes deleting
+		 * the card's fold a move rather than a loss.
+		 */
+		compact?: boolean;
 		/** Every stopover length this connection can do, priced, for the ladder issue #225
 		 * built. Rides with the free-time panel because that is the segment it lengthens. */
 		stopoverOptions?: readonly StopoverLengthOption[];
@@ -176,6 +231,8 @@
 	let {
 		draft,
 		segment,
+		onSelectSegment,
+		compact = false,
 		stopoverOptions = [],
 		isFlightChange = false,
 		departureOptions = [],
@@ -660,13 +717,74 @@
 	const startsAtOriginAirport = $derived(!itinerary.originLocation);
 	const endsAtDestinationAirport = $derived(!itinerary.destinationLocation);
 
-	/** The four legs keyed the way `unroutedLegNote` names them. */
-	const withheldByLeg = $derived<Partial<Record<UnroutedLeg, WithheldTransfers>>>({
-		'to-origin-airport': originAirportTransferOptions.withheld,
-		'to-hotel': hotelTransferOptions.withheld,
-		'from-hotel': connectionAirportTransferOptions.withheld,
-		'to-destination-location': destinationLocationTransferOptions.withheld
+	/**
+	 * Everything this search offered for this trip, in the one shape `option-marks.ts` reads.
+	 *
+	 * Assembled here rather than on the page because every part of it is already a prop of
+	 * this component. What the module then produces is two things that have to agree: the
+	 * marks on the timeline's rows, and the refusals its transfer rows explain. This file used
+	 * to write the four-leg table out by hand for the second of those, and `ResultDetail`
+	 * wrote it twice more; one of those three copies filed the destination leg under a name
+	 * the timeline never looked up.
+	 */
+	const alternatives = $derived<AlternativesPool>({
+		outboundFlights: outboundAlternatives,
+		onwardFlights: onwardAlternatives,
+		transferCandidateCounts: {
+			transferToOriginAirport: originAirportTransferOptions.candidates.length,
+			transferToHotel: hotelTransferOptions.candidates.length,
+			transferToConnectionAirport: connectionAirportTransferOptions.candidates.length,
+			transferToDestinationLocation: destinationLocationTransferOptions.candidates.length
+		},
+		transferWithheld: {
+			transferToOriginAirport: originAirportTransferOptions.withheld,
+			transferToHotel: hotelTransferOptions.withheld,
+			transferToConnectionAirport: connectionAirportTransferOptions.withheld,
+			transferToDestinationLocation: destinationLocationTransferOptions.withheld
+		},
+		stayPropertyCount: stayProperties.length
 	});
+
+	/** The four legs keyed the way `unroutedLegNote` names them. */
+	const withheldByLeg = $derived(withheldTransfersByLeg(alternatives));
+
+	/** The "3 options" and "2 flights" marks the timeline prints at the end of a row's first
+	 * line. Gated on the same conditions the panels below render under, so a mark never
+	 * promises a choice this component will not open. */
+	const optionMarks = $derived(optionMarksFor(itinerary, alternatives));
+
+	/**
+	 * Issue #439: the picture for the leg that is selected, and nothing when the selection is
+	 * a flight, a wait or the stopover itself.
+	 *
+	 * Re-derives with `itinerary`, which is what keeps a swapped transfer's new geometry on
+	 * screen: picking a different bus redraws it, and a picked bed moves the stopover
+	 * preview's endpoint.
+	 */
+	const groundLegPreviews = $derived(
+		connectionAirport ? buildGroundLegPreviews(buildItineraryMapModel(itinerary, connectionAirport)) : []
+	);
+	const focusedPreviewId = $derived(segment ? groundLegPreviewIdFor(segment) : undefined);
+	const focusedPreview = $derived(groundLegPreviews.find((preview) => preview.id === focusedPreviewId));
+	/**
+	 * A trip with no origin location, no destination location and a connection this app has no
+	 * coordinates for has no ground leg at all, and `GroundLegPreviews` answers that with a
+	 * plain "Open the route map" button. Before issue #440 that button was the only way such a
+	 * traveller reached a map, and it still is, so it is drawn whenever the trip has no legs
+	 * rather than being lost with the row it used to sit in.
+	 */
+	const mapIsReachable = $derived(focusedPreview !== undefined || groundLegPreviews.length === 0);
+
+	/**
+	 * Whether the whole-trip timeline at the top is unfolded.
+	 *
+	 * Plain `$state` seeded from `compact`, not a `$derived` and not bound to it. The rail and
+	 * the sheet are separate blocks on the page, so crossing 64rem destroys one instance and
+	 * builds the other, and this is read once per instance. Deriving it would fight the
+	 * traveller: every re-render would reopen a timeline they had just closed.
+	 */
+	// svelte-ignore state_referenced_locally
+	let timelineOpen = $state(!compact);
 
 	/** The heading for a segment the strip draws no cell for. Both are places rather than
 	 * stretches of time, and neither has anything to change. */
@@ -710,6 +828,39 @@
 {/snippet}
 
 <div class="customiser" data-testid="segment-customiser" data-segment={segment ?? ''}>
+	<!-- Issue #440: the whole trip, at the top, because it is how a reader moves around it.
+	     Its rows write the same selection the card's strip does, so this timeline and the
+	     panel below it are one control. A `<details>` rather than a button and a flag: the
+	     open state, the keyboard contract and what a screen reader announces are all the
+	     element's, and none of them is worth rewriting.
+
+	     `open` is not bound. It is set once from `compact` when the element is created, which
+	     is exactly once per instance because the rail and the sheet are separate blocks on the
+	     page. Binding it would reopen a timeline the traveller had just closed. -->
+	<details class="customiser-trip" bind:open={timelineOpen}>
+		<summary class="customiser-trip-summary">The whole trip</summary>
+		<ItineraryTimeline
+			itinerary={draft.itinerary}
+			{connectionAirport}
+			bind:selectedSegmentId={() => segment, onSelectSegment}
+			{optionMarks}
+			withheld={withheldByLeg}
+		/>
+	</details>
+
+	{#if mapIsReachable}
+		<!-- Issue #439, the owner: "The transport maps should be moved to the right sidebar
+		     when the respective timeline segment is selected." One leg, the one this panel is
+		     about, with the same tap-to-open-the-full-map behaviour it had on the card. Bound
+		     to the page's selection through a function binding, because tapping the picture is
+		     another way of picking a segment. -->
+		<GroundLegPreviews
+			{itinerary}
+			previews={focusedPreview ? [focusedPreview] : []}
+			bind:selectedSegmentId={() => segment, onSelectSegment}
+		/>
+	{/if}
+
 	{#if !segment}
 		<!-- The desktop rail before anything is picked. A rail that renders nothing reads as
 		     a layout bug; a rail that says what it is for reads as an invitation. -->
@@ -800,6 +951,15 @@
 					<p class="customiser-note">{absenceNote('to-hotel')}</p>
 				{/if}
 			{:else if segment === 'free-time'}
+				<!-- Issue #228's block, in full, and issue #440 moved it here from the card's
+				     fold. Above the ladder because "what do I get here" is the question a
+				     person asks before deciding how long to stay, and above the stay picker
+				     for the same reason: it names the bed that is booked today. -->
+				<StopoverBlock
+					{itinerary}
+					{connectionLabel}
+					connectionCoordinates={connectionAirport?.coordinates}
+				/>
 				<!-- How long you stay and where you sleep are the two things you can change
 				     about a stopover, so issue #225's ladder rides with the stay picker
 				     rather than sitting as a header over every flight panel. -->
@@ -964,6 +1124,53 @@
 		font-size: var(--font-size-sm);
 		color: var(--color-text-muted);
 		text-wrap: pretty;
+	}
+
+	/* Issue #440's disclosure. Quiet by design: the timeline is the navigator, not the thing
+	   a reader came here to press, and the panel below it is what the tap was about. */
+	.customiser-trip {
+		border-bottom: 1px solid var(--color-border);
+		padding-bottom: var(--space-3);
+	}
+
+	.customiser-trip-summary {
+		display: flex;
+		align-items: center;
+		gap: var(--space-2);
+		/* 44px, which is the floor for anything a thumb has to hit, and this one is inside a
+		   sheet where it is the only way to the timeline at all. */
+		min-height: 2.75rem;
+		padding-inline: var(--space-1);
+		border-radius: var(--radius-sm);
+		font-size: var(--font-size-xs);
+		font-weight: var(--font-weight-semibold);
+		text-transform: uppercase;
+		letter-spacing: var(--tracking-wide);
+		/* Muted rather than faint: `MetricRail` records that the faint token measures 4.19:1
+		   on this palette's card surface, under WCAG AA, and this is a control. */
+		color: var(--color-text-muted);
+		cursor: pointer;
+		touch-action: manipulation;
+		transition: color var(--transition-fast);
+	}
+
+	.customiser-trip-summary:hover {
+		color: var(--color-accent);
+	}
+
+	.customiser-trip-summary:focus-visible {
+		outline: 2px solid var(--color-focus-ring);
+		outline-offset: 2px;
+	}
+
+	/* The browser's own marker, tinted to the one accent this app uses for anything
+	   interactive, so the triangle reads as the affordance rather than as punctuation. */
+	.customiser-trip-summary::marker {
+		color: var(--color-accent);
+	}
+
+	.customiser-trip[open] .customiser-trip-summary {
+		margin-bottom: var(--space-2);
 	}
 
 	/* The panel's own ticket stub: the eyebrow, the title and the two clocks, in the same
