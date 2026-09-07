@@ -189,11 +189,12 @@ test.describe('a connection with no night in it is a wait at the airport', () =>
 		await expect(row(page, 'connection-waiting').locator('.tl-duration')).toHaveText('12h');
 		await expect(row(page, 'onward-flight').locator('.tl-duration')).toHaveText('1h 30m');
 
-		// 2h at BCN plus 12h at VIE. The twelve are in the airport wait and nowhere else,
-		// which is the whole of issue #13's "airport waiting time is not layover time" read
-		// from the other end: a layover the traveller cannot leave the airport for is not
-		// free time, so counting it in both would put 26h on a trip that takes 18.
+		// 2h at BCN plus 12h at VIE. Issue #13's "airport waiting time is not layover time"
+		// read from the other end. A layover the traveller cannot leave the airport for is
+		// not free time, so the twelve hours are in this figure and in no other, and the
+		// cell beside it says so by having nothing to count.
 		await expect(metric(page, 'Airport wait')).toHaveText('14h');
+		await expect(metric(page, 'Free time')).toHaveText('None');
 		await expect(metric(page, 'Door to door')).toHaveText('18h');
 	});
 
