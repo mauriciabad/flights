@@ -147,6 +147,26 @@ export function sumMoney(first: Money, ...rest: (Money | undefined)[]): Money {
 }
 
 /**
+ * One traveller's share of a party total, rounded to the nearest minor unit, currency
+ * untouched.
+ *
+ * The one thing a reader has to know: rounded shares do not necessarily add back up to
+ * the total they came from. EUR 235.60 three ways is EUR 78.53 each and EUR 235.59 back.
+ * So this is what one person owes when the bill is split, and never a figure a provider
+ * quoted. `oneAdultFlightsTotal` (results/price-band.ts) answers the other question and
+ * refuses to divide at all, because a band compares fares and a fare is a price somebody
+ * was actually charged for one seat.
+ *
+ * A party of one returns `total` unchanged, and so does any count that is not a positive
+ * finite number: there is nothing to split, and dividing by a count nobody set would
+ * invent a number rather than report one.
+ */
+export function perPersonShare(total: Money, people: number): Money {
+	if (!Number.isFinite(people) || people <= 1) return total;
+	return { minorUnits: Math.round(total.minorUnits / people), currency: total.currency };
+}
+
+/**
  * The parts of a trip somebody chooses. Everything else about an itinerary follows from
  * these by arithmetic, and `deriveItinerary` below is the only place that arithmetic
  * lives.

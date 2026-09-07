@@ -7,6 +7,7 @@ import {
 	stayDistances
 } from './choice';
 import type { StayReach } from './reach';
+import type { BedKind } from './room-kind';
 import { propertyKey, type PropertyStayOptions, type StayOption } from './types';
 
 const AIRPORT: Coordinates = { latitude: 48.11, longitude: 16.57 };
@@ -178,6 +179,82 @@ describe('describeStayChoices', () => {
 		});
 		expect(stayDistances(withCentre)).toHaveLength(2);
 		expect(stayDistances(without)).toEqual([{ from: 'airport', distance: '19.8 km' }]);
+	});
+});
+
+describe('describeStayChoices under a bed-kind filter (issue #423)', () => {
+	const PRIVATE_ONLY = new Set<BedKind>(['private']);
+	const mixed = makeProperty('Wombats City Hostel');
+	const mixedGroup = group({ stay: makeStay(mixed, 'dorm', 1300) }, { stay: makeStay(mixed, 'private', 4000) });
+
+	it('prices a property on the kind asked for, not on the cheaper room it also has', () => {
+		const [row] = describeStayChoices([mixedGroup], {
+			picked: pickedStay,
+			connectionAirport: AIRPORT,
+			nights: 3,
+			bedKinds: PRIVATE_ONLY
+		});
+
+		expect(row.cheapest?.stay.roomKind).toBe('private');
+		expect(row.total).toEqual({ minorUnits: 12000, currency: 'EUR' });
+		expect(row.comparison).toEqual({
+			kind: 'difference',
+			perNight: { minorUnits: 2000, currency: 'EUR' },
+			overStay: { minorUnits: 6000, currency: 'EUR' }
+		});
+	});
+
+	// A caveat about who may sleep in a room is a fact about the room. A private room that is
+	// missing because the traveller asked for dorms has no such fact to report, and inventing
+	// one would put "women only" over a room nobody said that about.
+	it('reports no gender caveat for a property the filter alone emptied', () => {
+		const dormHostel = group({ stay: makeStay(makeProperty('Hostel Ruthensteiner'), 'dorm', 1100) });
+		const [row] = describeStayChoices([dormHostel], {
+			picked: pickedStay,
+			connectionAirport: AIRPORT,
+			nights: 3,
+			bedKinds: PRIVATE_ONLY
+		});
+
+		expect(row.cheapest).toBeUndefined();
+		expect(row.unavailableReason).toBeUndefined();
+	});
+
+	it('still reports the gender caveat when the group is the reason', () => {
+		const womenOnly = group({ stay: makeStay(makeProperty('Hostelle'), 'female-dorm', 900) });
+		const [row] = describeStayChoices([womenOnly], {
+			picked: pickedStay,
+			connectionAirport: AIRPORT,
+			nights: 3,
+			travellers: 2,
+			females: 0,
+			bedKinds: PRIVATE_ONLY
+		});
+
+		expect(row.cheapest).toBeUndefined();
+		expect(row.unavailableReason).toContain('women only');
+	});
+
+	// The map marks this row as the current pick and every delta on the screen is measured
+	// from its price, so a filter that blanked it would take the comparison's own baseline away.
+	it('keeps pricing the property the trip books, whatever the filter says', () => {
+		const [row] = describeStayChoices([group({ stay: pickedStay })], {
+			picked: pickedStay,
+			connectionAirport: AIRPORT,
+			nights: 3,
+			bedKinds: PRIVATE_ONLY
+		});
+
+		expect(row.isPicked).toBe(true);
+		expect(row.cheapest?.stay).toBe(pickedStay);
+		expect(row.comparison).toEqual({ kind: 'picked' });
+	});
+
+	it('changes nothing for an empty set', () => {
+		const context = { picked: pickedStay, connectionAirport: AIRPORT, nights: 3 };
+		expect(describeStayChoices([mixedGroup], { ...context, bedKinds: new Set<BedKind>() })).toEqual(
+			describeStayChoices([mixedGroup], context)
+		);
 	});
 });
 

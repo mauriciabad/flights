@@ -374,7 +374,28 @@ describe('TransportPicker: mode breakdown', () => {
 		// The owner's report: "a brick of unformated text that is impossible to understand".
 		// The row itself now says what you ride and how often you change; the legs are behind
 		// the disclosure below it.
-		expect(normalizedText(root)).toContain('Train, then bus (1 change)');
+		//
+		// Issue #424 moved the count off the tail of the sentence and into an element of its
+		// own beside the duration, which is what "see how many changes i have to do clearly"
+		// asked for. Same two facts, in the order a chooser reads them.
+		expect(normalizedText(root)).toContain('1 change · Train, then bus');
+	});
+
+	it('says the change count once, not once as an element and again in the summary', () => {
+		// Issue #424. `summariseTransferLegs` still ends in "(1 change)" for the timeline row,
+		// which has no element carrying it. The picker uses `summariseTransferVehicles`
+		// instead, and this is the assertion that keeps the two apart.
+		const root = mountPicker({ itinerary: baseItinerary(walkTransfer), alternatives: [multiLeg()] });
+
+		expect(normalizedText(root)).not.toContain('(1 change)');
+	});
+
+	it('says nothing about changes on a walk, which has nothing to change between', () => {
+		// `transferChanges` answers `undefined` rather than zero for a walk, a taxi and a
+		// drive, and the row prints nothing at all rather than "No changes".
+		const root = mountPicker({ itinerary: baseItinerary(walkTransfer), alternatives: [] });
+
+		expect(normalizedText(root)).not.toContain('change');
 	});
 
 	it('puts the step list behind a disclosure rather than printing it on every row', () => {

@@ -18,12 +18,16 @@
 	 *   that matter most (nights, and how long the stopover runs) in the place where they
 	 *   mean something spatially. Nights ride here and nowhere else on the card: the
 	 *   strip's caption already prints "2 nights in Vienna" in bold teal.
-	 * - **Free time, in flight, airport wait, door to door** (`MetricRail`, the four in
-	 *   `CARD_METRIC_IDS`). The figures that decide whether a cheap itinerary is actually
-	 *   cheap. Airport waiting in particular is the cost nobody quotes. Free time is a day
-	 *   count since issue #228, "2 full days" rather than the "2d 15h" the owner called
-	 *   misleading; the edge times and the stay it buys are in the unfolded timeline,
-	 *   because seven lines times four cards is not a results screen.
+	 * - **Free time, in flight, airport wait, changes, door to door** (`MetricRail`, the
+	 *   five in `CARD_METRIC_IDS`). The figures that decide whether a cheap itinerary is
+	 *   actually cheap. Airport waiting in particular is the cost nobody quotes, and since
+	 *   issue #424 so is the number of times the trip makes you change vehicle: the owner's
+	 *   own reason for asking is that "it is way better a hotel with no transfers and a bit
+	 *   more expensive than one with changes", which is a judgement he can only make if both
+	 *   cards say it. Free time is a day count since issue #228, "2 full days" rather than
+	 *   the "2d 15h" the owner called misleading; the edge times and the stay it buys are in
+	 *   the unfolded timeline, because seven lines times four cards is not a results
+	 *   screen.
 	 *
 	 * ## Issue #309: this card owns every summary figure, and nothing repeats it
 	 *
@@ -708,12 +712,15 @@
 	/* Desktop-sized padding and gaps were a third of what put the phone card over the
 	   620px it has under the header and tab bar; one card per screen means no comparing. */
 	@media (max-width: 34rem) {
-		/* MetricRail's auto-fit grid seats three cells at this width, which leaves the
-		   fourth figure alone on a second row: two by two reads as two pairs, three plus
-		   one reads as a leftover. Scoped to this card because the timeline's totals
-		   rail has six cells and three-up is right for it. */
+		/* Three-up, which is what MetricRail's own auto-fit grid seats at this width. It was
+		   forced to two while the rail held four cells, because two by two reads as two
+		   pairs and three plus one reads as a leftover. Issue #424's CHANGES cell makes it
+		   five, and five at two-up is three rows and a dangling cell, a whole row of card
+		   height on the screen that has the least of it. At three-up five cells sit in the
+		   same two rows the four did, so the phone card is exactly as tall as it was.
+		   Scoped to this card because the timeline's totals rail has its own cell count. */
 		.result-card :global(.metric-rail-rail) {
-			grid-template-columns: repeat(2, 1fr);
+			grid-template-columns: repeat(3, 1fr);
 		}
 	}
 </style>

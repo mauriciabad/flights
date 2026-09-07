@@ -391,6 +391,51 @@ export function transferRideDuration(transfer: Transfer): Duration {
 }
 
 /**
+ * The legs of this journey that are a ride on something, rather than a walk to it.
+ *
+ * `providers/transfers/transitous-mapper.ts` maps a MOTIS `WALK` leg to `'walk'` and every
+ * other leg to `'transit'`, so on a transit transfer this list is exactly the vehicles
+ * boarded. An OSRM walk, taxi or drive comes back as a single leg whose mode mirrors the
+ * transfer's own, so all three return nothing here, which is what makes the count below
+ * mean something.
+ *
+ * Deliberately NOT the same set as `mode !== 'walk'`, which `algorithm/score.ts` and
+ * `components/mode-icon.ts` both filter on. That set counts a taxi leg, and it is the right
+ * set for what each of them does. This one is about changing vehicles, and a car has
+ * nothing to change between.
+ *
+ * Takes the legs rather than a `Transfer` because `summariseTransferLegs` is given a bare
+ * array (its callers hold a `Transfer`, its tests do not) and has to reach the same rule.
+ */
+export function transitRideLegs(legs: readonly TransferLeg[]): TransferLeg[] {
+	return legs.filter((leg) => leg.mode === 'transit');
+}
+
+/**
+ * How many times a traveller changes vehicle on this journey. Issue #424, the owner: **"i
+ * also want to see how many changes i have to do clearly in public transport and have a
+ * filter for it. it is way better a hotel with no transfers and a bit more expensive than
+ * one with changes."**
+ *
+ * Two rides is one change, which is the arithmetic, and the rest of this comment is the
+ * part that is not arithmetic. `undefined` is not zero. It means this journey has no
+ * changes CONCEPT: a walk, a taxi, a drive, or a `Transfer` carrying no legs at all, which
+ * every OSRM answer is. Zero means the traveller really does board once and get off once.
+ * A screen that reads the two the same way prints "no changes" over a taxi, which is true
+ * and useless, and `itineraryChanges` in `itinerary.ts` depends on being able to tell them
+ * apart to add legs up.
+ *
+ * Verified against MOTIS's own `transfers` field, which this app does not read, on the two
+ * plan fixtures: `transitous-plan-ber-leg-geometry.json` is walk/ride/walk/ride/walk, two
+ * rides, one change, and MOTIS says 1; `transitous-plan-bhx-unshaped-leg.json` has three
+ * rides, two changes, and MOTIS says 2.
+ */
+export function transferChanges(legs: readonly TransferLeg[]): number | undefined {
+	const rides = transitRideLegs(legs);
+	return rides.length === 0 ? undefined : rides.length - 1;
+}
+
+/**
  * Whether this leg costs a number nobody has given us. Issue #204.
  *
  * An absent `Transfer.price` means two opposite things depending on the mode, and every

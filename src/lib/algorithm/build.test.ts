@@ -8,6 +8,7 @@ import type {
 	FlightFarePriceScope,
 	FlightOffer,
 	LocalDateTime,
+	Money,
 	Stay,
 	Transfer,
 	TransitSchedule,
@@ -17,6 +18,7 @@ import {
 	buildItineraries,
 	deriveLayover,
 	deriveOriginLeg,
+	perPersonShare,
 	recomputeItineraryWaitingTimes,
 	type BuildItinerariesInput,
 	type ConnectionResources,
@@ -1242,5 +1244,58 @@ describe('the origin leg always adds up to itself', () => {
 		const partial = deriveOriginLeg(shapes['a timetable that never said when it lands']!);
 		expect(partial.atAirport.local).toBe('2026-09-15T23:43:00');
 		expect(partial.airportWait).toBe(367);
+	});
+});
+
+describe('perPersonShare, one traveller\'s cut of a party total (issue #425)', () => {
+	const euros = (minorUnits: number): Money => ({ minorUnits, currency: 'EUR' });
+
+	it('gives a lone traveller the total back, untouched', () => {
+		// The card gates on this too, but the helper has to be safe on its own: a share of a
+		// party of one is the party's bill, and rounding it would be a chance to change it.
+		expect(perPersonShare(euros(23560), 1)).toEqual(euros(23560));
+	});
+
+	it('divides a total that divides', () => {
+		expect(perPersonShare(euros(24000), 3)).toEqual(euros(8000));
+		expect(perPersonShare(euros(23560), 2)).toEqual(euros(11780));
+	});
+
+	it('rounds, so three shares of €235.60 add back up to €235.59', () => {
+		// The owner's own figure, and the one thing a reader of this helper has to know. The
+		// missing cent is why the card labels the row "each" and names the party rather than
+		// printing a bare second number: this is a bill being split, not a price anybody quoted.
+		const share = perPersonShare(euros(23560), 3);
+		expect(share).toEqual(euros(7853));
+		expect(share.minorUnits * 3).toBe(23559);
+	});
+
+	it('rounds up as readily as down', () => {
+		// 12466.67 to 12467, so three shares are a cent MORE than the total. Both directions
+		// happen and neither is corrected: an app that shaved the last share to make the column
+		// add up would be printing a different number to one traveller than to the others.
+		expect(perPersonShare(euros(37400), 3)).toEqual(euros(12467));
+	});
+
+	it('refuses a count that is not a count', () => {
+		// Zero would be Infinity, a negative would be a refund, and NaN would be NaN. All three
+		// mean the traveller count never got set, and the honest answer to "split this between
+		// nobody" is the unsplit total rather than a number.
+		for (const people of [0, -2, Number.NaN, Number.POSITIVE_INFINITY]) {
+			expect(perPersonShare(euros(23560), people)).toEqual(euros(23560));
+		}
+	});
+
+	it('keeps the currency, including one with no minor unit at all', () => {
+		// 45000 JPY is 45000 yen, not 450. Dividing minor units is exponent-agnostic precisely
+		// because it never leaves them (`domain/money.ts`).
+		expect(perPersonShare({ minorUnits: 45000, currency: 'JPY' }, 4)).toEqual({
+			minorUnits: 11250,
+			currency: 'JPY'
+		});
+		expect(perPersonShare({ minorUnits: 9000, currency: 'GBP' }, 2)).toEqual({
+			minorUnits: 4500,
+			currency: 'GBP'
+		});
 	});
 });

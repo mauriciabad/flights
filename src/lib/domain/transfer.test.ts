@@ -4,9 +4,11 @@ import {
 	groundFare,
 	maxPlausibleRoadMinutes,
 	ROAD_FIXED_ALLOWANCE_MINUTES,
-	SLOWEST_USEFUL_ROAD_KM_PER_HOUR
+	SLOWEST_USEFUL_ROAD_KM_PER_HOUR,
+	transferChanges,
+	transitRideLegs
 } from './transfer';
-import type { Transfer, TransferMode } from './transfer';
+import type { Transfer, TransferLeg, TransferMode } from './transfer';
 import type { Duration } from './duration';
 import type { FareEstimate } from './fare';
 
@@ -189,5 +191,62 @@ describe('costIsUnknown', () => {
 		expect(
 			costIsUnknown(transfer('transit', { price: { minorUnits: 450, currency: 'EUR' } }))
 		).toBe(false);
+	});
+});
+
+/** Two shapes the mapper really produces: a walk to the stop, a ride, a walk between, a
+ * ride, a walk off. `duration` is never read by either function under test. */
+function walkLeg(): TransferLeg {
+	return { mode: 'walk', duration: 6 as Duration };
+}
+
+function rideLeg(vehicle: string): TransferLeg {
+	return { mode: 'transit', duration: 18 as Duration, vehicle };
+}
+
+describe('transitRideLegs', () => {
+	it('keeps the rides and drops the walks around them', () => {
+		const legs = [walkLeg(), rideLeg('Metro'), walkLeg(), rideLeg('Bus'), walkLeg()];
+		expect(transitRideLegs(legs).map((leg) => leg.vehicle)).toEqual(['Metro', 'Bus']);
+	});
+
+	it('finds nothing in a walk, a taxi or a drive', () => {
+		// A car's own leg mirrors the transfer's mode, so this is the whole of what OSRM
+		// returns. Deliberately NOT the `mode !== 'walk'` set that score.ts and mode-icon.ts
+		// filter on, which counts a taxi leg and is right for what each of them does.
+		expect(transitRideLegs([{ mode: 'taxi', duration: 22 as Duration }])).toEqual([]);
+		expect(transitRideLegs([{ mode: 'drive', duration: 22 as Duration }])).toEqual([]);
+		expect(transitRideLegs([walkLeg()])).toEqual([]);
+	});
+
+	it('finds nothing in a transfer with no legs at all', () => {
+		expect(transitRideLegs([])).toEqual([]);
+	});
+});
+
+describe('transferChanges', () => {
+	it('counts two rides as one change', () => {
+		// Checked against MOTIS's own unread `transfers` field on
+		// transitous-plan-ber-leg-geometry.json, which says 1 for this shape.
+		expect(transferChanges([walkLeg(), rideLeg('Metro'), walkLeg(), rideLeg('Bus'), walkLeg()])).toBe(1);
+	});
+
+	it('counts three rides as two changes', () => {
+		// transitous-plan-bhx-unshaped-leg.json's shape; MOTIS says 2.
+		expect(transferChanges([rideLeg('Bus'), rideLeg('Train'), rideLeg('Bus')])).toBe(2);
+	});
+
+	it('counts a single ride as no changes', () => {
+		expect(transferChanges([walkLeg(), rideLeg('Coach'), walkLeg()])).toBe(0);
+	});
+
+	it('says undefined, never zero, for a journey with nothing to change between', () => {
+		// The distinction the whole function exists for. Zero is "you board once and get
+		// off once"; undefined is "changes are not a thing this journey has". A screen that
+		// reads them the same way prints "no changes" over a taxi.
+		expect(transferChanges([walkLeg(), walkLeg()])).toBeUndefined();
+		expect(transferChanges([{ mode: 'taxi', duration: 22 as Duration }])).toBeUndefined();
+		expect(transferChanges([{ mode: 'drive', duration: 22 as Duration }])).toBeUndefined();
+		expect(transferChanges([])).toBeUndefined();
 	});
 });

@@ -51,6 +51,7 @@ import type { StayReach } from './reach';
 import { formatMoney, stayTotalDelta, stayTotalForNights } from './pricing';
 import { cheapestSelectableOption } from './rank';
 import { stayGenderFitMessage } from './gendered-room-fit';
+import type { BedKind } from './room-kind';
 import { propertyKey, propertyOf, type PropertyStayOptions, type StayOption } from './types';
 
 /** What one candidate costs relative to the stay the itinerary currently books. */
@@ -78,7 +79,10 @@ export interface StayChoice {
 	 * dropping. */
 	cheapest?: StayOption;
 	/** Why there is no price, in the same words the room tiles use for the same situation.
-	 * Present exactly when `cheapest` is absent. */
+	 * Present when `cheapest` is absent AND the group's own fit is the reason. A property
+	 * left with nothing only because the traveller narrowed to one bed kind gets no message
+	 * here (issue #423): "women only" over a private room somebody filtered away themselves
+	 * would be a cause this module never observed. */
 	unavailableReason?: string;
 	/** Straight line to the connection airport, the same figure and formatter every other
 	 * stay surface prints. Issue #405 demoted this on the row in favour of `reach`, because a
@@ -110,6 +114,18 @@ export interface StayChoiceContext {
 	nights: number;
 	travellers?: number;
 	females?: number;
+	/**
+	 * The bed kinds the traveller has narrowed to (issue #423), empty or absent meaning all.
+	 *
+	 * Every figure on a row is computed from the pool this leaves: `cheapest`, `total` and
+	 * therefore `comparison`. A hostel with a EUR 13.00 dorm and a EUR 40.00 private room
+	 * prices at EUR 40.00 in a private-room search, and the delta on the row is the delta the
+	 * traveller would actually pay for the room they can see.
+	 *
+	 * The picked property is the one exception, and the reason is below in
+	 * `describeStayChoices`.
+	 */
+	bedKinds?: ReadonlySet<BedKind>;
 	/** Issue #405's journey times, keyed by `propertyKey`. Passed in rather than fetched
 	 * here because this module is pure and the lookup is two OSRM requests; `fetch-reach.ts`
 	 * owns that and states what it costs. A key with no entry leaves `StayChoice.reach`
@@ -154,6 +170,31 @@ function compare(candidate: Stay | undefined, context: StayChoiceContext, isPick
 	};
 }
 
+/**
+ * Why this property has nothing to price, or `undefined` when the traveller's own bed-kind
+ * filter is the whole of it.
+ *
+ * AGENTS.md's rule about never asserting a cause you did not observe, applied to our own
+ * copy. A property that still has a bed this group could book, just not in the kind they
+ * asked for, has no gender problem to report, and reporting one would put "no female
+ * travellers, and this is women only" on a private room the traveller hid themselves.
+ */
+function unavailableReasonFor(
+	group: PropertyStayOptions,
+	context: StayChoiceContext
+): string | undefined {
+	if (cheapestSelectableOption(group, context.travellers, context.females)) return undefined;
+	// Asked of the cheapest room rather than assumed to be about women (issue #288): a
+	// property whose only dorm is a men-only one gives a female traveller the mirror answer,
+	// and the cheapest is the tile the reader would have reached for.
+	return stayGenderFitMessage(
+		group.options.reduce((a, b) => (b.stay.pricePerNight.minorUnits < a.stay.pricePerNight.minorUnits ? b : a))
+			.stay,
+		context.travellers,
+		context.females
+	);
+}
+
 /** Every candidate as a row, in the order they were given. Ranking is `rank.ts`'s job and
  * this preserves whatever order it was handed. */
 export function describeStayChoices(
@@ -162,25 +203,24 @@ export function describeStayChoices(
 ): StayChoice[] {
 	return groups.map((group) => {
 		const property = propertyOf(group);
-		const cheapest = cheapestSelectableOption(group, context.travellers, context.females);
 		const isPicked = context.picked !== undefined && propertyKey(context.picked.property) === propertyKey(property);
+		// The trip's own bed is never filtered out of its own description. `bedKinds` narrows
+		// what is on OFFER, and this property is already taken: the map marks it as the current
+		// pick and every delta on this screen is measured from its price, so blanking that
+		// price because the traveller asked to browse private rooms would take the comparison's
+		// own baseline off the screen.
+		const cheapest = cheapestSelectableOption(
+			group,
+			context.travellers,
+			context.females,
+			isPicked ? undefined : context.bedKinds
+		);
 		return {
 			key: propertyKey(property),
 			group,
 			property,
 			cheapest,
-			// Asked of the cheapest room rather than assumed to be about women (issue #288):
-			// a property whose only dorm is a men-only one gives a female traveller the
-			// mirror answer, and the cheapest is the tile the reader would have reached for.
-			unavailableReason: cheapest
-				? undefined
-				: stayGenderFitMessage(
-						group.options.reduce((a, b) =>
-							b.stay.pricePerNight.minorUnits < a.stay.pricePerNight.minorUnits ? b : a
-						).stay,
-						context.travellers,
-						context.females
-					),
+			unavailableReason: cheapest ? undefined : unavailableReasonFor(group, context),
 			distanceToAirportKm: haversineDistanceKm(property.coordinates, context.connectionAirport),
 			distanceToCentreKm: context.cityCentre
 				? haversineDistanceKm(property.coordinates, context.cityCentre)

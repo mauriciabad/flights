@@ -20,7 +20,7 @@
  */
 
 import type { FareConversion, IsoCurrencyCode, Itinerary, Money, Stay, Transfer } from '$lib/domain';
-import { groundFare, unpricedTransferLegs, walkedTransferLegs } from '$lib/domain';
+import { groundFare, itineraryChanges, unpricedTransferLegs, walkedTransferLegs } from '$lib/domain';
 import { scaleFareForParty, sumMoney } from '$lib/algorithm/build';
 import { formatDuration, formatLongDuration, formatMoney, formatMoneyRange } from '$lib/format';
 import { bedNightlyRate } from '$lib/stays/pricing';
@@ -32,6 +32,7 @@ export type ItineraryMetricId =
 	| 'airport-waiting'
 	| 'free-time'
 	| 'nights'
+	| 'changes'
 	| 'total-time'
 	| 'total-price';
 
@@ -65,6 +66,7 @@ export const ALL_METRIC_IDS: readonly ItineraryMetricId[] = [
 	'airport-waiting',
 	'free-time',
 	'nights',
+	'changes',
 	'total-time',
 	'total-price'
 ];
@@ -81,11 +83,17 @@ export const ALL_METRIC_IDS: readonly ItineraryMetricId[] = [
  * travelling", and they are the pair the traveller trades against price. Door to door
  * closes it.
  *
+ * Changes is issue #424, and it is on the collapsed card because the collapsed card is
+ * where "this hotel needs no transfers and that one needs two" gets decided. The owner:
+ * "it is way better a hotel with no transfers and a bit more expensive than one with
+ * changes." It is a door-to-door figure like the three beside it, summed across the trip's
+ * ground legs, and it belongs next to the airport wait for the same reason that one does:
+ * it is a cost nobody quotes.
+ *
  * Nights is deliberately absent: the trip strip above this rail already prints "2 nights
  * in Vienna" in bold teal, so a NIGHTS cell repeated the one figure the card shows as a
  * shape. Total price is absent for the same reason: it is the card's headline, printed
- * once at the top with its own breakdown. Four cells also fit a 375px card in two rows of
- * two, where five left a dangling cell and an empty slot.
+ * once at the top with its own breakdown.
  *
  * Since issue #309 these four are the only ones on screen anywhere, and this rail is the
  * only thing that prints them. The owner's rule is that expanding a card must not change
@@ -95,6 +103,7 @@ export const CARD_METRIC_IDS: readonly ItineraryMetricId[] = [
 	'free-time',
 	'in-flight',
 	'airport-waiting',
+	'changes',
 	'total-time'
 ];
 
@@ -145,6 +154,16 @@ function buildMetric(itinerary: Itinerary, id: ItineraryMetricId): ItineraryMetr
 				// the same warning twice on one card, a few centimetres apart.
 				tone: 'stopover'
 			};
+		case 'changes':
+			return {
+				id,
+				// One word, because the cell is 5.5rem wide at its narrowest and the value
+				// under it is the answer. "Changes on public transport" is the filter's
+				// heading, where there is a row to spend on saying which changes.
+				label: 'Changes',
+				value: changeCount(itinerary),
+				tone: 'default'
+			};
 		case 'total-time':
 			return {
 				id,
@@ -161,6 +180,24 @@ function buildMetric(itinerary: Itinerary, id: ItineraryMetricId): ItineraryMetr
 				note: totalPriceCaveat(itinerary)
 			};
 	}
+}
+
+/**
+ * The change count as a boarding-pass field reads it. Issue #424.
+ *
+ * "None" rather than "0", the same call issue #228 made for the free-time cell: a zero in
+ * a figure slot reads as a bug or an empty state rather than as an answer, and this one is
+ * the best answer a trip can give.
+ *
+ * "Unknown" is the case `itineraryChanges` refuses to call zero, which is a ground leg
+ * whose shape this app's own mapper cannot produce. It is not filtered out of the results
+ * list either (`results/filters.ts`), so the card has to be able to say why it is there
+ * when the traveller has asked for the direct trips.
+ */
+function changeCount(itinerary: Itinerary): string {
+	const changes = itineraryChanges(itinerary);
+	if (changes === undefined) return 'Unknown';
+	return changes === 0 ? 'None' : String(changes);
 }
 
 /**

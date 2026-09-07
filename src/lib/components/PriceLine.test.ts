@@ -44,6 +44,18 @@ function headline(itinerary: Itinerary): string {
 	return render(itinerary).querySelector('.price-total')!.textContent!.trim();
 }
 
+/** Issue #425: the headline and the share row under it, off ONE mount. The two have to
+ * agree about `from`, and every assertion below is about that agreement, so reading them
+ * from two renders would both leak a mount (see `render`) and stop testing the pair.
+ * `share` is `undefined` where the block prints no such row at all. */
+function headlineAndShare(itinerary: Itinerary): { headline: string; share: string | undefined } {
+	const root = render(itinerary);
+	return {
+		headline: root.querySelector('.price-total')!.textContent!.trim(),
+		share: root.querySelector('.price-each')?.textContent?.replace(/\s+/g, ' ').trim()
+	};
+}
+
 afterEach(() => {
 	if (component) unmount(component);
 	target?.remove();
@@ -77,9 +89,9 @@ const ratedTaxi: Transfer = {
 /** The shape the owner was looking at, reproduced on production on 2026-09-05 with an
  * origin and a destination location filled in: four ground legs, the first walked and the
  * other three taxis nobody quoted. */
-function threeTaxisAndAWalk(): Itinerary {
+function threeTaxisAndAWalk(travellers = 1): Itinerary {
 	return {
-		...makeItinerary({ nightsInConnection: 1 }),
+		...makeItinerary({ nightsInConnection: 1, travellers }),
 		transferToOriginAirport: walk,
 		transferToHotel: taxi,
 		transferToConnectionAirport: taxi,
@@ -315,4 +327,95 @@ describe("a converted ground line (issue #339)", () => {
 			transferToConnectionAirport: spanish
 		};
 	}
+});
+
+describe('what the trip costs each, when the party is more than one (issue #425)', () => {
+	/** The owner's own number, split three ways: "In Getting there from€235.60 i would like
+	 * to also see how much for each when multiple people."
+	 *
+	 * Both fares are `party-total` (Skyscanner's shape, see `FlightFarePriceScope`), so
+	 * €235.60 is the whole party's bill and this fixture's own parts add up to it rather
+	 * than to three times it. Same-day, so no bed and no night ladder stand between the
+	 * headline and the one row this block is about.
+	 */
+	function ownersTrip(): Itinerary {
+		const trip = makeItinerary({ travellers: 3, priceMinorUnits: 23560 });
+		const partyFare = {
+			price: { minorUnits: 11780, currency: 'EUR' as const },
+			priceScope: 'party-total' as const
+		};
+		return {
+			...trip,
+			outboundFlight: { ...trip.outboundFlight, ...partyFare },
+			onwardFlight: { ...trip.onwardFlight, ...partyFare }
+		};
+	}
+
+	it('says nothing at all when one person is travelling', () => {
+		// The acceptance criterion, and why the line is gated rather than always on: "€138.00
+		// each of 1" under €138.00 is the headline said twice, and a card that grew a line for
+		// a solo search would have changed for every traveller who never asked for it.
+		expect(headlineAndShare(makeItinerary({ nightsInConnection: 1 }))).toEqual({
+			headline: '€138.00',
+			share: undefined
+		});
+	});
+
+	it('prints the share, the word, and the party it was split between', () => {
+		// The count is on the line because 3 × €78.53 is €235.59, not €235.60: the division is
+		// lossy, so it hands over both operands and lets a traveller check it rather than
+		// asserting a second price. `perPersonShare` (algorithm/build.ts) owns that argument.
+		//
+		// "each of 3" rather than "each, 3 travellers", which is what this printed until the
+		// card measured 20px over the ceiling `card-size.spec.ts` holds. The noun is what went,
+		// because the count is the operand and the noun is not. PriceLine.svelte has the
+		// widths.
+		expect(headlineAndShare(ownersTrip())).toEqual({
+			headline: '€235.60',
+			share: '€78.53 each of 3'
+		});
+	});
+
+	it('keeps the share stacked with the total rather than beside it', () => {
+		// The structure the height depends on, asserted where a reader can see why it is one.
+		// `.price-figure` is what makes the total and its share one item of the headline's
+		// wrap instead of two, and at 375px on the tallest card this app can build the second
+		// of those two is a row the card cannot afford. Tidying the wrapper away reads as
+		// harmless and fails a pixel budget three files from here.
+		const headline = render(ownersTrip()).querySelector('.price-headline')!;
+		expect([...headline.children].map((child) => child.classList.item(0))).toEqual([
+			'price-label',
+			'price-figure'
+		]);
+		const figure = headline.querySelector('.price-figure')!;
+		expect([...figure.children].map((child) => child.classList.item(0))).toEqual([
+			'price-total',
+			'price-each'
+		]);
+	});
+
+	it("carries the headline's from when a ride nobody quoted is in the trip", () => {
+		// A floor divided is still a floor. Without the word this line would be the one
+		// confident figure on a card whose headline has already said it is understating.
+		expect(headlineAndShare(threeTaxisAndAWalk(3))).toEqual({
+			headline: 'from€374.00',
+			share: 'from€124.67 each of 3'
+		});
+	});
+
+	it('carries it for an estimated ride too, which is outside the total just the same', () => {
+		// €374.00 over three rounds UP, to €124.67 apiece and a cent MORE than the bill. The
+		// rounding shows in both directions and is not corrected: shaving the last share to
+		// make the column add up would print a different number to one traveller than to the
+		// others.
+		const rated = {
+			...makeItinerary({ nightsInConnection: 1, travellers: 3 }),
+			transferToHotel: ratedTaxi,
+			transferToConnectionAirport: ratedTaxi
+		};
+		expect(headlineAndShare(rated)).toEqual({
+			headline: 'from€374.00',
+			share: 'from€124.67 each of 3'
+		});
+	});
 });

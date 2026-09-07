@@ -8,7 +8,7 @@
  */
 
 import { scoreItinerary } from '$lib/algorithm/score';
-import type { Airport, Duration, FlightOffer, Itinerary, LocalDateTime, Money } from '$lib/domain';
+import type { Airport, Duration, FlightOffer, Itinerary, LocalDateTime, Money, Transfer } from '$lib/domain';
 import type { ProviderId } from '$lib/providers/types';
 import { departureDateOf } from '$lib/algorithm/pairings';
 import type { DepartureDates, ScoredResult, StopoverLengths } from './types';
@@ -76,6 +76,11 @@ export function makeItinerary(
 		outboundDeparture?: string;
 		outboundArrival?: string;
 		onwardDeparture?: string;
+		/** Issue #424: the two connection-side ground legs, for a test about what the
+		 * traveller has to change between rather than about money or clocks. Both default to
+		 * the short walk every other test here relies on. */
+		transferToHotel?: Transfer;
+		transferToConnectionAirport?: Transfer;
 	} = {}
 ): Itinerary {
 	const connectionCode = overrides.connectionAirportCode ?? 'VIE';
@@ -104,7 +109,11 @@ export function makeItinerary(
 		originAirport: airport('BCN', 'Barcelona'),
 		originWaitingTime: 120 as Duration,
 		outboundFlight,
-		transferToHotel: { mode: 'walk', duration: 15 as Duration, legs: [{ mode: 'walk', duration: 15 as Duration }] },
+		transferToHotel: overrides.transferToHotel ?? {
+			mode: 'walk',
+			duration: 15 as Duration,
+			legs: [{ mode: 'walk', duration: 15 as Duration }]
+		},
 		stay: {
 			property: { name: 'Test stay', coordinates: { latitude: 0, longitude: 0 }, images: [] },
 			roomKind: 'private',
@@ -116,7 +125,11 @@ export function makeItinerary(
 			duration: freeTimeMinutes as Duration
 		},
 		nightsInConnection,
-		transferToConnectionAirport: { mode: 'walk', duration: 15 as Duration, legs: [{ mode: 'walk', duration: 15 as Duration }] },
+		transferToConnectionAirport: overrides.transferToConnectionAirport ?? {
+			mode: 'walk',
+			duration: 15 as Duration,
+			legs: [{ mode: 'walk', duration: 15 as Duration }]
+		},
 		connectionWaitingTime: 120 as Duration,
 		onwardFlight,
 		destinationAirport: airport('OTP', 'Bucharest'),

@@ -1,7 +1,15 @@
 import type { Coordinates, Property, RoomKind, Stay } from '$lib/domain';
 import { describe, expect, it } from 'vitest';
 import type { StopoverForRanking } from './rank';
-import { cheapestSelectableOption, isOptionSelectable, rankProperties, selectableOptions } from './rank';
+import {
+	cheapestSelectableOption,
+	countPropertiesByBedKind,
+	isOptionSelectable,
+	isPropertyOnOffer,
+	rankProperties,
+	selectableOptions
+} from './rank';
+import type { BedKind } from './room-kind';
 import type { PropertyStayOptions, StayOption } from './types';
 
 const AIRPORT: Coordinates = { latitude: 48.11, longitude: 16.57 };
@@ -221,5 +229,92 @@ describe('rankProperties — how far the bed is (issue #219)', () => {
 		];
 		const ranked = rankProperties(properties, stopover(1, 4, 0));
 		expect(ranked.map((p) => p.options[0].stay.property.name)).toEqual(['Across town', 'At the gate']);
+	});
+});
+
+describe('the bed-kind filter (issue #423)', () => {
+	const DORMS_ONLY = new Set<BedKind>(['dorm']);
+	const PRIVATE_ONLY = new Set<BedKind>(['private']);
+
+	const mixed = makeProperty('Wombats City Hostel');
+	const dormOnly = makeProperty('Hostel Ruthensteiner');
+	const cheapDorm: StayOption = { stay: makeStay(mixed, 'dorm', 1300) };
+	const dearRoom: StayOption = { stay: makeStay(mixed, 'private', 4000) };
+
+	// The exact bug a naive filter ships: filtering finished `StayChoice`s on
+	// `cheapest.stay.roomKind` reads this property's EUR 13.00 dorm and throws away the
+	// private room the traveller asked for.
+	it('keeps a property that also has a dorm, and resolves it to the private room', () => {
+		const property = group([cheapDorm, dearRoom]);
+		expect(cheapestSelectableOption(property, 2, 1, PRIVATE_ONLY)).toBe(dearRoom);
+		expect(selectableOptions(property, 2, 1, PRIVATE_ONLY)).toEqual([dearRoom]);
+		expect(isPropertyOnOffer(property, 2, 1, PRIVATE_ONLY)).toBe(true);
+	});
+
+	it('ranks on the price of the kind asked for, not on the cheapest room in the building', () => {
+		// The dorm-only hostel is cheaper than the mixed one's dorm and dearer than nothing at
+		// all, so a filter that ranked on the unfiltered cheapest would put it first.
+		const budget = group([{ stay: makeStay(dormOnly, 'dorm', 1100) }]);
+		const properties = [group([cheapDorm, dearRoom]), budget];
+
+		expect(rankProperties(properties, stopover(2, 2, 1))[0]).toBe(budget);
+		expect(rankProperties(properties, { ...stopover(2, 2, 1), bedKinds: PRIVATE_ONLY })[0]).toBe(properties[0]);
+	});
+
+	it('drops a property with nothing of that kind, and keeps a gender-blocked one', () => {
+		const dormHostel = group([{ stay: makeStay(dormOnly, 'dorm', 1100) }]);
+		const womenOnly = group([{ stay: makeStay(makeProperty('Hostelle'), 'female-dorm', 900) }]);
+
+		// The traveller chose to hide this one, so it goes.
+		expect(isPropertyOnOffer(dormHostel, 2, 0, PRIVATE_ONLY)).toBe(false);
+		// Nobody in this party can book this one whatever they click, so it stays with its
+		// reason on it rather than vanishing under a control that did not cause it.
+		expect(isPropertyOnOffer(womenOnly, 2, 0, PRIVATE_ONLY)).toBe(true);
+		expect(isPropertyOnOffer(womenOnly, 2, 0, DORMS_ONLY)).toBe(true);
+	});
+
+	it('composes with gender fit rather than overriding it', () => {
+		const femaleDorm: StayOption = { stay: makeStay(dormOnly, 'female-dorm', 900) };
+		// A female-only dorm is a dorm, so the kind test passes and the group test still fails.
+		expect(isOptionSelectable(femaleDorm, 2, 0, DORMS_ONLY)).toBe(false);
+		expect(isOptionSelectable(femaleDorm, 2, 2, DORMS_ONLY)).toBe(true);
+		expect(isOptionSelectable(femaleDorm, 2, 2, PRIVATE_ONLY)).toBe(false);
+	});
+
+	it('changes nothing at all for an empty set', () => {
+		const property = group([cheapDorm, dearRoom]);
+		const empty = new Set<BedKind>();
+		expect(selectableOptions(property, 2, 1, empty)).toEqual(selectableOptions(property, 2, 1));
+		expect(cheapestSelectableOption(property, 2, 1, empty)).toBe(cheapestSelectableOption(property, 2, 1));
+
+		const properties = [group([{ stay: makeStay(dormOnly, 'dorm', 1100) }]), property];
+		expect(rankProperties(properties, { ...stopover(2, 2, 1), bedKinds: empty })).toEqual(
+			rankProperties(properties, stopover(2, 2, 1))
+		);
+	});
+});
+
+describe('countPropertiesByBedKind', () => {
+	const both = makeProperty('Wombats City Hostel');
+	const dormHostel = makeProperty('Hostel Ruthensteiner');
+	const hotel = makeProperty('Hotel Post');
+	const womenOnly = makeProperty('Hostelle');
+
+	const properties = [
+		group([{ stay: makeStay(both, 'dorm', 1300) }, { stay: makeStay(both, 'private', 4000) }]),
+		group([{ stay: makeStay(dormHostel, 'dorm', 1100) }, { stay: makeStay(dormHostel, 'female-dorm', 1000) }]),
+		group([{ stay: makeStay(hotel, 'private', 5200) }]),
+		group([{ stay: makeStay(womenOnly, 'female-dorm', 900) }])
+	];
+
+	it('counts a property once per kind it offers, however many rooms of that kind it has', () => {
+		// The second property prices two dorms; it is one dorm property, not two.
+		expect(countPropertiesByBedKind(properties, 2, 2)).toEqual({ dorm: 3, private: 2 });
+	});
+
+	it('leaves out a room this group cannot book, so the chip never promises one', () => {
+		// With no female travellers the women-only hostel drops out of the dorm count
+		// entirely, and the mixed-dorm hostel keeps its place on its plain dorm.
+		expect(countPropertiesByBedKind(properties, 2, 0)).toEqual({ dorm: 2, private: 2 });
 	});
 });

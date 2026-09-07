@@ -5,7 +5,7 @@ import type { FlightOffer } from './flight-offer';
 import type { Location } from './location';
 import type { Money } from './money';
 import type { Stay } from './stay';
-import { costIsUnknown } from './transfer';
+import { costIsUnknown, transferChanges } from './transfer';
 import type { Transfer } from './transfer';
 
 /**
@@ -228,6 +228,44 @@ export function unpricedTransferLegs(legs: Pick<Itinerary, ItineraryTransferLeg>
 		if (transfer !== undefined && costIsUnknown(transfer)) unpriced.push({ leg, transfer });
 	}
 	return unpriced;
+}
+
+/**
+ * How many times this whole trip makes the traveller change vehicle, door to door. Issue
+ * #424.
+ *
+ * A SUM across the four ground legs, not a maximum. The question the owner asked is how
+ * many changes he has to do, and two legs of one change each is two changes with a
+ * suitcase in each hand.
+ *
+ * A leg with no changes concept contributes nothing rather than blocking the answer, so a
+ * trip that walks to one bed and taxis to the airport reads `0`. That is the truth about
+ * it and it is also what the filter needs: "no changes" has to be a set a walk-and-taxi
+ * trip belongs to, or the traveller asking for the easy trips would be shown none of the
+ * easiest ones.
+ *
+ * `undefined` is reserved for the one shape that would be a lie as a zero: a leg whose own
+ * mode says `transit` and which carries no ride legs to count. `transitous-mapper.ts`
+ * cannot produce that, so reaching it means a cached `Transfer` or a future adapter has a
+ * shape nobody here has seen, and reporting it as "no changes" would be this app inventing
+ * an answer. AGENTS.md, "When the data is missing": say what you do not know.
+ *
+ * Derived rather than stored, and taking the four legs rather than a whole `Itinerary`, for
+ * the same two reasons `unpricedTransferLegs` above does both.
+ */
+export function itineraryChanges(legs: Pick<Itinerary, ItineraryTransferLeg>): number | undefined {
+	let changes = 0;
+	for (const leg of TRANSFER_LEGS_IN_TRIP_ORDER) {
+		const transfer = legs[leg];
+		if (transfer === undefined) continue;
+		const legChanges = transferChanges(transfer.legs);
+		if (legChanges === undefined) {
+			if (transfer.mode === 'transit') return undefined;
+			continue;
+		}
+		changes += legChanges;
+	}
+	return changes;
 }
 
 /**
