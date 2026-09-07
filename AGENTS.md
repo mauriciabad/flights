@@ -534,3 +534,35 @@ JSON and worthless against a page that builds itself in the client.
 The same trap has a sibling worth naming: a flattened `innerText` match can come from a
 heading, a filter chip or a "no results for X" line as easily as from a result. If the
 distinction matters, assert against the element you mean, not against the whole page.
+
+## A tile that arrives is not a tile worth drawing
+
+`basemaps.cartocdn.com/rastertiles/...` answers `200` with a real PNG that has "API KEY
+REQUIRED" printed across it, and `tile.openstreetmap.org` answers `200` with a picture of a
+403. Both still did on 2026-09-07. Status code, content type, byte count and MapLibre's own
+`isStyleLoaded()` all say those responses are fine, and a style document with an empty
+`layers` array passes every one of them too while drawing a blank rectangle.
+
+The obvious detector does not work, and it is worth knowing that before building it. "A
+watermark is high-contrast text over a low-contrast basemap, so a cheap statistic over the
+pixels separates them" is the intuition, and it is false for the case that matters: CARTO
+draws its notice over a fully rendered map. Measured over 32 windows, eight European city
+centres at zoom 12 drawn four ways, the watermarked tiles and the clean ones overlap on
+every summary of their own pixels. Ink share 0.033 to 0.234 against 0.027 to 0.229;
+luminance spread 0.061 to 0.087 against 0.028 to 0.094. A threshold that catches the
+watermark refuses real maps too.
+
+What works is a recorded picture of the notice. Take the pixels that carry ink in every one
+of the watermarked tiles: whatever the map contributes differs city to city and drops out of
+the intersection, and what is left is the overlay, legible enough to read in an image viewer
+(`tests/fixtures/basemap/carto-key-notice.png`). Scored against that mask, all sixteen
+watermarked tiles come out at 1.000 and the noisiest clean render at 0.227.
+
+Summary statistics still earn their place for the other two shapes, which are the ones a
+watermark detector would miss. A style that draws nothing measures 0.0000 ink share, and
+openstreetmap.org's refusal image measures 0.2603 luminance spread against a real map's
+worst 0.0935.
+
+`src/lib/itinerary-map/basemap-canary.ts` holds the thresholds and the table they came from,
+`pnpm data:basemap-canary` re-records the evidence, and `pnpm basemap` puts the question to
+the live supply on a weekly schedule rather than on a search (#432).
