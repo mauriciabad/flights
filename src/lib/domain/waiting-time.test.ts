@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
 	DEFAULT_AIRPORT_WAITING_TIME_MINUTES,
+	DEFAULT_LANDING_TO_TRANSPORT_RULES,
 	DEFAULT_LANDING_TO_TRANSPORT_TIME_MINUTES,
 	DEFAULT_WAITING_TIME_RULES
 } from '$lib/domain/waiting-time';
@@ -15,8 +16,8 @@ describe('waiting-time defaults', () => {
 		expect(DEFAULT_AIRPORT_WAITING_TIME_MINUTES).toBe(120);
 	});
 
-	it('defaults landing-to-transport time to 15 minutes', () => {
-		expect(DEFAULT_LANDING_TO_TRANSPORT_TIME_MINUTES).toBe(15);
+	it('defaults landing-to-transport time to 20 minutes', () => {
+		expect(DEFAULT_LANDING_TO_TRANSPORT_TIME_MINUTES).toBe(20);
 	});
 
 	it('ships one flat rule, with no tier for a long flight at a large airport', () => {
@@ -24,5 +25,13 @@ describe('waiting-time defaults', () => {
 		expect(
 			DEFAULT_WAITING_TIME_RULES.some((rule) => rule.airportSize || rule.flightLength)
 		).toBe(false);
+	});
+
+	// Issue #438, and the same overrule the rules above already carry. The owner rejected the
+	// 30-minute large-airport tier, so it is deleted rather than retuned. A rule left in at a
+	// different number would keep a second answer on screen for one question.
+	it('ships one flat landing-to-transport rule, with no tier for a large airport', () => {
+		expect(DEFAULT_LANDING_TO_TRANSPORT_RULES).toEqual([{ time: 20 }]);
+		expect(DEFAULT_LANDING_TO_TRANSPORT_RULES.some((rule) => rule.airportSize)).toBe(false);
 	});
 });

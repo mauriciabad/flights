@@ -51,10 +51,17 @@ export interface LandingToTransportRule {
 	time: Duration;
 }
 
+/**
+ * 20 minutes everywhere. The owner, on the 30-minute tier: "this time should be 20mins by
+ * default, i think now it is set to 30mins and it is too much."
+ *
+ * Same shape of overrule as `DEFAULT_WAITING_TIME_RULES` above, so the tier is deleted
+ * rather than retuned. The airport-size axis stays in the type and a traveller can still
+ * write rules of their own in the search form; what ships is one number.
+ */
 export const DEFAULT_LANDING_TO_TRANSPORT_RULES: LandingToTransportRule[] = [
-	{ time: 15 as Duration },
-	{ airportSize: 'large', time: 30 as Duration }
+	{ time: 20 as Duration }
 ];
 
 /** Flat fallback, same reasoning as DEFAULT_AIRPORT_WAITING_TIME_MINUTES above. */
-export const DEFAULT_LANDING_TO_TRANSPORT_TIME_MINUTES = 15 as Duration;
+export const DEFAULT_LANDING_TO_TRANSPORT_TIME_MINUTES = 20 as Duration;

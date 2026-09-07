@@ -116,7 +116,9 @@ describe("routing to a property the search never picked (issue #267)", () => {
     const routing = await routeToProperty(inputWith([provider]));
 
     if (routing.kind !== "routed") throw new Error(`expected routed, got ${routing.kind}`);
-    expect(routing.transferToHotel.duration).toBe(40);
+    // 10 driving plus the shipped 20-minute landing buffer (issue #438 flattened the tier,
+    // so Gatwick being large no longer buys a different number).
+    expect(routing.transferToHotel.duration).toBe(30);
     expect(routing.transferToConnectionAirport.duration).toBe(10);
   });
 
