@@ -38,6 +38,9 @@
 	import { searchParamsToFields } from '$lib/search-form/url-codec';
 	import { hasBlockingIssue, REQUIRED_SEARCH_FIELDS, validateSearchFields } from '$lib/search-form/validation';
 	import { normalizeQuery, RecentSearches, searchHistory, summarizeSearch } from '$lib/search-history';
+	import { buildSavedItinerary, newVisitToken, savedItineraries, savedItineraryId } from '$lib/saved';
+	import type { SavedItinerary, SavedItineraryId, VisitToken } from '$lib/saved';
+	import { priceIsSettled } from '$lib/results/saved-trip';
 	import SearchSummaryBar from './SearchSummaryBar.svelte';
 	import {
 		confirmTargetFor,
@@ -1259,6 +1262,124 @@
 	}
 
 	/**
+	 * Issue #434, the owner: "only when user revisits the page we get a new price entry".
+	 *
+	 * One token per arrival at one search. A re-render is not a revisit, and this page
+	 * re-renders on every snapshot, every filter and every night a traveller adds, so the
+	 * token is what `appendObservation` compares against to refuse the second write. Going
+	 * to another search and coming back IS a revisit, which is why the token is keyed on the
+	 * query rather than minted once when this component mounts: SvelteKit keeps one
+	 * `+page.svelte` alive across both navigations.
+	 *
+	 * Plain variables and a plain function, deliberately outside the reactive graph. The
+	 * recording effect below calls this, and a `$state` written from inside an effect that
+	 * also reads it is the shape that froze this page in #87 (AGENTS.md, "The Svelte trap
+	 * that cost us a working search").
+	 */
+	let visit: VisitToken | undefined;
+	let visitedQuery: string | undefined;
+	function visitTokenFor(query: string): VisitToken {
+		if (visit === undefined || query !== visitedQuery) {
+			visitedQuery = query;
+			visit = newVisitToken();
+		}
+		return visit;
+	}
+
+	/**
+	 * Every trip un-hearted on this page, kept until the page is left.
+	 *
+	 * A heart is a toggle, so pressing it twice looks free, and it is not: forgetting a trip
+	 * throws away a price log it took weeks of visits to build, and re-pressing would file a
+	 * fresh snapshot with one row in it. `/saved/` took that seriously enough to offer the
+	 * record back after a removal; a card has no room for an undo control, so this is the
+	 * same promise kept quietly. Restoring the record rather than building a new one is also
+	 * what keeps `savedAt` meaning the day the traveller chose this trip.
+	 *
+	 * A plain `Map`, not `$state`: nothing renders from it, and it is deliberately not
+	 * persisted. A removal the traveller leaves the page on is a removal they meant.
+	 */
+	const forgottenTrips = new Map<SavedItineraryId, SavedItinerary>();
+
+	/**
+	 * The heart on one card.
+	 *
+	 * The page presses it rather than the card, because the snapshot has to be filed under
+	 * this visit's token and the token belongs to the page. `buildSavedItinerary` seeds the
+	 * log's first row with it, so "what it cost when I saved it" is true from the moment the
+	 * heart is pressed, and the recording effect below then refuses to write a second row
+	 * for the same visit rather than filing the same price twice.
+	 *
+	 * The trip it saves is the one on screen, drafts and all, which is the same value every
+	 * other surface for this card is handed (`shownItinerary`).
+	 */
+	function toggleSaved(result: ScoredResult): void {
+		const itinerary = shownItinerary(result.id, result.itinerary);
+		const id = savedItineraryId(normalizedQuery, connectionAirportCode(itinerary));
+		const saved = savedItineraries.get(id);
+		if (saved) {
+			forgottenTrips.set(id, saved);
+			savedItineraries.remove(id);
+			return;
+		}
+		const forgotten = forgottenTrips.get(id);
+		if (forgotten) {
+			forgottenTrips.delete(id);
+			savedItineraries.save(forgotten);
+			return;
+		}
+		savedItineraries.save(
+			buildSavedItinerary({
+				query: normalizedQuery,
+				itinerary,
+				connectionAirport: connectionAirports[connectionAirportCode(itinerary)],
+				visit: visitTokenFor(normalizedQuery)
+			})
+		);
+	}
+
+	/** What the heart on one card reads, and what the note under the route compares against.
+	 * A lookup rather than a field on the result, because the id is derived from the query
+	 * and the connection and from nothing the search pipeline holds. */
+	function savedTripFor(itinerary: Itinerary) {
+		if (!normalizedQuery) return undefined;
+		return savedItineraries.get(savedItineraryId(normalizedQuery, connectionAirportCode(itinerary)));
+	}
+
+	/**
+	 * One price observation per saved trip per visit, issue #434.
+	 *
+	 * `priceIsSettled` is the whole gate, and it is a per-card question rather than a
+	 * page-level one. A card whose total is still missing the bed that has not landed yet
+	 * would file a fare and call it a trip, and the chart drawn from that says the price
+	 * halved overnight. A card showing an expired copy because its provider is failing is
+	 * refused for the same reason: nobody quoted that today.
+	 *
+	 * Every card is offered, not only the ones passing the filters, because a filter is a
+	 * view and the price was observed either way. `recordVisit` drops the ones nobody saved.
+	 *
+	 * `untrack` around the whole loop, because `recordVisit` reads the saved list and then
+	 * writes it. Read and written on this effect's own call stack, that is
+	 * `effect_update_depth_exceeded` and a page that never paints (#87). The dependency this
+	 * effect is meant to have is `results`, and only `results`.
+	 */
+	$effect(() => {
+		const query = normalizedQuery;
+		const settled = results.filter((result) => priceIsSettled(result.price.freshness));
+		if (!query || settled.length === 0) return;
+		const token = visitTokenFor(query);
+		untrack(() => {
+			for (const result of settled) {
+				savedItineraries.recordVisit({
+					query,
+					itinerary: shownItinerary(result.id, result.itinerary),
+					visit: token
+				});
+			}
+		});
+	});
+
+	/**
 	 * Picking a stretch of one trip, from the strip, the timeline or the map. `null` is
 	 * that surface clearing its own selection, which leaves the rail on this card with
 	 * nothing picked rather than closing it: on a wide screen the rail is always there,
@@ -1709,6 +1830,8 @@
 										selectSegment(result.id, result.itinerary, selected === segment ? null : segment)}
 									timelineOpen={openTimelineId === result.id}
 									onToggleTimeline={() => toggleTimeline(result)}
+									savedTrip={savedTripFor(itinerary)}
+									onToggleSave={() => toggleSaved(result)}
 								>
 									{#snippet timeline()}
 										{@const draft = draftOf(result.id)}
