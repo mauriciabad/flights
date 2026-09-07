@@ -27,6 +27,19 @@ import type { ItinerarySegmentId } from './segment-id';
 import { findSegment, type ItineraryLineSegment, type ItineraryMapModel } from './segments';
 import type { ItineraryLineGeometryKind, ItinerarySegmentTone } from './segments';
 
+/**
+ * Blank kept inside every edge of a preview's box, so a 3px endpoint dot and its ring
+ * never clip at any size these render at.
+ *
+ * Shared rather than written twice because it decides the projection, not just the
+ * margin. `projectToBox` reports the window its box ended up covering, and `InertMap`
+ * captures the basemap for exactly that window while `RoutePreview` draws the route on
+ * top of it. Two copies of this number that stopped agreeing would put the roads and the
+ * route a few hundred metres apart, on a picture whose whole promise is that they line
+ * up.
+ */
+export const PREVIEW_PADDING = 5;
+
 /** A polyline in a preview, carrying the two facts that decide how it is stroked. */
 export interface PreviewLine {
 	coordinates: Coordinates[];
