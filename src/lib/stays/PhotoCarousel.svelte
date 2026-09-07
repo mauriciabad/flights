@@ -128,7 +128,14 @@
 	function onStripClick(event: MouseEvent) {
 		const moved = pressedAt && Math.hypot(event.clientX - pressedAt.x, event.clientY - pressedAt.y) > 6;
 		pressedAt = undefined;
-		if (!moved) openIndex = index;
+		if (moved) return;
+		// The expand button takes focus first, so closing the dialog returns focus to a control
+		// inside this carousel rather than to the document body. A click on a `<div>` focuses
+		// nothing, so `open-as-modal.ts` had nowhere to put focus back, and issue #441 asks for
+		// it to come back. `tools/probe-photo-lightbox.mjs` read `document.activeElement` after
+		// Escape and found the body, which is how this line exists.
+		expandButton?.focus();
+		openIndex = index;
 	}
 
 	/** Which photograph is under the reader's eye, tracked from the scroll position so a
@@ -141,6 +148,9 @@
 	/** Held so `show` can move focus off an arrow it is about to disable. */
 	let prevButton = $state<HTMLButtonElement>();
 	let nextButton = $state<HTMLButtonElement>();
+	/** Held so a click on the photograph can hand it focus before the dialog opens, which is
+	 * what makes focus come back here afterwards. */
+	let expandButton = $state<HTMLButtonElement>();
 
 	/** Below two there is nothing to page through, so the arrows and the counter are not
 	 * rendered at all rather than rendered inert. */
@@ -255,6 +265,7 @@
 		<button
 			type="button"
 			class="photo-expand"
+			bind:this={expandButton}
 			aria-label={`View ${photos[index].caption} larger`}
 			onclick={() => (openIndex = index)}
 		>

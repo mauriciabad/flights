@@ -285,6 +285,22 @@
 		if (event.target === event.currentTarget) event.currentTarget.close();
 	}
 
+	/**
+	 * Where focus lands when the dialog opens.
+	 *
+	 * Chrome's `showModal()` focuses the DIALOG itself when no descendant carries `autofocus`,
+	 * and this app draws a 2px accent ring on `:focus-visible`, so the first arrow key painted
+	 * an orange rectangle around the entire viewport. `tools/probe-photo-lightbox.mjs`
+	 * screenshotted that before this function existed.
+	 *
+	 * Close is also where the ARIA modal pattern wants initial focus. Paging still works from
+	 * here, because the arrow keys are handled on the dialog and every keystroke inside it
+	 * bubbles there.
+	 */
+	function focusClose(element: HTMLDialogElement) {
+		element.querySelector<HTMLButtonElement>('.lightbox-close')?.focus();
+	}
+
 	/** Keeps the photograph inside the box when the window changes shape under it, which
 	 * otherwise leaves a zoomed picture panned to somewhere that no longer exists. */
 	function attachResize() {
@@ -309,6 +325,7 @@
 
 <dialog
 	{@attach openAsModal}
+	{@attach focusClose}
 	{@attach attachResize}
 	class="photo-lightbox"
 	aria-label={title}
@@ -456,6 +473,23 @@
 		background: var(--color-bg-elevated);
 		color: var(--color-text);
 		box-shadow: var(--shadow-lg);
+	}
+
+	/*
+	 * No ring on the dialog itself, and this is not the "never remove a focus ring" case.
+	 *
+	 * Chrome hands focus to the open dialog whenever a click lands on something inside it
+	 * that cannot take focus, which here is the photograph: exactly the gesture this feature
+	 * is for. app.css then draws a 2px accent outline 2px outside the dialog, so the reader's
+	 * first arrow key painted an orange rectangle around the whole viewport.
+	 * `tools/probe-photo-lightbox.mjs` reports `dialogMatchesFocusVisible` for that reason.
+	 *
+	 * What a ring is for is telling a keyboard reader which CONTROL will act. Every control
+	 * in here keeps its own, and a rectangle around the container names nothing: there is
+	 * only one surface on screen and it is this one.
+	 */
+	.photo-lightbox:focus-visible {
+		outline: none;
 	}
 
 	/* Darker than the map dialog's scrim, because this surface is a photograph and anything
@@ -691,8 +725,12 @@
 		border-top: 1px solid var(--color-border);
 	}
 
+	/* The ones that are not open are dimmed rather than merely un-ringed. A 2px accent ring
+	   over a dark holiday photograph is legible in dark mode and nearly invisible in light,
+	   which a screenshot caught; a difference in weight reads at a glance in both. */
 	.lightbox-thumb {
 		flex: none;
+		opacity: 0.55;
 		width: 4.5rem;
 		/* 44px minimum, and 3rem here so a strip of these still leaves the photograph the
 		   height it deserves on a phone in landscape. */
@@ -705,7 +743,9 @@
 		cursor: pointer;
 		touch-action: manipulation;
 		-webkit-tap-highlight-color: transparent;
-		transition: border-color var(--transition-fast);
+		transition:
+			border-color var(--transition-fast),
+			opacity var(--transition-fast);
 	}
 
 	.lightbox-thumb img {
@@ -716,6 +756,7 @@
 	}
 
 	.lightbox-thumb:hover {
+		opacity: 1;
 		border-color: var(--color-border-strong);
 	}
 
@@ -727,6 +768,7 @@
 	/* The open one, marked with the app's accent and a second border rather than with a
 	   colour alone, so it survives the greyed-out treatment and a monochrome screen. */
 	.lightbox-thumb[aria-current='true'] {
+		opacity: 1;
 		border-color: var(--color-accent);
 		box-shadow: inset 0 0 0 2px var(--color-accent);
 	}
