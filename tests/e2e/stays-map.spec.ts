@@ -1,7 +1,7 @@
 import { expect, test, type Page } from './support/fixtures';
 import { FIXTURE_FLIGHT_NUMBERS, FIXTURE_PRICES } from './support/fixture-markers';
 import { mockAllKeylessProviders, mockHostelworld, routeRyanairFlights } from './support/providers';
-import { customiser, openTimeline, pickStripSegment, visibleMapCanvases } from './support/results-ui';
+import { customiser, openTimeline, visibleMapCanvases } from './support/results-ui';
 import { waitForSearchToSettle } from '../shared/search-wait';
 
 /**
@@ -73,8 +73,9 @@ async function openStays(page: Page): Promise<string[]> {
 	// measured mid-search is a card whose stay list has not arrived.
 	await waitForSearchToSettle(page, { timeout: 30_000 });
 	await expect(page.locator('.result-card').first()).toBeVisible();
+	// `openTimeline` picks the stopover on the way in, which is the panel the stay list is in.
+	// Picking it again would toggle the selection off.
 	await openTimeline(page);
-	await pickStripSegment(page, 'stopover');
 	await expect(customiser(page).locator('.stay-alternatives')).toBeVisible({ timeout: 20_000 });
 
 	// And then wait for the photographs it asked for, which is a separate event (issue

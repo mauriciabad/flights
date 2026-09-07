@@ -1,7 +1,7 @@
 import { test, expect } from './support/fixtures';
 import { FIXTURE_FLIGHT_NUMBERS, FIXTURE_PRICES } from './support/fixture-markers';
 import { mockAllKeylessProviders, mockHostelworld, routeRyanairFlights } from './support/providers';
-import { customiser, openTimeline } from './support/results-ui';
+import { customiser, openTimeline, pickTimelineSegment } from './support/results-ui';
 import { waitForSearchToSettle } from '../shared/search-wait';
 
 /**
@@ -78,7 +78,7 @@ test.describe('a bed you swap to keeps its fare (issue #356)', () => {
 		await expect(toBed).toContainText(AUSTRIAN_TAXI_FARE);
 
 		// Two taps to the other bed: open the stopover, pick the other property.
-		await page.locator('[data-testid="segment-customiser"] [data-segment="free-time"]').click();
+		await pickTimelineSegment(page, 'free-time');
 		const otherBed = customiser(page).locator('.alt-card', { hasText: 'FIXTURE Far Lodge' });
 		await expect(otherBed).toBeVisible();
 		await otherBed.click();
@@ -93,9 +93,7 @@ test.describe('a bed you swap to keeps its fare (issue #356)', () => {
 
 		// And in the picker, which is where issue #282 reported the estimate and where the
 		// row is tagged as a guess rather than a quote.
-		await page.locator('[data-testid="segment-customiser"] [data-segment="transfer-to-hotel"]').click({
-			position: { x: 6, y: 6 }
-		});
+		await pickTimelineSegment(page, 'transfer-to-hotel');
 		const currentPick = customiser(page).locator('.picker-row.is-selected');
 		await expect(currentPick).toContainText(AUSTRIAN_TAXI_FARE);
 		await expect(currentPick).toContainText('estimate');

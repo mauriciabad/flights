@@ -1,7 +1,7 @@
 import { test, expect } from './support/fixtures';
 import { FIXTURE_FLIGHT_NUMBERS, FIXTURE_PRICES } from './support/fixture-markers';
 import { mockAllKeylessProviders, mockHostelworld, routeRyanairFlights } from './support/providers';
-import { customiser, openTimeline } from './support/results-ui';
+import { customiser, openTimeline, pickTimelineSegment } from './support/results-ui';
 import { waitForSearchToSettle } from '../shared/search-wait';
 
 /**
@@ -88,7 +88,7 @@ test.describe('editing a stopover keeps one trip on the screen', () => {
 		// controls, and #278's argument was that the card and the panel must never hold two
 		// copies of one trip. Editing from the panel is now the only way, and the block above
 		// the timeline still has to follow it, which is the agreement #250 is about.
-		await detail.locator('[data-segment="connection-waiting"]').click({ position: { x: 6, y: 6 } });
+		await pickTimelineSegment(page, 'connection-waiting');
 		await expect(customiser(page)).toHaveAttribute('data-segment', 'connection-waiting');
 		const connectionWait = customiser(page).locator('.waiting-stepper-input');
 		await connectionWait.fill('1530');
@@ -100,7 +100,7 @@ test.describe('editing a stopover keeps one trip on the screen', () => {
 		// And so does the stopover block, which issue #440 moved into the stopover's own panel
 		// rather than leaving it above a timeline. Going back to the stopover is what a
 		// traveller does next anyway, and it is the same claim: one edit, every reading.
-		await detail.locator('[data-segment="free-time"]').click({ position: { x: 6, y: 6 } });
+		await pickTimelineSegment(page, 'free-time');
 		await expect(customiser(page)).toHaveAttribute('data-segment', 'free-time');
 		await expect(block).toContainText('Nights 1');
 
