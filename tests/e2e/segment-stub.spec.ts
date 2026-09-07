@@ -162,6 +162,12 @@ test.describe('tapping a segment on a phone', () => {
 	test.use({ viewport: { width: 375, height: 812 }, hasTouch: true, isMobile: true });
 
 	test('a thumb opens the segment in the sheet, and a second tap closes it', async ({ page }) => {
+		// This test is about where a tap lands, not about how the page gets there. Issue #308's
+		// reveal is a smooth scroll, and a tap aimed at a segment while it is still travelling
+		// lands on whatever is over that spot right now. `reveal-scroll.ts` already skips the
+		// travel for a reader who asked for less motion, so asking for it here makes the final
+		// position the only position there is.
+		await page.emulateMedia({ reducedMotion: 'reduce' });
 		const card = await openResults(page);
 		const sheet = page.locator('.customise-sheet');
 		const flight = card.locator('.trip-strip-hit-flight').first();
@@ -177,6 +183,26 @@ test.describe('tapping a segment on a phone', () => {
 		// the preview on every focus would put one there; `:focus-visible` is what keeps the
 		// preview on the keyboard and the pointer's hover.
 		await expect(card.getByRole('tooltip')).toBeHidden();
+
+		// The reveal has to have landed before the second tap. Issue #308 moves the strip up by
+		// exactly enough to clear the sheet, and until that is done the cell is still
+		// underneath: Playwright's own scroll-into-view then fights it, retry after retry, and
+		// the failure reads as "the sheet intercepts pointer events" with nothing about timing
+		// in it. Reduced motion above makes the move instant; this says what "landed" means.
+		//
+		// Measured on this fixture: the strip settles at 331..410 against a sheet whose top is
+		// 410, so the app's arithmetic is right and the test was reading it early. Issue #435
+		// surfaced it by making the card 80px taller, which turned a scroll that used to be a
+		// no-op here into a real one.
+		await expect
+			.poll(() =>
+				page.evaluate(() => {
+					const strip = document.querySelector('.card-strip')?.getBoundingClientRect();
+					const sheetBox = document.querySelector('.customise-sheet')?.getBoundingClientRect();
+					return strip !== undefined && sheetBox !== undefined && strip.bottom <= sheetBox.top + 1;
+				})
+			)
+			.toBe(true);
 
 		await flight.tap();
 		await expect(sheet).toBeHidden();

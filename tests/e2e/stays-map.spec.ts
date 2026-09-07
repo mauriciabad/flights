@@ -87,12 +87,23 @@ async function openStays(page: Page): Promise<string[]> {
 	// `naturalWidth`. Both are asking the same thing, so it is asked once, here: after
 	// this line the page has fetched what it wants, and a request recorded later came
 	// from something the test did.
-	const settled = page.locator('img[src*="photos.fixture.invalid"]');
+	//
+	// "The page has fetched what it wants" has to be true rather than nearly true, because
+	// one test below empties this log and then asserts the map dialog adds nothing to it.
+	// Issue #435 made this panel taller and pushed the last thumbnails permanently past the
+	// fold, where `loading="lazy"` correctly never starts them, so waiting on `complete`
+	// alone waits for ever and waiting on the started ones leaves fetches that fire later,
+	// the moment anything scrolls. So the list is scrolled to its end first: every row is
+	// asked for, and then every row is waited on.
+	const list = customiser(page).locator('.stay-alternatives');
+	await list.evaluate((element) => element.scrollIntoView({ block: 'end' }));
+	const settled = customiser(page).locator('img[src*="photos.fixture.invalid"]');
 	await expect
 		.poll(
 			() =>
 				settled.evaluateAll(
-					(images) => images.length > 0 && images.every((image) => (image as HTMLImageElement).complete)
+					(images) =>
+						images.length > 0 && images.every((image) => (image as HTMLImageElement).complete)
 				),
 			{ timeout: 20_000 }
 		)
