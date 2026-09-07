@@ -57,11 +57,10 @@
 	 *
 	 * ## The stay half has three states, not two
 	 *
-	 * A bed, no bed priced for a real night, and — since issue #231 — a stopover that
-	 * crosses a midnight it is too short to sleep through. The third one prints the wait
-	 * and its length instead of a property, because the two time lines above it plainly
-	 * show a date change and "no night spent here" beside them would read as a bug rather
-	 * than as the answer.
+	 * A bed, no bed priced for a real night, and — since issue #426 — a connection the
+	 * traveller never leaves the airport for. That third one prints when the wait starts,
+	 * how long it is and when it ends, then the reason nothing is booked; it has no bed and
+	 * no journey to one to describe, because the itinerary carries neither.
 	 *
 	 * ## Issue #227
 	 *
@@ -219,7 +218,6 @@
 		if (nights > 0) return 'No bed priced, so the total is a floor';
 		return waitNote ?? 'No night spent here, so there is no bed to price';
 	});
-
 </script>
 
 <section class="stopover" aria-label={`Your stopover in ${connectionLabel}`}>
