@@ -59,13 +59,14 @@
 	 * Issue #307, the owner: **"dont show the images inside the toooltip, it is too
 	 * large."** Measured on this branch before the change, the trip strip's hover panel
 	 * stood 542px tall on a 900px viewport and 189px of that was the media box. A tooltip is
-	 * for a glance. So `photos` is false there, and everything else stays: the name, the
+	 * for a glance. So `showPhotos` is false there, and everything else stays: the name, the
 	 * score, the room kind, the women-only tag, the rate, the nights, the distance, the ride.
 	 */
 	import { ModeIcon } from '$lib/components';
 	import type { Property, TransferMode } from '$lib/domain';
 	import { formatPropertyRating } from '$lib/format';
 	import PhotoCarousel from './PhotoCarousel.svelte';
+	import type { StayPhoto } from './stay-photos';
 
 	interface Props {
 		/** Name, photographs, rating and the women-only restriction. The three after the
@@ -87,10 +88,19 @@
 		 * routed at all, because issue #228 asked for a line that never vanishes. `mode` is
 		 * absent in exactly that unrouted case, and the pictogram goes with it. */
 		transfer: { note: string; mode?: TransferMode };
+		/**
+		 * The photographs, already merged and labelled by `stayPhotos`: the building's, then
+		 * this bed's own room where the provider sent any (issue #442).
+		 *
+		 * Derived by the caller like everything else here. The two sets are one list by the
+		 * time they arrive, because the rule they have to keep is that neither is presented as
+		 * the other, and a component holding two arrays is a component that can get that wrong.
+		 */
+		photos: readonly StayPhoto[];
 		/** Whether to draw the photographs at all. False in the trip strip's hover panel and
 		 * nowhere else (issue #307): a media box is a third of that panel's height, and a
 		 * tooltip is for a glance. Every other fact this block prints is unaffected. */
-		photos?: boolean;
+		showPhotos?: boolean;
 	}
 
 	let {
@@ -100,7 +110,8 @@
 		rate,
 		distanceFromAirport,
 		transfer,
-		photos = true
+		photos,
+		showPhotos = true
 	}: Props = $props();
 
 	const rating = $derived(property.rating ? formatPropertyRating(property.rating) : undefined);
@@ -115,14 +126,14 @@
 	took a screenshot to find.
 -->
 <div class="bed-frame">
-	<div class={['bed', { 'has-photos': photos && property.images.length > 0 }]}>
+	<div class={['bed', { 'has-photos': showPhotos && photos.length > 0 }]}>
 		<!--
 			No media element at all when the provider gave no photograph, and none in a
 			tooltip. A grey box with a building glyph in it says "a picture is missing", and
 			nothing is missing: this property came back without one.
 		-->
-		{#if photos}
-			<PhotoCarousel images={property.images} name={property.name} />
+		{#if showPhotos}
+			<PhotoCarousel {photos} name={property.name} />
 		{/if}
 
 		<div class="bed-facts">

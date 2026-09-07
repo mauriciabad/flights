@@ -16,6 +16,7 @@
 	import RoomKindTile from './RoomKindTile.svelte';
 	import StayAlternativeCard from './StayAlternativeCard.svelte';
 	import PhotoCarousel from './PhotoCarousel.svelte';
+	import { stayPhotos } from './stay-photos';
 	import StaysMapDialog from './StaysMapDialog.svelte';
 	import { stayGenderFitMessage } from './gendered-room-fit';
 	import { describeStayChoices } from './choice';
@@ -391,7 +392,13 @@
 				     Keyed on the property so a swap starts a different hostel at its first
 				     photograph rather than at whichever one the last reader had reached. -->
 				{#key openProperty.name + openProperty.coordinates.latitude}
-					<PhotoCarousel images={openProperty.images} name={openProperty.name} />
+					<PhotoCarousel
+						photos={stayPhotos(
+							openProperty,
+							openGroup.options.map((option) => option.stay)
+						)}
+						name={openProperty.name}
+					/>
 				{/key}
 
 				<div class="stay-open-facts">

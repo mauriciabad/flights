@@ -21,6 +21,27 @@ describe('hostelworldCardPhoto', () => {
 		expect(hostelworldCardPhoto(PUBLISHED)).toBe(DELIVERED);
 	});
 
+	it('gives the width to a published delivery address that carries none', () => {
+		// Issue #442. Every room in `rooms.dorms[].images` arrives on this transformation,
+		// and so does the property-level `imagesGallery`. It sets a format and a quality and
+		// no width at all, which docs/PROVIDERS.md measured at 1,424,980 bytes against 99,478
+		// for the card one. Two published forms, one delivered address, so the reverse below
+		// stays a single slice.
+		const room =
+			'https://a.hwstatic.com/image/upload/f_auto,q_auto/v1/propertyimages/3/312244/yoe4nqle0gqlcocnnzfe';
+		expect(hostelworldCardPhoto(room)).toBe(
+			'https://a.hwstatic.com/image/upload/c_limit,w_800,f_auto,q_auto/v1/propertyimages/3/312244/yoe4nqle0gqlcocnnzfe'
+		);
+	});
+
+	it('refuses a path that merely starts like the published transformation', () => {
+		// Same segment-boundary trap the reverse guards. Without the trailing slash this
+		// would slice `f_auto,q_autoXX/v1` down to an address nobody published.
+		const impostor =
+			'https://a.hwstatic.com/image/upload/f_auto,q_auto_sharpen/v1/propertyimages/3/312244/x';
+		expect(hostelworldCardPhoto(impostor)).toBe(impostor);
+	});
+
 	it('respects a transformation Hostelworld already chose rather than stacking one on top', () => {
 		// Hostelworld's own website serves this named transformation, and running twice over
 		// an address this file already wrote is the same case.

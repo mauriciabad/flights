@@ -100,17 +100,20 @@ export function classifyRoomKind(room: HostelworldRoom): RoomKind | undefined {
 
 /** The cheapest room of one kind among the room types Hostelworld returned, by minor units
  * in whatever currency each is quoted in. Used for the two restricted dorm kinds, which
- * have no property-level field of their own. See `mapPropertyToStays`. */
-function cheapestRoomPriceOfKind(
+ * have no property-level field of their own. See `mapPropertyToStays`.
+ *
+ * The room comes back with its price because issue #442 wants its photographs too, and the
+ * room whose rate the `Stay` quotes is the only room that `Stay` can honestly show. */
+function cheapestRoomOfKind(
 	rooms: readonly HostelworldRoom[] | undefined,
 	kind: RoomKind
-): Money | undefined {
-	let cheapest: Money | undefined;
+): { room: HostelworldRoom; price: Money } | undefined {
+	let cheapest: { room: HostelworldRoom; price: Money } | undefined;
 	for (const room of rooms ?? []) {
 		if (classifyRoomKind(room) !== kind) continue;
 		const price = toMoney(room.averagePrice);
 		if (!price) continue;
-		if (!cheapest || price.minorUnits < cheapest.minorUnits) cheapest = price;
+		if (!cheapest || price.minorUnits < cheapest.price.minorUnits) cheapest = { room, price };
 	}
 	return cheapest;
 }
@@ -155,15 +158,39 @@ function listsAMixedDorm(dorms: readonly HostelworldRoom[] | undefined): boolean
  * fixtures falls from 5,398,803 bytes to 74,540.
  *
  * `hostelworld-photo.ts` carries the transformation, the width it is set to, and the reverse
- * direction that makes the rewrite safe against a shape nobody has measured. */
-function imageUrls(property: HostelworldProperty): string[] {
-	return (property.images ?? [])
+ * direction that makes the rewrite safe against a shape nobody has measured.
+ *
+ * Takes the array rather than the property because issue #442 gave rooms one of their own,
+ * published on a different Hostelworld path. One function so the two cannot end up at two
+ * widths. */
+function imageUrls(images: readonly { prefix?: string; suffix?: string }[] | undefined): string[] {
+	return (images ?? [])
 		.map((image) =>
 			typeof image?.prefix === 'string' && typeof image?.suffix === 'string'
 				? hostelworldCardPhoto(`https://${image.prefix}${image.suffix}`)
 				: undefined
 		)
 		.filter((url): url is string => url !== undefined);
+}
+
+/**
+ * A room's own photographs for `Stay.roomImages`, issue #442, or nothing at all.
+ *
+ * Spread into the literal rather than assigned, so a room with no photographs leaves the
+ * field absent instead of carrying an empty array. `domain/stay.ts` reads the two as one
+ * fact ("the provider gave none"), and an absent field is the one that survives the trip
+ * through IndexedDB unchanged.
+ *
+ * Only the two restricted dorm kinds ever reach here with a room, and that is the honest
+ * limit rather than an oversight. A `dorm` and a `private` Stay are priced from
+ * `lowestAverage*PricePerNight`, a property-level average over rates the room array does
+ * not list (`mapPropertyToStays` argues that at length), so there is no one room those two
+ * quote and no one room whose photographs they could show. Showing the cheapest listed room
+ * instead would put a picture under a price that did not come from it.
+ */
+function roomImages(room: HostelworldRoom | undefined): { roomImages?: string[] } {
+	const urls = imageUrls(room?.images);
+	return urls.length > 0 ? { roomImages: urls } : {};
 }
 
 function coordinatesOf(property: HostelworldProperty | undefined): Coordinates | undefined {
@@ -275,7 +302,7 @@ export function mapPropertyToStays(
 	const propertyRecord = {
 		name,
 		coordinates,
-		images: imageUrls(property),
+		images: imageUrls(property.images),
 		...(typeof rating === 'number' && Number.isFinite(rating) && rating > 0
 			? { rating: { value: rating, outOf: 100 } }
 			: {}),
@@ -294,23 +321,30 @@ export function mapPropertyToStays(
 		minorUnits: perPerson.minorUnits * beds,
 		currency: perPerson.currency
 	});
-	const dormStay = (roomKind: RoomKind, perPerson: Money | undefined): Stay | undefined =>
+	const dormStay = (
+		roomKind: RoomKind,
+		perPerson: Money | undefined,
+		room?: HostelworldRoom
+	): Stay | undefined =>
 		perPerson && {
 			property: propertyRecord,
 			roomKind,
 			pricePerNight: perParty(perPerson),
-			pricePerPersonPerNight: perPerson
+			pricePerPersonPerNight: perPerson,
+			...roomImages(room)
 		};
 
 	const dorms = property.rooms?.dorms;
 	const privateRate = toMoney(property.lowestAveragePrivatePricePerNight);
+	const female = cheapestRoomOfKind(dorms, 'female-dorm');
+	const male = cheapestRoomOfKind(dorms, 'male-dorm');
 	const stays: (Stay | undefined)[] = [
 		listsAMixedDorm(dorms)
 			? dormStay('dorm', toMoney(property.lowestAverageDormPricePerNight))
 			: undefined,
 		privateRate && { property: propertyRecord, roomKind: 'private', pricePerNight: privateRate },
-		dormStay('female-dorm', cheapestRoomPriceOfKind(dorms, 'female-dorm')),
-		dormStay('male-dorm', cheapestRoomPriceOfKind(dorms, 'male-dorm'))
+		dormStay('female-dorm', female?.price, female?.room),
+		dormStay('male-dorm', male?.price, male?.room)
 	];
 
 	return stays.filter((stay): stay is Stay => stay !== undefined);

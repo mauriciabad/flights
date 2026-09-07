@@ -92,4 +92,27 @@ export interface Stay {
    * per-person figure says the party rate and who it covers instead.
    */
   pricePerPersonPerNight?: Money;
+  /**
+   * Photographs of THIS room, as opposed to `property.images`, which is the building.
+   *
+   * Issue #442, the owner: "I think the hotels offer a different set of images for the room
+   * selected, would be nice to also be able to see those in my app." He is right about the
+   * providers and wrong about the endpoints this app calls, which is the whole finding.
+   * `docs/PROVIDERS.md` holds the field-by-field table; the short version is that only
+   * Hostelworld publishes room photographs at all, on a property endpoint this app does not
+   * call, and the three endpoints it does call carry none. So this is empty in practice
+   * today and the mapper that fills it is real code on a real path rather than a promise.
+   *
+   * Absent and empty mean the same thing here, which is "the provider gave none". Neither
+   * means the room has no photographs.
+   *
+   * Card-sized already, through the same `*-photo.ts` rewriter `Property.images` goes
+   * through, so a room photograph cannot arrive as the 2.8 MB original the rewriters exist
+   * to avoid.
+   *
+   * The one rule everything downstream keeps: a photograph in here is of the room and a
+   * photograph in `property.images` is of the building, and nothing may present one as the
+   * other. `$lib/stays/stay-photos.ts` is where the two sets become one list, labelled.
+   */
+  roomImages?: string[];
 }

@@ -78,7 +78,8 @@
 		haversineDistanceKm,
 		PickedBed,
 		propertyKey,
-		ROOM_KIND_LABELS
+		ROOM_KIND_LABELS,
+		stayPhotos
 	} from '$lib/stays';
 	import { freeTimeDays } from './free-time-days';
 	import {
@@ -281,7 +282,8 @@
 					rate={bedRate}
 					{distanceFromAirport}
 					transfer={{ note: transferLine, mode: toHotel?.mode }}
-					{photos}
+					photos={stayPhotos(stay.property, [stay])}
+					showPhotos={photos}
 				/>
 			{/key}
 		{:else}

@@ -43,6 +43,17 @@
 	 * reader would otherwise report. Focus handed to the arrow that still works when the one
 	 * you pressed disables under you. No auto-advance, ever.
 	 *
+	 * ## Clicking one opens it large, and the strip stays untabbable
+	 *
+	 * Issue #441. The owner: **"The carrousels components i should be able to click the image
+	 * and it shows in a big dialog"**. Clicking the photograph does that, and so does a real
+	 * `<button>` in the corner, and the two exist together on purpose.
+	 *
+	 * The section above is why. Nothing inside the scroller is focusable, and that is what
+	 * keeps the usual carousel focus trap unreachable. A button per slide would put one tab
+	 * stop per photograph inside the strip and undo it. So the corner button is the keyboard's
+	 * way in, outside the scroller, and the click handler on the strip is the pointer's.
+	 *
 	 * ## Sizing is the caller's
 	 *
 	 * `--photo-aspect` and `--photo-arrow-size` are read from whatever contains this, so a
@@ -52,18 +63,29 @@
 	import { tick } from 'svelte';
 	import { Icon } from '$lib/components';
 	import { originalStayPhoto } from '$lib/providers/stays/original-photo';
+	import PhotoLightbox from './PhotoLightbox.svelte';
+	import { photoAlt, type StayPhoto } from './stay-photos';
 
 	interface Props {
-		/** `Property.images`, in the provider's own order. Empty renders nothing at all: a
-		 * grey box with a building glyph in it says "a picture is missing", and nothing is
-		 * missing - this property came back without one. */
-		images: readonly string[];
-		/** The property's name, which is what every photograph's `alt` is built from. */
+		/**
+		 * Every photograph, in order, each saying what it is a picture of. Build it with
+		 * `stayPhotos`, which is the one place the building's set and the room's are merged.
+		 *
+		 * A list rather than two arrays because of issue #442's one rule: a photograph of the
+		 * building may never be presented as a photograph of the room. As one labelled list
+		 * there is no arrangement of props that gets that wrong.
+		 *
+		 * Empty renders nothing at all: a grey box with a building glyph in it says "a picture
+		 * is missing", and nothing is missing - this property came back without one.
+		 */
+		photos: readonly StayPhoto[];
+		/** The property's name, which names the group and the dialog. Not the caption: that is
+		 * per photograph now, since they are no longer all of the same thing. */
 		name: string;
 		class?: string;
 	}
 
-	let { images, name, class: className }: Props = $props();
+	let { photos: given, name, class: className }: Props = $props();
 
 	/**
 	 * The second address to try for a photograph, once the first one failed.
@@ -77,12 +99,44 @@
 	let fallbacks = $state<Record<number, string>>({});
 	let broken = $state<Record<number, true>>({});
 	const photos = $derived(
-		images.map((original, i) => ({
-			original,
-			src: fallbacks[i] ?? original,
+		given.map((photo, i) => ({
+			...photo,
+			original: photo.src,
+			src: fallbacks[i] ?? photo.src,
 			broken: broken[i] === true
 		}))
 	);
+
+	/** The photograph the lightbox is open on, and `undefined` for closed. Existing is being
+	 * open, the shape `MapDialog` established: the dialog is rendered to open it and dropped
+	 * to close it, so its zoom cannot survive a close. */
+	let openIndex = $state<number | undefined>(undefined);
+
+	/**
+	 * Where the pointer went down on the strip, so a swipe does not open the lightbox.
+	 *
+	 * A horizontal drag across a scroller still ends in a `click` on a phone, and paging by
+	 * swipe is the strip's primary gesture. Opening a dialog on top of every swipe would make
+	 * the carousel unusable on the device most of its readers hold.
+	 */
+	let pressedAt: { x: number; y: number } | undefined;
+
+	function onStripPointerDown(event: PointerEvent) {
+		pressedAt = { x: event.clientX, y: event.clientY };
+	}
+
+	function onStripClick(event: MouseEvent) {
+		const moved = pressedAt && Math.hypot(event.clientX - pressedAt.x, event.clientY - pressedAt.y) > 6;
+		pressedAt = undefined;
+		if (moved) return;
+		// The expand button takes focus first, so closing the dialog returns focus to a control
+		// inside this carousel rather than to the document body. A click on a `<div>` focuses
+		// nothing, so `open-as-modal.ts` had nowhere to put focus back, and issue #441 asks for
+		// it to come back. `tools/probe-photo-lightbox.mjs` read `document.activeElement` after
+		// Escape and found the body, which is how this line exists.
+		expandButton?.focus();
+		openIndex = index;
+	}
 
 	/** Which photograph is under the reader's eye, tracked from the scroll position so a
 	 * swipe and a button press cannot disagree about the counter. */
@@ -94,6 +148,9 @@
 	/** Held so `show` can move focus off an arrow it is about to disable. */
 	let prevButton = $state<HTMLButtonElement>();
 	let nextButton = $state<HTMLButtonElement>();
+	/** Held so a click on the photograph can hand it focus before the dialog opens, which is
+	 * what makes focus come back here afterwards. */
+	let expandButton = $state<HTMLButtonElement>();
 
 	/** Below two there is nothing to page through, so the arrows and the counter are not
 	 * rendered at all rather than rendered inert. */
@@ -177,13 +234,24 @@
 		aria-label={`Photos of ${name}`}
 		onkeydown={onStripKeydown}
 	>
-		<div class="photo-strip" bind:this={strip} onscroll={onStripScroll}>
+		<!-- The click is on the strip rather than on a button per slide, and the corner button
+		     below is the keyboard's equivalent. This file's header argues why: a button per
+		     photograph would put a tab stop per photograph inside the scroller. -->
+		<!-- svelte-ignore a11y_no_static_element_interactions -->
+		<!-- svelte-ignore a11y_click_events_have_key_events -->
+		<div
+			class="photo-strip"
+			bind:this={strip}
+			onscroll={onStripScroll}
+			onpointerdown={onStripPointerDown}
+			onclick={onStripClick}
+		>
 			{#each photos as photo, i (photo.original)}
 				<div class="photo-slide">
 					{#if i <= reached && !photo.broken}
 						<img
 							src={photo.src}
-							alt={pageable ? `${name}, photo ${i + 1} of ${photos.length}` : name}
+							alt={photoAlt(photo, i + 1, photos.length)}
 							loading="lazy"
 							decoding="async"
 							onerror={() => onPhotoError(i)}
@@ -192,6 +260,24 @@
 				</div>
 			{/each}
 		</div>
+
+		<!-- Outside the scroller, so it is an ordinary tab stop that tabs out again. -->
+		<button
+			type="button"
+			class="photo-expand"
+			bind:this={expandButton}
+			aria-label={`View ${photos[index].caption} larger`}
+			onclick={() => (openIndex = index)}
+		>
+			<Icon name="maximize" />
+		</button>
+
+		<!-- Only drawn when a room photograph is in the set, which today is never for the three
+		     providers this app calls (docs/PROVIDERS.md). When it is, the reader has to be able
+		     to tell a lobby from the bed they are buying, and the counter alone cannot. -->
+		{#if photos[index].subject === 'room'}
+			<p class="photo-subject">Room</p>
+		{/if}
 
 		{#if pageable}
 			<button
@@ -222,6 +308,15 @@
 			</p>
 		{/if}
 	</div>
+
+	{#if openIndex !== undefined}
+		<PhotoLightbox
+			{photos}
+			index={openIndex}
+			title={`Photos of ${name}`}
+			onclose={() => (openIndex = undefined)}
+		/>
+	{/if}
 {/if}
 
 <style>
@@ -320,6 +415,61 @@
 
 	.photo-arrow-next {
 		right: var(--photo-arrow-inset, var(--space-2));
+	}
+
+	/* Top right, the one corner the arrows and the counter leave free. Small because it is a
+	   hint rather than an instruction: the picture itself is the target for anyone with a
+	   pointer, and this is the same action for anyone without one. */
+	.photo-expand {
+		position: absolute;
+		top: var(--space-2);
+		right: var(--space-2);
+		display: grid;
+		place-items: center;
+		width: var(--photo-arrow-size, 2rem);
+		height: var(--photo-arrow-size, 2rem);
+		margin: 0;
+		padding: 0;
+		border: 1px solid var(--color-border);
+		border-radius: var(--radius-full);
+		background: var(--color-bg-elevated);
+		color: var(--color-text);
+		cursor: pointer;
+		touch-action: manipulation;
+		-webkit-tap-highlight-color: transparent;
+		transition: background-color var(--transition-fast);
+	}
+
+	.photo-expand :global(svg) {
+		width: calc(var(--photo-arrow-size, 2rem) / 2.4);
+		height: calc(var(--photo-arrow-size, 2rem) / 2.4);
+	}
+
+	.photo-expand:hover {
+		background: var(--color-surface-hover);
+	}
+
+	.photo-expand:focus-visible {
+		outline: 2px solid var(--color-focus-ring);
+		outline-offset: 2px;
+	}
+
+	/* Bottom left, opposite the counter. The accent is this app's "the traveller is buying
+	   this" colour, and the word is there for anyone the colour does not reach. */
+	.photo-subject {
+		position: absolute;
+		bottom: var(--space-2);
+		left: var(--space-2);
+		margin: 0;
+		padding: 2px var(--space-2);
+		border: 1px solid var(--color-accent);
+		border-radius: var(--radius-full);
+		background: var(--color-accent-muted);
+		font-size: 0.625rem;
+		font-weight: var(--font-weight-medium);
+		letter-spacing: 0.04em;
+		text-transform: uppercase;
+		color: var(--color-accent-muted-text);
 	}
 
 	.photo-count {

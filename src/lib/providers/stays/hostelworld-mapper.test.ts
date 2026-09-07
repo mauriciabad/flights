@@ -8,11 +8,16 @@ import {
 	rankCitiesNear,
 	toMoney
 } from './hostelworld-mapper';
-import type { HostelworldContinentCountriesResponse, HostelworldProperty } from './hostelworld-types';
+import type {
+	HostelworldContinentCountriesResponse,
+	HostelworldProperty,
+	HostelworldRoom
+} from './hostelworld-types';
 import continentEurope from './fixtures/hostelworld-continent-europe.json';
 import continentNorthAmerica from './fixtures/hostelworld-continent-north-america.json';
 import propertiesLondon from './fixtures/hostelworld-properties-london.json';
 import propertiesRomeRestricted from './fixtures/hostelworld-properties-rome-restricted-dorms.json';
+import availabilityRooms from './fixtures/hostelworld-property-availability-rooms.json';
 
 /**
  * Every fixture is a real response captured on 2026-09-04. The properties one is the
@@ -471,5 +476,78 @@ describe('rankCitiesNear', () => {
 			{ id: 99, name: 'Košice', coordinates: { latitude: 51.2, longitude: -0.2 } }
 		];
 		expect(rankCitiesNear(accented, GATWICK, 100, 'Kosice')).toEqual([99]);
+	});
+});
+
+describe('room photographs (issue #442)', () => {
+	/**
+	 * Hostelworld is the only provider in this repo that publishes a photograph of a room
+	 * rather than of the building, and it does it on the per-property availability response
+	 * this adapter never calls. `availabilityRooms` is cut from a real one; the room shape is
+	 * identical to the one `show-rooms=1` sends, minus the `images` array, so a property
+	 * built from it exercises the path a city response would take the day it carries one.
+	 *
+	 * The two halves of the tests below are the whole point together. The endpoint this
+	 * adapter really calls carries none, so the first pins that this ships nothing invented;
+	 * the second pins that the reader works and sizes what it reads.
+	 */
+	const dormWithImages = availabilityRooms.rooms.dorms.find(
+		(room) => room.basicType === 'Female Dorm'
+	)!;
+	const backpackers = londonProperties.find((property) =>
+		property.name?.startsWith('London Backpackers')
+	) as HostelworldProperty;
+
+	function propertyWithRoom(room: unknown): HostelworldProperty {
+		return {
+			...backpackers,
+			rooms: { dorms: [room as HostelworldRoom], privates: [] }
+		} as HostelworldProperty;
+	}
+
+	it('leaves the field absent for every property the city endpoint returns', () => {
+		// Measured against three untrimmed `show-rooms=1` captures on 2026-09-07 (Rome 30
+		// properties, London 30, London 3): a room summary is `id, token, name, capacity,
+		// basicType, ensuite, grade, extendedType, averagePrice, stp, conditions` and nothing
+		// else. Absent rather than empty, so a reader cannot tell the two apart and try.
+		for (const property of londonProperties) {
+			for (const stay of mapPropertyToStays(property, 1)) {
+				expect(stay.roomImages).toBeUndefined();
+			}
+		}
+	});
+
+	it('sizes a room photograph the way it sizes the building, from the address Hostelworld publishes', () => {
+		const stays = mapPropertyToStays(propertyWithRoom(dormWithImages), 1);
+		const female = stays.find((stay) => stay.roomKind === 'female-dorm');
+		// Published as `/image/upload/f_auto,q_auto/v1/...`, a transformation with no width
+		// at all, which docs/PROVIDERS.md measured at 1,424,980 bytes. This is the 99,478-byte
+		// address for the same public id.
+		expect(female?.roomImages?.[0]).toBe(
+			'https://a.hwstatic.com/image/upload/c_limit,w_800,f_auto,q_auto/v1/propertyimages/3/312244/yoe4nqle0gqlcocnnzfe'
+		);
+		expect(female?.roomImages).toHaveLength(4);
+	});
+
+	it('gives the photographs only to the stay whose price came from that room', () => {
+		// A `dorm` and a `private` are priced from `lowestAverage*PricePerNight`, an average
+		// over rates the room array does not list, so no one room quotes them and no one
+		// room's photographs belong under them.
+		const stays = mapPropertyToStays(propertyWithRoom(dormWithImages), 1);
+		for (const stay of stays) {
+			if (stay.roomKind === 'female-dorm') expect(stay.roomImages).toBeDefined();
+			else expect(stay.roomImages).toBeUndefined();
+		}
+	});
+
+	it('drops a half-written image entry rather than building an address out of undefined', () => {
+		const stays = mapPropertyToStays(
+			propertyWithRoom({
+				...dormWithImages,
+				images: [{ prefix: 'a.hwstatic.com/image/upload/f_auto,q_auto' }, dormWithImages.images[0]]
+			}),
+			1
+		);
+		expect(stays.find((stay) => stay.roomKind === 'female-dorm')?.roomImages).toHaveLength(1);
 	});
 });

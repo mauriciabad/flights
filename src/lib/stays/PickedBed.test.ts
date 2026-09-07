@@ -2,6 +2,7 @@ import { flushSync, mount, unmount } from 'svelte';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { Property } from '../domain';
 import PickedBed from './PickedBed.svelte';
+import { stayPhotos } from './stay-photos';
 
 /**
  * Issue #279. These mount the block and read it back off the DOM, the same way
@@ -35,13 +36,21 @@ function property(overrides: Partial<Property> = {}): Property {
 	};
 }
 
+/**
+ * `photos` follows the property unless a case overrides it. Issue #442 moved the merge of
+ * the building's photographs with the room's out to `stayPhotos`, so this block is handed a
+ * labelled list rather than reaching into `Property.images` itself, and every case below
+ * that varies `images` still varies what the carousel draws.
+ */
 function render(props: Partial<Parameters<typeof PickedBed>[1]> = {}) {
 	target = document.createElement('div');
 	document.body.appendChild(target);
+	const shown = props.property ?? property();
 	component = mount(PickedBed, {
 		target,
 		props: {
-			property: property(),
+			property: shown,
+			photos: stayPhotos(shown),
 			roomKindLabel: 'Dorm bed',
 			nights: 2,
 			rate: { amount: '€13.00', audience: 'each' },
@@ -275,9 +284,7 @@ describe('reaching the photographs from a keyboard', () => {
 
 	it('names each photograph and its position for a screen reader', () => {
 		render();
-		expect(target!.querySelector('img')!.getAttribute('alt')).toBe(
-			"Wombat's City Hostel, photo 1 of 2"
-		);
+		expect(target!.querySelector('img')!.getAttribute('alt')).toBe("Wombat's City Hostel, photo 1 of 2");
 		expect(target!.querySelector('.photo-carousel')!.getAttribute('aria-label')).toBe(
 			"Photos of Wombat's City Hostel"
 		);
@@ -296,14 +303,11 @@ describe('a photograph that fails to load', () => {
 		// `booking-mapper.ts` rewrites the 60x60 thumbnail to a card size measured against
 		// three photo ids. A shape it guessed wrong about degrades to the thumbnail here,
 		// so the worst case is what shipped before the upgrade rather than an empty box.
-		const upgraded =
-			'https://cf.bstatic.com/xdata/images/hotel/max1024x768/751028262.jpg?k=abc&o=';
+		const upgraded = 'https://cf.bstatic.com/xdata/images/hotel/max1024x768/751028262.jpg?k=abc&o=';
 		const el = render({ property: property({ images: [upgraded] }) });
 		el.querySelector('img')!.dispatchEvent(new Event('error'));
 		flushSync();
-		expect(sources()).toEqual([
-			'https://cf.bstatic.com/xdata/images/hotel/square60/751028262.jpg?k=abc&o='
-		]);
+		expect(sources()).toEqual(['https://cf.bstatic.com/xdata/images/hotel/square60/751028262.jpg?k=abc&o=']);
 	});
 
 	it('retries an Agoda resize at the address the provider actually gave', () => {
@@ -318,8 +322,7 @@ describe('a photograph that fails to load', () => {
 	});
 
 	it('gives up rather than retrying forever once the fallback fails too', () => {
-		const upgraded =
-			'https://cf.bstatic.com/xdata/images/hotel/max1024x768/751028262.jpg?k=abc&o=';
+		const upgraded = 'https://cf.bstatic.com/xdata/images/hotel/max1024x768/751028262.jpg?k=abc&o=';
 		const el = render({ property: property({ images: [upgraded] }) });
 		el.querySelector('img')!.dispatchEvent(new Event('error'));
 		flushSync();
@@ -335,5 +338,113 @@ describe('a photograph that fails to load', () => {
 		el.querySelector('img')!.dispatchEvent(new Event('error'));
 		flushSync();
 		expect(el.querySelector('img')).toBeNull();
+	});
+});
+
+/**
+ * Issue #441's wiring, and issue #442's labelling, from the card the owner actually clicks.
+ *
+ * What is NOT here is the zoom, and deliberately: jsdom runs no layout, so every rectangle is
+ * 0x0 and an assertion about a transform would pass against a lightbox that cannot zoom at
+ * all. `photo-zoom.test.ts` pins the arithmetic and `tools/probe-photo-lightbox.mjs` drives
+ * the real thing in a real browser, which is where this repo has learned to look.
+ */
+describe('opening a photograph large', () => {
+	const dialog = () => target!.querySelector('dialog');
+	const expand = () => target!.querySelector<HTMLButtonElement>('.photo-expand')!;
+	const roomBadge = () => target!.querySelector('.photo-subject')?.textContent?.trim();
+
+	beforeEach(() => {
+		// jsdom implements neither, and a dialog that throws on open takes the card with it.
+		HTMLDialogElement.prototype.showModal = function showModal(this: HTMLDialogElement) {
+			this.open = true;
+		};
+		HTMLDialogElement.prototype.close = function close(this: HTMLDialogElement) {
+			this.open = false;
+			this.dispatchEvent(new Event('close'));
+		};
+	});
+
+	it('renders no dialog until the reader asks for one', () => {
+		render();
+		expect(dialog()).toBeNull();
+	});
+
+	it('opens on the photograph the reader was looking at, not on the first', () => {
+		render();
+		next().click();
+		flushSync();
+		expand().click();
+		flushSync();
+		expect(dialog()?.querySelector('.lightbox-count')?.textContent?.trim()).toContain('2 / 2');
+	});
+
+	it('pages with the arrow keys and closes with the close button', () => {
+		render();
+		expand().click();
+		flushSync();
+		dialog()!.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+		flushSync();
+		expect(dialog()?.querySelector('.lightbox-count')?.textContent?.trim()).toContain('2 / 2');
+
+		target!.querySelector<HTMLButtonElement>('.lightbox-close')!.click();
+		flushSync();
+		expect(dialog()).toBeNull();
+	});
+
+	it('says nothing about rooms when every photograph is of the building', () => {
+		// Which is every property from every provider today. The chip is a claim, so it only
+		// appears when there is something to claim.
+		render();
+		expect(roomBadge()).toBeUndefined();
+		expand().click();
+		flushSync();
+		expect(target!.querySelector('.lightbox-subject')?.textContent?.trim()).toBe('Building');
+	});
+
+	it('asks for the published original only once the reader zooms past it', () => {
+		// The byte promise, and the one claim `tools/probe-photo-lightbox.mjs` cannot make any
+		// more: it serves its photographs from an origin of its own, and `originalStayPhoto`
+		// only reverses an address on a provider's own host. jsdom runs no layout, which does
+		// not matter here, because a zoom with no measurable box still raises the scale and the
+		// scale is what decides this.
+		const card =
+			'https://a.hwstatic.com/image/upload/c_limit,w_800,f_auto,q_auto/v1/propertyimages/5/527/x.jpg';
+		render({ photos: stayPhotos(property({ images: [card] }), []) });
+		expand().click();
+		flushSync();
+		expect(target!.querySelector('.lightbox-full')).toBeNull();
+
+		const stage = target!.querySelector('.lightbox-stage')!;
+		stage.dispatchEvent(new WheelEvent('wheel', { deltaY: -400, bubbles: true, cancelable: true }));
+		flushSync();
+		const full = target!.querySelector<HTMLImageElement>('.lightbox-full');
+		// The address Hostelworld published, which is the 2.8 MB original the card rewrite
+		// exists to avoid drawing until somebody asks to look closely.
+		expect(full?.getAttribute('src')).toBe('https://a.hwstatic.com/propertyimages/5/527/x.jpg');
+	});
+
+	it('marks the room photograph as the room, on the card and in the dialog', () => {
+		const room = stayPhotos(property(), [
+			{
+				property: property(),
+				roomKind: 'female-dorm',
+				pricePerNight: { minorUnits: 1907, currency: 'EUR' },
+				roomImages: ['https://fixture.invalid/photos/bunks.jpg']
+			}
+		]);
+		render({ photos: room });
+		next().click();
+		flushSync();
+		next().click();
+		flushSync();
+		expect(roomBadge()).toBe('Room');
+
+		expand().click();
+		flushSync();
+		expect(target!.querySelector('.lightbox-subject')?.textContent?.trim()).toBe('Room');
+		expect(target!.querySelector('.lightbox-caption')?.textContent).toContain(
+			"Female-only dorm at Wombat's City Hostel"
+		);
 	});
 });
