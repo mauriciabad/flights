@@ -199,7 +199,11 @@ async function capture(request: SnapshotRequest): Promise<string | undefined> {
 			release();
 			await build(request);
 		}
-		return renderer?.map.getCanvas().toDataURL('image/png');
+		// A style that never loaded still goes idle, because nothing is pending, and it
+		// captures as a flat rectangle of MapLibre's own background. Cached, that would be
+		// a worse fallback than the fill the preview is already showing, and permanent.
+		if (!renderer?.map.isStyleLoaded()) return undefined;
+		return renderer.map.getCanvas().toDataURL('image/png');
 	} catch {
 		// No WebGL, a lost context, a style that would not parse. The instance is dropped
 		// rather than left for the rest of the queue to fail against one by one.
@@ -229,14 +233,50 @@ async function build(request: SnapshotRequest): Promise<void> {
 	const container = document.createElement('div');
 	// Off to the side rather than hidden: `display: none` or `visibility: hidden` stops
 	// WebGL drawing anything, and a canvas that never drew captures as a blank square.
-	// The class is how `tests/e2e/route-previews.spec.ts` tells this one canvas apart from
-	// the dialog's when it counts live contexts.
+	// The class is how `visibleMapCanvases` (tests/e2e/support/results-ui.ts) tells this
+	// one canvas apart from a dialog's when it counts live contexts.
 	container.className = 'map-snapshot-renderer';
 	container.setAttribute('aria-hidden', 'true');
 	container.style.cssText = `position:fixed;top:0;left:-10000px;pointer-events:none;width:${request.width}px;height:${request.height}px`;
+	// Attached before the instance exists, because MapLibre sizes itself from the
+	// container's `clientWidth` and a detached element measures zero. So a constructor that
+	// throws, which is what a device with no WebGL does, has to take the element back out
+	// by hand: nothing owns it yet.
 	document.body.appendChild(container);
 
-	const map = new maplibregl.Map({
+	let map: MapLibreMap;
+	try {
+		map = createMap(maplibregl, container, request);
+	} catch (error) {
+		container.remove();
+		throw error;
+	}
+	// Registered before the first render rather than after `load`, so the app's own
+	// background and water colours are on the map by the time it goes idle and there is no
+	// second render to wait for.
+	map.on('style.load', () => applyThemeColors(map, request.scheme));
+
+	// Attached synchronously, in the same turn the map is constructed: `idle` can fire in
+	// the same render as `load`, and a listener added a microtask later would miss it and
+	// wait out the timeout on every cold start.
+	const settled = afterIdle(map);
+	renderer = {
+		map,
+		container,
+		width: request.width,
+		height: request.height,
+		pixelRatio: request.pixelRatio,
+		scheme: request.scheme
+	};
+	await settled;
+}
+
+function createMap(
+	maplibregl: typeof import('maplibre-gl'),
+	container: HTMLDivElement,
+	request: SnapshotRequest
+): MapLibreMap {
+	return new maplibregl.Map({
 		container,
 		style: MAP_STYLE_URL[request.scheme],
 		center: request.camera.center,
@@ -262,24 +302,6 @@ async function build(request: SnapshotRequest): Promise<void> {
 		maxZoom: 24,
 		pixelRatio: request.pixelRatio
 	});
-	// Registered before the first render rather than after `load`, so the app's own
-	// background and water colours are on the map by the time it goes idle and there is no
-	// second render to wait for.
-	map.on('style.load', () => applyThemeColors(map, request.scheme));
-
-	// Attached synchronously, in the same turn the map is constructed: `idle` can fire in
-	// the same render as `load`, and a listener added a microtask later would miss it and
-	// wait out the timeout on every cold start.
-	const settled = afterIdle(map);
-	renderer = {
-		map,
-		container,
-		width: request.width,
-		height: request.height,
-		pixelRatio: request.pixelRatio,
-		scheme: request.scheme
-	};
-	await settled;
 }
 
 function afterIdle(map: MapLibreMap): Promise<void> {
