@@ -46,6 +46,7 @@
 	import { formatPropertyRating } from '$lib/format';
 	import { describePriceComparison, showsWholeStayFigures, stayDistances, type StayChoice } from './choice';
 	import PhotoCarousel from './PhotoCarousel.svelte';
+	import { stayPhotos } from './stay-photos';
 	import StayReachLine from './StayReachLine.svelte';
 	import { describeStayReach } from './reach';
 	import { formatMoney } from './pricing';
@@ -91,7 +92,13 @@
 				     second picture and fetches it unasked. Two clicks around this sidebar is
 				     exactly the journey that would do it. -->
 				{#key open.key}
-					<PhotoCarousel images={open.property.images} name={open.property.name} />
+					<PhotoCarousel
+						photos={stayPhotos(
+							open.property,
+							open.group.options.map((option) => option.stay)
+						)}
+						name={open.property.name}
+					/>
 				{/key}
 
 				<h3 class="stays-detail-name">

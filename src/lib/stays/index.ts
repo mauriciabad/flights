@@ -7,6 +7,9 @@
 export { default as StayPicker } from './StayPicker.svelte';
 export { default as PickedBed } from './PickedBed.svelte';
 export { default as PhotoCarousel } from './PhotoCarousel.svelte';
+export { default as PhotoLightbox } from './PhotoLightbox.svelte';
+export { photoAlt, stayPhotos } from './stay-photos';
+export type { PhotoSubject, StayPhoto } from './stay-photos';
 export { default as StaysMapDialog } from './StaysMapDialog.svelte';
 export {
 	genderFit,

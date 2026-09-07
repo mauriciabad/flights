@@ -34,6 +34,9 @@
 	 * modal pattern. Escape is the platform's own `cancel`, and every way out goes through the
 	 * native `close` event so there is one path to test. Focus returns to whatever opened it.
 	 *
+	 * The opening itself lives in `open-as-modal.ts`, because issue #441's photo lightbox is a
+	 * dialog that is not a map and needs exactly the same three lines.
+	 *
 	 * ## What this component deliberately does not know
 	 *
 	 * Whether the panel reacts to a click, a hover, or neither. #319's stays panel opens on a
@@ -44,6 +47,7 @@
 	 */
 	import type { Snippet } from 'svelte';
 	import Icon from './Icon.svelte';
+	import { openAsModal } from './open-as-modal';
 
 	interface Props {
 		/** The dialog's accessible name, announced once on open. Name the whole surface, not
@@ -73,22 +77,6 @@
 	let { title, map, panel, onclose, class: className }: Props = $props();
 
 	const headingId = $props.id();
-
-	function openAsModal(element: HTMLDialogElement) {
-		const trigger = document.activeElement instanceof HTMLElement ? document.activeElement : undefined;
-		const previousOverflow = document.body.style.overflow;
-
-		element.showModal();
-		document.body.style.overflow = 'hidden';
-
-		return () => {
-			document.body.style.overflow = previousOverflow;
-			// `isConnected` because a trigger inside a card the results stream replaced while
-			// the dialog was open is gone, and focusing a detached node silently sends focus
-			// to the document body instead of leaving it where the browser put it.
-			if (trigger?.isConnected) trigger.focus();
-		};
-	}
 </script>
 
 <dialog {@attach openAsModal} class={['map-dialog', className]} aria-labelledby={headingId} {onclose}>
