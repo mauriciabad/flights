@@ -1,0 +1,51 @@
+name: Basemap supply
+
+# Issue #432: every map this app draws trusts that a tile which arrives is a tile worth
+# drawing, and a status code cannot tell you. CARTO's raster endpoint answers 200 with a
+# real PNG carrying "API KEY REQUIRED", and tile.openstreetmap.org answers 200 with a
+# picture of a 403. Neither changed on the day somebody looked; they changed at some point
+# and nothing noticed until a person read a picture.
+#
+# So this asks on a schedule instead of on a search. It talks to nobody's metered API and
+# spends nothing: the two CARTO styles are keyless, which is the thing being checked.
+on:
+  schedule:
+    # 06:20 UTC on Mondays. Weekly because a basemap supply changes on somebody else's
+    # release calendar, not hourly, and an off-the-hour minute so it does not queue behind
+    # every other repo's cron.
+    - cron: '20 6 * * 1'
+  workflow_dispatch:
+
+# Read-only. This job commits nothing, unlike the data-refresh jobs beside it: what it
+# watches lives on CARTO's servers, and the only useful output is red or green.
+permissions:
+  contents: read
+
+concurrency:
+  group: basemap-supply
+  cancel-in-progress: false
+
+jobs:
+  canary:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm exec playwright install --with-deps chromium
+
+      # No `pnpm build` step, deliberately. The canary draws the real style on a blank page
+      # with MapLibre on it (tests/basemap/support/maplibre-server.mjs), so a broken build
+      # cannot hide a broken basemap and a broken basemap cannot be read as a broken build.
+      - name: Ask whether the basemap is still keyless and still a map
+        run: pnpm basemap

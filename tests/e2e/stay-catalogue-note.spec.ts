@@ -22,8 +22,6 @@ import { waitForSearchToSettle } from '../shared/search-wait';
  * store, and that is the state the issue was filed from.
  */
 
-const EMPTY_MAP_STYLE = JSON.stringify({ version: 8, name: 'empty', sources: {}, layers: [] });
-
 test.describe('the stay list says whose catalogue it is (issue #374)', () => {
 	test.use({ viewport: { width: 1280, height: 900 } });
 
@@ -70,10 +68,6 @@ test.describe('the stay list says whose catalogue it is (issue #374)', () => {
 				contentType: 'image/svg+xml',
 				body: '<svg xmlns="http://www.w3.org/2000/svg" width="4" height="4"><title>FIXTURE</title></svg>'
 			})
-		);
-
-		await page.context().route('https://basemaps.cartocdn.com/**', (route) =>
-			route.fulfill({ status: 200, contentType: 'application/json', body: EMPTY_MAP_STYLE })
 		);
 
 		await page.goto('/results/?dep=2027-03-08&arr=2027-03-27&from=BCN&to=TLL');

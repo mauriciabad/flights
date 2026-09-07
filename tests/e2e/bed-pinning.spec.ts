@@ -29,8 +29,6 @@ import { waitForSearchToSettle } from '../shared/search-wait';
  * airport buffer somebody typed used to vanish the moment they pressed the nights ladder.
  */
 
-const EMPTY_MAP_STYLE = JSON.stringify({ version: 8, name: 'empty', sources: {}, layers: [] });
-
 const TERMINAL_BED = 'FIXTURE Terminal Lodge';
 const CENTRAL_BED = 'FIXTURE Central Lodge';
 
@@ -72,9 +70,6 @@ async function searchWithTwoLengths(page: Page) {
 			flightNumber: FIXTURE_FLIGHT_NUMBERS[5]
 		}
 	]);
-	await page.context().route('https://basemaps.cartocdn.com/**', (route) =>
-		route.fulfill({ status: 200, contentType: 'application/json', body: EMPTY_MAP_STYLE })
-	);
 
 	await page.goto('/results/?dep=2027-03-08&arr=2027-03-27&from=BCN&to=TLL');
 	await waitForSearchToSettle(page, { timeout: 20_000 });

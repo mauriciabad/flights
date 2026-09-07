@@ -26,8 +26,6 @@ import { waitForSearchToSettle } from '../shared/search-wait';
  * could never be mistaken for a real answer if this fixture ever escaped the test.
  */
 
-const EMPTY_MAP_STYLE = JSON.stringify({ version: 8, name: 'empty', sources: {}, layers: [] });
-
 test.describe('a bed is priced with no key at all (ACCEPTANCE.md condition 3)', () => {
 	test('a stopover gets a bed price from the keyless stay provider, with an empty key store', async ({
 		page
@@ -61,10 +59,6 @@ test.describe('a bed is priced with no key at all (ACCEPTANCE.md condition 3)', 
 				flightNumber: FIXTURE_FLIGHT_NUMBERS[4]
 			}
 		]);
-
-		await page.context().route('https://basemaps.cartocdn.com/**', (route) =>
-			route.fulfill({ status: 200, contentType: 'application/json', body: EMPTY_MAP_STYLE })
-		);
 
 		await page.goto('/results/?dep=2027-03-08&arr=2027-03-27&from=BCN&to=TLL');
 		await waitForSearchToSettle(page, { timeout: 20_000 });

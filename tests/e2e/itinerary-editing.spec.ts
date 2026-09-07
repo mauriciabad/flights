@@ -22,8 +22,6 @@ import { waitForSearchToSettle } from '../shared/search-wait';
  * FIXTURE place names — so nothing here could be read as a trip somebody could book.
  */
 
-const EMPTY_MAP_STYLE = JSON.stringify({ version: 8, name: 'empty', sources: {}, layers: [] });
-
 test.describe('editing a stopover keeps one trip on the screen', () => {
 	test('a waiting-time edit and a bed swap each move every reading (issues #250, #243)', async ({
 		page
@@ -52,9 +50,6 @@ test.describe('editing a stopover keeps one trip on the screen', () => {
 				flightNumber: FIXTURE_FLIGHT_NUMBERS[4]
 			}
 		]);
-		await page.context().route('https://basemaps.cartocdn.com/**', (route) =>
-			route.fulfill({ status: 200, contentType: 'application/json', body: EMPTY_MAP_STYLE })
-		);
 
 		await page.goto('/results/?dep=2027-03-08&arr=2027-03-27&from=BCN&to=TLL');
 		await waitForSearchToSettle(page, { timeout: 20_000 });

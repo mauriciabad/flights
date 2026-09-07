@@ -38,8 +38,6 @@ import { waitForSearchToSettle } from '../shared/search-wait';
  * keeps its walk, which is what this spec caught.
  */
 
-const EMPTY_MAP_STYLE = JSON.stringify({ version: 8, name: 'empty', sources: {}, layers: [] });
-
 /** The one search both tests below read, up to the point the detail panel is open. */
 async function stopoverWithTransitBothWays(page: Page): Promise<void> {
 	await mockAllKeylessProviders(page.context());
@@ -74,12 +72,6 @@ async function stopoverWithTransitBothWays(page: Page): Promise<void> {
 			flightNumber: FIXTURE_FLIGHT_NUMBERS[6]
 		}
 	]);
-
-	await page
-		.context()
-		.route('https://basemaps.cartocdn.com/**', (route) =>
-			route.fulfill({ status: 200, contentType: 'application/json', body: EMPTY_MAP_STYLE })
-		);
 
 	await page.goto('/results/?dep=2027-03-08&arr=2027-03-27&from=BCN&to=TLL');
 	await waitForSearchToSettle(page, { timeout: 20_000 });

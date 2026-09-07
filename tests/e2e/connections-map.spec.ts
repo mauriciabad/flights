@@ -22,8 +22,6 @@ import { waitForSearchToSettle } from '../shared/search-wait';
  * Fare values come from `support/fixture-markers.ts` for the reason that file explains.
  */
 
-const EMPTY_MAP_STYLE = JSON.stringify({ version: 8, name: 'empty', sources: {}, layers: [] });
-
 /**
  * Two stopovers out of Barcelona, and only one of them works.
  *
@@ -71,9 +69,6 @@ const BCN_VIE_TLL = [
 async function search(page: Page): Promise<void> {
 	await mockAllKeylessProviders(page.context());
 	await routeRyanairFlights(page.context(), BCN_VIE_TLL);
-	await page.context().route('https://basemaps.cartocdn.com/**', (route) =>
-		route.fulfill({ status: 200, contentType: 'application/json', body: EMPTY_MAP_STYLE })
-	);
 
 	const params = new URLSearchParams({
 		dep: '2027-03-08',

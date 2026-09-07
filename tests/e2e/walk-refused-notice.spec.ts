@@ -26,8 +26,6 @@ import { waitForSearchToSettle } from '../shared/search-wait';
  * behind the tap says what happened.
  */
 
-const EMPTY_MAP_STYLE = JSON.stringify({ version: 8, name: 'empty', sources: {}, layers: [] });
-
 /** Over `MAX_PLAUSIBLE_WALK_MINUTES`, and Gatwick's own measured number. */
 const REFUSED_WALK_MINUTES = 73;
 
@@ -92,10 +90,6 @@ test.describe('a walk refused for a bed that is close by (issue #347)', () => {
 				flightNumber: FIXTURE_FLIGHT_NUMBERS[4]
 			}
 		]);
-
-		await page.context().route('https://basemaps.cartocdn.com/**', (route) =>
-			route.fulfill({ status: 200, contentType: 'application/json', body: EMPTY_MAP_STYLE })
-		);
 
 		await page.goto('/results/?dep=2027-03-08&arr=2027-03-27&from=BCN&to=TLL');
 		await waitForSearchToSettle(page, { timeout: 20_000 });

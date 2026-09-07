@@ -42,8 +42,6 @@ import { waitForSearchToSettle } from '../shared/search-wait';
  * outbound cannot meet.
  */
 
-const EMPTY_MAP_STYLE = JSON.stringify({ version: 8, name: 'empty', sources: {}, layers: [] });
-
 const RESULTS_URL = '/results/?dep=2027-03-08&arr=2027-03-27&from=BCN&to=TLL';
 
 test.describe('alternative flights across several dates (issue #317)', () => {
@@ -85,9 +83,6 @@ test.describe('alternative flights across several dates (issue #317)', () => {
 				flightNumber: FIXTURE_FLIGHT_NUMBERS[5]
 			}
 		]);
-		await page.context().route('https://basemaps.cartocdn.com/**', (route) =>
-			route.fulfill({ status: 200, contentType: 'application/json', body: EMPTY_MAP_STYLE })
-		);
 
 		await page.setViewportSize({ width: 1280, height: 900 });
 		await page.goto(RESULTS_URL);

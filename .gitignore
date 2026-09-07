@@ -58,3 +58,8 @@ vite.config.ts.timestamp-*
 !docs/screenshots/
 !docs/screenshots/**/*.png
 !src/**/*.jpg
+
+# Recorded basemap samples. Not review artefacts: the canary's thresholds are decided
+# against these four pictures, so `pnpm test` fails without them. `pnpm data:basemap-canary`
+# writes them (#432).
+!tests/fixtures/basemap/*.png

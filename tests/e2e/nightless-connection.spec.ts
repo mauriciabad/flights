@@ -46,8 +46,6 @@ import { waitForSearchToSettle } from '../shared/search-wait';
  * components rather than off two of them mounted in a staging directory.
  */
 
-const EMPTY_MAP_STYLE = JSON.stringify({ version: 8, name: 'empty', sources: {}, layers: [] });
-
 const OUTBOUND = FIXTURE_FLIGHT_NUMBERS[0];
 const ONWARD_SAME_DAY = FIXTURE_FLIGHT_NUMBERS[1];
 const ONWARD_NEXT_DAY = FIXTURE_FLIGHT_NUMBERS[2];
@@ -85,9 +83,6 @@ async function searchWithBothOnwards(page: Page) {
 			flightNumber: ONWARD_NEXT_DAY
 		}
 	]);
-	await page.context().route('https://basemaps.cartocdn.com/**', (route) =>
-		route.fulfill({ status: 200, contentType: 'application/json', body: EMPTY_MAP_STYLE })
-	);
 
 	await page.goto('/results/?dep=2027-03-08&arr=2027-03-27&from=BCN&to=TLL');
 	await waitForSearchToSettle(page, { timeout: 20_000 });

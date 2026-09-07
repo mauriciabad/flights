@@ -19,6 +19,7 @@
 		"data:coastline": "node scripts/prepare-coastline.mjs",
 		"data:boundaries": "node scripts/prepare-boundaries.mjs",
 		"data:land-tiles": "node scripts/prepare-land-tiles.mjs",
+		"data:basemap-canary": "node scripts/prepare-basemap-canary-samples.mjs",
 		"data:cheap-routes": "node scripts/fetch-cheap-routes.mjs",
 		"data:ryanair-network": "node scripts/fetch-ryanair-network.mjs",
 		"data:direct-routes": "node scripts/fetch-direct-routes.mjs",
@@ -26,6 +27,7 @@
 		"test:e2e:live": "ALLOW_LIVE_TESTS=1 playwright test --grep @live",
 		"test:e2e:report": "playwright show-report",
 		"qa": "playwright test --config qa.config.ts",
+		"basemap": "playwright test --config basemap.config.ts",
 		"qa:live": "QA_LIVE=1 playwright test --config qa.config.ts"
 	},
 	"devDependencies": {

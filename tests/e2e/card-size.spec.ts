@@ -182,8 +182,6 @@ const PHONE_SCREEN_PX = 620;
  */
 const WORST_CASE_HEIGHT_BUDGET_PX = 860;
 
-const EMPTY_MAP_STYLE = JSON.stringify({ version: 8, name: 'empty', sources: {}, layers: [] });
-
 interface MeasuredBlock {
 	block: string;
 	px: number;
@@ -409,9 +407,6 @@ async function worstCaseSearch(page: Page) {
 	// After the generic mocks, so this one wins: Playwright offers a request to the
 	// most-recently-registered matching route first.
 	await routeRyanairFlights(page.context(), pricedFlights('STN'));
-	await page.context().route('https://basemaps.cartocdn.com/**', (route) =>
-		route.fulfill({ status: 200, contentType: 'application/json', body: EMPTY_MAP_STYLE })
-	);
 }
 
 /**
@@ -464,7 +459,4 @@ async function typicalSearch(page: Page) {
 	// After the generic mocks, so this one wins: Playwright offers a request to the
 	// most-recently-registered matching route first.
 	await routeRyanairFlights(page.context(), pricedFlights('BCN'));
-	await page.context().route('https://basemaps.cartocdn.com/**', (route) =>
-		route.fulfill({ status: 200, contentType: 'application/json', body: EMPTY_MAP_STYLE })
-	);
 }

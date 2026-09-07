@@ -18,8 +18,6 @@ import { waitForSearchToSettle } from '../shared/search-wait';
  * window would measure something that cannot move and pass on any behaviour at all.
  */
 
-const EMPTY_MAP_STYLE = JSON.stringify({ version: 8, name: 'empty', sources: {}, layers: [] });
-
 async function openResults(page: Page) {
 	await mockAllKeylessProviders(page.context());
 	await routeRyanairFlights(page.context(), [
@@ -48,9 +46,6 @@ async function openResults(page: Page) {
 			flightNumber: FIXTURE_FLIGHT_NUMBERS[4]
 		}
 	]);
-	await page.context().route('https://basemaps.cartocdn.com/**', (route) =>
-		route.fulfill({ status: 200, contentType: 'application/json', body: EMPTY_MAP_STYLE })
-	);
 	await page.goto('/results/?dep=2027-03-08&arr=2027-03-27&from=BCN&to=TLL');
 	// A reading taken before the search settles is a reading of a card that has not reached
 	// its real height, in a list that has not reached its real length.

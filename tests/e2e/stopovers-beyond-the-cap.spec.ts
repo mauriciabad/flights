@@ -28,8 +28,6 @@ import { waitForSearchToSettle } from '../shared/search-wait';
  * else. See `search` below for why that is spelled out instead of inferred from the route.
  */
 
-const EMPTY_MAP_STYLE = JSON.stringify({ version: 8, name: 'empty', sources: {}, layers: [] });
-
 /**
  * Barcelona to somewhere, with Vienna the stopover the fixtures already fly to.
  *
@@ -146,9 +144,6 @@ async function search(page: Page, destination: 'TLL' | 'HEL', onward?: { arrival
 				: [])
 		],
 		{ airports: network }
-	);
-	await page.context().route('https://basemaps.cartocdn.com/**', (route) =>
-		route.fulfill({ status: 200, contentType: 'application/json', body: EMPTY_MAP_STYLE })
 	);
 	await page.goto(`/results/?dep=2027-03-08&arr=2027-03-27&from=BCN&to=${destination}`);
 	await waitForSearchToSettle(page, { timeout: 20_000 });

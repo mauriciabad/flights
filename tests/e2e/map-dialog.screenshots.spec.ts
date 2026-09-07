@@ -26,8 +26,6 @@ import { waitForSearchToSettle } from '../shared/search-wait';
  * nondeterministic without adding anything to that question.
  */
 
-const EMPTY_MAP_STYLE = JSON.stringify({ version: 8, name: 'empty', sources: {}, layers: [] });
-
 const BCN_VIE_TLL = [
 	{
 		dep: 'BCN',
@@ -65,9 +63,6 @@ const SCHEMES = ['dark', 'light'] as const;
 async function openResults(page: Page): Promise<void> {
 	await mockAllKeylessProviders(page.context());
 	await routeRyanairFlights(page.context(), BCN_VIE_TLL);
-	await page.context().route('https://basemaps.cartocdn.com/**', (route) =>
-		route.fulfill({ status: 200, contentType: 'application/json', body: EMPTY_MAP_STYLE })
-	);
 
 	const params = new URLSearchParams({
 		dep: '2027-03-08',

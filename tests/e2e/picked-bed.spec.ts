@@ -25,8 +25,6 @@ import { waitForSearchToSettle } from '../shared/search-wait';
  * 65 KB, which shortens the wait and does not remove it: a request still crosses a network.
  */
 
-const EMPTY_MAP_STYLE = JSON.stringify({ version: 8, name: 'empty', sources: {}, layers: [] });
-
 /** A real image with real intrinsic dimensions and no binary fixture to check in. An
  * `<img>` decodes an SVG like any other format, and `naturalWidth` reports what the file
  * says, so "did a picture actually decode" is answerable. */
@@ -77,10 +75,6 @@ test.describe('the picked bed on the card (issue #279)', () => {
 				flightNumber: FIXTURE_FLIGHT_NUMBERS[4]
 			}
 		]);
-
-		await page.context().route('https://basemaps.cartocdn.com/**', (route) =>
-			route.fulfill({ status: 200, contentType: 'application/json', body: EMPTY_MAP_STYLE })
-		);
 
 		await page.setViewportSize({ width: 375, height: 780 });
 		await page.goto('/results/?dep=2027-03-08&arr=2027-03-27&from=BCN&to=TLL');
@@ -163,10 +157,6 @@ test.describe('the picked bed on the card (issue #279)', () => {
 				flightNumber: FIXTURE_FLIGHT_NUMBERS[4]
 			}
 		]);
-
-		await page.context().route('https://basemaps.cartocdn.com/**', (route) =>
-			route.fulfill({ status: 200, contentType: 'application/json', body: EMPTY_MAP_STYLE })
-		);
 
 		await page.setViewportSize({ width: 375, height: 780 });
 		await page.goto('/results/?dep=2027-03-08&arr=2027-03-27&from=BCN&to=TLL');
