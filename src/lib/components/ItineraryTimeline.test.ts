@@ -727,3 +727,77 @@ describe('ItineraryTimeline, the wait before a flight the coach beats by hours',
 		expect(ride?.querySelector('.tl-when')?.textContent?.trim()).toBe('8pm');
 	});
 });
+
+/**
+ * Issue #426. The owner, on a card with no night in it:
+ *
+ * > when a itinerary has 0 nights, the timeline still shows the transport time to the
+ * > imaginary hotel that we never go to and also the waiting time at the airport that
+ * > we're already at
+ *
+ * Four rows described that layover: a ride to a stopover, a free-time window, a ride back,
+ * and then a wait at the airport the first two rows had just left and returned to. There is
+ * one thing happening between those flights, so there is one row.
+ */
+describe('ItineraryTimeline, a layover the traveller never leaves the airport for (issue #426)', () => {
+	/** Land 9am, board again at 9pm the same day. Both rides routed, no bed priced, which is
+	 * the default state of every search with no stay-provider key. */
+	function airsideItinerary(): Itinerary {
+		const arrival = localDateTime('2026-06-01T09:00:00', 'Europe/Vienna', 120);
+		const departure = localDateTime('2026-06-01T21:00:00', 'Europe/Vienna', 120);
+		const [itinerary] = buildItineraries({
+			originAirport: origin,
+			destinationAirport: destination,
+			outboundOffers: [makeFlight('LGW', 'VIE', arrival, arrival, 150)],
+			onwardOffers: [makeFlight('VIE', 'IST', departure, departure, 90)],
+			connectionAirports: { VIE: connection },
+			connectionResources: {
+				VIE: {
+					transferAnchor: 'city-centre',
+					transferToHotel: makeTransfer(30),
+					transferToConnectionAirport: makeTransfer(30)
+				}
+			},
+			waitingTimeRules: [{ waitingTime: 120 as Duration }]
+		});
+		return itinerary;
+	}
+
+	it('draws no ride to a stopover and no ride back from one', () => {
+		const root = renderTimeline(airsideItinerary());
+
+		expect(root.querySelector('[data-segment="transfer-to-hotel"]')).toBeNull();
+		expect(root.querySelector('[data-segment="transfer-to-connection-airport"]')).toBeNull();
+	});
+
+	it('draws no stopover row, because there is no stopover', () => {
+		const root = renderTimeline(airsideItinerary());
+
+		expect(root.querySelector('[data-segment="free-time"]')).toBeNull();
+	});
+
+	it('reads as one wait at the connection airport, for the whole gap between the flights', () => {
+		const root = renderTimeline(airsideItinerary());
+		const wait = root.querySelector('[data-segment="connection-waiting"]');
+
+		expect(wait).not.toBeNull();
+		expect(wait!.textContent).toContain('VIE');
+		expect(wait!.querySelector('.tl-duration')!.textContent).toBe('12h');
+	});
+
+	it('names the airport the traveller is waiting in', () => {
+		const root = renderTimeline(airsideItinerary());
+		const wait = root.querySelector('[data-segment="connection-waiting"]');
+
+		expect(wait!.getAttribute('aria-label')).toContain('Vienna International');
+	});
+
+	it('still draws all four rows when the traveller does book a night', () => {
+		const root = renderTimeline(makeItinerary());
+
+		expect(root.querySelector('[data-segment="transfer-to-hotel"]')).not.toBeNull();
+		expect(root.querySelector('[data-segment="free-time"]')).not.toBeNull();
+		expect(root.querySelector('[data-segment="transfer-to-connection-airport"]')).not.toBeNull();
+		expect(root.querySelector('[data-segment="connection-waiting"]')).not.toBeNull();
+	});
+});

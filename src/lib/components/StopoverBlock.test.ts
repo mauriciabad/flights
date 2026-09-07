@@ -359,3 +359,35 @@ describe('StopoverBlock names the rides in the journey to the bed (issue #373)',
 		expect(render(ridingTo([]))).toContain('Public transport, 29m from the airport');
 	});
 });
+
+/**
+ * Issue #426. The block above the timeline describes the same layover the timeline draws,
+ * so it has to describe the same trip. With no night booked it was printing the two edges
+ * of a free-time window that is really the traveller sitting in a departures hall, under a
+ * heading naming the city they never reach.
+ */
+describe('a layover the traveller never leaves the airport for (issue #426)', () => {
+	/** In at 11:30pm, out at 2:30am, no night. */
+	const airside = () =>
+		makeItinerary({
+			nightsInConnection: 0,
+			freeTimeStart: '2026-10-06T23:30:00',
+			freeTimeEnd: '2026-10-07T02:30:00',
+			freeTimeMinutes: 180
+		});
+
+	it('calls the gap a wait at the airport rather than days in a city', () => {
+		const block = render(airside());
+
+		expect(block).toContain('Waiting at VIE');
+		expect(block).not.toContain('No full days');
+	});
+
+	it('says nothing about a bed or a ride to one', () => {
+		const block = render(airside());
+
+		expect(block).not.toContain('Test stay');
+		expect(block).not.toContain('Per night');
+		expect(block).not.toContain('hotel leg');
+	});
+});
