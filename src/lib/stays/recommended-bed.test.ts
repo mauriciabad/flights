@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import type { StopoverForRanking } from './rank';
 import { rankProperties } from './rank';
 import { firstBookableStay, recommendedStay, stopoverForRanking } from './recommended-bed';
+import type { BedKind } from './room-kind';
 import { groupByProperty } from './types';
 
 const AIRPORT: Coordinates = { latitude: 48.11, longitude: 16.57 };
@@ -73,6 +74,24 @@ describe('recommendedStay', () => {
 	it('picks the cheapest room the group can book at the property it recommends', () => {
 		const dorm = makeStay('Runway Inn', AIRPORT, 'dorm', 2200);
 		expect(recommendedStay([TERMINAL_ROOM, dorm], stopover(1, 0))).toBe(dorm);
+	});
+});
+
+describe('recommendedStay under a bed-kind filter (issue #423)', () => {
+	const PRIVATE_ONLY = new Set<BedKind>(['private']);
+	// One address, two rooms. Whichever kind is asked for, this property is the answer, and
+	// the room it resolves to is the whole test: recommending its dorm to a traveller who
+	// just filtered to private rooms is the bug pressing "Use the recommended bed" would show.
+	const TOWN_ROOM = makeStay('Old Town Hostel', CITY_CENTRE, 'private', 4400);
+
+	it('recommends the private room at a property that also prices a dorm', () => {
+		const candidates = [TOWN_DORM, TOWN_ROOM];
+		expect(recommendedStay(candidates, stopover(4, 3))).toBe(TOWN_DORM);
+		expect(recommendedStay(candidates, { ...stopover(4, 3), bedKinds: PRIVATE_ONLY })).toBe(TOWN_ROOM);
+	});
+
+	it('has nothing to recommend when no property prices that kind', () => {
+		expect(recommendedStay([TOWN_DORM], { ...stopover(4, 3), bedKinds: PRIVATE_ONLY })).toBeUndefined();
 	});
 });
 

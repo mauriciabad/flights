@@ -30,7 +30,14 @@ export {
 	bedKindOf
 } from './room-kind';
 export type { BedKind } from './room-kind';
-export { cheapestSelectableOption, isOptionSelectable, rankProperties, selectableOptions } from './rank';
+export {
+	cheapestSelectableOption,
+	countPropertiesByBedKind,
+	isOptionSelectable,
+	isPropertyOnOffer,
+	rankProperties,
+	selectableOptions
+} from './rank';
 export type { StopoverForRanking } from './rank';
 export { firstBookableStay, recommendedStay, stopoverForRanking } from './recommended-bed';
 export { groupByProperty, isSameBed, isSameProperty, propertyKey, propertyOf } from './types';

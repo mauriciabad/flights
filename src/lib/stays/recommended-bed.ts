@@ -15,6 +15,7 @@ import type { Airport, Itinerary, Stay } from '$lib/domain';
 import { visitDaysOf } from '$lib/components/free-time-days';
 import { cheapestSelectableOption, rankProperties } from './rank';
 import type { StopoverForRanking } from './rank';
+import type { BedKind } from './room-kind';
 import { groupByProperty } from './types';
 import type { PropertyStayOptions } from './types';
 
@@ -30,7 +31,7 @@ export function recommendedStay(
 	stopover: StopoverForRanking
 ): Stay | undefined {
 	const ranked = rankProperties(groupByProperty(candidates), stopover);
-	return firstBookableStay(ranked, stopover.travellers, stopover.females);
+	return firstBookableStay(ranked, stopover.travellers, stopover.females, stopover.bedKinds);
 }
 
 /**
@@ -39,14 +40,19 @@ export function recommendedStay(
  *
  * `rankProperties` sorts a property with nothing this group can book last, so walking past
  * one only matters when every property is one, and then the answer is `undefined` anyway.
+ *
+ * `bedKinds` has to be the same set `rankProperties` was given (issue #423). Ranking on the
+ * private rooms and then reading the head's cheapest room of any kind would recommend the
+ * dorm that put it there.
  */
 export function firstBookableStay(
 	ranked: readonly PropertyStayOptions[],
 	travellers: number | undefined,
-	females: number | undefined
+	females: number | undefined,
+	bedKinds?: ReadonlySet<BedKind>
 ): Stay | undefined {
 	for (const group of ranked) {
-		const cheapest = cheapestSelectableOption(group, travellers, females);
+		const cheapest = cheapestSelectableOption(group, travellers, females, bedKinds);
 		if (cheapest) return cheapest.stay;
 	}
 	return undefined;
