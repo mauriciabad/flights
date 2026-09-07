@@ -21,7 +21,7 @@ import type {
 	TransferMode,
 	TransitPlanMoment
 } from '../domain';
-import { groundFare } from '../domain';
+import { groundFare, transferChanges, transitRideLegs } from '../domain';
 import { NORMAL_WAIT_THRESHOLD_MINUTES } from '../algorithm/transit-schedule';
 import type { WithheldRoutes, WithheldTransfers } from '../search/types';
 import { formatClockTime, formatDuration, formatMoney, formatMoneyRange } from '$lib/format';
@@ -83,24 +83,56 @@ const MAX_NAMED_VEHICLES = 3;
  *   more than "1 ride" does, and a car has nothing to change between.
  */
 export function summariseTransferLegs(legs: readonly TransferLeg[]): string | undefined {
-	const rides = legs.filter((leg) => leg.mode === 'transit');
-	if (rides.length === 0) return undefined;
+	const vehicles = summariseTransferVehicles(legs);
+	if (vehicles === undefined) return undefined;
+	const changes = transferChanges(legs);
+	return changes ? `${vehicles} (${changeCountLabel(changes)})` : vehicles;
+}
 
-	const changes = rides.length - 1;
-	const suffix = changes === 0 ? '' : changes === 1 ? ' (1 change)' : ` (${changes} changes)`;
+/**
+ * The first half of the sentence above on its own: what you ride, in order, and nothing
+ * about changing between them.
+ *
+ * Split out by issue #424, which promotes the change count to an element of its own beside
+ * the duration on `TransportPicker`'s rows. A row reading "1 change · Metro, then bus (1
+ * change)" says it twice, and the parenthetical is the copy that has to go where a real
+ * element is carrying the fact. Every other surface still wants the whole sentence, so both
+ * shapes come off one list of rides.
+ */
+export function summariseTransferVehicles(legs: readonly TransferLeg[]): string | undefined {
+	const rides = transitRideLegs(legs);
+	if (rides.length === 0) return undefined;
 
 	// A `Transfer` cached before this field existed has no `vehicle` on any leg, and so does
 	// any future adapter that does not name its vehicles. Counting them is still a real
 	// answer, and a better one than printing "undefined, then undefined".
 	const vehicles = rides.map((ride) => ride.vehicle).filter((vehicle): vehicle is string => Boolean(vehicle));
 	if (vehicles.length !== rides.length || rides.length > MAX_NAMED_VEHICLES) {
-		return `${rides.length} ${rides.length === 1 ? 'ride' : 'rides'}${suffix}`;
+		return `${rides.length} ${rides.length === 1 ? 'ride' : 'rides'}`;
 	}
 
 	// Sentence case, so the line reads as a sentence fragment rather than as three proper
 	// nouns: "Metro, then bus, then coach".
 	const named = vehicles.map((vehicle, index) => (index === 0 ? vehicle : vehicle.toLocaleLowerCase()));
-	return `${named.join(', then ')}${suffix}`;
+	return named.join(', then ');
+}
+
+/**
+ * A change count in the traveller's own words. Issue #424.
+ *
+ * One spelling, shared by the summary above, the transport picker's rows and the results
+ * filter's chips, so the screen that offers "No changes (4)" as a choice and the row that
+ * answers it use the same three words. `MetricRail`'s cell is the one place that does not
+ * use this: a boarding-pass field prints "None" under a caption reading CHANGES, and
+ * repeating the caption in the value is what that treatment exists to avoid.
+ *
+ * Takes a number rather than a `number | undefined`, because "no changes concept here" is
+ * not a phrase a caller should be able to get out of this by accident. A caller holding
+ * `undefined` has nothing to print at all.
+ */
+export function changeCountLabel(changes: number): string {
+	if (changes === 0) return 'No changes';
+	return `${changes} ${changes === 1 ? 'change' : 'changes'}`;
 }
 
 /** What a transfer row's one-line detail says: the vehicles when a provider named them,

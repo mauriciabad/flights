@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Duration, Itinerary, Transfer, TransferMode } from './index';
-import { costIsUnknown, unpricedTransferLegs, walkedTransferLegs } from './index';
+import { costIsUnknown, itineraryChanges, unpricedTransferLegs, walkedTransferLegs } from './index';
 
 function transfer(mode: TransferMode, price?: Transfer['price']): Transfer {
 	return { mode, duration: 20 as Duration, legs: [], price };
@@ -138,5 +138,58 @@ describe('walkedTransferLegs', () => {
 		expect(
 			walkedTransferLegs(legs({ transferToHotel: transfer('walk', { minorUnits: 200, currency: 'EUR' }) }))
 		).toEqual([]);
+	});
+});
+
+/** A transit transfer of `rides` vehicles, walked to and from, which is the shape
+ * `transitous-mapper.ts` produces. */
+function transitTransfer(rides: number): Transfer {
+	const legs: Transfer['legs'] = [{ mode: 'walk', duration: 5 as Duration }];
+	for (let ride = 0; ride < rides; ride += 1) {
+		legs.push({ mode: 'transit', duration: 14 as Duration, vehicle: 'Bus' });
+		legs.push({ mode: 'walk', duration: 4 as Duration });
+	}
+	return { mode: 'transit', duration: 40 as Duration, legs };
+}
+
+describe('itineraryChanges', () => {
+	it('adds the changes up across the legs rather than taking the worst one', () => {
+		// Issue #424. Two legs of one change each is two changes with a suitcase, which is
+		// the question the owner asked. A maximum would answer a different one.
+		expect(
+			itineraryChanges(
+				legs({ transferToHotel: transitTransfer(2), transferToConnectionAirport: transitTransfer(2) })
+			)
+		).toBe(2);
+	});
+
+	it('counts a direct ride as no changes', () => {
+		expect(itineraryChanges(legs({ transferToHotel: transitTransfer(1) }))).toBe(0);
+	});
+
+	it('reads a trip of walks and taxis as no changes, not as unmeasurable', () => {
+		// The distinction the filter depends on. A walk-and-taxi trip genuinely has no
+		// changes, so it has to belong to the "No changes" chip; answering `undefined` here
+		// would hide the easiest trips from the traveller asking for the easiest trips.
+		expect(
+			itineraryChanges(legs({ transferToHotel: transfer('walk'), transferToConnectionAirport: transfer('taxi') }))
+		).toBe(0);
+	});
+
+	it('reads a trip with no ground legs at all as no changes', () => {
+		expect(itineraryChanges(legs({}))).toBe(0);
+	});
+
+	it('mixes a transit leg with a walked one and counts only the rides', () => {
+		expect(
+			itineraryChanges(legs({ transferToOriginAirport: transfer('walk'), transferToHotel: transitTransfer(3) }))
+		).toBe(2);
+	});
+
+	it('refuses to call a transit leg with no rides zero', () => {
+		// `transitous-mapper.ts` cannot produce this, so it means a cached Transfer or a
+		// future adapter has a shape nobody here has seen. Reporting it as "no changes" is
+		// the app inventing an answer; `undefined` is what every caller treats as unknown.
+		expect(itineraryChanges(legs({ transferToHotel: transfer('transit') }))).toBeUndefined();
 	});
 });
