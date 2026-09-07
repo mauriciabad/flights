@@ -51,9 +51,15 @@ export async function pickStripSegment(
  * panned view away four times.
  */
 export async function pickTimelineSegment(page: Page, segment: string) {
-	await page
-		.locator(`.itinerary-timeline [data-segment="${segment}"]`)
-		.click({ position: { x: 6, y: 6 } });
+	const row = page.locator(`.itinerary-timeline [data-segment="${segment}"]`);
+	await row.waitFor();
+	// A second activation of the selected row clears the selection, which is how a traveller
+	// hands the map back the whole route. That makes a bare click the wrong gesture for
+	// "show me this step": `openTimeline` picks the stopover on the way in, so a spec asking
+	// for the stopover next would empty the panel it just filled. Every caller here means
+	// select, so this asks whether the row already is the selection first.
+	if ((await row.getAttribute('aria-current')) === 'true') return;
+	await row.click({ position: { x: 6, y: 6 } });
 }
 
 /** The customise panel, wherever it currently lives. One instance is mounted at a time, so

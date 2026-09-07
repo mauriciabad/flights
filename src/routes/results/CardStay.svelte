@@ -76,9 +76,11 @@
 						{bed.property.name}
 						{#if rating}
 							<!-- Issue #258 made a rating a value and its scale, and
-							     `formatPropertyRating` is the only place it becomes a string. Its
-							     provider's own scale, never rescaled: 8.6/10 and 4.5/5 are different
-							     claims and normalising them invents one nobody made. -->
+							     `formatPropertyRating` is the only place either becomes a string. The
+							     scale is printed with the number, so 8.6/10 and 4.5/5 stay different
+							     claims: this card does not decide what a rating means, and a second
+							     conversion here is how the same property ends up scored two ways on
+							     two surfaces. -->
 							<span class="card-stay-rating font-mono tabular-nums">{rating}</span>
 						{/if}
 					</p>

@@ -1,6 +1,7 @@
 import { expect, test } from './support/fixtures';
 import { FIXTURE_FLIGHT_NUMBERS, FIXTURE_PRICES } from './support/fixture-markers';
 import { mockAllKeylessProviders, mockHostelworld, routeRyanairFlights } from './support/providers';
+import { openTimeline, pickTimelineSegment } from './support/results-ui';
 import { waitForSearchToSettle } from '../shared/search-wait';
 
 /**
@@ -60,14 +61,16 @@ async function searchWithFemales(page: import('@playwright/test').Page, females:
 	await waitForSearchToSettle(page, { timeout: 30_000 });
 
 	await expect(page.locator('.result-card').first()).toBeVisible();
-	// The timeline preview's own caption is what unfolds the full timeline since #278.
-	await page.getByRole('button', { name: /show the full timeline/ }).first().click();
-	// The stopover row in the timeline. Located by `data-segment` rather than by label,
-	// because the row carries `aria-roledescription="selectable step"` and a role query
-	// does not reach it. `free-time` is the segment `ResultDetail.svelte` puts the stay
-	// picker under. Scoped to the page, not to `.result-card`: the detail panel renders as
-	// the card's sibling, below it, rather than inside it.
-	await page.locator('li[data-segment="free-time"]').first().click();
+	// The two gestures live in `support/results-ui.ts` rather than here, which is why issue
+	// #440 moving the timeline into the trip inspector changed one file instead of every
+	// spec. This one used to reach for the caption's own accessible name, and that control
+	// no longer exists.
+	//
+	// `free-time` is the segment the stay picker sits under. Located by `data-segment`
+	// rather than by label, because the row carries `aria-roledescription="selectable step"`
+	// and a role query does not reach it.
+	await openTimeline(page);
+	await pickTimelineSegment(page, 'free-time');
 
 	const tiles = page.locator('.stay-room-kinds').first();
 	await expect(tiles).toBeVisible();

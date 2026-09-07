@@ -82,7 +82,9 @@ test.describe('the picked bed on the card (issue #279)', () => {
 
 		await openTheDetail(page);
 
-		const media = page.locator('.photo-carousel').first();
+		// Scoped to the bed block. Issue #435 put a second carousel on the card itself, above
+		// this one in the DOM, and an unscoped `.first()` would photograph that one instead.
+		const media = page.locator('.bed .photo-carousel').first();
 		await expect(media).toBeVisible();
 
 		// 1. The box holds its space before a byte of image has arrived. This is the
@@ -164,7 +166,9 @@ test.describe('the picked bed on the card (issue #279)', () => {
 
 		await openTheDetail(page);
 
-		const media = page.locator('.photo-carousel').first();
+		// Scoped to the bed block. Issue #435 put a second carousel on the card itself, above
+		// this one in the DOM, and an unscoped `.first()` would photograph that one instead.
+		const media = page.locator('.bed .photo-carousel').first();
 		await expect(media).toBeVisible();
 		await expect(media.locator('.photo-count')).toHaveText('1 / 2');
 
@@ -224,9 +228,10 @@ test.describe('the picked bed on the card (issue #279)', () => {
 	});
 });
 
-/** The bed block lives in the full timeline, which issue #278 made the trip strip unfold
- * into rather than something a card-level button opens. This is the one helper that had to
- * change for that, which is what its previous version predicted. */
+/** The bed block lives wherever the stopover is described in full, and that has moved twice:
+ * #278 made the trip strip unfold into it, #440 deleted that fold and put it in the trip
+ * inspector's free-time panel. This is the one helper that has had to change each time, which
+ * is what its first version predicted. */
 async function openTheDetail(page: import('@playwright/test').Page) {
 	await expect(page.locator('.result-card').first()).toBeVisible();
 	await openTimeline(page);
