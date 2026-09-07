@@ -215,9 +215,7 @@ describe('previewMap: no dot may be left offshore', () => {
 		const frame = frameAround(2.2, 41.25, 0.1);
 		await withTiles(frame);
 
-		expect(previewMap(frame, WIDTH, HEIGHT, [{ x: WIDTH / 2, y: HEIGHT / 2 }]).land.join('')).toBe(
-			WHOLE_BOX
-		);
+		expect(previewMap(frame, WIDTH, HEIGHT, [{ x: WIDTH / 2, y: HEIGHT / 2 }]).land.join('')).toBe(WHOLE_BOX);
 	});
 
 	it('keeps an island destination the window has shrunk below a box unit', () => {

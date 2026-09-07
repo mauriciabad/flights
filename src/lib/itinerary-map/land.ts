@@ -61,7 +61,11 @@
  * Neither component knows about any of this. The picture decides for itself.
  */
 
-import { COASTLINE_DISPLACEMENT_KM, COASTLINE_GRID_DEGREES, COASTLINE_RINGS } from '$lib/data/coastline.generated';
+import {
+	COASTLINE_DISPLACEMENT_KM,
+	COASTLINE_GRID_DEGREES,
+	COASTLINE_RINGS
+} from '$lib/data/coastline.generated';
 import {
 	BOUNDARY_DISPLACEMENT_KM,
 	BOUNDARY_GRID_DEGREES,
@@ -384,9 +388,7 @@ function readsAsAshore(groups: readonly LandGroup[], point: ProjectedPoint): boo
 				const dy = yj - yi;
 				const length = dx * dx + dy * dy;
 				const t =
-					length === 0
-						? 0
-						: Math.max(0, Math.min(1, ((point.x - xi) * dx + (point.y - yi) * dy) / length));
+					length === 0 ? 0 : Math.max(0, Math.min(1, ((point.x - xi) * dx + (point.y - yi) * dy) / length));
 				const distance = Math.hypot(xi + t * dx - point.x, yi + t * dy - point.y);
 				if (distance < nearest) nearest = distance;
 			}
@@ -417,10 +419,37 @@ function worldOffsets(frame: PreviewFrame): number[] {
 	return [(world - 1) * 360, world * 360, (world + 1) * 360];
 }
 
+/**
+ * Whether one of the dots this window has to vouch for stands on a ring, given the ring's
+ * own extent in box units. `ASHORE_TOLERANCE` is the margin because that is the distance
+ * `readsAsAshore` will later accept: a ring further from every dot than that could not
+ * change the answer, and one closer might.
+ */
+function carriesPoint(
+	points: readonly ProjectedPoint[],
+	left: number,
+	top: number,
+	right: number,
+	bottom: number
+): boolean {
+	return points.some(
+		(point) =>
+			point.x >= left - ASHORE_TOLERANCE &&
+			point.x <= right + ASHORE_TOLERANCE &&
+			point.y >= top - ASHORE_TOLERANCE &&
+			point.y <= bottom + ASHORE_TOLERANCE
+	);
+}
+
 /** Land from the bundled outline: every ring that reaches this window, projected and
  *  clipped, as one even-odd group so its lakes stay lakes. Synchronous, and the only
  *  source a flight preview ever uses. */
-function outlineGroup(frame: PreviewFrame, width: number, height: number): LandGroup[] {
+function outlineGroup(
+	frame: PreviewFrame,
+	width: number,
+	height: number,
+	points: readonly ProjectedPoint[]
+): LandGroup[] {
 	const spanX = frame.east - frame.west;
 	const spanY = frame.north - frame.south;
 	const polygons: number[][] = [];
@@ -430,15 +459,28 @@ function outlineGroup(frame: PreviewFrame, width: number, height: number): LandG
 	// contribution is a few hundred characters of path data for a mark nobody sees. A
 	// transatlantic preview reaches a thousand islands and this is most of them: 18.3 kB of
 	// path becomes 3.0 kB, with no visible difference at 104 px.
+	//
+	// A ring under a dot is exempt, and the exemption is the whole point of passing the
+	// dots in here. Dropping a ring is a judgement about what a reader can see; keeping a
+	// dot ashore is a judgement about whether the drawing is true, and the second one has
+	// to win. Barcelona to Boa Vista is 4700 km wide, which puts Cape Verde at 0.7 box
+	// units, and losing it made `readsAsAshore` call the destination open Atlantic and
+	// `previewMap` throw away the coast of two continents for it. The owner got a grey
+	// rectangle; the island that would have saved it is 0.06 kB of path.
 	const invisible = 0.75;
 
 	for (const ring of landRings()) {
 		for (const offset of worldOffsets(frame)) {
 			if (ring.east + offset < frame.west || ring.west + offset > frame.east) continue;
 			if (ring.north < frame.south || ring.south > frame.north) continue;
+			const left = ((ring.west + offset - frame.west) / spanX) * width;
+			const right = ((ring.east + offset - frame.west) / spanX) * width;
+			const top = ((frame.north - ring.north) / spanY) * height;
+			const bottom = ((frame.north - ring.south) / spanY) * height;
 			if (
-				((ring.east - ring.west) / spanX) * width < invisible &&
-				((ring.north - ring.south) / spanY) * height < invisible
+				right - left < invisible &&
+				bottom - top < invisible &&
+				!carriesPoint(points, left, top, right, bottom)
 			) {
 				continue;
 			}
@@ -604,7 +646,7 @@ export function previewMap(
 	let borders: number[][];
 	let source: PreviewMap['source'];
 	if (windowKm >= MIN_OUTLINE_WINDOW_KM) {
-		land = outlineGroup(frame, width, height);
+		land = outlineGroup(frame, width, height, points);
 		borders = outlineBorders(frame, width, height);
 		source = 'outline';
 	} else if (windowKm >= MIN_TILE_WINDOW_KM) {
