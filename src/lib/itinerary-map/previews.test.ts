@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Airport, Duration, FlightOffer, Itinerary, LocalDateTime, Stay, Transfer } from '$lib/domain';
 import { buildItineraryMapModel } from './segments';
-import { buildFlightShape, buildGroundLegPreviews } from './previews';
+import { buildFlightShape, buildGroundLegPreviews, groundLegPreviewIdFor } from './previews';
 
 // Same fixture shape as segments.test.ts, kept local so a change to that file's builders
 // cannot silently move this file's assertions.
@@ -251,5 +251,37 @@ describe('buildFlightShape', () => {
 		const shape = buildFlightShape(model(baseItinerary()))!;
 
 		expect(shape.points.map((p) => p.tone)).toEqual(['neutral', 'stopover', 'neutral']);
+	});
+});
+
+
+describe('groundLegPreviewIdFor', () => {
+	it('sends both stopover rides to the one picture that draws them', () => {
+		// The ride out to the bed and the ride back are one hop drawn twice, which is why
+		// `GROUND_LEG_SEGMENTS` gives them a single preview. The inspector must not show a
+		// different map depending on which direction the reader picked.
+		expect(groundLegPreviewIdFor('transfer-to-hotel')).toBe('stopover-transport');
+		expect(groundLegPreviewIdFor('transfer-to-connection-airport')).toBe('stopover-transport');
+	});
+
+	it('sends each outer leg to its own picture', () => {
+		expect(groundLegPreviewIdFor('transfer-to-origin-airport')).toBe('origin-transport');
+		expect(groundLegPreviewIdFor('transfer-to-destination-location')).toBe('destination-transport');
+	});
+
+	it('has no picture for anything that is not a ground leg', () => {
+		// Issue #439's rule read the other way: a reader looking at a flight, a wait or the
+		// stopover itself gets no map rather than whichever one happened to be first.
+		for (const segment of [
+			'outbound-flight',
+			'onward-flight',
+			'origin-waiting',
+			'connection-waiting',
+			'free-time',
+			'origin-location',
+			'destination-location'
+		] as const) {
+			expect(groundLegPreviewIdFor(segment)).toBeUndefined();
+		}
 	});
 });

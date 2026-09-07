@@ -24,6 +24,9 @@ export type { GenderFit, RoomGenderRestriction } from './gendered-room-fit';
 export { bedNightlyRate, moneyDifference, stayTotalDelta, stayTotalForNights, formatMoney } from './pricing';
 export type { NightlyRate } from './pricing';
 export { formatDistanceKm, haversineDistanceKm } from './distance';
+export { bedFacts, reachFromTransfer, reachModeOf } from './bed-facts';
+export type { BedFacts } from './bed-facts';
+export { default as StayReachLine } from './StayReachLine.svelte';
 export {
 	BED_KINDS,
 	BED_KIND_LABELS,

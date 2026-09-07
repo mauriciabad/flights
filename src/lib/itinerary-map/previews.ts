@@ -122,6 +122,24 @@ function lineSegment(model: ItineraryMapModel, id: ItinerarySegmentId): Itinerar
 	return segment?.kind === 'line' ? segment : undefined;
 }
 
+/**
+ * Which picture the leg a reader has selected belongs to, or nothing when they have selected
+ * something that is not a ground leg.
+ *
+ * Issue #439 moved the previews out of the card's fold and into the trip inspector, which
+ * shows one leg at a time: "The transport maps should be moved to the right sidebar when the
+ * respective timeline segment is selected." Drawing three legs to a reader looking at one was
+ * the whole complaint.
+ *
+ * Read off `GROUND_LEG_SEGMENTS` rather than written again, so the ride out to the bed and
+ * the ride back keep landing on the one picture that draws both. A flight, a wait or the
+ * stopover itself has no ground leg, and the inspector then shows no map at all rather than
+ * whichever picture happened to be first.
+ */
+export function groundLegPreviewIdFor(segment: ItinerarySegmentId): GroundLegPreviewId | undefined {
+	return GROUND_LEG_SEGMENTS.find((spec) => spec.segmentIds.includes(segment))?.id;
+}
+
 export function buildGroundLegPreviews(model: ItineraryMapModel): GroundLegPreview[] {
 	const previews: GroundLegPreview[] = [];
 	for (const spec of GROUND_LEG_SEGMENTS) {
