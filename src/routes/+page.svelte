@@ -17,6 +17,7 @@
 	import { buildSearchQuery, createDefaultFormFields } from '$lib/search-form/model';
 	import SearchForm from '$lib/search-form/SearchForm.svelte';
 	import { searchParamsToFields } from '$lib/search-form/url-codec';
+	import { SavedItineraries } from '$lib/saved';
 	import { normalizeQuery, RecentSearches } from '$lib/search-history';
 
 	// `url.searchParams` throws on a prerendered page (there is no request to read a
@@ -63,6 +64,11 @@
 		<h1>Search a layover trip</h1>
 		<p>Two flights instead of one, with enough time in the middle to make that city a trip of its own.</p>
 	</header>
+
+	<!-- Saved above recent, because a trip somebody pressed a heart on is a stronger intent
+	     than a search they happened to run once. Both hide themselves when empty, so a first
+	     visit still opens straight onto the form. -->
+	<SavedItineraries />
 
 	<RecentSearches />
 
