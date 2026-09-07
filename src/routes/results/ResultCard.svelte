@@ -86,6 +86,7 @@
 		Card,
 		Flag,
 		FlightDetour,
+		Icon,
 		MetricRail,
 		PriceLine,
 		SourceNote,
@@ -99,6 +100,8 @@
 	import type { ItinerarySegmentId } from '$lib/itinerary-map/segment-id';
 	import { oneAdultFlightsTotal, placeInBand } from '$lib/results/price-band';
 	import type { PriceHistory } from '$lib/results/price-band';
+	import { savedPriceNote, saveTripLabel } from '$lib/results/saved-trip';
+	import type { SavedItinerary } from '$lib/saved';
 	import { connectionAirportCode } from '$lib/results/types';
 	import type { ScoredResult } from '$lib/results/types';
 	import { revealMinimally } from '$lib/results/reveal-scroll';
@@ -138,6 +141,20 @@
 		/** Whether the full timeline is unfolded under the strip. */
 		timelineOpen?: boolean;
 		onToggleTimeline?: () => void;
+		/**
+		 * Issue #434: this trip's saved record, when the traveller has kept it. It fills the
+		 * heart, and its price log is what the note under the route compares against.
+		 *
+		 * A prop rather than a lookup here, because the id needs the normalised query and
+		 * that belongs to the page. The card holds a record, not a boolean, so the two facts
+		 * it needs ("is this kept" and "what did it cost then") come from one object that
+		 * cannot disagree with itself.
+		 */
+		savedTrip?: SavedItinerary;
+		/** Pressing the heart. The page owns the store call, because it is the page that
+		 * mints the visit token the first price observation is filed under. Absent leaves
+		 * the heart off the card entirely. */
+		onToggleSave?: () => void;
 		/** The full timeline, map and stopover block. Rendered by the page so this card does
 		 * not have to know what any of them need. */
 		timeline?: Snippet;
@@ -152,6 +169,8 @@
 		onSelectSegment,
 		timelineOpen = false,
 		onToggleTimeline,
+		savedTrip,
+		onToggleSave,
 		timeline
 	}: Props = $props();
 
@@ -241,6 +260,21 @@
 	// resolves, which is the same reason `connectionLabel` falls back to the bare code.
 	const connectionCountry = $derived(connectionAirport?.country.name);
 
+	// Issue #434. The route in the heart's own name, because six hearts called "Save this
+	// trip" are one control a voice user cannot aim at, and `saveTripLabel` says what
+	// changes between the two states.
+	const saveLabel = $derived(
+		saveTripLabel(savedTrip !== undefined, {
+			origin: originCity,
+			connection: connectionLabel,
+			destination: destinationCity
+		})
+	);
+	// One line, and only once there are two prices to compare. `savedPriceNote` owns that
+	// floor; the card owns the height it costs, which is why the note is a line in the
+	// header band rather than a block in the card body.
+	const priceNote = $derived(savedPriceNote(savedTrip));
+
 	// Provenance, issue #289: every source behind this price, each at its own age. They do
 	// not share a TTL, so one "fetched N ago" over all of them printed the age of whatever
 	// had the longest one. `view-model.ts` owns the wording and is tested against it.
@@ -298,76 +332,105 @@
 
 <Card variant="ticket" elevated padded={false} class={cardClassName}>
 	{#snippet header()}
-		<div class="route">
-			<span class="route-leg">
-				<Flag country={itinerary.originAirport.country} />
-				<span class="place"
-					><span class="city">{originCity}</span><span class="iata font-mono tabular-nums"
-						>{itinerary.originAirport.iataCode}</span
-					></span
-				>
-			</span>
-			<span class="route-arrow" aria-hidden="true">→</span>
-			<span class="route-leg route-leg-stopover">
-				<!-- Decorative here alone: this leg spells the country out beside the flag,
-				     so announcing it twice only slows a screen reader down. -->
-				<Flag country={connectionAirport?.country} decorative />
-				<!-- City, code and country share one flex item on purpose: they are one
-				     place name, and separate items would put the row's gap in front of the
-				     comma. -->
-				<span class="place"
-					><span class="city">{connectionLabel}</span>{#if showConnectionCode}<span
-							class="iata font-mono tabular-nums">{connectionCode}</span
-						>{/if}{#if connectionCountry}<span class="country">, {connectionCountry}</span>{/if}</span
-				>
-			</span>
-			<span class="route-arrow" aria-hidden="true">→</span>
-			<span class="route-leg">
-				<Flag country={itinerary.destinationAirport.country} />
-				<span class="place"
-					><span class="city">{destinationCity}</span><span class="iata font-mono tabular-nums"
-						>{itinerary.destinationAirport.iataCode}</span
-					></span
-				>
-			</span>
-			<!-- The owner: "the result card should show the departure and arrival dates. now
-			     it doesn't show it anywhere when collapsed". It did not. The strip stamps a
-			     weekday on a free day and the timeline carries full dates, but both of those
-			     are inside the fold, so a collapsed card said which cities and what price
-			     and never which days.
-
-			     A `.route` item rather than a row of its own, because `.route` already wraps
-			     and this costs no card height on a desktop card and one wrap on a phone.
-			     Each end reads in its own place's local time, per the owner's rule that every
-			     time on this page belongs to the place it names, so a red-eye landing after
-			     midnight says the day the traveller actually arrives. -->
-			<span class="route-dates font-mono tabular-nums"
-				><!--
-				Non-breaking spaces inside the hidden words on purpose. A trailing space at the
-				end of an element's text is collapsed away, and the accessible name came out
-				"DepartsWed 16" and "arrivesThu 17" when it was an ordinary one. #318 is the
-				same seam read the other way: there, indentation between two elements put a
-				space in front of a comma.
-				--><span class="visually-hidden">Departs&nbsp;</span>{formatWeekdayAndDay(
-					itinerary.outboundFlight.departure
-				)}<span class="route-dates-arrow" aria-hidden="true">→</span><span class="visually-hidden"
-					>,&nbsp;arrives&nbsp;</span
-				>{formatWeekdayAndDay(itinerary.onwardFlight.arrival)}</span
-			>
-			{#if isDeprioritized || showFreshness}
-				<span class="header-badges">
-					{#if isDeprioritized}
-						<!-- The one fact `describeWhyGood`'s sentence carried that no number on
-						     this card does. It has to be a word, not the greyed-out treatment
-						     alone: colour is the only other channel carrying it, and WCAG 1.4.1
-						     is explicit that colour is never the sole means of conveying
-						     information. -->
-						<span class="avoid-badge">Airline you avoid</span>
-					{/if}
-					{#if showFreshness}
-						<span class={['freshness-badge', `freshness-${freshness.tone}`]}>{freshness.label}</span>
-					{/if}
+		<div class="card-head">
+			<div class="route">
+				<span class="route-leg">
+					<Flag country={itinerary.originAirport.country} />
+					<span class="place"
+						><span class="city">{originCity}</span><span class="iata font-mono tabular-nums"
+							>{itinerary.originAirport.iataCode}</span
+						></span
+					>
 				</span>
+				<span class="route-arrow" aria-hidden="true">→</span>
+				<span class="route-leg route-leg-stopover">
+					<!-- Decorative here alone: this leg spells the country out beside the flag,
+					     so announcing it twice only slows a screen reader down. -->
+					<Flag country={connectionAirport?.country} decorative />
+					<!-- City, code and country share one flex item on purpose: they are one
+					     place name, and separate items would put the row's gap in front of the
+					     comma. -->
+					<span class="place"
+						><span class="city">{connectionLabel}</span>{#if showConnectionCode}<span
+								class="iata font-mono tabular-nums">{connectionCode}</span
+							>{/if}{#if connectionCountry}<span class="country">, {connectionCountry}</span>{/if}</span
+					>
+				</span>
+				<span class="route-arrow" aria-hidden="true">→</span>
+				<span class="route-leg">
+					<Flag country={itinerary.destinationAirport.country} />
+					<span class="place"
+						><span class="city">{destinationCity}</span><span class="iata font-mono tabular-nums"
+							>{itinerary.destinationAirport.iataCode}</span
+						></span
+					>
+				</span>
+				<!-- The owner: "the result card should show the departure and arrival dates. now
+				     it doesn't show it anywhere when collapsed". It did not. The strip stamps a
+				     weekday on a free day and the timeline carries full dates, but both of those
+				     are inside the fold, so a collapsed card said which cities and what price
+				     and never which days.
+
+
+				     A `.route` item rather than a row of its own, because `.route` already wraps
+				     and this costs no card height on a desktop card and one wrap on a phone.
+				     Issue #437 kept that. The owner wanted the dates at the right end and heavier
+				     ("now it is too bland"), and both are true of an item that stays in the flow:
+				     `margin-left: auto` sends it to the end of whatever line it lands on, which
+				     is the far right at 1440px and the end of the second line at 375px, beside
+				     the third airport rather than alone under it.
+
+				     Each end reads in its own place's local time, per the owner's rule that every
+				     time on this page belongs to the place it names, so a red-eye landing after
+				     midnight says the day the traveller actually arrives. -->
+				<span class="route-dates font-mono tabular-nums"
+					><!--
+					Non-breaking spaces inside the hidden words on purpose. A trailing space at the
+					end of an element's text is collapsed away, and the accessible name came out
+					"DepartsWed 16" and "arrivesThu 17" when it was an ordinary one. #318 is the
+					same seam read the other way: there, indentation between two elements put a
+					space in front of a comma.
+					--><span class="visually-hidden">Departs&nbsp;</span>{formatWeekdayAndDay(
+						itinerary.outboundFlight.departure
+					)}<span class="route-dates-arrow" aria-hidden="true">→</span><span class="visually-hidden"
+						>,&nbsp;arrives&nbsp;</span
+					>{formatWeekdayAndDay(itinerary.onwardFlight.arrival)}</span
+				>
+				{#if isDeprioritized || showFreshness}
+					<span class="header-badges">
+						{#if isDeprioritized}
+							<!-- The one fact `describeWhyGood`'s sentence carried that no number on
+							     this card does. It has to be a word, not the greyed-out treatment
+							     alone: colour is the only other channel carrying it, and WCAG 1.4.1
+							     is explicit that colour is never the sole means of conveying
+							     information. -->
+							<span class="avoid-badge">Airline you avoid</span>
+						{/if}
+						{#if showFreshness}
+							<span class={['freshness-badge', `freshness-${freshness.tone}`]}>{freshness.label}</span>
+						{/if}
+					</span>
+				{/if}
+				{#if onToggleSave}
+					<!-- Issue #434, the owner: "we can use the heart icon for saved itineraries".
+					     Last, so it is beside the stamp: the two are the row's right-hand cluster
+					     and they wrap together or not at all, which is what keeps the dates from
+					     ending up alone on a line of their own. -->
+					<button
+						type="button"
+						class={['save-trip', { 'is-saved': savedTrip !== undefined }]}
+						aria-label={saveLabel}
+						onclick={onToggleSave}
+					>
+						<Icon name="heart" />
+					</button>
+				{/if}
+			</div>
+			{#if priceNote}
+				<!-- Only on a trip the traveller kept, and only once it has been priced twice.
+				     One line, under the stamp it is about, in the words `$lib/saved` already
+				     uses on the search screen and on `/saved/`. -->
+				<p class={['price-note', `is-${priceNote.direction}`]}>{priceNote.short}</p>
 			{/if}
 		</div>
 	{/snippet}
@@ -486,22 +549,35 @@
 		border-color: var(--color-border);
 	}
 
+	.card-head {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-1);
+	}
+
+	/* Issue #437, the owner: "items are not vertically well centered". They were on a
+	   shared baseline, which is right for text and wrong for everything else in this row.
+	   A flag is a picture and it sat on the baseline with the descenders hanging below it;
+	   the date stamp is a box and a box has no baseline worth sharing. So the row centres
+	   its items, and `.place` below keeps the baseline where the run of text needs it. */
 	.route {
 		display: flex;
-		align-items: baseline;
+		align-items: center;
 		gap: var(--space-2);
 		flex-wrap: wrap;
 	}
 
 	.route-leg {
 		display: inline-flex;
-		align-items: baseline;
+		align-items: center;
 		gap: var(--space-1);
 		/* Three place names on one row is more than a 375px phone holds, so a leg wraps
 		   whole rather than splitting a city from its code. */
 		min-width: 0;
 	}
 
+	/* The one place a baseline is still the right answer: city, code and country are one
+	   run of text at three sizes, and centring them would leave the small ones floating. */
 	.place {
 		display: inline-flex;
 		align-items: baseline;
@@ -559,33 +635,69 @@
 		color: var(--color-text-muted);
 	}
 
-	/* Issue #318: the band's own on-surface muted token, not the page's. The neutral
-	   --color-text-faint is 3.58:1 on the warm header band in dark mode, against 4.5:1 for
-	   16px semibold text. */
+	/*
+	 * Issue #437: a date stamped on the stub, rather than two more words trailing the third
+	 * airport in the weight of everything around them.
+	 *
+	 * The card is a ticket (Card's own `variant="ticket"`, a warm band over a dashed tear
+	 * line) and a departure board is what a traveller reads a date off, so the stamp is that
+	 * board: amber on the app's darkest inset, mono and tabular, the only element in the
+	 * header carrying its own surface. That is where the hierarchy comes from. Not weight,
+	 * which would have put it in competition with the city names, and not size, which is
+	 * what the row has least of.
+	 *
+	 * The padding is 2px rather than `--space-1`, and that is a measurement, not a taste.
+	 * The row's line box is 24px and the stamp has to fit inside it: 2px + 17.5px of
+	 * 14px/1.25 text + 2px + a 1px border at each end is 24px exactly, so the stamp costs
+	 * the header nothing. At `--space-1` it is 28px, and every line it lands on grows 4px.
+	 *
+	 * Contrast, measured on the painted colours the way `design-seams.spec.ts` does it:
+	 * 9.2:1 in dark and 5.4:1 in light. #318 is why that is checked against this element's
+	 * own background rather than the page's.
+	 */
 	.route-dates {
+		display: inline-flex;
+		align-items: center;
+		margin-left: auto;
+		padding: 2px var(--space-1);
+		border: 1px solid var(--color-border);
+		border-radius: var(--radius-sm);
+		background: var(--color-bg-inset);
 		font-size: var(--font-size-sm);
-		color: var(--color-text-muted);
+		font-weight: var(--font-weight-semibold);
+		line-height: 1.25;
+		color: var(--color-accent);
 		white-space: nowrap;
 	}
 
 	.route-dates-arrow {
-		margin: 0 var(--space-1);
+		margin: 0 0.1875rem;
+		color: var(--color-text-muted);
 	}
 
+	/* Pulled in to a 4px gap from the row's own 8px. An arrow is a connector and belongs
+	   nearer the two things it connects than the legs are to each other, and this row needs
+	   the 16px: measured at 1440px, "Barcelona BCN to Budapest BUD, Hungary to Paphos PFO"
+	   plus the stamp and the heart is 641px of content in a 630px card, and 625px once the
+	   two arrows stop taking a full gap each. */
 	.route-arrow {
+		margin-inline: calc(var(--space-1) - var(--space-2));
 		color: var(--color-accent-muted-text);
 	}
 
 	/* The badges ride in the header rather than beside the price: they are facts about the
 	   whole card, and pinning them to the right of the route line keeps the price row free
-	   for the price and its parts. */
+	   for the price and its parts.
+
+	   Their `margin-left: auto` moved to `.route-dates` in #437. Two auto margins on one
+	   flex line share the free space between them, which would have parked the badges in
+	   the middle of the row; one is what pins a cluster to the end. */
 	.header-badges {
 		display: flex;
 		flex-wrap: wrap;
-		align-items: baseline;
+		align-items: center;
 		justify-content: flex-end;
 		gap: var(--space-2);
-		margin-left: auto;
 	}
 
 	.avoid-badge {
@@ -612,6 +724,110 @@
 	.freshness-warning {
 		color: var(--color-warning);
 		background: var(--color-warning-bg);
+	}
+
+	/*
+	 * Issue #434's heart, as a control and not an ornament.
+	 *
+	 * 44px square, per WCAG 2.5.5, taken out of the header's own padding rather than added
+	 * to the row: the box is centred on the first line of the route and the padding above
+	 * and below the row absorbs the rest, so the header measures what it measured before.
+	 * `.saved-all` on the search screen buys its target the same way.
+	 *
+	 * Absolute, because a target this size in a row that wraps at 375px is a wrap. Pinned to
+	 * the top right so it reads as the card's own corner action, which is also the one place
+	 * on this card nothing else claims.
+	 */
+	.save-trip {
+		position: relative;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		/* WCAG 2.2 SC 2.5.8's 24px, as a real box, because that is what
+		   `trip-strip-geometry.spec.ts` measures and it is right to: an overlay is a
+		   promise a bounding box can check. The 4px it costs the row comes back below. */
+		width: 1.5rem;
+		height: 1.5rem;
+		margin: 0;
+		/* Half the row's gap, so the heart and the stamp read as the one right-hand cluster
+		   they wrap as, and so a 24px control costs the row exactly what a 20px one did. */
+		margin-inline-start: calc(var(--space-1) - var(--space-2));
+		padding: 0;
+		border-radius: var(--radius-full);
+		color: var(--color-accent-muted-text);
+		/* No 300ms wait for a double tap that will never come, which on a control this
+		   small is the difference between a press that feels heard and one that does not. */
+		touch-action: manipulation;
+		/* Named properties, never `all`. The heart filling is the whole confirmation that
+		   the trip was kept, and a snap reads as a redraw rather than an answer. `app.css`
+		   turns both off under `prefers-reduced-motion`. */
+		transition:
+			color 150ms ease-out,
+			transform 120ms ease-out;
+		--icon-size: 1.25rem;
+	}
+
+	/* SC 2.5.5's 44px on top of the 24px above, as an overlay rather than as a box. The row
+	   is a boarding-pass header that already wraps twice on a 375px phone, and a 44px flex
+	   item in it costs a third line and 32px of a card that has none to give. */
+	.save-trip::before {
+		content: '';
+		position: absolute;
+		inset: -0.625rem;
+		border-radius: var(--radius-full);
+	}
+
+	/* Colour alone, no disc behind it. The header band IS `--color-accent-muted` on this
+	   card, so the tinted circle a control like this usually gets would be invisible. */
+	.save-trip:hover {
+		color: var(--color-accent-hover);
+	}
+
+	.save-trip:active {
+		transform: scale(0.95);
+	}
+
+	/* Filled, not merely tinted. Icon's `<svg fill="none">` is a presentation attribute, so
+	   a rule here beats it and the paths inherit the fill. The colour is the accent the
+	   saved list and `/saved/` already draw their hearts in, so one heart means one thing
+	   in all three places. */
+	.save-trip.is-saved {
+		color: var(--color-accent);
+	}
+
+	.save-trip.is-saved :global(.icon) {
+		fill: currentColor;
+	}
+
+	/*
+	 * Issue #434: where today's price sits against the price this trip was saved at.
+	 *
+	 * A line in the header band rather than a block in the card, because the card body is
+	 * budgeted to the block (`card-size.spec.ts`) and this is not a block. It costs one
+	 * line, on saved cards only, which is a card the traveller asked for.
+	 *
+	 * The word carries the meaning and the colour repeats it, the same rule and the same
+	 * two tokens `SavedItineraries.svelte` uses, so "€4.00 cheaper" says the same thing to a
+	 * reader who cannot tell green from red.
+	 */
+	.price-note {
+		margin: 0;
+		text-align: end;
+		font-size: var(--font-size-xs);
+		/* Its own, tight, rather than the page's 1.6 for body text. Measured: this line costs
+		   the header 28px at the inherited height and 20px here, and the difference is a
+		   twentieth of what a phone leaves for a whole card. */
+		line-height: 1.3;
+		font-weight: var(--font-weight-medium);
+		color: var(--color-accent-muted-text);
+	}
+
+	.price-note.is-cheaper {
+		color: var(--color-success);
+	}
+
+	.price-note.is-dearer {
+		color: var(--color-danger);
 	}
 
 	/* A plain box around the strip, purely so there is something to scroll to and something
