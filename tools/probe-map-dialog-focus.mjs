@@ -236,6 +236,23 @@ async function main() {
 	// the body would still leave this one painting a ring.
 	report.titleClick = await afterClicking(page.locator('.map-dialog-title'), { x: 10, y: 5 });
 
+	// The answer to "never `outline: none` without a focus replacement". Focus is on the
+	// dialog at this point and wearing no ring, so what matters is that one Tab from there
+	// reaches a control that does wear one. Read rather than assumed, because the whole
+	// reason this app is measured in a browser is that focus order is the browser's opinion.
+	await page.keyboard.press('Tab');
+	await page.waitForTimeout(100);
+	report.oneTabFromTheDialog = {
+		focus: await page.evaluate(ACTIVE),
+		outline: await page.evaluate(() => {
+			const active = document.activeElement;
+			if (!active) return 'nothing focused';
+			const style = getComputedStyle(active);
+			return `${style.outlineStyle} ${style.outlineWidth} ${style.outlineColor}`;
+		}),
+		matchesFocusVisible: await page.evaluate(() => document.activeElement?.matches(':focus-visible') ?? false)
+	};
+
 	await page.emulateMedia({ colorScheme: 'light' });
 	await page.waitForTimeout(150);
 	await page.screenshot({ path: path.join(shots, '448-map-dialog-focus-after-map-click-light-1100.png') });
