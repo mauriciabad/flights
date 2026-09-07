@@ -81,11 +81,11 @@
 	 * ## Issue #425 divides the headline, out loud
 	 *
 	 * The owner: "In Getting there from€235.60 i would like to also see how much for each
-	 * when multiple people." So a second row under the total whenever the party is more than
-	 * one, reading `€78.53 each, 3 travellers`.
+	 * when multiple people." So a second line under the total whenever the party is more than
+	 * one, reading `€78.53 each of 3`.
 	 *
 	 * The warning on the estimated ground row below is about a line quietly changing what it
-	 * counts, with nothing on screen to say it had. This row is that case turned around, and
+	 * counts, with nothing on screen to say it had. This line is that case turned around, and
 	 * has to be seen to be: it divides `breakdown.total`, the number directly above it, and
 	 * it prints both the word "each" and the party it divided by, so the arithmetic is
 	 * checkable from the two figures alone. It carries `from` exactly when the headline does,
@@ -94,6 +94,43 @@
 	 * What it is not is a fare. `perPersonShare` (algorithm/build.ts) rounds, so three shares
 	 * of €235.60 come back to €235.59, and the total it splits contains a flat nightly room
 	 * rate nobody sells by the head. It is one bill split between the people paying it.
+	 *
+	 * ## Where that line sits, which `card-size.spec.ts` decided rather than taste
+	 *
+	 * It first shipped as a row of its own inside the wrapping headline (`flex-basis: 100%`),
+	 * which cost the tallest card this app can build 36px and put it at 880px against that
+	 * test's 860px budget. The measurements, all at 375px on that card, where the detour
+	 * drawing leaves this receipt a 181px column:
+	 *
+	 * - The eyebrow is 98px wide and the total 172px, so the two already do not fit on one
+	 *   line. The headline is two wrapped rows before any of this arrives.
+	 * - `€23,259.57 each, 2 travellers` measures 204px, so it wrapped in that column: 32px
+	 *   of text, and 4px more for the row gap above it. 36px for one figure.
+	 *
+	 * Three changes take it back under, each worth what the card says it is worth.
+	 *
+	 * **The words shrank to fit one line, 16px.** `each, 2 travellers` is 204px, `each, 2
+	 * people` 189px, `each of 2` 160px, in a column 181px wide. The count stayed and the noun
+	 * went, because the count is the operand that makes the division checkable and the noun
+	 * is not. `each of 2` over `each for 2`, which also fits, because `for 2` already means
+	 * the opposite thing two lines below: the hotel rate and the taxi range both wear it to
+	 * say one figure covers a party of two.
+	 *
+	 * **The share is stacked with the total in `.price-figure`, 4px.** One item of the
+	 * wrapping headline instead of two, so the row gap between them goes. It reads where it
+	 * already read, under the number it divides and on the right edge the receipt's amounts
+	 * run down, and now it stays tight to that number at every width instead of a gap below
+	 * it.
+	 *
+	 * **The eyebrow's line height, 8px.** That one is not this issue's, and every card banks
+	 * it, a party of one included: those get 8px shorter. `.price-label` has the note.
+	 *
+	 * Measured at 375px after all three: the tallest card this app can build is 852px, 8px
+	 * inside the budget, and its headline is 64px against 48px for the same search with the
+	 * party at one. So this line costs 16px, where it cost 36px and put the card 20px over.
+	 *
+	 * At 320px it wraps, after the amount, and the card is 1013px. There is no budget at that
+	 * width and this file makes no promise about one.
 	 */
 	import type { Itinerary } from '$lib/domain';
 	import { formatMoney, formatMoneyRange } from '$lib/format';
@@ -121,14 +158,17 @@
 	const isFloor = $derived(
 		breakdown.missingStay || groundRows.some((row) => row.cost.kind !== 'free' && row.cost.kind !== 'quoted')
 	);
-	/** Issue #425's row: the headline divided, with the word and the count that make the
-	 * division checkable against the figure above it. `undefined` below two travellers, where
-	 * there is no split to report and "€235.60 each, 1 traveller" is the headline said twice.
-	 * Built here rather than in the markup so the rendered string has no wrapped whitespace
-	 * in the middle of it. */
-	const shareEach = $derived(
+	/** Issue #425's line: the headline divided, with the count that makes the division
+	 * checkable against the figure above it. `undefined` below two travellers, where there is
+	 * no split to report and "€235.60 each of 1" is the headline said twice. The amount is
+	 * separate from the words because only the amount is set in the receipt's mono, and
+	 * because the pair has to fit one 181px line (see above). */
+	const share = $derived(
 		itinerary.travellers > 1
-			? `${formatMoney(perPersonShare(breakdown.total, itinerary.travellers))} each, ${itinerary.travellers} travellers`
+			? {
+					each: formatMoney(perPersonShare(breakdown.total, itinerary.travellers)),
+					party: itinerary.travellers
+				}
 			: undefined
 	);
 	/** A one-line breakdown is not shown: "Flights €229.00" directly under "€229.00" is a
@@ -148,20 +188,27 @@
 <div class={['price-line', `price-line-${size}`]}>
 	<p class="price-headline">
 		<span class="price-label">Getting there</span>
-		<span class="price-total font-mono tabular-nums">
-			<!-- One word, inside the same element so a screen reader reads "from 238 euros"
-			     as one figure rather than announcing a total and a stray preposition. -->
-			{#if isFloor}<span class="price-from">from</span>{/if}{formatMoney(breakdown.total)}
+		<!-- The total and its share, stacked, so the pair is one item of the wrapping headline
+		     rather than two: the share sits tight under the figure it divides instead of a row
+		     gap below it, and the headline wraps once rather than twice. -->
+		<span class="price-figure">
+			<span class="price-total font-mono tabular-nums">
+				<!-- One word, inside the same element so a screen reader reads "from 238 euros"
+				     as one figure rather than announcing a total and a stray preposition. -->
+				{#if isFloor}<span class="price-from">from</span>{/if}{formatMoney(breakdown.total)}
+			</span>
+			{#if share}
+				<!-- One element again, for the reason above and one more: "each" and the count
+				     belong to the figure they qualify, and a screen reader announcing the share on
+				     its own would be reading out exactly the unlabelled per-person number this line
+				     exists to avoid being. -->
+				<span class="price-each"
+					>{#if isFloor}<span class="price-from">from</span>{/if}<span
+						class="font-mono tabular-nums">{share.each}</span
+					> each of {share.party}</span
+				>
+			{/if}
 		</span>
-		{#if shareEach}
-			<!-- One element again, for the reason above and one more: "each" and the count belong
-			     to the figure they qualify, and a screen reader announcing the share on its own
-			     would be reading out exactly the unlabelled per-person number this row exists to
-			     avoid being. -->
-			<span class="price-each font-mono tabular-nums"
-				>{#if isFloor}<span class="price-from">from</span>{/if}{shareEach}</span
-			>
-		{/if}
 	</p>
 	{#if hasRows}
 		<ul class="price-parts">
@@ -265,14 +312,30 @@
 	}
 
 	/* Mono caps, the departure-board voice this app already uses for the small print. It
-	   is quiet on purpose: it names the number rather than competing with it. */
+	   is quiet on purpose: it names the number rather than competing with it.
+
+	   The line height is the one every other `xs` text in this block already sets, and it was
+	   missing here: a 12px word in the 24px line box the body inherits. It costs nothing
+	   where the eyebrow shares a line with the total, because the taller of the two governs
+	   there. It saves 8px where it does not, which on the results card is always: at 375px
+	   the eyebrow is 98px and the total 172px in a column 181px wide. */
 	.price-label {
 		font-family: var(--font-mono);
 		font-size: var(--font-size-xs);
+		line-height: var(--line-height-xs);
 		font-weight: var(--font-weight-semibold);
 		letter-spacing: var(--tracking-wide);
 		text-transform: uppercase;
 		color: var(--color-text-muted);
+	}
+
+	/* The total and, when the party is more than one, the share under it. Right-aligned as a
+	   pair, so both land on the column the receipt's amounts read down. */
+	.price-figure {
+		display: flex;
+		flex-direction: column;
+		align-items: flex-end;
+		min-width: 0;
 	}
 
 	.price-total {
@@ -301,13 +364,12 @@
 		color: var(--color-text-muted);
 	}
 
-	/* Issue #425's share. `flex-basis: 100%` puts it on its own row of the headline's wrap
-	   rather than beside the total, and the right edge is where it belongs: it is the same
-	   money as the figure above it, so it reads down the same column the receipt's amounts
-	   do. Sized and coloured like those rows rather than like the total, because a second
-	   number in the headline's weight would read as a second price. */
+	/* Issue #425's share, under the total inside `.price-figure` rather than on a row of the
+	   headline's own wrap. Sized and coloured like the receipt's rows rather than like the
+	   total, because a second number in the headline's weight would read as a second price.
+	   `text-align` for the width where it has to wrap: at 320px the column is 126px and this
+	   takes two lines, and both of them belong on the right edge. */
 	.price-each {
-		flex-basis: 100%;
 		text-align: right;
 		font-size: var(--font-size-xs);
 		line-height: var(--line-height-xs);

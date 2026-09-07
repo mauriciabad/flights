@@ -352,9 +352,9 @@ describe('what the trip costs each, when the party is more than one (issue #425)
 	}
 
 	it('says nothing at all when one person is travelling', () => {
-		// The acceptance criterion, and why the row is gated rather than always on: "€138.00
-		// each, 1 traveller" under €138.00 is the headline said twice, and a card that grew a
-		// row for a solo search would have changed for every traveller who never asked for it.
+		// The acceptance criterion, and why the line is gated rather than always on: "€138.00
+		// each of 1" under €138.00 is the headline said twice, and a card that grew a line for
+		// a solo search would have changed for every traveller who never asked for it.
 		expect(headlineAndShare(makeItinerary({ nightsInConnection: 1 }))).toEqual({
 			headline: '€138.00',
 			share: undefined
@@ -362,21 +362,44 @@ describe('what the trip costs each, when the party is more than one (issue #425)
 	});
 
 	it('prints the share, the word, and the party it was split between', () => {
-		// The count is on the row because 3 × €78.53 is €235.59, not €235.60: the division is
-		// lossy, so the row hands over both operands and lets a traveller check it rather than
+		// The count is on the line because 3 × €78.53 is €235.59, not €235.60: the division is
+		// lossy, so it hands over both operands and lets a traveller check it rather than
 		// asserting a second price. `perPersonShare` (algorithm/build.ts) owns that argument.
+		//
+		// "each of 3" rather than "each, 3 travellers", which is what this printed until the
+		// card measured 20px over the ceiling `card-size.spec.ts` holds. The noun is what went,
+		// because the count is the operand and the noun is not. PriceLine.svelte has the
+		// widths.
 		expect(headlineAndShare(ownersTrip())).toEqual({
 			headline: '€235.60',
-			share: '€78.53 each, 3 travellers'
+			share: '€78.53 each of 3'
 		});
 	});
 
+	it('keeps the share stacked with the total rather than beside it', () => {
+		// The structure the height depends on, asserted where a reader can see why it is one.
+		// `.price-figure` is what makes the total and its share one item of the headline's
+		// wrap instead of two, and at 375px on the tallest card this app can build the second
+		// of those two is a row the card cannot afford. Tidying the wrapper away reads as
+		// harmless and fails a pixel budget three files from here.
+		const headline = render(ownersTrip()).querySelector('.price-headline')!;
+		expect([...headline.children].map((child) => child.classList.item(0))).toEqual([
+			'price-label',
+			'price-figure'
+		]);
+		const figure = headline.querySelector('.price-figure')!;
+		expect([...figure.children].map((child) => child.classList.item(0))).toEqual([
+			'price-total',
+			'price-each'
+		]);
+	});
+
 	it("carries the headline's from when a ride nobody quoted is in the trip", () => {
-		// A floor divided is still a floor. Without the word this row would be the one
+		// A floor divided is still a floor. Without the word this line would be the one
 		// confident figure on a card whose headline has already said it is understating.
 		expect(headlineAndShare(threeTaxisAndAWalk(3))).toEqual({
 			headline: 'from€374.00',
-			share: 'from€124.67 each, 3 travellers'
+			share: 'from€124.67 each of 3'
 		});
 	});
 
@@ -392,7 +415,7 @@ describe('what the trip costs each, when the party is more than one (issue #425)
 		};
 		expect(headlineAndShare(rated)).toEqual({
 			headline: 'from€374.00',
-			share: 'from€124.67 each, 3 travellers'
+			share: 'from€124.67 each of 3'
 		});
 	});
 });
