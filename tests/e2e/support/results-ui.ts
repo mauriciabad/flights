@@ -47,3 +47,23 @@ export async function pickTimelineSegment(page: Page, segment: string) {
 export function customiser(page: Page): Locator {
 	return page.getByTestId('segment-customiser');
 }
+
+/**
+ * How many MapLibre canvases a traveller can see, which is no longer the same as how many
+ * are on the page.
+ *
+ * One hidden instance draws the ground previews' basemaps off-screen
+ * (`map-snapshot.svelte.ts`), and it comes and goes on its own: built by the first preview
+ * that asks and released a few seconds after the queue empties. A spec counting raw
+ * canvases to prove a dialog does not leak would be reading that timer instead. So it is
+ * excluded here by ancestry, and the property that there is only ever one of it is pinned
+ * separately, in `route-previews.spec.ts`.
+ */
+export async function visibleMapCanvases(page: Page): Promise<number> {
+	return page.evaluate(
+		() =>
+			[...document.querySelectorAll('canvas.maplibregl-canvas')].filter(
+				(canvas) => canvas.closest('.map-snapshot-renderer') === null
+			).length
+	);
+}

@@ -21,6 +21,14 @@
 	 * background is. No stroke on the coast, no second colour, nothing that could be read
 	 * as a route. What competes with an arc is a line, and this draws none.
 	 *
+	 * `land={false}` turns all of that off, and `InertMap` is the only caller that does.
+	 * It puts a photograph of the real basemap under the same box, at the same window,
+	 * which answers "where is this" better than a grey silhouette in every way except the
+	 * one that matters here. It turns the land back on whenever that photograph is missing,
+	 * so this drawing is what a traveller sees when the basemap cannot be had. The flight
+	 * picture is a comparison between two arcs, and a basemap under it is noise, so
+	 * `FlightDetour` keeps the land and this prop stays defaulted.
+	 *
 	 * ## The country boundaries #408 asked for, and why they are not lines
 	 *
 	 * The owner: "I also expect the country boundaries to show". A boundary is a line, and
@@ -70,7 +78,7 @@
 	import type { Coordinates } from '$lib/domain';
 	import { projectToBox } from '$lib/itinerary-map/geo';
 	import { previewMap } from '$lib/itinerary-map/land';
-	import type { PreviewLine, PreviewPoint } from '$lib/itinerary-map/previews';
+	import { PREVIEW_PADDING, type PreviewLine, type PreviewPoint } from '$lib/itinerary-map/previews';
 
 	interface Props {
 		lines: PreviewLine[];
@@ -81,10 +89,13 @@
 		 *  letterboxes inside a box of a different shape. */
 		width: number;
 		height: number;
+		/** Whether to draw the land, the sea and the country seams under the route. Off
+		 *  only when somebody else is drawing the ground better (see the header). */
+		land?: boolean;
 		class?: string;
 	}
 
-	let { lines, points, baseline, width, height, class: className }: Props = $props();
+	let { lines, points, baseline, width, height, land = true, class: className }: Props = $props();
 
 	// The baseline is fitted alongside the route rather than after it: left out of the
 	// box, a longer direct line than the arcs around it would be cropped, and a cropped
@@ -93,8 +104,7 @@
 		projectToBox(
 			baseline ? [...lines.map((line) => line.coordinates), baseline] : lines.map((line) => line.coordinates),
 			points.map((point) => point.coordinates),
-			// Room for a 3px dot and its ring at every size this renders at.
-			{ width, height, padding: 5 }
+			{ width, height, padding: PREVIEW_PADDING }
 		)
 	);
 	const legPaths = $derived(shape.paths.slice(0, lines.length));
@@ -107,7 +117,10 @@
 	// ground leg paints the honest solid fill first and its real coast when the region's
 	// tile lands. Reading is all that happens here; nothing in this component writes, which
 	// is what keeps it clear of the self-retriggering effect that cost this app a release.
-	const map = $derived(previewMap(shape.frame, width, height, shape.points));
+	//
+	// Not called at all when the land is off, which is what `InertMap` does the moment its
+	// basemap picture arrives and covers this drawing's ground.
+	const map = $derived(land ? previewMap(shape.frame, width, height, shape.points) : undefined);
 	// Unique per instance, and only referenced when there is a boundary to cut: five cards
 	// put twenty of these on a page and a shared id would mask them all with the first
 	// one's geography.
@@ -122,18 +135,20 @@
 	aria-hidden="true"
 	focusable="false"
 >
-	{#if map.borders}
-		<mask id={maskId} maskUnits="userSpaceOnUse" x="0" y="0" {width} {height}>
+	{#if map}
+		{#if map.borders}
+			<mask id={maskId} maskUnits="userSpaceOnUse" x="0" y="0" {width} {height}>
+				{#each map.land as d, index (index)}
+					<path {d} fill="#fff" fill-rule="evenodd" />
+				{/each}
+				<path class="rp-border" d={map.borders} />
+			</mask>
+			<rect class="rp-land" x="0" y="0" {width} {height} mask="url(#{maskId})" />
+		{:else}
 			{#each map.land as d, index (index)}
-				<path d={d} fill="#fff" fill-rule="evenodd" />
+				<path class="rp-land" {d} fill-rule="evenodd" />
 			{/each}
-			<path class="rp-border" d={map.borders} />
-		</mask>
-		<rect class="rp-land" x="0" y="0" {width} {height} mask="url(#{maskId})" />
-	{:else}
-		{#each map.land as d, index (index)}
-			<path class="rp-land" d={d} fill-rule="evenodd" />
-		{/each}
+		{/if}
 	{/if}
 	{#if baselinePath}
 		<path class="rp-baseline" d={baselinePath} />

@@ -1,7 +1,7 @@
 import { test as base, expect } from '@playwright/test';
 import { pinBundledRouteData } from './bundled-data';
 import { installNetworkGuard } from './network-guard';
-import { mockAirlineLogos } from './providers';
+import { mockAirlineLogos, mockMapStyle } from './providers';
 
 /**
  * The `test`/`expect` every spec in this suite imports instead of `@playwright/test`
@@ -27,6 +27,11 @@ export const test = base.extend<{ forbidRealNetwork: void }>({
 			// fourteen. Registered after the guard so it wins, and before the test body so a
 			// spec can replace it. See support/bundled-data.ts.
 			await pinBundledRouteData(context);
+			// The basemap style, for the same reason and at the same moment: since the ground
+			// previews carry a picture of it, every spec that opens a card's detail asks for
+			// one. Registered after the guard so it wins, and before the test body so a spec
+			// that wants the real CARTO style can replace it.
+			await mockMapStyle(context);
 			await use();
 			guard.assertNothingWasBlocked();
 		},
@@ -40,4 +45,4 @@ export { expect };
  *  `test` and `expect`, rather than opening a second import line to '@playwright/test'.
  *  A type-only import there would be safe, since it is erased before anything runs and
  *  `guard.spec.ts` knows that after issue #382. One import is still better than two. */
-export type { Page } from '@playwright/test';
+export type { Locator, Page } from '@playwright/test';

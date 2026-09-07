@@ -17,32 +17,39 @@
 	 * zero width because definitely-placed grid items pushed auto-placed cells into
 	 * implicit tracks. Equal columns need no placement algorithm to get right.
 	 *
-	 * The previews themselves are frozen SVG, not maps. `RoutePreview`'s own doc comment
-	 * carries the measurement behind that; the short version is that four live MapLibre
-	 * instances per card walks a five-card results page into Chromium's sixteen-context
-	 * ceiling and blanks the first card.
+	 * ## These are real maps now, and they still never move
 	 *
-	 * ## Why these three were grey, and what #408 bought
+	 * The owner: "they should use a normal map but inert. the current map has no ptecision
+	 * and shows no roads". So each preview is a photograph of the same CARTO basemap the
+	 * dialog draws, captured at the window the leg covers, with the route stroked over it
+	 * (`InertMap`). Roads, water and place names, and nothing that can be dragged.
 	 *
-	 * #346 put land and sea under every preview and every one of these came out solid,
-	 * because `land.ts` will not draw a coast into a window finer than the outline it has
-	 * can place one in, and a ground leg is a few kilometres across. This file used to
-	 * argue that was the end of it: "the alternative was a coastline fine enough for a
-	 * 20 km window, measured at 218 kB gzipped, on an app with no backend."
+	 * A picture rather than a map, for a measurement. `tools/probe-map-cost.mjs` renders
+	 * four live MapLibre instances per card on a throttled phone: they settle in 4.5s,
+	 * sixteen take 12.6s with 10.3s of blocking, and twenty never settle, because Chromium
+	 * holds sixteen WebGL contexts and evicts the oldest past that. A traveller scrolling
+	 * back to card one would find blank rectangles. One shared hidden instance draws every
+	 * window on the page in turn and releases its context when the queue empties, so the
+	 * count is one whatever the card count is (`map-snapshot.svelte.ts`).
 	 *
-	 * The measurement was right and the conclusion was not. That price is for the whole
-	 * world's shore in the bundle; a ground leg needs one 20 km window somewhere a
-	 * traveller stands. `scripts/prepare-land-tiles.mjs` cuts the same source into regions
-	 * and `land-tiles.svelte.ts` fetches the one a preview is looking at, a median of
-	 * 389 B, from a static file. Nothing was added to the bundle for it.
+	 * Not raster tiles either, which is the obvious way to get a map out of an `<img>` and
+	 * was built first. `basemaps.cartocdn.com/rastertiles/...` answers 200 with a real PNG
+	 * carrying "API KEY REQUIRED" printed diagonally across it, so every status check
+	 * passes and every picture is ruined. The vector style needs no key and is already in
+	 * production here.
 	 *
-	 * So these three now show water where there is water and a country boundary where one
-	 * crosses. Inland they still fill solid, and that is the true answer rather than a
-	 * missing one: the tile says the cell is land, and `land.ts` believes it.
+	 * What this replaces is three grey silhouettes. #346 put land and sea under every
+	 * preview and these three came out solid every time, because `land.ts` will not draw a
+	 * coast into a window finer than the outline it has can place one in, and a ground leg
+	 * is a few kilometres across. #408 cut the source into 1° cells to sharpen that, which
+	 * bought water and country seams and still could not draw a road, because there were
+	 * never any roads in it. The flight picture keeps that drawing and should: its job is
+	 * comparing two arcs, and a basemap under it competes with the only thing it exists to
+	 * show. See `RoutePreview`'s own header.
 	 */
 	import Icon from './Icon.svelte';
+	import InertMap from './InertMap.svelte';
 	import RouteMapDialog from './RouteMapDialog.svelte';
-	import RoutePreview from './RoutePreview.svelte';
 	import type { Itinerary } from '$lib/domain';
 	import type { ItinerarySegmentId } from '$lib/itinerary-map/segment-id';
 	import type { GroundLegPreview } from '$lib/itinerary-map/previews';
@@ -93,7 +100,7 @@
 			<li class="ground-legs-item">
 				<button type="button" class="ground-leg" onclick={() => open(preview.focusSegmentId)}>
 					<span class="ground-leg-frame">
-						<RoutePreview lines={preview.lines} points={preview.points} width={120} height={88} />
+						<InertMap lines={preview.lines} points={preview.points} width={120} height={88} />
 						<Icon name="maximize" class="ground-leg-expand" />
 					</span>
 					<span class="ground-leg-label">{preview.label}</span>
@@ -106,6 +113,12 @@
 			</li>
 		{/each}
 	</ul>
+	<!-- CARTO's terms require this, and the dialog already satisfies it through MapLibre's
+	     own attribution control. These pictures are the same basemap outside any MapLibre
+	     instance a traveller can see, so there is nothing to ask and the credit is printed
+	     here. Once under the row rather than once per preview: it is one map source, and
+	     three copies of it in a 375px row would be louder than the pictures. -->
+	<p class="ground-legs-credit">© OpenStreetMap, © CARTO</p>
 {/if}
 
 {#if mapOpen}
@@ -128,6 +141,16 @@
 		margin: 0;
 		padding: 0;
 		list-style: none;
+	}
+
+	/* The quietest thing on the card, which is what an attribution should be: legally
+	   required, visually a footnote. Right-aligned under the row so it reads as belonging
+	   to the pictures rather than starting the next section. */
+	.ground-legs-credit {
+		margin: var(--space-1) 0 0;
+		color: var(--color-text-faint);
+		font-size: var(--font-size-xs);
+		text-align: right;
 	}
 
 	/* `1 1 0` and `min-width: 0`: every leg gets an equal share of the row whatever the

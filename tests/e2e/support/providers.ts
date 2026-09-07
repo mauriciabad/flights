@@ -515,3 +515,36 @@ export async function mockAirlineLogos(target: Routable) {
 		});
 	}
 }
+
+/**
+ * The CARTO basemap style, answered with the smallest document that is still a map.
+ *
+ * A UI dependency rather than a provider a spec opts into, which is why `fixtures.ts`
+ * registers it for every test the way it registers the airline logos. It used to be the
+ * other kind: only opening the route dialog loaded a style. Since the ground-leg previews
+ * carry a photograph of the same basemap (`map-snapshot.svelte.ts`), merely showing a
+ * card's detail asks for one, and a spec about bus fares should not have to know that.
+ *
+ * One `background` layer, and the layer is the point. This was `layers: []`, so every
+ * mocked preview photographed a document that draws nothing and every assertion about a
+ * picture existing passed against a blank one. `map-snapshot.svelte.ts` refuses an empty
+ * style now, so a mock without a layer would quietly stop testing the feature and start
+ * testing the fallback.
+ *
+ * Still no sources, so no tile is ever requested and a capture settles at once, and
+ * `background` is the id `applyThemeColors` recolours, so the app's own palette is
+ * exercised on the way past. `route-previews.screenshots.spec.ts` lets the real host
+ * through, because there the point is a picture a person looks at.
+ */
+const FIXTURE_MAP_STYLE = JSON.stringify({
+	version: 8,
+	name: 'fixture',
+	sources: {},
+	layers: [{ id: 'background', type: 'background', paint: { 'background-color': '#101820' } }]
+});
+
+export async function mockMapStyle(target: Routable) {
+	await target.route('https://basemaps.cartocdn.com/**', async (route) => {
+		await route.fulfill({ status: 200, contentType: 'application/json', body: FIXTURE_MAP_STYLE });
+	});
+}

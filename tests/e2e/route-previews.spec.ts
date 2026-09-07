@@ -1,7 +1,7 @@
 import { test, expect, type Page } from './support/fixtures';
 import { FIXTURE_FLIGHT_NUMBERS, FIXTURE_PRICES } from './support/fixture-markers';
 import { mockAllKeylessProviders, mockHostelworld, routeRyanairFlights } from './support/providers';
-import { customiser, openTimeline, pickTimelineSegment } from './support/results-ui';
+import { customiser, openTimeline, pickTimelineSegment, visibleMapCanvases } from './support/results-ui';
 import { waitForSearchToSettle } from '../shared/search-wait';
 
 /**
@@ -14,14 +14,19 @@ import { waitForSearchToSettle } from '../shared/search-wait';
  * so every check below reads a bounding box.
  *
  * The other property under test is the one the measurement in `tools/probe-map-cost.mjs`
- * bought: the previews create no WebGL context at all, the dialog creates exactly one, and
- * closing it takes that one away. A leak there does not break anything visible until a
- * traveller's ninth dialog, which is exactly the kind of defect no one traces back.
+ * bought: the whole page holds one WebGL context at most while no dialog is open, the
+ * dialog adds exactly one more, and closing it takes that one away. A leak there does not
+ * break anything visible until a traveller's ninth dialog, which is exactly the kind of
+ * defect no one traces back.
+ *
+ * The three ground previews now carry a photograph of the real basemap under the route,
+ * captured by one hidden MapLibre instance shared by the page
+ * (`map-snapshot.svelte.ts`). That is a second thing that can render at no size, or in
+ * the wrong place, or over the route instead of under it, without looking broken from a
+ * semantic assertion. It gets measured the same way.
  *
  * Fare values come from `support/fixture-markers.ts` for the reason that file explains.
  */
-
-const EMPTY_MAP_STYLE = JSON.stringify({ version: 8, name: 'empty', sources: {}, layers: [] });
 
 const BCN_VIE_TLL = [
 	{
@@ -48,7 +53,7 @@ const BCN_VIE_TLL = [
 async function search(
 	page: Page,
 	ends: { fromLoc?: string; toLoc?: string },
-	{ beds = false }: { beds?: boolean } = {}
+	{ beds = false, basemap = true }: { beds?: boolean; basemap?: boolean } = {}
 ): Promise<void> {
 	await mockAllKeylessProviders(page.context());
 	// `mockAllKeylessProviders` answers Hostelworld with an empty city, which is what every
@@ -63,9 +68,17 @@ async function search(
 		);
 	}
 	await routeRyanairFlights(page.context(), BCN_VIE_TLL);
-	await page.context().route('https://basemaps.cartocdn.com/**', (route) =>
-		route.fulfill({ status: 200, contentType: 'application/json', body: EMPTY_MAP_STYLE })
-	);
+	// No basemap route here on purpose. `fixtures.ts` registers `mockMapStyle` for every
+	// test, and this file is the one that asserts on the picture a preview shows, so it
+	// wants that style rather than a local copy which could drift from it. A copy did
+	// drift: it served a document with no layers, so every capture in this file was of a
+	// blank map and every assertion about a picture still passed.
+	//
+	// `basemap: false` takes the host away instead, which is the traveller on a train with
+	// no signal, or CARTO having a bad afternoon. Registered last, so it wins.
+	if (!basemap) {
+		await page.context().route('https://basemaps.cartocdn.com/**', (route) => route.abort());
+	}
 
 	const params = new URLSearchParams({
 		dep: '2027-03-08',
@@ -118,7 +131,7 @@ test.describe('frozen route previews (issue #280)', () => {
 		expect(background).toBe('rgba(0, 0, 0, 0)');
 	});
 
-	test('the previews make no WebGL context, however many cards are on screen', async ({ page }) => {
+	test('the previews share one WebGL context, however many cards are on screen', async ({ page }) => {
 		await search(page, BOTH_ENDS);
 
 		await expect(page.locator('.result-card').first()).toBeVisible();
@@ -138,9 +151,24 @@ test.describe('frozen route previews (issue #280)', () => {
 		// a browser test cannot conjure five itineraries out of two mocked flights.
 		expect(await page.locator('.route-preview').count()).toBeGreaterThanOrEqual(4);
 
-		// The whole reason these are SVG. Chromium evicts the oldest of more than sixteen
-		// live contexts, and four per card would put the ceiling at four cards.
-		await expect(page.locator('canvas.maplibregl-canvas')).toHaveCount(0);
+		// One is the number because there is one renderer for the page, not one per
+		// preview and not one per card. Chromium evicts the oldest of more than sixteen
+		// live contexts, so a preview that made its own would put the ceiling at four
+		// cards; `tools/probe-map-cost.mjs` is where that is measured across card counts.
+		//
+		// Sampled across the whole settle rather than read once. The renderer is built when
+		// the first preview asks and released when the queue empties, so a single reading
+		// could land either side of a leak and prove nothing.
+		let peak = 0;
+		for (let sample = 0; sample < 30; sample++) {
+			peak = Math.max(peak, await page.locator('canvas.maplibregl-canvas').count());
+			await page.waitForTimeout(100);
+		}
+		expect(peak, 'one shared renderer, never one per preview').toBeLessThanOrEqual(1);
+
+		// And none of them is on a card. Every map a traveller can see is still inside a
+		// dialog, and no dialog is open.
+		expect(await visibleMapCanvases(page)).toBe(0);
 	});
 
 	test('asking about public transport neither strips nor duplicates a preview', async ({ page }) => {
@@ -198,7 +226,7 @@ test.describe('frozen route previews (issue #280)', () => {
 		// Keyed on a fixed set of three preview ids, so a duplicate is not representable;
 		// this checks the row is still one preview per leg and not one per timeline row.
 		await expect(detail.locator('.ground-leg')).toHaveCount(3);
-		await expect(page.locator('canvas.maplibregl-canvas')).toHaveCount(0);
+		expect(await visibleMapCanvases(page)).toBe(0);
 	});
 
 	test('three ground legs render three previews, each with real size', async ({ page }) => {
@@ -219,6 +247,118 @@ test.describe('frozen route previews (issue #280)', () => {
 			expect(box!.width, `preview ${index} width`).toBeGreaterThan(40);
 			expect(box!.height, `preview ${index} height`).toBeGreaterThan(30);
 		}
+	});
+
+	test('each ground preview lays a real basemap picture under its route, in its own box', async ({
+		page
+	}) => {
+		// The owner asked for "a normal map but inert" here, and the three ways this goes
+		// wrong without looking wrong are a picture at no size, a picture offset from the
+		// drawing it belongs to, and a picture painted over the route instead of under it.
+		// So this measures boxes, the same as everything else in this file.
+		await search(page, BOTH_ENDS);
+		await openTimeline(page);
+
+		const items = page.locator('.result-detail .ground-legs-item');
+		await expect(items).toHaveCount(3);
+
+		for (let index = 0; index < 3; index++) {
+			const map = items.nth(index).locator('.inert-map');
+			const picture = map.locator('img.inert-map-picture');
+			await map.scrollIntoViewIfNeeded();
+
+			// The wait is on the picture arriving rather than on a number of seconds: the
+			// preview paints its solid fill first and swaps the map in when the shared
+			// renderer reaches its window, which is this app's "stale first, then fresh"
+			// rule applied to a drawing.
+			await expect(picture).toBeVisible({ timeout: 30_000 });
+			// One picture, never a grid. A grid of raster tiles is the other way to build
+			// this and it is the one that needs an API key.
+			await expect(picture).toHaveCount(1);
+
+			const mapBox = (await map.boundingBox())!;
+			const pictureBox = (await picture.boundingBox())!;
+			expect(mapBox.width, `preview ${index} map width`).toBeGreaterThan(40);
+			// Edge to edge on the box, not roughly. The route is stroked against the same
+			// rectangle the picture was captured for, so a picture inset by a few pixels is
+			// a map offset from the road it is drawing.
+			expect(pictureBox.x, `preview ${index} picture left`).toBeCloseTo(mapBox.x, 0);
+			expect(pictureBox.y, `preview ${index} picture top`).toBeCloseTo(mapBox.y, 0);
+			expect(pictureBox.width, `preview ${index} picture width`).toBeCloseTo(mapBox.width, 0);
+			expect(pictureBox.height, `preview ${index} picture height`).toBeCloseTo(mapBox.height, 0);
+
+			// It decoded, rather than leaving a broken-image box of exactly the right size.
+			// That is what a failed capture or a tainted canvas looks like from out here,
+			// and every assertion above passes while it is true.
+			const decoded = await picture.evaluate((img) => (img as HTMLImageElement).naturalWidth);
+			expect(decoded, `preview ${index} picture decoded`).toBeGreaterThan(0);
+
+			// The route is over the map, not under it. Not a detail: the picture is
+			// absolutely positioned and the drawing is not, and a positioned element paints
+			// above a static sibling whatever the source order says, so the first build of
+			// this component hid the whole route behind the map. Everything above passed
+			// while it did.
+			const onTop = await map.evaluate((element) => {
+				const rect = element.getBoundingClientRect();
+				const hit = document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2);
+				return hit !== null && hit.closest('.route-preview') !== null;
+			});
+			expect(onTop, `preview ${index} draws the route over the basemap`).toBe(true);
+		}
+
+		// CARTO's terms, satisfied once for the row rather than once per picture.
+		await expect(page.locator('.result-detail .ground-legs-credit')).toHaveText('© OpenStreetMap, © CARTO');
+	});
+
+	test('a preview with no basemap draws the coast instead, and still shows the route', async ({ page }) => {
+		// What a traveller sees when the map cannot be had. This is the assertion the first
+		// build of this feature was missing, and it was missing in the direction that
+		// matters: the picture arrived in every test, so nothing ever rendered the case the
+		// whole design rests on being survivable.
+		await search(page, BOTH_ENDS, { basemap: false });
+		await openTimeline(page);
+
+		const items = page.locator('.result-detail .ground-legs-item');
+		await expect(items).toHaveCount(3);
+
+		// No picture, rather than a picture of nothing. A style that will not load still
+		// goes idle and still captures, as a flat rectangle, and caching that would be a
+		// worse preview than this drawing and a permanent one.
+		await expect(page.locator('img.inert-map-picture')).toHaveCount(0);
+
+		// Every one of them draws ground, and the land tile arrives on its own schedule so
+		// this waits for it rather than assuming it.
+		//
+		// `.rp-land` without an element name on purpose. `RoutePreview` draws land as
+		// `<path>` normally and as a masked `<rect>` wherever a country boundary crosses the
+		// window, and two of these three take the second branch. A locator naming `path`
+		// passes on the one preview that has no border in it and silently ignores the two
+		// that do, which is the wrong two: the bordered ones carry more of the picture.
+		await expect
+			.poll(() => page.locator('.result-detail .ground-legs-row .rp-land').count(), {
+				message: 'every preview must fall back to the drawn coast',
+				timeout: 30_000
+			})
+			.toBe(3);
+
+		for (let index = 0; index < 3; index++) {
+			const preview = items.nth(index).locator('.route-preview');
+			await expect(preview.locator('.rp-land')).toHaveCount(1);
+			// And the route is still on it. A fallback that lost the one line these pictures
+			// exist to draw would be no better than the blank box.
+			const leg = preview.locator('path.rp-leg').first();
+			await expect(leg).toBeVisible();
+			const legBox = (await leg.boundingBox())!;
+			expect(legBox.width + legBox.height, `preview ${index} route`).toBeGreaterThan(20);
+			const box = (await preview.boundingBox())!;
+			expect(box.width, `preview ${index} width`).toBeGreaterThan(40);
+			expect(box.height, `preview ${index} height`).toBeGreaterThan(30);
+		}
+
+		// And the renderer let go of its context rather than holding one open for a map it
+		// could not draw. The timeout has to clear `IDLE_RELEASE_MS`, which is deliberately
+		// several seconds so a page being scrolled does not rebuild an instance per card.
+		await expect.poll(() => page.locator('canvas.maplibregl-canvas').count(), { timeout: 20_000 }).toBe(0);
 	});
 
 	test('a missing origin location leaves two previews, each wider than three would be', async ({ page }) => {
@@ -246,7 +386,7 @@ test.describe('frozen route previews (issue #280)', () => {
 
 		const detail = page.locator('.result-detail');
 		const trigger = detail.locator('.ground-leg').first();
-		await expect(page.locator('canvas.maplibregl-canvas')).toHaveCount(0);
+		expect(await visibleMapCanvases(page)).toBe(0);
 
 		await trigger.click();
 
@@ -254,7 +394,7 @@ test.describe('frozen route previews (issue #280)', () => {
 		await expect(dialog).toBeVisible();
 		await expect(dialog.getByRole('region', { name: /Route map/ })).toBeVisible();
 		// Exactly one, never one per preview.
-		await expect(page.locator('canvas.maplibregl-canvas')).toHaveCount(1);
+		await expect.poll(() => visibleMapCanvases(page)).toBe(1);
 
 		// Near-fullscreen: a fixed margin and nothing more.
 		const dialogBox = (await dialog.boundingBox())!;
@@ -267,7 +407,7 @@ test.describe('frozen route previews (issue #280)', () => {
 		await expect(dialog).toHaveCount(0);
 		// The instance is gone, not merely hidden. A dialog that leaked one per open would
 		// walk a session into the same sixteen-context ceiling, one dialog at a time.
-		await expect(page.locator('canvas.maplibregl-canvas')).toHaveCount(0);
+		await expect.poll(() => visibleMapCanvases(page)).toBe(0);
 		await expect(trigger).toBeFocused();
 	});
 
@@ -283,7 +423,7 @@ test.describe('frozen route previews (issue #280)', () => {
 		await dialog.getByRole('button', { name: 'Close' }).click();
 
 		await expect(dialog).toHaveCount(0);
-		await expect(page.locator('canvas.maplibregl-canvas')).toHaveCount(0);
+		await expect.poll(() => visibleMapCanvases(page)).toBe(0);
 		await expect(trigger).toBeFocused();
 	});
 
@@ -293,7 +433,6 @@ test.describe('frozen route previews (issue #280)', () => {
 
 		const previews = page.locator('.result-detail .ground-leg');
 		const dialog = page.locator('dialog.route-dialog');
-		const canvases = page.locator('canvas.maplibregl-canvas');
 
 		// One open and close proves teardown runs. Ten prove it runs every time, which is
 		// the shape this defect would have: nothing visibly wrong until Chromium evicts the
@@ -301,10 +440,10 @@ test.describe('frozen route previews (issue #280)', () => {
 		for (let round = 0; round < 10; round++) {
 			await previews.nth(round % 3).click();
 			await expect(dialog).toBeVisible();
-			await expect(canvases).toHaveCount(1);
+			await expect.poll(() => visibleMapCanvases(page)).toBe(1);
 			await page.keyboard.press('Escape');
 			await expect(dialog).toHaveCount(0);
-			await expect(canvases).toHaveCount(0);
+			await expect.poll(() => visibleMapCanvases(page)).toBe(0);
 		}
 	});
 
