@@ -187,7 +187,10 @@ test.describe('what a screen reader is told', () => {
 		const summary = page.locator('.customiser-trip-summary');
 		await expect(summary).toBeVisible();
 		await expect(page.locator('.customiser-trip[open]')).toHaveCount(0);
-		await expect(page.locator('.itinerary-timeline')).toHaveCount(0);
+		// Not absent, hidden. A closed `<details>` keeps its content in the DOM and stops
+		// rendering it, which is the whole reason the element is worth using: the rows are
+		// there for the accessibility tree to find as soon as a reader opens the disclosure.
+		await expect(page.locator('.itinerary-timeline')).not.toBeVisible();
 
 		// 44px, which is the floor for anything a thumb has to hit, and this one is the only
 		// way to the timeline on a phone.

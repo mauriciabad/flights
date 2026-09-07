@@ -269,15 +269,21 @@ describe('groundLegPreviewIdFor', () => {
 		expect(groundLegPreviewIdFor('transfer-to-destination-location')).toBe('destination-transport');
 	});
 
-	it('has no picture for anything that is not a ground leg', () => {
-		// Issue #439's rule read the other way: a reader looking at a flight, a wait or the
-		// stopover itself gets no map rather than whichever one happened to be first.
+	it('answers the stopover itself with the picture of its own two rides', () => {
+		// The free-time panel is where a bed is chosen, and how far that bed is from the
+		// airport is half of what a traveller is deciding there. The picture already drawn for
+		// the rides in and out is that answer, so the panel gets it instead of going mapless.
+		expect(groundLegPreviewIdFor('free-time')).toBe('stopover-transport');
+	});
+
+	it('has no picture for a flight, a wait or an endpoint', () => {
+		// Issue #439's rule read the other way: a reader looking at something with no ground
+		// leg behind it gets no map rather than whichever one happened to be first.
 		for (const segment of [
 			'outbound-flight',
 			'onward-flight',
 			'origin-waiting',
 			'connection-waiting',
-			'free-time',
 			'origin-location',
 			'destination-location'
 		] as const) {

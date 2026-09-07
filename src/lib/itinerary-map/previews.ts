@@ -84,12 +84,26 @@ const GROUND_LEG_SEGMENTS: {
 	id: GroundLegPreviewId;
 	label: string;
 	segmentIds: readonly ItinerarySegmentId[];
+	/**
+	 * Selections this picture answers besides the legs it draws (issue #439).
+	 *
+	 * Only the stopover has one, and it is the stopover itself. Its panel is where a
+	 * traveller chooses how many nights to stay and which bed to book, and where that bed
+	 * sits relative to the airport is half of what they are deciding. The picture drawn for
+	 * the rides in and out is exactly that answer, so the free-time panel gets it rather than
+	 * going mapless while its own two legs each have one.
+	 *
+	 * Here rather than in a second lookup, because a second lookup is how a picture starts
+	 * being drawn for one vocabulary and found by another.
+	 */
+	alsoAnswers?: readonly ItinerarySegmentId[];
 }[] = [
 	{ id: 'origin-transport', label: 'To the airport', segmentIds: ['transfer-to-origin-airport'] },
 	{
 		id: 'stopover-transport',
 		label: 'The stopover',
-		segmentIds: ['transfer-to-hotel', 'transfer-to-connection-airport']
+		segmentIds: ['transfer-to-hotel', 'transfer-to-connection-airport'],
+		alsoAnswers: ['free-time']
 	},
 	{
 		id: 'destination-transport',
@@ -132,12 +146,14 @@ function lineSegment(model: ItineraryMapModel, id: ItinerarySegmentId): Itinerar
  * the whole complaint.
  *
  * Read off `GROUND_LEG_SEGMENTS` rather than written again, so the ride out to the bed and
- * the ride back keep landing on the one picture that draws both. A flight, a wait or the
- * stopover itself has no ground leg, and the inspector then shows no map at all rather than
- * whichever picture happened to be first.
+ * the ride back keep landing on the one picture that draws both, and so does the stopover
+ * they belong to. A flight or a wait has no ground leg at all, and the inspector then shows
+ * no map rather than whichever picture happened to be first.
  */
 export function groundLegPreviewIdFor(segment: ItinerarySegmentId): GroundLegPreviewId | undefined {
-	return GROUND_LEG_SEGMENTS.find((spec) => spec.segmentIds.includes(segment))?.id;
+	return GROUND_LEG_SEGMENTS.find(
+		(spec) => spec.segmentIds.includes(segment) || spec.alsoAnswers?.includes(segment)
+	)?.id;
 }
 
 export function buildGroundLegPreviews(model: ItineraryMapModel): GroundLegPreview[] {

@@ -101,11 +101,11 @@ test.describe('a leg the map cannot draw (issue #286)', () => {
 		await searchWithAnUnroutableStopover(page);
 
 		const detail = page.getByTestId('segment-customiser');
-		// None at all. `openTimeline` selects the stopover, the stopover leg has no geometry,
-		// and issue #439 draws only the leg the inspector is about. This is the premise of the
-		// whole issue rather than a thing under test, and it is asserted so that a change
-		// making the stopover routable again turns this file red instead of leaving it
-		// passing against a scenario that no longer exists.
+		// None at all. `openTimeline` selects the stopover, whose panel answers with the
+		// picture of its own two rides, and on this search neither has any geometry. This is
+		// the premise of the whole issue rather than a thing under test, and it is asserted so
+		// that a change making the stopover routable again turns this file red instead of
+		// leaving it passing against a scenario that no longer exists.
 		await expect(detail.locator('.ground-legs-item')).toHaveCount(0);
 		await expect(detail.getByText('The stopover', { exact: true })).toHaveCount(0);
 		// The row a traveller would have clicked before #280 still carries the reason, and

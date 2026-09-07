@@ -94,12 +94,17 @@ test.describe('editing a stopover keeps one trip on the screen', () => {
 		await connectionWait.fill('1530');
 		await connectionWait.dispatchEvent('input');
 
-		await expect(block).toContainText('Nights 1');
+		// The card follows the edit at once, while the panel is still showing the wait.
 		await expect(page.locator('.result-card').first().locator('.trip-strip-caption-mid')).toContainText('1 night');
 
-		// Issue #243. Reaching the stay list is the two taps a traveller makes: open the
-		// stopover row, then pick the other property.
-		await detail.locator('[data-segment="free-time"]').click();
+		// And so does the stopover block, which issue #440 moved into the stopover's own panel
+		// rather than leaving it above a timeline. Going back to the stopover is what a
+		// traveller does next anyway, and it is the same claim: one edit, every reading.
+		await detail.locator('[data-segment="free-time"]').click({ position: { x: 6, y: 6 } });
+		await expect(customiser(page)).toHaveAttribute('data-segment', 'free-time');
+		await expect(block).toContainText('Nights 1');
+
+		// Issue #243. The stay list is in that same panel: pick the other property.
 		const nearProperty = customiser(page).locator('.alt-card', { hasText: 'FIXTURE Lodge' });
 		await expect(nearProperty).toBeVisible();
 		await nearProperty.click();

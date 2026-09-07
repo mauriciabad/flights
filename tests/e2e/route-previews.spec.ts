@@ -512,13 +512,15 @@ test.describe('frozen route previews (issue #280)', () => {
 	});
 
 	test('clearing the selection inside the map does not close the map', async ({ page }) => {
-		// Found while wiring issue #439, before it could ship. The dialog lives inside
-		// `GroundLegPreviews`, and the map inside it writes the page's selection: "Show whole
-		// route" sets it to nothing, and clicking a flight line sets it to a leg with no
-		// ground picture. An inspector that rendered the previews only when the selection had
-		// a picture would unmount the dialog on either, closing the map under the press that
-		// asked for more of it. `fallback` is what distinguishes "nothing to draw right now"
-		// from "this trip has no ground leg", and this is the behaviour it exists for.
+		// Found twice while wiring issue #439, before it could ship, and the second one is why
+		// the dialog is the page's rather than `GroundLegPreviews`'s.
+		//
+		// The map inside the dialog writes the page's selection: "Show whole route" clears it,
+		// and clicking a flight line sets a segment with no ground picture. An inspector that
+		// rendered the previews only when the selection had a picture unmounted the dialog on
+		// either. And on a phone the sheet itself only mounts while a segment is selected, so
+		// even a preview that stayed put would have gone down with its container. Both closed
+		// the map under the press that asked for more of it.
 		await search(page, BOTH_ENDS);
 		await openTimeline(page);
 		await pickTimelineSegment(page, 'transfer-to-hotel');
@@ -535,6 +537,30 @@ test.describe('frozen route previews (issue #280)', () => {
 
 		// And it still closes the ordinary way afterwards, rather than being left mounted by
 		// whatever kept it alive.
+		await page.keyboard.press('Escape');
+		await expect(dialog).toHaveCount(0);
+		await expect.poll(() => visibleMapCanvases(page)).toBe(0);
+	});
+
+	test('the map opened from the phone sheet outlives the sheet', async ({ page }) => {
+		// The same defect one container up, and the reason the dialog is rendered by the page.
+		// The sheet mounts only while a segment is selected (`sheetIsOpen`), so "Show whole
+		// route" used to close the sheet and unmount the map with it. A press inside the
+		// dialog must not read as a press outside the sheet either.
+		await page.setViewportSize({ width: 375, height: 812 });
+		await search(page, BOTH_ENDS);
+		await openTimeline(page);
+		await pickTimelineSegment(page, 'transfer-to-hotel');
+
+		await customiser(page).locator('.ground-leg').click();
+		const dialog = page.locator('dialog.route-dialog');
+		await expect(dialog).toBeVisible();
+
+		await dialog.getByRole('button', { name: 'Show whole route' }).click();
+
+		await expect(dialog).toBeVisible();
+		await expect.poll(() => visibleMapCanvases(page)).toBe(1);
+
 		await page.keyboard.press('Escape');
 		await expect(dialog).toHaveCount(0);
 		await expect.poll(() => visibleMapCanvases(page)).toBe(0);

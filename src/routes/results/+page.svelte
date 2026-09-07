@@ -25,7 +25,7 @@
 	import { base } from '$app/paths';
 	import { page } from '$app/state';
 	import { onRevalidationSettled } from '$lib/cache';
-	import { Button, EmptyState, ErrorState, Icon } from '$lib/components';
+	import { Button, EmptyState, ErrorState, Icon, RouteMapDialog } from '$lib/components';
 	import { getAirport } from '$lib/data/airports';
 	import { knownAirportCodes } from '$lib/data/known-airports.svelte';
 	import { DEFAULT_MIN_LAYOVER_TIME_MINUTES, DEFAULT_SEARCH_CURRENCY } from '$lib/domain';
@@ -280,6 +280,17 @@
 	let confirmedBeyondCap = $state<IataAirportCode[]>([]);
 	let blockedConnections = $state<Record<string, ConnectionBlock>>({});
 	let connectionsMapOpen = $state(false);
+	/**
+	 * Issue #439: the full route map for the trip the inspector is showing.
+	 *
+	 * Owned here rather than inside `GroundLegPreviews`, where it used to live. That was right
+	 * while the previews sat in a fold inside a card, which nothing could unmount. In the
+	 * inspector it is phone-shaped and wrong: the sheet mounts only while a segment is
+	 * selected, and the map inside the dialog writes that selection, so "Show whole route"
+	 * closed the sheet and took the map down with it. A page-level overlay outlives both
+	 * containers, which is what `ConnectionsMapDialog` below already is.
+	 */
+	let routeMapOpen = $state(false);
 	/** True once the primary search has yielded its final snapshot. The empty-results board
 	 * explains what the providers answered, so it must not render in the frame between this
 	 * page mounting and the search starting, when nothing has been asked yet and
@@ -1528,6 +1539,10 @@
 		if (!(target instanceof Node)) return;
 		if (sheetEl?.contains(target)) return;
 		if (target instanceof Element && target.closest('.result-card')) return;
+		// A press inside a dialog is not a press outside the sheet. The route map is a
+		// near-fullscreen overlay the sheet itself opened (issue #439), and without this every
+		// press on it would close the panel underneath and unmount the map with it.
+		if (target instanceof Element && target.closest('dialog')) return;
 		closeCustomiser();
 	}
 
@@ -1567,6 +1582,7 @@
 			draft={customisingDraft}
 			segment={customisingSegment}
 			onSelectSegment={(segment) => selectSegment(customisingResult.id, customisingResult.itinerary, segment)}
+			onOpenRouteMap={() => (routeMapOpen = true)}
 			compact={!sidebarIsColumn}
 			stopoverOptions={customisingResult.stopover.options}
 			isFlightChange={customisingResult.stopover.isFlightChange}
@@ -1941,6 +1957,21 @@
 			{@render customisePanel()}
 		</div>
 	</aside>
+{/if}
+
+<!-- Issue #439's route map, at page level so neither the rail nor the phone sheet can take
+     it down. Rendering it is what opens it and removing it is what closes it, which is
+     `MapDialog`'s contract. Its selection is the page's own, so moving between legs inside
+     the map leaves the right timeline row highlighted once the dialog is gone. -->
+{#if routeMapOpen && customisingResult && customisingDraft}
+	<RouteMapDialog
+		itinerary={customisingDraft.itinerary}
+		bind:selectedSegmentId={
+			() => customisingSegment,
+			(segment) => selectSegment(customisingResult.id, customisingResult.itinerary, segment)
+		}
+		onclose={() => (routeMapOpen = false)}
+	/>
 {/if}
 
 <!-- Issue #324. Rendering it is what opens it and removing it is what closes it, which is

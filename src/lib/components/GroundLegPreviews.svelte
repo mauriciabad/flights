@@ -20,6 +20,15 @@
 	 * with no ground leg anywhere, which still needs the plain button that is its only way to
 	 * a map, and a selection that is a flight or a wait, which needs nothing drawn.
 	 *
+	 * ## The dialog is the page's now, not this component's
+	 *
+	 * It used to be rendered here, which was right while these pictures sat in a fold inside a
+	 * card that nothing could unmount. In the inspector it is wrong, and phone-shaped: the
+	 * sheet only mounts while a segment is selected, and the map inside the dialog writes that
+	 * selection. Pressing "Show whole route" cleared it, the sheet unmounted, and the dialog
+	 * went with it. So this component reports a tap and the page opens the map, the same way
+	 * `ConnectionsMapDialog` is already the page's.
+	 *
 	 * Flex rather than grid, deliberately. `45151ce` fixed the trip strip rendering at
 	 * zero width because definitely-placed grid items pushed auto-placed cells into
 	 * implicit tracks. Equal columns need no placement algorithm to get right.
@@ -56,13 +65,10 @@
 	 */
 	import Icon from './Icon.svelte';
 	import InertMap from './InertMap.svelte';
-	import RouteMapDialog from './RouteMapDialog.svelte';
-	import type { Itinerary } from '$lib/domain';
 	import type { ItinerarySegmentId } from '$lib/itinerary-map/segment-id';
 	import type { GroundLegPreview } from '$lib/itinerary-map/previews';
 
 	interface Props {
-		itinerary: Itinerary;
 		previews: GroundLegPreview[];
 		/**
 		 * The selection shared with `ItineraryTimeline` (`segment-id.ts` documents the
@@ -82,25 +88,23 @@
 		 * that moved it.
 		 */
 		fallback?: boolean;
+		/** Somebody tapped a picture. The page opens the map, framed on the leg it carries.
+		 * `null` is the fallback button, which asks for the whole route. */
+		onopen: (segment: ItinerarySegmentId | null) => void;
 	}
 
-	let { itinerary, previews, selectedSegmentId = $bindable(null), fallback = true }: Props = $props();
-
-	// The dialog has no `open` prop: rendering it opens it and dropping it closes it, so
-	// this one variable is the whole state and the MapLibre instance inside it lives
-	// exactly as long as the dialog does.
-	let mapOpen = $state(false);
+	let { previews, selectedSegmentId = $bindable(null), fallback = true, onopen }: Props = $props();
 
 	/**
-	 * Tapping a preview frames the dialog's map on that leg and nothing more. It used to
-	 * hand the dialog a heading too, and issue #286 took that away: the dialog now lets a
-	 * traveller move between the trip's legs, so a heading naming whichever tile opened it
-	 * goes stale the moment they do. `RouteMapDialog` names the journey instead, and which
-	 * leg is on screen is answered by the map's own status line, live, under the map.
+	 * Tapping a preview frames the map on that leg and nothing more. It used to hand the
+	 * dialog a heading too, and issue #286 took that away: the dialog lets a traveller move
+	 * between the trip's legs, so a heading naming whichever tile opened it goes stale the
+	 * moment they do. `RouteMapDialog` names the journey instead, and which leg is on screen
+	 * is answered by the map's own status line, live, under the map.
 	 */
 	function open(segmentId: ItinerarySegmentId | null): void {
 		selectedSegmentId = segmentId;
-		mapOpen = true;
+		onopen(segmentId);
 	}
 </script>
 
@@ -140,10 +144,6 @@
 	     here. Once under the row rather than once per preview: it is one map source, and
 	     three copies of it in a 375px row would be louder than the pictures. -->
 	<p class="ground-legs-credit">© OpenStreetMap, © CARTO</p>
-{/if}
-
-{#if mapOpen}
-	<RouteMapDialog {itinerary} bind:selectedSegmentId onclose={() => (mapOpen = false)} />
 {/if}
 
 <style>

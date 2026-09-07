@@ -28,10 +28,18 @@ export { segmentIdOf, tripStrip } from './trip-strip';
 export type { TripStrip as TripStripModel, TripStripSegment } from './trip-strip';
 export { default as ItineraryMap } from './ItineraryMap.svelte';
 // Issue #280's frozen previews. `RoutePreview` draws one; the other two are the surfaces
-// that use it. `RouteMapDialog` is deliberately absent: it is `GroundLegPreviews`'s own
-// business, and a second caller mounting a second MapLibre instance is the thing the
-// measurement in `tools/probe-map-cost.mjs` exists to prevent.
+// that use it.
+//
+// `RouteMapDialog` used to be deliberately absent, on the reasoning that it was
+// `GroundLegPreviews`'s own business and that a second caller mounting a second MapLibre
+// instance is what `tools/probe-map-cost.mjs` exists to prevent. Issue #439 moved the
+// previews into the trip inspector and that ownership stopped working: on a phone the
+// inspector is a sheet that unmounts when the selection clears, and the map inside the
+// dialog is one of the things that clears it, so the map closed itself. The results page
+// owns it now, above both containers. The one-instance rule is unchanged and still enforced
+// the same way: rendering the dialog is what opens it, and exactly one place renders it.
 export { default as RoutePreview } from './RoutePreview.svelte';
+export { default as RouteMapDialog } from './RouteMapDialog.svelte';
 export { default as FlightDetour } from './FlightDetour.svelte';
 export { default as GroundLegPreviews } from './GroundLegPreviews.svelte';
 // Issue #324: the shell every real map opens into. Exported because three dialogs use it

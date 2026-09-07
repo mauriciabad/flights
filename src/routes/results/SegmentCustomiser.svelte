@@ -165,6 +165,10 @@
 		 * and two copies of it is what issue #278 spent a PR removing.
 		 */
 		onSelectSegment: (segment: ItinerarySegmentId | null) => void;
+		/** Somebody tapped the leg's picture. The page owns the map dialog, for the reason
+		 * `GroundLegPreviews` records: on a phone this panel is a sheet that closes when the
+		 * selection clears, and the map inside the dialog is one of the things that clears it. */
+		onOpenRouteMap: (segment: ItinerarySegmentId | null) => void;
 		/**
 		 * True inside the phone sheet, which is capped under half the screen on purpose.
 		 * The timeline starts closed there: a sheet that opened on eleven rows would bury the
@@ -233,6 +237,7 @@
 		draft,
 		segment,
 		onSelectSegment,
+		onOpenRouteMap,
 		compact = false,
 		stopoverOptions = [],
 		isFlightChange = false,
@@ -853,14 +858,13 @@
 	     page's selection through a function binding, because tapping the picture is another
 	     way of picking a segment.
 
-	     Always rendered, never behind an `{#if}`. The map dialog lives inside this component,
-	     and inside that dialog a traveller can pan to a flight, which is a selection with no
-	     ground picture. Unmounting on that would close the map under the finger that moved
-	     it. `fallback` is what says which kind of empty this is. -->
+	     `fallback` is what says which kind of empty an empty list is: nothing to draw for this
+	     step, or a trip with no ground leg at all, which still needs the plain button that is
+	     its only way to a map. -->
 	<GroundLegPreviews
-		{itinerary}
 		previews={focusedPreview ? [focusedPreview] : []}
 		fallback={groundLegPreviews.length === 0}
+		onopen={onOpenRouteMap}
 		bind:selectedSegmentId={() => segment, onSelectSegment}
 	/>
 
