@@ -433,7 +433,7 @@ ol {
    drew `solid 2px rgb(232, 163, 61)` around 1034x734 of an 1100x800 viewport.
 
    A ring tells a keyboard reader which CONTROL will act. Every control inside these
-   dialogs keeps its own, and a rectangle around the container names nothing: there is
+   dialogs keeps its own, and a rectangle around the container names nothing. There is
    one surface on screen and it is this one. Global rather than per-dialog because this
    app has four of them and #448 was the second to hit it. */
 dialog:focus-visible {

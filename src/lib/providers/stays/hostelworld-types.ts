@@ -76,7 +76,7 @@ export interface HostelworldRoom {
 	 * Issue #449 asked what fetching that response would take and answered two thirds of it.
 	 * `tools/probe-hostelworld-rooms.mjs` measured `200` with `Access-Control-Allow-Origin: *`
 	 * from a real page origin, at 6.4 KB over the wire and 450 ms for one property against
-	 * 89.5 KB and 6.9 s for a page of thirty. What is missing is an address: nothing this app
+	 * 89.5 KB and 6.9 s for a page of thirty. What is missing is an address. Nothing this app
 	 * carries out of a search can name one Hostelworld property or one of its rooms, so the
 	 * call has nothing to put in its URL. docs/PROVIDERS.md holds the table.
 	 *

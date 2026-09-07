@@ -43,8 +43,8 @@
 	 * surface that cannot take focus lands on the `<dialog>`, and the app's accent ring was
 	 * then drawn 2px outside a near-fullscreen surface (#448). `tools/probe-map-dialog-focus.mjs`
 	 * measured it and re-takes the measurement. The map's own canvas is not the trigger, which
-	 * is worth knowing before hunting for one: MapLibre gives it `tabindex="0"`, so it takes
-	 * focus itself.
+	 * is worth knowing before hunting for one. MapLibre gives it `tabindex="0"`, so the canvas
+	 * takes focus itself.
 	 *
 	 * ## What this component deliberately does not know
 	 *
