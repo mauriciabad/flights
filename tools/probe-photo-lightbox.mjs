@@ -14,9 +14,19 @@
  * A temporary SvelteKit route holding one `PhotoCarousel`, written before the run and
  * deleted after it. Driving the real results page would need the whole provider bench
  * mocked, and a probe that answers its own mocks is the trap AGENTS.md's "Mocks belong to a
- * test" section is about. The photographs here are SVGs served on Hostelworld's own address
- * shapes, so `hostelworld-photo.ts`'s rewrite and `originalStayPhoto`'s reverse are the real
- * ones and the card-to-original upgrade is measured rather than assumed.
+ * test" section is about.
+ *
+ * Nothing here intercepts a request. The photographs come from this probe's own little image
+ * server, which is an origin rather than an answer to somebody else's, the same shape
+ * `probe-images.mjs` and `probe-map-cost.mjs` use. `guard.spec.ts` fails the suite for any
+ * probe that can `route()` or `fulfill`, and it is right to: an instrument that can serve a
+ * fixture cannot be trusted to detect one.
+ *
+ * What that costs is one claim. The lightbox swaps in the publisher's original once the
+ * reader zooms past 1x, and `originalStayPhoto` only reverses addresses on a provider's own
+ * host, so it cannot fire for a photograph this probe serves. That wiring is pinned in
+ * `src/lib/stays/PickedBed.test.ts` instead, which can assert the element and its `src`
+ * without anybody's network. Everything a browser alone can answer is measured here.
  *
  * Usage: node tools/probe-photo-lightbox.mjs [--headed]
  * Screenshots land in docs/screenshots/441-lightbox-*.png, named the way this repo names
@@ -51,33 +61,41 @@ async function freePort() {
 	return port;
 }
 
-/** Hostelworld's real address shapes. The card one is what `hostelworldCardPhoto` writes;
- * the origin one is what `originalStayPhoto` reverses to, and the only way to see the
- * zoom upgrade fire is to serve both and count the requests. */
-const ID = (n) => `propertyimages/3/312244/probe${n}`;
-const card = (n) => `https://a.hwstatic.com/image/upload/c_limit,w_800,f_auto,q_auto/v1/${ID(n)}.jpg`;
-
 /** A real image with real intrinsic dimensions and no binary to check in. An `<img>` decodes
- * an SVG like any other format, so `naturalWidth` answers "did a picture arrive, and which
- * one". The two sizes are what makes the upgrade visible in the numbers. */
-function svg(label, colour, width, height) {
-	return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"><rect width="100%" height="100%" fill="${colour}"/><g fill="#f4f6fb" font-family="monospace"><text x="40" y="120" font-size="72">${label}</text><text x="40" y="210" font-size="44">${width}x${height}</text></g><circle cx="${width - 120}" cy="${height - 120}" r="60" fill="#e8a33d"/></svg>`;
+ * an SVG like any other format, so the drawn rectangle and therefore the pan limits are the
+ * ones a photograph would produce. 800x500 is the card width `hostelworld-photo.ts` asks
+ * Cloudinary for. */
+function svg(label) {
+	return `<svg xmlns="http://www.w3.org/2000/svg" width="800" height="500" viewBox="0 0 800 500"><rect width="100%" height="100%" fill="#264653"/><g fill="#f4f6fb" font-family="monospace"><text x="40" y="120" font-size="72">${label}</text><text x="40" y="210" font-size="44">800x500</text></g><circle cx="680" cy="380" r="60" fill="#e8a33d"/></svg>`;
 }
 
-const page_source = `<script lang="ts">
+/** Serves the four photographs from an origin of this probe's own, so the page fetches real
+ * bytes over a real socket and nothing has to intercept anything. */
+async function startImageServer() {
+	const requested = [];
+	const server = createServer((request, response) => {
+		requested.push(request.url);
+		response.writeHead(200, { 'content-type': 'image/svg+xml', 'cache-control': 'no-store' });
+		response.end(svg(`PHOTO ${request.url.replace(/\D/g, '')}`));
+	});
+	await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+	return { origin: `http://127.0.0.1:${server.address().port}`, requested, server };
+}
+
+const pageSource = (photo) => `<script lang="ts">
 	import { PhotoCarousel, stayPhotos } from '$lib/stays';
 
 	const property = {
 		name: 'Probe Hostel London',
 		coordinates: { latitude: 51.49, longitude: -0.09 },
-		images: ['${card(1)}', '${card(2)}'],
+		images: ['${photo(1)}', '${photo(2)}'],
 		rating: { value: 88, outOf: 100 }
 	};
 	const stay = {
 		property,
 		roomKind: 'female-dorm',
 		pricePerNight: { minorUnits: 1907, currency: 'EUR' },
-		roomImages: ['${card(3)}', '${card(4)}']
+		roomImages: ['${photo(3)}', '${photo(4)}']
 	};
 	const photos = stayPhotos(property, [stay]);
 </script>
@@ -108,7 +126,9 @@ let vite;
 async function main() {
 	await mkdir(routeDir, { recursive: true });
 	await mkdir(shots, { recursive: true });
-	await writeFile(path.join(routeDir, '+page.svelte'), page_source);
+	const images = await startImageServer();
+	const photo = (n) => `${images.origin}/photo-${n}.svg`;
+	await writeFile(path.join(routeDir, '+page.svelte'), pageSource(photo));
 
 	const port = await freePort();
 	vite = spawn('pnpm', ['exec', 'vite', 'dev', '--port', String(port), '--strictPort'], {
@@ -142,23 +162,6 @@ async function main() {
 	});
 	const page = await context.newPage();
 
-	const asked = [];
-	await context.route('https://a.hwstatic.com/**', async (route) => {
-		const url = route.request().url();
-		asked.push(url);
-		const n = /probe(\d)/.exec(url)?.[1] ?? '0';
-		// The card address and the published original differ in size, which is how the run can
-		// tell an upgrade apart from a re-request of the same picture.
-		const original = !url.includes('/image/upload/');
-		await route.fulfill({
-			status: 200,
-			contentType: 'image/svg+xml',
-			body: original
-				? svg(`ORIGINAL ${n}`, '#1b4332', 2400, 1500)
-				: svg(`CARD ${n}`, '#264653', 800, 500)
-		});
-	});
-
 	const consoleErrors = [];
 	page.on('console', (message) => {
 		if (message.type() === 'error') consoleErrors.push(message.text());
@@ -173,6 +176,9 @@ async function main() {
 	// One, and that is the point: `PhotoCarousel` gives a `src` only to photographs the reader
 	// has actually reached, which is issue #284's saving.
 	report.stripImagesWithSrc = await page.locator('.photo-strip img').count();
+	// Issue #284's saving, counted rather than trusted. One, because `PhotoCarousel` gives a
+	// `src` only to photographs the reader has actually reached.
+	report.photosFetchedByTheCard = [...new Set(images.requested)].length;
 	report.roomBadgeOnFirst = await page.locator('.photo-subject').count();
 
 	// The picture itself is the target, which is what the issue asked for.
@@ -185,8 +191,8 @@ async function main() {
 	// Chrome focuses the dialog element itself unless something inside claims it, and a focused
 	// dialog wears this app's accent ring around the whole viewport the moment a key is
 	// pressed. So the answer here has to be a control, not `DIALOG`.
-	report.focusOnOpen = await page.evaluate(
-		() => `${document.activeElement?.tagName} ${document.activeElement?.className ?? ''}`.trim()
+	report.focusOnOpen = await page.evaluate(() =>
+		`${document.activeElement?.tagName} ${document.activeElement?.className ?? ''}`.trim()
 	);
 	await page.screenshot({ path: path.join(shots, '441-lightbox-open-dark-1100.png') });
 
@@ -225,7 +231,6 @@ async function main() {
 	}, offCentre);
 	await page.waitForTimeout(150);
 	report.afterPinch = await readScale();
-	report.originalsAsked = asked.filter((url) => !url.includes('/image/upload/')).length;
 	await page.screenshot({ path: path.join(shots, '441-lightbox-zoomed-dark-1100.png') });
 
 	// Drag while zoomed.
@@ -292,7 +297,12 @@ async function main() {
 
 	console.log(JSON.stringify(report, null, 2));
 
+	// Four, and deliberately: the strip along the bottom of the lightbox is the reader asking
+	// to see the others. `PhotoLightbox`'s header argues why that is where the gate ends.
+	report.photosFetchedByTheLightbox = [...new Set(images.requested)].length;
+
 	await browser.close();
+	images.server.close();
 }
 
 try {

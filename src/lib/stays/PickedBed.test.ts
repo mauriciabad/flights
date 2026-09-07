@@ -284,9 +284,7 @@ describe('reaching the photographs from a keyboard', () => {
 
 	it('names each photograph and its position for a screen reader', () => {
 		render();
-		expect(target!.querySelector('img')!.getAttribute('alt')).toBe(
-			"Wombat's City Hostel, photo 1 of 2"
-		);
+		expect(target!.querySelector('img')!.getAttribute('alt')).toBe("Wombat's City Hostel, photo 1 of 2");
 		expect(target!.querySelector('.photo-carousel')!.getAttribute('aria-label')).toBe(
 			"Photos of Wombat's City Hostel"
 		);
@@ -305,14 +303,11 @@ describe('a photograph that fails to load', () => {
 		// `booking-mapper.ts` rewrites the 60x60 thumbnail to a card size measured against
 		// three photo ids. A shape it guessed wrong about degrades to the thumbnail here,
 		// so the worst case is what shipped before the upgrade rather than an empty box.
-		const upgraded =
-			'https://cf.bstatic.com/xdata/images/hotel/max1024x768/751028262.jpg?k=abc&o=';
+		const upgraded = 'https://cf.bstatic.com/xdata/images/hotel/max1024x768/751028262.jpg?k=abc&o=';
 		const el = render({ property: property({ images: [upgraded] }) });
 		el.querySelector('img')!.dispatchEvent(new Event('error'));
 		flushSync();
-		expect(sources()).toEqual([
-			'https://cf.bstatic.com/xdata/images/hotel/square60/751028262.jpg?k=abc&o='
-		]);
+		expect(sources()).toEqual(['https://cf.bstatic.com/xdata/images/hotel/square60/751028262.jpg?k=abc&o=']);
 	});
 
 	it('retries an Agoda resize at the address the provider actually gave', () => {
@@ -327,8 +322,7 @@ describe('a photograph that fails to load', () => {
 	});
 
 	it('gives up rather than retrying forever once the fallback fails too', () => {
-		const upgraded =
-			'https://cf.bstatic.com/xdata/images/hotel/max1024x768/751028262.jpg?k=abc&o=';
+		const upgraded = 'https://cf.bstatic.com/xdata/images/hotel/max1024x768/751028262.jpg?k=abc&o=';
 		const el = render({ property: property({ images: [upgraded] }) });
 		el.querySelector('img')!.dispatchEvent(new Event('error'));
 		flushSync();
@@ -406,6 +400,28 @@ describe('opening a photograph large', () => {
 		expand().click();
 		flushSync();
 		expect(target!.querySelector('.lightbox-subject')?.textContent?.trim()).toBe('Building');
+	});
+
+	it('asks for the published original only once the reader zooms past it', () => {
+		// The byte promise, and the one claim `tools/probe-photo-lightbox.mjs` cannot make any
+		// more: it serves its photographs from an origin of its own, and `originalStayPhoto`
+		// only reverses an address on a provider's own host. jsdom runs no layout, which does
+		// not matter here, because a zoom with no measurable box still raises the scale and the
+		// scale is what decides this.
+		const card =
+			'https://a.hwstatic.com/image/upload/c_limit,w_800,f_auto,q_auto/v1/propertyimages/5/527/x.jpg';
+		render({ photos: stayPhotos(property({ images: [card] }), []) });
+		expand().click();
+		flushSync();
+		expect(target!.querySelector('.lightbox-full')).toBeNull();
+
+		const stage = target!.querySelector('.lightbox-stage')!;
+		stage.dispatchEvent(new WheelEvent('wheel', { deltaY: -400, bubbles: true, cancelable: true }));
+		flushSync();
+		const full = target!.querySelector<HTMLImageElement>('.lightbox-full');
+		// The address Hostelworld published, which is the 2.8 MB original the card rewrite
+		// exists to avoid drawing until somebody asks to look closely.
+		expect(full?.getAttribute('src')).toBe('https://a.hwstatic.com/propertyimages/5/527/x.jpg');
 	});
 
 	it('marks the room photograph as the room, on the card and in the dialog', () => {
