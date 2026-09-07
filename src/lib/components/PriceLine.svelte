@@ -77,9 +77,27 @@
 	 * What did NOT change: the estimate is still outside `totalPrice`, `costIsUnknown`
 	 * still returns true for it, and a mixed-currency total is still impossible, because
 	 * nothing converted here is a `Money` and none of it reaches `sumMoney` (issue #152).
+	 *
+	 * ## Issue #425 divides the headline, out loud
+	 *
+	 * The owner: "In Getting there from€235.60 i would like to also see how much for each
+	 * when multiple people." So a second row under the total whenever the party is more than
+	 * one, reading `€78.53 each, 3 travellers`.
+	 *
+	 * The warning on the estimated ground row below is about a line quietly changing what it
+	 * counts, with nothing on screen to say it had. This row is that case turned around, and
+	 * has to be seen to be: it divides `breakdown.total`, the number directly above it, and
+	 * it prints both the word "each" and the party it divided by, so the arithmetic is
+	 * checkable from the two figures alone. It carries `from` exactly when the headline does,
+	 * because a floor divided is still a floor.
+	 *
+	 * What it is not is a fare. `perPersonShare` (algorithm/build.ts) rounds, so three shares
+	 * of €235.60 come back to €235.59, and the total it splits contains a flat nightly room
+	 * rate nobody sells by the head. It is one bill split between the people paying it.
 	 */
 	import type { Itinerary } from '$lib/domain';
 	import { formatMoney, formatMoneyRange } from '$lib/format';
+	import { perPersonShare } from '$lib/algorithm/build';
 	import { priceBreakdown } from './itinerary-metrics';
 	import type { GroundRowCost } from './itinerary-metrics';
 
@@ -103,6 +121,16 @@
 	const isFloor = $derived(
 		breakdown.missingStay || groundRows.some((row) => row.cost.kind !== 'free' && row.cost.kind !== 'quoted')
 	);
+	/** Issue #425's row: the headline divided, with the word and the count that make the
+	 * division checkable against the figure above it. `undefined` below two travellers, where
+	 * there is no split to report and "€235.60 each, 1 traveller" is the headline said twice.
+	 * Built here rather than in the markup so the rendered string has no wrapped whitespace
+	 * in the middle of it. */
+	const shareEach = $derived(
+		itinerary.travellers > 1
+			? `${formatMoney(perPersonShare(breakdown.total, itinerary.travellers))} each, ${itinerary.travellers} travellers`
+			: undefined
+	);
 	/** A one-line breakdown is not shown: "Flights €229.00" directly under "€229.00" is a
 	 * row that carries nothing. The hotel group counts as a second block, and the ground
 	 * rows are independent of the test, because they are the one thing the total genuinely
@@ -125,6 +153,15 @@
 			     as one figure rather than announcing a total and a stray preposition. -->
 			{#if isFloor}<span class="price-from">from</span>{/if}{formatMoney(breakdown.total)}
 		</span>
+		{#if shareEach}
+			<!-- One element again, for the reason above and one more: "each" and the count belong
+			     to the figure they qualify, and a screen reader announcing the share on its own
+			     would be reading out exactly the unlabelled per-person number this row exists to
+			     avoid being. -->
+			<span class="price-each font-mono tabular-nums"
+				>{#if isFloor}<span class="price-from">from</span>{/if}{shareEach}</span
+			>
+		{/if}
 	</p>
 	{#if hasRows}
 		<ul class="price-parts">
@@ -261,6 +298,20 @@
 		font-size: var(--font-size-xs);
 		font-weight: var(--font-weight-medium);
 		letter-spacing: var(--tracking-wide);
+		color: var(--color-text-muted);
+	}
+
+	/* Issue #425's share. `flex-basis: 100%` puts it on its own row of the headline's wrap
+	   rather than beside the total, and the right edge is where it belongs: it is the same
+	   money as the figure above it, so it reads down the same column the receipt's amounts
+	   do. Sized and coloured like those rows rather than like the total, because a second
+	   number in the headline's weight would read as a second price. */
+	.price-each {
+		flex-basis: 100%;
+		text-align: right;
+		font-size: var(--font-size-xs);
+		line-height: var(--line-height-xs);
+		font-weight: var(--font-weight-medium);
 		color: var(--color-text-muted);
 	}
 
