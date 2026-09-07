@@ -115,6 +115,14 @@ const REFUSAL: FareEstimate = {
 	citation: 'London black-cab Tariff 1'
 };
 
+const TOO_SHORT: FareEstimate = {
+	kind: 'below-range',
+	distanceKm: 3.2,
+	ratedFromKm: 25,
+	countryCode: 'GB',
+	citation: 'National Express 025 and the Gatwick Express'
+};
+
 describe('groundFare', () => {
 	it('reads a walk as free rather than as a fare nobody gave', () => {
 		expect(groundFare(transfer('walk'))).toEqual({ kind: 'free' });
@@ -148,6 +156,15 @@ describe('groundFare', () => {
 			refusal: REFUSAL
 		});
 		expect(groundFare(transfer('taxi'))).toEqual({ kind: 'unquoted' });
+	});
+
+	it('keeps the two refusals apart, because they read as opposite sentences', () => {
+		// Issue #421. Both mean "no fare here", and a caller that collapsed them would tell a
+		// traveller three kilometres from Gatwick that their ride is too long to price.
+		expect(groundFare(transfer('transit', { fareEstimate: TOO_SHORT }))).toEqual({
+			kind: 'under-rate-card',
+			refusal: TOO_SHORT
+		});
 	});
 
 	it('never estimates a bus, because Transitous quotes no fares at all', () => {
