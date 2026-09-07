@@ -84,8 +84,13 @@ export type TransferAnchor = 'stay' | 'city-centre' | 'unrouted-stay';
 /**
  * Issue #1: "Itinerary — the full chain, exactly the schedule listed in the brief."
  * Field order mirrors the brief's schedule, lines 44-53.
+ *
+ * Everything the connection itself is made of lives in `ItineraryConnection` below rather
+ * than here, because those five fields are the ones that come and go together. They slot
+ * into the schedule between `outboundFlight` and `connectionWaitingTime`, which is where a
+ * reader following the brief will look for them.
  */
-export interface Itinerary {
+interface ItineraryBase {
 	/** Line 44. Optional because "Origin location" itself is an optional input
 	 * (line 29). */
 	originLocation?: Location;
@@ -96,43 +101,11 @@ export interface Itinerary {
 	originWaitingTime: Duration;
 	/** Line 47 ("Fight" in the brief is a typo for "Flight"). */
 	outboundFlight: FlightOffer;
-	/** Line 48. Present only alongside `stay` — see that field's own doc comment. */
-	transferToHotel?: Transfer;
-	/** The bed booked for the free-time stretch below, or `undefined` when no stay
-	 * provider had a key configured, every one errored or was out of quota, or nothing
-	 * bookable by this party was found nearby (issue #94). A missing stay is not a
-	 * missing itinerary: flights, free time and transfers still stand on their own, per
-	 * AGENTS.md ("partial results are the normal case... say what you do not know").
-	 * Neither this field nor `transferToHotel`/`transferToConnectionAirport` implies the
-	 * other any more: issue #161 gave the transfers a second destination (the city centre)
-	 * so they can exist without a bed, and issue #211 stopped deleting a priced bed that no
-	 * transfer provider could route to, so a bed can exist without them. `totalPrice`
-	 * never guesses a stay cost when this is `undefined`; a caller must render that
-	 * plainly rather than let the total read as complete. `nightsInConnection` below is
-	 * NOT gated on this field (issue #105) — a stopover's night count comes from the
-	 * flight schedule alone, not from whether a bed got priced for it. */
-	stay?: Stay;
-	/** Line 49. */
+	/* Lines 48, 50 and 60, the connection itself, are in `ItineraryConnection` below. */
+	/** Line 49, and zero-length on a connection the traveller never leaves the airport for
+	 * — `ItineraryConnection`'s airside arm carries that gap as `airsideWait` instead, so
+	 * this number and `times.free` say the same thing about the same trip. */
 	freeTime: FreeTime;
-	/** Line 60: hotel nights, which is not free time divided by 24 — a stopover that
-	 * starts and ends on the same calendar day is zero nights even if it runs 20 hours,
-	 * and a stay spanning two midnights is two nights even on a short layover.
-	 *
-	 * Issue #231: nights the traveller would sleep, not midnights the clock passed. A
-	 * window from 11pm to 5am crosses a date boundary and is worth nobody's room rate, so
-	 * it reads zero and the card calls it an overnight wait. `algorithm/nights.ts` owns
-	 * that rule and the argument for its six-hour floor; `freeTime` above still carries
-	 * the real window, so nothing hides the date change from the traveller.
-	 *
-	 * Issue #105: computed from `freeTime` alone (`algorithm/nights.ts`'s `nightsToPayFor`),
-	 * regardless of whether `stay` above is `undefined`. A 12-night stopover is 12
-	 * calendar nights whether or not any provider ever priced a bed for it — the
-	 * product thesis ("three nights in Vienna for free") has to rank on that fact even
-	 * for a search with no stay-provider key configured, which is every first-time
-	 * visitor's default state. `stay` being absent means no *priced* bed, never that
-	 * the stopover itself didn't happen; `totalPrice` above is what stays honest about
-	 * the unpriced part, not this field. */
-	nightsInConnection: number;
 	/** Issue #106: the party size `totalPrice` was computed for. `outboundFlight.price`
 	 * and `onwardFlight.price` each scale to this count through that offer's OWN
 	 * `FlightOffer.priceScope` (issue #109, `algorithm/build.ts`'s `scaleFareForParty`) —
@@ -156,12 +129,6 @@ export interface Itinerary {
 	 * rather than a `Money`, `costIsUnknown` still returns true for the leg carrying it,
 	 * and `totalPrice` above is still only what providers quoted. */
 	travellers: number;
-	/** Line 50. Present only alongside `stay` — see that field's own doc comment. */
-	transferToConnectionAirport?: Transfer;
-	/** What the two connection-side legs above are journeys to, or why the trip has none.
-	 * See `TransferAnchor`. `undefined` when nobody ever routed them: no destination to
-	 * route to, or every transfer provider failed. */
-	transferAnchor?: TransferAnchor;
 	/** Line 51. */
 	connectionWaitingTime: Duration;
 	/** Line 52. */
@@ -184,6 +151,128 @@ export interface Itinerary {
 	totalPrice: Money;
 	times: ItineraryTimes;
 }
+
+/**
+ * The half of a connection that follows from the two flights and the buffers around them.
+ * `algorithm/build.ts` derives this; the bed and the two journeys to it come from the
+ * search, and `ItineraryConnection` below is what ties the two halves together.
+ */
+export type ConnectionSchedule = AirsideSchedule | StopoverSchedule;
+
+interface AirsideSchedule {
+	/**
+	 * Landing to the onward departure, whole, spent in the terminal. Issue #426.
+	 *
+	 * Not the same as `times.connectionAirportWaiting` reduced to a duration: the two edges
+	 * are what a surface prints ("Waiting at OPO, 9:20pm to 4:10am") and what
+	 * `algorithm/nights.ts` reads to say a wait crosses a night.
+	 *
+	 * `freeTime` on such a trip is an empty window at the landing moment, because none of
+	 * this is free. Both numbers agree, which they did not before: the card read
+	 * `FREE TIME No full days` beside `AIRPORT WAIT 4h` about one four-hour gap.
+	 */
+	airsideWait: FreeTime;
+	/** Zero, and typed as zero. A trip with a night in it is the other arm. */
+	nightsInConnection: 0;
+}
+
+interface StopoverSchedule {
+	airsideWait?: undefined;
+	/** Line 60: hotel nights, which is not free time divided by 24 — a stopover that
+	 * starts and ends on the same calendar day is zero nights even if it runs 20 hours,
+	 * and a stay spanning two midnights is two nights even on a short layover.
+	 *
+	 * Issue #231: nights the traveller would sleep, not midnights the clock passed. A
+	 * window from 11pm to 5am crosses a date boundary and is worth nobody's room rate, so
+	 * it reads zero and the card calls it an overnight wait. `algorithm/nights.ts` owns
+	 * that rule and the argument for its six-hour floor. Since issue #426 a count of zero
+	 * puts the trip in the airside arm above rather than leaving it here with a bed and two
+	 * rides it does not use, so this number is one or more on anything the builder emits.
+	 *
+	 * It stays a plain `number` rather than a type that excludes zero, because one pick can
+	 * still land here at zero: a ride back longer than the layover, which
+	 * `recomputeItinerarySelection` returns with an `insufficient-connection-time` warning
+	 * rather than reshaping, so the row the traveller is picking in does not vanish under
+	 * their hand. Every such trip carries that warning.
+	 *
+	 * Issue #105: computed from `freeTime` alone (`algorithm/nights.ts`'s `nightsToPayFor`),
+	 * regardless of whether `stay` below is `undefined`. A 12-night stopover is 12
+	 * calendar nights whether or not any provider ever priced a bed for it — the
+	 * product thesis ("three nights in Vienna for free") has to rank on that fact even
+	 * for a search with no stay-provider key configured, which is every first-time
+	 * visitor's default state. `stay` being absent means no *priced* bed, never that
+	 * the stopover itself didn't happen; `totalPrice` is what stays honest about
+	 * the unpriced part, not this field. */
+	nightsInConnection: number;
+}
+
+/**
+ * The connection, in the two shapes it can have. Issue #426.
+ *
+ * The owner, on a card offering him a ride into a city he never reaches:
+ *
+ * > when a itinerary has 0 nights, the timeline still shows the transport time to the
+ * > imaginary hotel that we never go to and also the waiting time at the airport that
+ * > we're already at... it makes no sense. when 0 nights we assume the user stays at the
+ * > airport, this means that the change has to be codewise, not just in 1 or 2 places.
+ *
+ * A stopover with no night is not a stay with the nights set to zero. It is a different
+ * journey: land, wait in the terminal, board again. So it is a different shape, and the two
+ * do not share a field between them that only one of them means.
+ *
+ * `airsideWait` is the discriminant, and it is present exactly when the traveller never
+ * leaves the airport. Narrow on it and TypeScript knows the rest: no bed, neither ride,
+ * nothing for an anchor to name, and a night count of zero. Which is the point. Issue #365
+ * fixed this at the one call site that built an itinerary, and it came back because two
+ * more call sites build one (a waiting-time edit and a picker swap) and neither knew.
+ * A screen cannot render a ride that the type will not let anybody put on the object.
+ *
+ * ## Why the count is not the discriminant
+ *
+ * `nightsInConnection === 0` is the rule, but a number cannot narrow a union: `0` is
+ * assignable to `number`, so a check against it leaves both arms standing and every screen
+ * back to remembering the case by hand. The window the traveller actually spends in the
+ * terminal has to exist somewhere anyway — `overnightWaitNote` and `waitsOvernight` both
+ * need its two edges — so it is the field that says which trip this is.
+ */
+export type ItineraryConnection =
+	| (AirsideSchedule & {
+			stay?: undefined;
+			transferToHotel?: undefined;
+			transferToConnectionAirport?: undefined;
+			transferAnchor?: undefined;
+	  })
+	| (StopoverSchedule & {
+			/** Line 48. Present only alongside `stay` — see that field's own doc comment. */
+			transferToHotel?: Transfer;
+			/** The bed booked for the free-time stretch, or `undefined` when no stay
+			 * provider had a key configured, every one errored or was out of quota, or nothing
+			 * bookable by this party was found nearby (issue #94). A missing stay is not a
+			 * missing itinerary: flights, free time and transfers still stand on their own, per
+			 * AGENTS.md ("partial results are the normal case... say what you do not know").
+			 * Neither this field nor `transferToHotel`/`transferToConnectionAirport` implies the
+			 * other any more: issue #161 gave the transfers a second destination (the city centre)
+			 * so they can exist without a bed, and issue #211 stopped deleting a priced bed that no
+			 * transfer provider could route to, so a bed can exist without them. `totalPrice`
+			 * never guesses a stay cost when this is `undefined`; a caller must render that
+			 * plainly rather than let the total read as complete. `nightsInConnection` is
+			 * NOT gated on this field (issue #105). */
+			stay?: Stay;
+			/** Line 50. Present only alongside `stay` — see that field's own doc comment. */
+			transferToConnectionAirport?: Transfer;
+			/** What the two connection-side legs are journeys to, or why the trip has none.
+			 * See `TransferAnchor`. `undefined` when nobody ever routed them: no destination to
+			 * route to, or every transfer provider failed. */
+			transferAnchor?: TransferAnchor;
+	  });
+
+/** The trip a traveller never leaves the connection airport for. */
+export type AirsideItinerary = ItineraryBase & Extract<ItineraryConnection, { airsideWait: FreeTime }>;
+
+/** The trip with a stopover in it, whether or not a bed was priced for the stopover. */
+export type CityStopoverItinerary = ItineraryBase & Extract<ItineraryConnection, { airsideWait?: undefined }>;
+
+export type Itinerary = AirsideItinerary | CityStopoverItinerary;
 
 /** Which of an itinerary's four ground legs a statement is about, named exactly as the
  * fields above so nothing can map one onto the wrong leg. */
@@ -221,7 +310,7 @@ export interface UnpricedTransfer {
  * Takes the four legs rather than a whole `Itinerary` so a caller can ask about legs it
  * has resolved but not yet assembled into one.
  */
-export function unpricedTransferLegs(legs: Pick<Itinerary, ItineraryTransferLeg>): UnpricedTransfer[] {
+export function unpricedTransferLegs(legs: Pick<CityStopoverItinerary, ItineraryTransferLeg>): UnpricedTransfer[] {
 	const unpriced: UnpricedTransfer[] = [];
 	for (const leg of TRANSFER_LEGS_IN_TRIP_ORDER) {
 		const transfer = legs[leg];
@@ -250,10 +339,20 @@ export function unpricedTransferLegs(legs: Pick<Itinerary, ItineraryTransferLeg>
  * shape nobody here has seen, and reporting it as "no changes" would be this app inventing
  * an answer. AGENTS.md, "When the data is missing": say what you do not know.
  *
+ * A trip the traveller never leaves the connection airport for reads `0` on the same rule,
+ * and that is an answer rather than a silence. Issue #426 gave that trip its own arm of the
+ * union, where `transferToHotel` and `transferToConnectionAirport` are typed `undefined`,
+ * so the sum here is whatever the origin and destination rides come to, and nothing at all
+ * when the traveller has neither. Landing, waiting at the gate and boarding again is no
+ * changes, and the "No changes" chip has to contain it.
+ *
  * Derived rather than stored, and taking the four legs rather than a whole `Itinerary`, for
- * the same two reasons `unpricedTransferLegs` above does both.
+ * the same two reasons `unpricedTransferLegs` above does both. It names the stopover arm
+ * for the same reason those two do. That arm types the pair of connection-side legs as
+ * `Transfer | undefined`, and every `AirsideItinerary` satisfies it with its own two
+ * `undefined`s, so one signature reads both shapes and no caller has to narrow first.
  */
-export function itineraryChanges(legs: Pick<Itinerary, ItineraryTransferLeg>): number | undefined {
+export function itineraryChanges(legs: Pick<CityStopoverItinerary, ItineraryTransferLeg>): number | undefined {
 	let changes = 0;
 	for (const leg of TRANSFER_LEGS_IN_TRIP_ORDER) {
 		const transfer = legs[leg];
@@ -285,7 +384,7 @@ export function itineraryChanges(legs: Pick<Itinerary, ItineraryTransferLeg>): n
  * provider ever quotes a shuttle as a walk, its money belongs in the priced total rather
  * than in a list whose whole claim is that these legs are free.
  */
-export function walkedTransferLegs(legs: Pick<Itinerary, ItineraryTransferLeg>): ItineraryTransferLeg[] {
+export function walkedTransferLegs(legs: Pick<CityStopoverItinerary, ItineraryTransferLeg>): ItineraryTransferLeg[] {
 	return TRANSFER_LEGS_IN_TRIP_ORDER.filter((leg) => {
 		const transfer = legs[leg];
 		return transfer?.mode === 'walk' && transfer.price === undefined;

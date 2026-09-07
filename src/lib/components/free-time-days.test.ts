@@ -180,6 +180,7 @@ describe('zero whole days', () => {
 describe('freeTimeCount', () => {
 	it('counts the days when the stopover has free time to count', () => {
 		const itinerary = makeItinerary({
+			nightsInConnection: 2,
 			freeTimeStart: '2026-10-09T21:10:00',
 			freeTimeEnd: '2026-10-12T09:05:00',
 			freeTimeMinutes: 3595

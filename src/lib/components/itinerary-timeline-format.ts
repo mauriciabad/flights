@@ -474,13 +474,16 @@ export function unroutedLegNote(
 			// same-day is the app describing a different journey from the one they are on.
 			//
 			// Above `unrouted-stay` and no longer conditioned on there being no bed at all,
-			// both since issue #365. A nightless stopover can carry a bed the search quoted
-			// and did not book, and `build.ts` takes the two legs off it precisely BECAUSE
-			// no night is spent here. Saying "nothing routed to this property" there blames a
-			// transport provider for a decision this app made, which is the same wrong-cause
-			// sentence AGENTS.md keeps having to remove. Measured on the owner's own card:
-			// "The bed is priced, but no transport provider could route to it", printed over
-			// a metro route the app had found and then correctly discarded.
+			// both since issue #365. Saying "nothing routed to this property" on a trip that
+			// books no night blames a transport provider for a decision this app made, which
+			// is the same wrong-cause sentence AGENTS.md keeps having to remove. Measured on
+			// the owner's own card: "The bed is priced, but no transport provider could route
+			// to it", printed over a metro route the app had found and then discarded.
+			//
+			// Issue #426 left this reachable for one trip only: a connection buffer edited
+			// past the length of the layover, which `deriveTrip` returns as picked rather
+			// than reshaping (the row the traveller is editing must not vanish under them).
+			// An ordinary nightless connection no longer draws a hotel row at all.
 			return context.overnightWait
 				? 'Overnight wait, so there is no hotel leg here.'
 				: 'Same-day connection, so there is no hotel leg here.';

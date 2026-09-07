@@ -199,10 +199,14 @@ export function nightsToPayFor(start: LocalDateTime, end: LocalDateTime): number
  * So the wording reads the calendar and the night count instead. No night booked and a
  * midnight crossed is a traveller awake in a terminal, whatever the threshold that decided
  * they were not buying a bed for it.
+ *
+ * Issue #426 gave that window a name. `airsideWait` runs landing to boarding again, which is
+ * the stretch the traveller is actually awake for, and it is present on exactly the trips
+ * this question is about. `freeTime` on one of them is an empty window at the landing
+ * moment, so reading it here would say every overnight wait is a same-day connection.
  */
-export function waitsOvernight(
-	itinerary: Pick<Itinerary, 'nightsInConnection' | 'freeTime'>
-): boolean {
-	if (itinerary.nightsInConnection > 0) return false;
-	return nightsBetween(itinerary.freeTime.start, itinerary.freeTime.end) >= 1;
+export function waitsOvernight(itinerary: Pick<Itinerary, 'airsideWait'>): boolean {
+	const wait = itinerary.airsideWait;
+	if (!wait) return false;
+	return nightsBetween(wait.start, wait.end) >= 1;
 }

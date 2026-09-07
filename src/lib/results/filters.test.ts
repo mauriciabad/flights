@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Duration, Transfer } from '$lib/domain';
+import { itineraryChanges } from '$lib/domain';
 import { applyFilters, deriveFilterOptions, emptyFilters, isEmptyFilters } from './filters';
 import { makeScoredResult } from './test-support';
 
@@ -88,8 +89,10 @@ describe('applyFilters', () => {
 	});
 
 	it('filters by minimum free time', () => {
-		const short = makeScoredResult({ freeTimeMinutes: 60 });
-		const long = makeScoredResult({ freeTimeMinutes: 600 });
+		// A night each, since issue #426: a trip with none has no free time to filter on, it
+		// has a wait at the airport.
+		const short = makeScoredResult({ nightsInConnection: 1, freeTimeMinutes: 60 });
+		const long = makeScoredResult({ nightsInConnection: 1, freeTimeMinutes: 600 });
 
 		const filtered = applyFilters([short, long], { ...emptyFilters(), minFreeTimeMinutes: 300 });
 
@@ -169,16 +172,16 @@ describe('applyFilters', () => {
 
 	it('keeps every change count when none is chosen', () => {
 		// Empty means all, the same promise the two rails above make. Issue #424.
-		const direct = makeScoredResult({ transferToHotel: transitTransfer(1) });
-		const twoChanges = makeScoredResult({ transferToHotel: transitTransfer(3) });
+		const direct = makeScoredResult({ nightsInConnection: 1, transferToHotel: transitTransfer(1) });
+		const twoChanges = makeScoredResult({ nightsInConnection: 1, transferToHotel: transitTransfer(3) });
 
 		expect(applyFilters([direct, twoChanges], emptyFilters())).toHaveLength(2);
 	});
 
 	it('keeps only the chosen change count', () => {
 		// The promise the chip's own count makes: "No changes (1)" must leave one.
-		const direct = makeScoredResult({ transferToHotel: transitTransfer(1) });
-		const oneChange = makeScoredResult({ transferToHotel: transitTransfer(2) });
+		const direct = makeScoredResult({ nightsInConnection: 1, transferToHotel: transitTransfer(1) });
+		const oneChange = makeScoredResult({ nightsInConnection: 1, transferToHotel: transitTransfer(2) });
 
 		const filtered = applyFilters([direct, oneChange], {
 			...emptyFilters(),
@@ -190,6 +193,7 @@ describe('applyFilters', () => {
 
 	it('adds the two ground legs up before matching, so one change each is two changes', () => {
 		const oneEachWay = makeScoredResult({
+			nightsInConnection: 1,
 			transferToHotel: transitTransfer(2),
 			transferToConnectionAirport: transitTransfer(2)
 		});
@@ -203,20 +207,34 @@ describe('applyFilters', () => {
 	});
 
 	it('counts a walked trip as no changes rather than excluding it from the easy end', () => {
-		// The fixture's default legs are walks. Somebody asking for the trips with no
-		// changes wants this one most of all, so `undefined` here would be the filter
+		// A stopover, whose two default legs are walks. Somebody asking for the trips with
+		// no changes wants this one most of all, so `undefined` here would be the filter
 		// hiding the best answer to its own question.
-		const walked = makeScoredResult();
+		const walked = makeScoredResult({ nightsInConnection: 1 });
 
 		expect(
 			applyFilters([walked], { ...emptyFilters(), chosenChangeCounts: new Set([0]) })
 		).toHaveLength(1);
 	});
 
+	it('puts a trip nobody leaves the airport for in the no-changes set', () => {
+		// Issue #426 gave that trip its own arm of the union, where `transferToHotel` and
+		// `transferToConnectionAirport` are typed `undefined`. No bed, so no ride to one, so
+		// two of the four legs the count is made of do not exist. That is zero changes rather
+		// than an unknown number of them. A traveller who lands, waits at the gate and boards
+		// again changes vehicle no times, and the "No changes" chip has to hold that trip.
+		const airside = makeScoredResult({ nightsInConnection: 0 });
+
+		expect(itineraryChanges(airside.itinerary)).toBe(0);
+		expect(
+			applyFilters([airside], { ...emptyFilters(), chosenChangeCounts: new Set([0]) })
+		).toHaveLength(1);
+	});
+
 	it('never hides an itinerary whose changes it cannot measure', () => {
 		// This app cannot count them, and hiding what it cannot measure answers the
 		// traveller with silence about a trip that might be the one they want.
-		const unmeasurable = makeScoredResult({ transferToHotel: UNMEASURABLE });
+		const unmeasurable = makeScoredResult({ nightsInConnection: 1, transferToHotel: UNMEASURABLE });
 
 		expect(
 			applyFilters([unmeasurable], { ...emptyFilters(), chosenChangeCounts: new Set([0]) })
@@ -280,9 +298,9 @@ describe('deriveFilterOptions', () => {
 		// Two one-change trips against one direct one: sorted by frequency the rail would
 		// open on "1 change", and the traveller looking for the easy end would have to
 		// re-sort it by eye. Issue #424.
-		const direct = makeScoredResult({ transferToHotel: transitTransfer(1) });
-		const oneChangeA = makeScoredResult({ transferToHotel: transitTransfer(2) });
-		const oneChangeB = makeScoredResult({ transferToHotel: transitTransfer(2) });
+		const direct = makeScoredResult({ nightsInConnection: 1, transferToHotel: transitTransfer(1) });
+		const oneChangeA = makeScoredResult({ nightsInConnection: 1, transferToHotel: transitTransfer(2) });
+		const oneChangeB = makeScoredResult({ nightsInConnection: 1, transferToHotel: transitTransfer(2) });
 
 		expect(deriveFilterOptions([oneChangeA, direct, oneChangeB]).changeCounts).toEqual([
 			{ value: 0, count: 1 },
@@ -292,6 +310,7 @@ describe('deriveFilterOptions', () => {
 
 	it('counts a trip once, across both of its ground legs', () => {
 		const oneEachWay = makeScoredResult({
+			nightsInConnection: 1,
 			transferToHotel: transitTransfer(2),
 			transferToConnectionAirport: transitTransfer(2)
 		});
@@ -302,8 +321,8 @@ describe('deriveFilterOptions', () => {
 	it('gives an unmeasurable itinerary no chip of its own', () => {
 		// `passesFilters` never hides it, so a chip standing for it would be a choice that
 		// changes nothing on screen.
-		const unmeasurable = makeScoredResult({ transferToHotel: UNMEASURABLE });
-		const direct = makeScoredResult({ transferToHotel: transitTransfer(1) });
+		const unmeasurable = makeScoredResult({ nightsInConnection: 1, transferToHotel: UNMEASURABLE });
+		const direct = makeScoredResult({ nightsInConnection: 1, transferToHotel: transitTransfer(1) });
 
 		expect(deriveFilterOptions([unmeasurable, direct]).changeCounts).toEqual([
 			{ value: 0, count: 1 }

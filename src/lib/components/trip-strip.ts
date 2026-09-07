@@ -363,6 +363,11 @@ export function tripStrip(itinerary: Itinerary): TripStrip {
 			end: layover.atAirport
 		});
 	}
+	// Issue #426: one cell over the whole layover when the traveller never leaves the
+	// terminal. `layover.airportWait` is the residual after the ride back, and on a trip with
+	// no ride back it would leave the hours between landing and the check-in deadline as bare
+	// track, which is the strip drawing a gap where the traveller is standing.
+	const connectionWait = itinerary.airsideWait;
 	parts.push({
 		kind: 'wait',
 		airport: onwardFlight.departureAirport,
@@ -370,8 +375,8 @@ export function tripStrip(itinerary: Itinerary): TripStrip {
 		// `layover.airportWait`, which is what `times.connectionAirportWaiting` is built from,
 		// rather than the stored field: every other cell here comes off this one call, and a
 		// strip that mixed a stored number with a derived one is the drift this issue is about.
-		minutes: layover.airportWait,
-		start: layover.atAirport,
+		minutes: connectionWait ? connectionWait.duration : layover.airportWait,
+		start: connectionWait ? connectionWait.start : layover.atAirport,
 		end: onwardFlight.departure
 	});
 	const onwardIndex = parts.length;

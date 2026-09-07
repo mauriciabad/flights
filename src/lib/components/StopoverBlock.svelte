@@ -57,11 +57,10 @@
 	 *
 	 * ## The stay half has three states, not two
 	 *
-	 * A bed, no bed priced for a real night, and — since issue #231 — a stopover that
-	 * crosses a midnight it is too short to sleep through. The third one prints the wait
-	 * and its length instead of a property, because the two time lines above it plainly
-	 * show a date change and "no night spent here" beside them would read as a bug rather
-	 * than as the answer.
+	 * A bed, no bed priced for a real night, and — since issue #426 — a connection the
+	 * traveller never leaves the airport for. That third one prints when the wait starts,
+	 * how long it is and when it ends, then the reason nothing is booked; it has no bed and
+	 * no journey to one to describe, because the itinerary carries neither.
 	 *
 	 * ## Issue #227
 	 *
@@ -71,7 +70,7 @@
 	 */
 	import type { Coordinates, Itinerary } from '$lib/domain';
 	import { transferRideDuration } from '$lib/domain';
-	import { formatDuration, formatMoney } from '$lib/format';
+	import { formatClockTime, formatDuration, formatMoney, formatWeekdayAndDay } from '$lib/format';
 	import { overnightWaitNote } from '$lib/results/stopover-nights';
 	import {
 		bedNightlyRate,
@@ -113,6 +112,10 @@
 	// `undefined` for a window with no length: a same-day change whose whole gap is eaten
 	// by the waiting rule and the transfers. Three lines about nothing is worse than none.
 	const days = $derived(freeTimeDays(itinerary.freeTime.start, itinerary.freeTime.end));
+	// Issue #426: set when the traveller never leaves the terminal, and the whole block then
+	// describes that wait instead of days in a city. Reading it here rather than testing the
+	// night count is what stops this block and the timeline drawing two different trips.
+	const airsideWait = $derived(itinerary.airsideWait);
 	const nights = $derived(itinerary.nightsInConnection);
 	const stay = $derived(itinerary.stay);
 	const toHotel = $derived(itinerary.transferToHotel);
@@ -223,7 +226,21 @@
 	     the outline. The `aria-label` above is what names this block. -->
 	<p class="stopover-label font-mono">{connectionLabel}</p>
 
-	{#if days}
+	{#if airsideWait}
+		<!-- Issue #426. The same three-line shape #228 settled, saying the one thing that is
+		     true of this trip: when the traveller lands, that they are in the terminal until
+		     they board, and when that is. It used to print the two edges of a "free time"
+		     window that is a departures hall, over a heading naming a city nobody reaches. -->
+		<p class="stopover-edge font-mono tabular-nums">
+			{formatWeekdayAndDay(airsideWait.start)} from {formatClockTime(airsideWait.start)}
+		</p>
+		<p class="stopover-days">
+			Waiting at {itinerary.outboundFlight.arrivalAirport}, {formatDuration(airsideWait.duration)}
+		</p>
+		<p class="stopover-edge font-mono tabular-nums">
+			{formatWeekdayAndDay(airsideWait.end)} until {formatClockTime(airsideWait.end)}
+		</p>
+	{:else if days}
 		<p class="stopover-edge font-mono tabular-nums">{days.from}</p>
 		<p class="stopover-days">{days.fullDays}</p>
 		<p class="stopover-edge font-mono tabular-nums">{days.until}</p>
@@ -242,11 +259,16 @@
 	{/if}
 
 	<div class="stopover-stay">
-		<!-- `nights > 0` as well as `stay`, since issue #231: a stopover can carry a priced
-		     bed it does not need. Naming the property under a trip that books nothing would
-		     put a hostel and no rate on the card and leave the reader to work out which of
-		     the two they are being told. -->
-		{#if stay && bedRate && nights > 0}
+		<!-- Issue #426: no bed and no journey to one, because there is neither. The sentence
+		     that stays is the reason nothing is priced, which is the one thing the three lines
+		     above do not say. "Overnight wait, so there is no hotel leg here" went with the
+		     leg: a trip in a terminal has no hotel leg to be missing. -->
+		{#if airsideWait}
+			<p class="stopover-room">{noBedLine}</p>
+		<!-- Since issue #426 a trip with no night carries no bed at all, so `stay` is the whole
+		     question again: `nights > 0` was the guard that let this block hold a quote for a
+		     room nobody was booking, and the model no longer offers it one. -->
+		{:else if stay && bedRate}
 			<!-- Keyed on the property so a swap rebuilds the block rather than reusing it.
 			     `PickedBed` counts which photograph the reader has reached, and carrying
 			     that count over to a different hostel would open the new one on its second

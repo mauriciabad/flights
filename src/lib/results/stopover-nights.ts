@@ -74,9 +74,12 @@ export function stopoverLengthLabelFor(itinerary: Itinerary): string {
  * that is not one, so a caller can render this or nothing without asking twice.
  */
 export function overnightWaitNote(itinerary: Itinerary): string | undefined {
-	if (itinerary.nightsInConnection > 0) return undefined;
-	if (!waitsOvernight(itinerary)) return undefined;
-	return `Overnight wait, ${formatDuration(itinerary.freeTime.duration)}, too short to be worth a bed`;
+	// Issue #426: the wait itself, not the free-time window, which on one of these trips is
+	// empty by construction. `airsideWait` is only ever set on a connection with no night in
+	// it, so `waitsOvernight` above has already answered both halves of the old condition.
+	const wait = itinerary.airsideWait;
+	if (!wait || !waitsOvernight(itinerary)) return undefined;
+	return `Overnight wait, ${formatDuration(wait.duration)}, too short to be worth a bed`;
 }
 
 /** Which flights a longer stopover had to reach for. Both change when a city's next

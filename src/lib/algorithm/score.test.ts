@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type {
 	Airport,
 	Carrier,
+	CityStopoverItinerary,
 	Duration,
 	FlightOffer,
 	FreeTime,
@@ -155,7 +156,7 @@ function twoHourLayover(flightCarrier: Carrier = carrier('AB', 'Air Baseline')):
  * free time) is identical to twoHourLayover above, isolating nights + usable free time as
  * the only meaningful difference.
  */
-function threeNightStopover(flightCarrier: Carrier = carrier('AB', 'Air Baseline')): Itinerary {
+function threeNightStopover(flightCarrier: Carrier = carrier('AB', 'Air Baseline')): CityStopoverItinerary {
 	return {
 		originAirport,
 		originWaitingTime: 120 as Duration,

@@ -11,12 +11,14 @@
 import type {
 	Airport,
 	AirportSizeClass,
+	CityStopoverItinerary,
 	Duration,
 	FlightLengthClass,
 	FlightOffer,
 	FreeTime,
 	IataAirportCode,
 	Itinerary,
+	ItineraryConnection,
 	ItineraryTimes,
 	LocalDateTime,
 	Location,
@@ -168,14 +170,14 @@ export function perPersonShare(total: Money, people: number): Money {
 
 /**
  * The parts of a trip somebody chooses. Everything else about an itinerary follows from
- * these by arithmetic, and `deriveItinerary` below is the only place that arithmetic
+ * these by arithmetic, and `deriveTrip` below is the only place that arithmetic
  * lives.
  *
  * `Pick<Itinerary, ...>` rather than a shape of its own, so a field can never be named one
  * thing here and another on the itinerary it rebuilds.
  */
 export type ItineraryParts = Pick<
-	Itinerary,
+	CityStopoverItinerary,
 	| 'outboundFlight'
 	| 'onwardFlight'
 	| 'originWaitingTime'
@@ -188,8 +190,11 @@ export type ItineraryParts = Pick<
 	| 'transferToDestinationLocation'
 >;
 
-/** What follows from `ItineraryParts`, and nothing an editor is allowed to set by hand. */
-export type DerivedItinerary = Pick<Itinerary, 'freeTime' | 'nightsInConnection' | 'totalPrice' | 'times'>;
+/** What follows from `ItineraryParts`, and nothing an editor is allowed to set by hand.
+ *
+ * Issue #426 added `airsideWait`, which is derived like the rest: nothing chooses whether a
+ * layover is spent in the terminal, the night count decides it. */
+export type DerivedItinerary = Pick<Itinerary, 'freeTime' | 'totalPrice' | 'times'>;
 
 /**
  * One layover, split into the pieces it is actually made of.
@@ -299,7 +304,7 @@ function liveSchedule(parts: ItineraryParts, field: TransitLegField) {
  * Both fall back to landing-plus-the-ride and deadline-minus-the-ride for a road leg, which
  * has no timetable and needs none, and for a stale one.
  *
- * Separate from `deriveItinerary` for one caller: `buildItineraries` rejects a pairing
+ * Separate from `deriveTrip` for one caller: `buildItineraries` rejects a pairing
  * whose window is negative before it totals anything, and totalling first would throw on a
  * mixed-currency pairing it was about to discard anyway.
  */
@@ -383,47 +388,31 @@ export function deriveOriginLeg(parts: ItineraryParts): OriginLeg {
 }
 
 /**
- * Every number an itinerary carries but nobody picks. One implementation, called by all
- * three paths that produce an itinerary: `buildItineraries` from a candidate pool,
- * `recomputeItineraryWaitingTimes` from a hand-edited buffer, and
- * `recomputeItinerarySelection` from a picker swap.
+ * The window, the price and the times breakdown, given a connection `deriveTrip` has already
+ * settled.
  *
- * Issue #265 is why it exists. `recomputeItinerarySelection` kept a `stay &&` on both
- * edges of the free-time window that `buildItineraries` dropped in #161, so a flight swap
- * on a bedless stopover with a routed ride into town handed back 45 more minutes of free
- * time than the builder had given the identical trip. Copying the condition across would
- * have fixed that instance and left the next divergence to be found by eye; there is now
- * nothing to copy.
+ * `airsideWait` is passed in rather than worked out here, because a night count of zero has
+ * one other cause (issue #426): a pick whose window runs backwards, which is not a traveller
+ * waiting in a terminal but a traveller being told their pick does not fit. Only `deriveTrip`
+ * can tell those apart, so only `deriveTrip` decides.
  */
-export function deriveItinerary(parts: ItineraryParts): DerivedItinerary {
-	return deriveFromNights(parts, nightsPaidFor(parts));
-}
-
-/**
- * Whether this pairing puts a night in the total.
- *
- * Issue #105: nights come from the free-time window alone, never gated on `stay`. A
- * 12-night stopover is 12 nights whether or not a bed ever got priced for it; `stay` being
- * absent only ever affects `totalPrice`.
- * Issue #231: nights the traveller would SLEEP, not midnights the clock passed. A gap from
- * 11pm to 5am crosses a date boundary and buys nobody a bed.
- * A negative window has no meaningful night count, so it reads zero rather than the
- * backwards number `nightsBetween` would subtract its way to. The caller is told about that
- * window by `freeTime.duration` itself.
- */
-function nightsPaidFor(parts: ItineraryParts): number {
-	const freeTime = deriveFreeTime(parts);
-	return freeTime.duration < 0 ? 0 : nightsToPayFor(freeTime.start, freeTime.end);
-}
-
-/** Every derived number, given an already-settled night count. Split out for `deriveTrip`,
- * which has to rebuild a trip after taking a bed off it without re-asking the question that
- * took the bed off. */
-function deriveFromNights(parts: ItineraryParts, nightsInConnection: number): DerivedItinerary {
+function deriveTotals(
+	parts: ItineraryParts,
+	nightsInConnection: number,
+	airsideWait: FreeTime | undefined
+): DerivedItinerary {
 	const { stay, transferToHotel, transferToConnectionAirport } = parts;
 	const layover = deriveLayover(parts);
 	const originLeg = deriveOriginLeg(parts);
-	const freeTime = layover.free;
+	// Issue #426: an empty window at the landing moment, which is the honest value for a trip
+	// that gives the traveller no free time at all. `airsideWait` is where its hours went.
+	const freeTime = airsideWait
+		? {
+				start: parts.outboundFlight.arrival,
+				end: parts.outboundFlight.arrival,
+				duration: 0 as Duration
+			}
+		: layover.free;
 
 	// Issue #106/#109: each flight leg scales to the party by its OWN declared `priceScope`
 	// (`scaleFareForParty`), never a blanket multiply. The stay's per-night rate is never
@@ -450,39 +439,31 @@ function deriveFromNights(parts: ItineraryParts, nightsInConnection: number): De
 		parts.transferToDestinationLocation?.price
 	);
 
-	// Issue #365, the owner on a stopover that books no night: "free time should not be free
-	// time, it should become waiting at the airport." Nothing here takes him out of the
-	// terminal, so the layover is not time in a city, it is time in a departures hall, and
-	// the card was printing AIRPORT WAIT 4h beside a night spent entirely at OPO.
-	//
-	// Both halves of the condition carry weight. A stopover with a night has somewhere to be
-	// whether or not any provider could route the ride there (issue #211's real state: a bed
-	// priced, no transfer found), so it keeps its free time. A stopover with a ride into town
-	// is issue #161's case, where free time runs from arriving in town to leaving it, and
-	// that is true with or without a bed at the end of the ride.
-	const staysAirside =
-		nightsInConnection === 0 && !transferToHotel && !transferToConnectionAirport;
-	const airsideLayover = (staysAirside ? Math.max(0, freeTime.duration) : 0) as Duration;
-
 	const times: ItineraryTimes = {
 		inFlight: sumDurations(parts.outboundFlight.duration, parts.onwardFlight.duration),
 		// Issue #368 made this the layover's residual rather than `connectionWaitingTime`.
 		// The buffer is a minimum the traveller set, and a timetable that puts them back in
 		// the terminal at 2:38am for a 6:10am flight has given them 3h 32m of it whatever the
 		// rule says. The timeline row and the trip strip both draw this one, between the
-		// stopover and the onward flight, so the airside layover below is deliberately not in
-		// it: those two surfaces already draw that stretch as its own cell.
-		connectionAirportWaiting: layover.airportWait,
+		// stopover and the onward flight.
+		//
+		// Issue #426: on an airside connection there is no stopover to sit beside, so this is
+		// the whole layover. The card used to print `2h` here against a traveller who was in
+		// the terminal for twelve, with the other ten filed under free time.
+		connectionAirportWaiting: airsideWait ? airsideWait.duration : layover.airportWait,
 		// Issue #399 made this the origin leg's residual, for the reason directly above. The
 		// last coach out of Begur that makes a 3:50am check-in puts the traveller at BCN at
 		// 11:36pm, so the 2h rule buys them 6h 14m and the row was printing the rule.
 		originAirportWaiting: originLeg.airportWait,
-		// Both real airport waits, plus a layover the traveller cannot leave the airport for.
-		// Deliberately not a layover they can: issue #13's "airport waiting time is not
-		// layover time" is about the gap a person spends in a city, and `staysAirside` above
-		// is how this tells the two apart.
-		airportWaiting: sumDurations(originLeg.airportWait, layover.airportWait, airsideLayover),
-		free: (freeTime.duration - airsideLayover) as Duration,
+		// Exactly the two waits above, which is why an airside layover cannot be counted
+		// twice: it is inside `connectionAirportWaiting` and nowhere else. Issue #13's
+		// "airport waiting time is not layover time" still holds for a layover the traveller
+		// leaves the airport for; that one is free time and this sum has none of it.
+		airportWaiting: sumDurations(
+			originLeg.airportWait,
+			airsideWait ? airsideWait.duration : layover.airportWait
+		),
+		free: freeTime.duration,
 		// Door to door, with the origin leg and the layover each taken whole. Both used to be
 		// their pieces added back up, which came to the same number only for as long as the
 		// pieces were arithmetic: issue #368 moved the stopover's closing edge to the last
@@ -499,21 +480,38 @@ function deriveFromNights(parts: ItineraryParts, nightsInConnection: number): De
 		)
 	};
 
-	return { freeTime, nightsInConnection, totalPrice, times };
+	return { freeTime, totalPrice, times };
 }
 
-/** What `deriveTrip` hands back: the parts the trip really has, every number that follows
- * from them, and the anchor those parts' two connection-side legs still describe. */
-export type DerivedTrip = ItineraryParts &
-	DerivedItinerary & {
-		/** `undefined` once the two rides come off, for the same reason `pairConnections`
-		 * drops it alongside legs discarded for a bed's currency: an anchor for legs this
-		 * trip no longer has would outlive the only thing it describes. */
-		transferAnchor?: TransferAnchor;
-	};
+/**
+ * What `deriveTrip` hands back: the parts the trip really has, every number that follows
+ * from them, and the connection those parts add up to.
+ *
+ * The connection half comes straight from `ItineraryConnection`, so this and an `Itinerary`
+ * cannot disagree about what an airside trip is allowed to carry. `transferAnchor` is in
+ * there too: `undefined` once the two rides come off, for the same reason `pairConnections`
+ * drops it alongside legs discarded for a bed's currency, because an anchor for legs this
+ * trip no longer has would outlive the only thing it describes.
+ */
+export type DerivedTrip = Omit<ItineraryParts, 'stay' | 'transferToHotel' | 'transferToConnectionAirport'> &
+	Pick<Itinerary, 'freeTime' | 'totalPrice' | 'times'> &
+	ItineraryConnection;
+
+/** Where a trip starts and ends, which is the only thing an `Itinerary` carries that a
+ * `DerivedTrip` does not: `buildItineraries` reads them off its input, and the two rebuild
+ * paths off the itinerary they are editing. */
+export type TripEnds = Pick<
+	CityStopoverItinerary,
+	'originAirport' | 'originLocation' | 'destinationAirport' | 'destinationLocation'
+>;
+
+export function tripEndsOf(itinerary: Itinerary): TripEnds {
+	const { originAirport, originLocation, destinationAirport, destinationLocation } = itinerary;
+	return { originAirport, originLocation, destinationAirport, destinationLocation };
+}
 
 /**
- * The trip a pairing actually is, once it is known whether it books a bed. Issue #365.
+ * The one door an itinerary comes through. Issues #365 and #426.
  *
  * The owner, on a card offering him a routed, priced, mapped metro ride to a hostel he
  * never checks into:
@@ -521,30 +519,46 @@ export type DerivedTrip = ItineraryParts &
  * > also eventough there's no hotel night the timelines display the travel time to a hotel
  * > that we don't spend any night (wtf)
  *
- * Measured on production, BCN to BVC via Porto: land OPO 10:17pm, ride 47 minutes to Owls
- * Hostel, sit there with no bed booked, ride back at 1:35am for a 6:10am flight. The app
- * had already worked out there was no bed here, printing "Overnight wait, 4h 26m, too short
- * to be worth a bed" on the same card, and then planned the journey to it anyway.
+ * and, five days later, on the same card with the bed gone and the rides still on it:
  *
- * So: a stopover that books no night books no bed, and a trip that books no bed makes no
- * journey to one. `pairConnections` already drops those two legs when a bed is discarded for
- * its currency (issue #152). This is the same rule for the other reason a bed is not booked.
+ * > when 0 nights we assume the user stays at the airport, this means that the change has
+ * > to be codewise, not just in 1 or 2 places.
  *
- * ## The rides go and the bed stays, which is not a hedge
+ * So the rule is one sentence and it lives here. A connection that books no night is a wait
+ * in the terminal: no bed, no ride to one, no ride back, and a layover that is airport
+ * waiting rather than free time in a city. `deriveFromNights` does the arithmetic that
+ * follows; this decides which trip it is doing it for.
  *
- * A `Stay` on an itinerary is a quote this search found near the connection airport. The two
- * transfers are a journey this app planned to it. `totalPrice` has excluded the bed on a
- * nightless stopover since issue #140, and the card says so in as many words: "No night spent
- * here, so there is no bed to price." Nothing about that quote is wrong, and it is what
- * prices the first night the moment the ladder or the flight picker adds one. The plan is the
- * part that had no business existing.
+ * ## Why it is the only door
  *
- * ## What this deliberately leaves alone
+ * Issue #365 put the rule in `pairConnections` alone, and issue #426 is what that cost.
+ * Two other paths build an itinerary — a hand-edited waiting-time buffer and a picker swap
+ * — and both went round it through a second entry point called `deriveItinerary`. Either
+ * one can take the last night off a trip: push the connection buffer past the point where
+ * the gap is worth a bed, or pick an onward flight five hours earlier. The trip that came
+ * back had no night, no reason for a bed, and both rides to one still on it.
+ *
+ * `deriveItinerary` is therefore gone rather than fixed. There is no second entry point to
+ * forget the rule at, and the next path that needs to rebuild a trip gets it for free.
+ *
+ * ## The rides go and the bed stays a quote, which is not a hedge
+ *
+ * A `Stay` on an itinerary is a quote this search found near the connection airport. The
+ * two transfers are a journey this app planned to it. The quote is what prices the first
+ * night the moment the ladder or the flight picker adds one, so `search/resources.ts` keeps
+ * holding it; what comes off the itinerary is the plan, which had no business existing.
+ * `stopover-length.ts` builds the ladder's rungs out of whole pairings, so the rung with a
+ * night in it arrives with its own bed and its own rides rather than needing this one back.
+ *
+ * ## What this used to leave alone, and no longer does
  *
  * A ride anchored to the city centre rather than to a bed. Issue #161 put it there for the
- * traveller with a long daytime layover and no stay provider configured, and going into town
- * is a real thing they do. `transferAnchor` is what tells the two apart, and `city-centre` is
- * the value that keeps a pairing's legs whatever its night count.
+ * traveller with a long daytime layover and no stay-provider key, and going into town is a
+ * real thing they do — but the owner has now ruled on the case where that ride is the whole
+ * trip: with no night, the traveller is at the airport. That is the state every first visit
+ * lands in, since `resources.ts` anchors to the city centre exactly when no bed was priced,
+ * and it is the half of #365 that stayed on screen. A stopover with a night in it keeps its
+ * ride into town whether or not a bed was ever priced for it.
  *
  * ## Why the night count is not asked twice
  *
@@ -558,26 +572,54 @@ export type DerivedTrip = ItineraryParts &
  * and answered on the trip that still had somewhere to check into, and taking the hotel away
  * does not hand the traveller a new place to sleep. What the wider window buys them is more
  * hours in a terminal, which `deriveFromNights` then reports as exactly that.
+ *
+ * ## Where the night count comes from
+ *
+ * Issue #105: the free-time window alone, never gated on `stay`. A 12-night stopover is 12
+ * nights whether or not a bed ever got priced for it; `stay` being absent only ever affects
+ * `totalPrice`.
+ *
+ * Issue #231: nights the traveller would SLEEP, not midnights the clock passed. A gap from
+ * 11pm to 5am crosses a date boundary and buys nobody a bed, so it is zero, so it is a wait
+ * at the airport.
  */
 export function deriveTrip(parts: ItineraryParts, transferAnchor?: TransferAnchor): DerivedTrip {
-	const nightsInConnection = nightsPaidFor(parts);
-	// "These legs end at a bed" rather than `transferAnchor === 'stay'`. In production the
-	// anchor is always set alongside the legs (`search/resources.ts`), but the builder treats
-	// it as optional and a pairing that arrives with the legs and no anchor would slip the
-	// rule silently, which is the failure mode where a green test has no instrument behind
-	// it. `city-centre` is the one anchor that means these legs are not about a bed at all.
-	const ridesEndAtABed = parts.stay !== undefined && transferAnchor !== 'city-centre';
-	if (nightsInConnection > 0 || !ridesEndAtABed) {
-		return { ...parts, ...deriveFromNights(parts, nightsInConnection), transferAnchor };
+	const window = deriveFreeTime(parts);
+	// A backwards window is not a nightless connection. It is a pick that does not fit — a
+	// ride back longer than the layover, which only the transport picker can produce, since
+	// `pairConnections` refuses such a pairing before it totals anything. Reshaping it into
+	// an airport wait would delete the row the traveller is picking in, and with it the
+	// picker they are holding. `recomputeItinerarySelection` measures the same window and
+	// returns `insufficient-connection-time` beside this trip, which is the answer: the pick
+	// stands and the app says what is wrong with it.
+	if (window.duration < 0) {
+		return { ...parts, ...deriveTotals(parts, 0, undefined), nightsInConnection: 0, transferAnchor };
 	}
-	const withoutRidesToTheBed: ItineraryParts = {
+	const nightsInConnection = nightsToPayFor(window.start, window.end);
+	if (nightsInConnection > 0) {
+		return { ...parts, ...deriveTotals(parts, nightsInConnection, undefined), nightsInConnection, transferAnchor };
+	}
+	const airsideParts: ItineraryParts = {
 		...parts,
+		stay: undefined,
 		transferToHotel: undefined,
 		transferToConnectionAirport: undefined
 	};
+	// Landing to boarding again, whole: with nowhere to go there is nothing to carve out of
+	// it, and the two edges are what a surface prints and what `waitsOvernight` reads.
+	const airsideWait: FreeTime = {
+		start: parts.outboundFlight.arrival,
+		end: parts.onwardFlight.departure,
+		duration: minutesBetween(parts.outboundFlight.arrival, parts.onwardFlight.departure)
+	};
 	return {
-		...withoutRidesToTheBed,
-		...deriveFromNights(withoutRidesToTheBed, nightsInConnection),
+		...airsideParts,
+		...deriveTotals(airsideParts, 0, airsideWait),
+		nightsInConnection: 0,
+		airsideWait,
+		stay: undefined,
+		transferToHotel: undefined,
+		transferToConnectionAirport: undefined,
 		transferAnchor: undefined
 	};
 }
@@ -857,7 +899,7 @@ export function pairConnections(input: BuildItinerariesInput): ConnectionPairing
 				transferToDestinationLocation: input.transferToDestinationLocation
 			};
 			// Not enough layover for the transfers plus the buffer. Asked before
-			// `deriveItinerary` totals anything, so a discarded pairing is never summed.
+			// `deriveTrip` totals anything, so a discarded pairing is never summed.
 			if (deriveFreeTime(parts).duration < 0) {
 				refuse(connectionCode, {
 					reason: 'layover-under-ground-time',
@@ -873,8 +915,9 @@ export function pairConnections(input: BuildItinerariesInput): ConnectionPairing
 
 			paired.add(connectionCode);
 			itineraries.push({
-				// Issue #365: `deriveTrip`, not `deriveItinerary`, because a pairing that turns
-				// out to book no night has no bed and therefore no rides to one.
+				// `deriveTrip` is the only way to build one of these, so a pairing that turns
+				// out to book no night arrives here already knowing it has no bed, no rides to
+				// one, and a layover that is a wait in the terminal.
 				...deriveTrip(parts, transferAnchor),
 				originAirport: input.originAirport,
 				originLocation: input.originLocation,
@@ -906,7 +949,7 @@ export interface WaitingTimeOverrides {
  * plus a hand-edited waiting time on either side and returns a new Itinerary with every
  * dependent field recomputed. It never leaves a partial patch that skips one total.
  *
- * Goes through `deriveItinerary` rather than a second implementation in the UI layer, so
+ * Goes through `deriveTrip` rather than a second implementation in the UI layer, so
  * a hand edit can never disagree with how `buildItineraries` would have computed the same
  * itinerary from scratch. Every value this needs (both flights' price/duration/priceScope
  * and the party size they're scaled by, the stay's nightly rate, both connection-side
@@ -937,13 +980,15 @@ export function recomputeItineraryWaitingTimes(
 
 	// RULE: free time's start never moves on this edit. Only originWaitingTime or
 	// connectionWaitingTime changed, and neither touches the outbound arrival or the
-	// hotel-bound transfer that anchors it. `deriveItinerary` is the same arithmetic
+	// hotel-bound transfer that anchors it. `deriveTrip` is the same arithmetic
 	// `buildItineraries` ran, so an edit here cannot disagree with the value it recomputes.
 	//
-	// Issue #365 stops at `deriveTrip`, deliberately: this edit applies a number the
-	// traveller typed, and an edit that answered by deleting one of their transfer legs
-	// would be the app taking a decision back. Planning no ride to a bed is the planner's
-	// job, and `pairConnections` is where it happens.
+	// Issue #426 is why it is `deriveTrip` and not the second entry point this used to have.
+	// Pushing the connection buffer past the point where the gap is worth a bed leaves a
+	// trip with no night in it, and this used to hand that trip back with the bed and both
+	// rides to it still attached. Keeping a leg the traveller can no longer use is not
+	// respecting their edit, it is showing them a journey to a room they have just priced
+	// themselves out of.
 	const parts: ItineraryParts = { ...itinerary, originWaitingTime, connectionWaitingTime };
-	return { ...itinerary, ...parts, ...deriveItinerary(parts) };
+	return { ...deriveTrip(parts, itinerary.transferAnchor), ...tripEndsOf(itinerary) };
 }

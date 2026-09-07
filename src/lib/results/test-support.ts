@@ -8,7 +8,16 @@
  */
 
 import { scoreItinerary } from '$lib/algorithm/score';
-import type { Airport, Duration, FlightOffer, Itinerary, LocalDateTime, Money, Transfer } from '$lib/domain';
+import type {
+	Airport,
+	CityStopoverItinerary,
+	Duration,
+	FlightOffer,
+	Itinerary,
+	LocalDateTime,
+	Money,
+	Transfer
+} from '$lib/domain';
 import type { ProviderId } from '$lib/providers/types';
 import { departureDateOf } from '$lib/algorithm/pairings';
 import type { DepartureDates, ScoredResult, StopoverLengths } from './types';
@@ -78,7 +87,9 @@ export function makeItinerary(
 		onwardDeparture?: string;
 		/** Issue #424: the two connection-side ground legs, for a test about what the
 		 * traveller has to change between rather than about money or clocks. Both default to
-		 * the short walk every other test here relies on. */
+		 * the short walk every other test here relies on, and both belong to a connection
+		 * with a night in it: ask for either alongside `nightsInConnection: 0` and this
+		 * throws rather than handing back a fixture quietly missing the leg the test named. */
 		transferToHotel?: Transfer;
 		transferToConnectionAirport?: Transfer;
 	} = {}
@@ -105,10 +116,48 @@ export function makeItinerary(
 	const totalMinutes = overrides.totalMinutes ?? 600;
 	const freeTimeMinutes = overrides.freeTimeMinutes ?? 300;
 
-	return {
+	const window = {
+		start: localDateTime(overrides.freeTimeStart ?? '2026-10-14T13:00:00'),
+		end: localDateTime(overrides.freeTimeEnd ?? '2026-10-14T13:00:00'),
+		duration: freeTimeMinutes as Duration
+	};
+	const base = {
 		originAirport: airport('BCN', 'Barcelona'),
 		originWaitingTime: 120 as Duration,
 		outboundFlight,
+		connectionWaitingTime: 120 as Duration,
+		onwardFlight,
+		destinationAirport: airport('OTP', 'Bucharest'),
+		totalPrice: money(priceMinorUnits),
+		travellers
+	};
+	// Issue #426: a fixture with no night is the trip a traveller never leaves the airport
+	// for, and the type will not let it carry a bed or a ride to one. Written here rather
+	// than in each test, so a fixture cannot describe a trip the builder would never emit.
+	if (nightsInConnection === 0) {
+		if (overrides.transferToHotel ?? overrides.transferToConnectionAirport) {
+			throw new Error(
+				'A connection with no night in it has no hotel to ride to. Give the fixture a night, or drop the leg.'
+			);
+		}
+		return {
+			...base,
+			nightsInConnection: 0,
+			airsideWait: window,
+			freeTime: { start: window.start, end: window.start, duration: 0 as Duration },
+			times: {
+				inFlight: (outboundFlight.duration + onwardFlight.duration) as Duration,
+				airportWaiting: (120 + freeTimeMinutes) as Duration,
+				connectionAirportWaiting: freeTimeMinutes as Duration,
+				originAirportWaiting: 120 as Duration,
+				free: 0 as Duration,
+				total: totalMinutes as Duration
+			}
+		};
+	}
+
+	return {
+		...base,
 		transferToHotel: overrides.transferToHotel ?? {
 			mode: 'walk',
 			duration: 15 as Duration,
@@ -119,22 +168,13 @@ export function makeItinerary(
 			roomKind: 'private',
 			pricePerNight: money(2000)
 		},
-		freeTime: {
-			start: localDateTime(overrides.freeTimeStart ?? '2026-10-14T13:00:00'),
-			end: localDateTime(overrides.freeTimeEnd ?? '2026-10-14T13:00:00'),
-			duration: freeTimeMinutes as Duration
-		},
+		freeTime: window,
 		nightsInConnection,
 		transferToConnectionAirport: overrides.transferToConnectionAirport ?? {
 			mode: 'walk',
 			duration: 15 as Duration,
 			legs: [{ mode: 'walk', duration: 15 as Duration }]
 		},
-		connectionWaitingTime: 120 as Duration,
-		onwardFlight,
-		destinationAirport: airport('OTP', 'Bucharest'),
-		totalPrice: money(priceMinorUnits),
-		travellers,
 		times: {
 			inFlight: (outboundFlight.duration + onwardFlight.duration) as Duration,
 			airportWaiting: 240 as Duration,
@@ -144,6 +184,24 @@ export function makeItinerary(
 			total: totalMinutes as Duration
 		}
 	};
+}
+
+/**
+ * The same fixture, narrowed to the trip with a stopover in it. Issue #426.
+ *
+ * `makeItinerary` can return either kind, and a test that spreads one and overrides
+ * `transferToHotel` is describing the kind that has one. Saying so here rather than casting
+ * at each call site is what keeps the type able to refuse a ride on a trip that books no
+ * night, which is the whole point of the two arms.
+ */
+export function makeStopover(
+	overrides: Parameters<typeof makeItinerary>[0] = {}
+): CityStopoverItinerary {
+	const itinerary = makeItinerary({ nightsInConnection: 1, ...overrides });
+	if (itinerary.airsideWait) {
+		throw new Error('makeStopover was asked for a connection with no night in it; use makeItinerary.');
+	}
+	return itinerary;
 }
 
 let idCounter = 0;

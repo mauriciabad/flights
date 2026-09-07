@@ -209,8 +209,11 @@ describe('buildItineraries — nights in connection', () => {
 			baseInput({ outboundOffers: [outbound], onwardOffers: [onward] })
 		);
 
-		expect(itinerary.freeTime.duration).toBe(19 * 60 + 30); // 19h30 free...
-		expect(itinerary.nightsInConnection).toBe(0); // ...zero nights: never booked past midnight.
+		// Zero nights: never booked past midnight. Issue #426 is what follows from that —
+		// nineteen and a half hours the traveller spends at VIE, none of it free time.
+		expect(itinerary.nightsInConnection).toBe(0);
+		expect(itinerary.airsideWait?.duration).toBe(19 * 60 + 30);
+		expect(itinerary.freeTime.duration).toBe(0);
 	});
 });
 
@@ -304,8 +307,12 @@ describe('buildItineraries — missing stay (issue #94)', () => {
 			})
 		);
 
-		expect(itinerary.freeTime.start).toEqual(arrival); // no transferToHotel duration to add
-		expect(itinerary.freeTime.duration).toBe(4 * 60 - 30); // only the connection buffer is subtracted
+		// Runway to runway, because there is no in-city leg to add and, since issue #426, no
+		// night either: the whole four hours are a wait at VIE and the buffer is inside them
+		// rather than beside them.
+		expect(itinerary.airsideWait?.start).toEqual(arrival);
+		expect(itinerary.airsideWait?.duration).toBe(4 * 60);
+		expect(itinerary.times.connectionAirportWaiting).toBe(4 * 60);
 	});
 
 	it('drops the candidate outright only when there is no resources entry at all for it, not merely no stay', () => {
@@ -758,13 +765,17 @@ describe('buildItineraries — a short overnight is a wait, not a stay (issue #2
 		// Flights only: 5000 + 6000, with no 3000 bed folded in.
 		expect(itinerary.totalPrice.minorUnits).toBe(11000);
 		// Issue #365: with no night there is no bed, so the two half-hour rides to and from
-		// one are not part of this trip and the window runs runway to runway. Until this
-		// landed it read 11:30pm to 2:30am, an hour of it spent travelling to a hostel the
-		// traveller never checks into.
+		// one are not part of this trip. Until that landed the window read 11:30pm to 2:30am,
+		// an hour of it spent travelling to a hostel the traveller never checks into.
+		//
+		// Issue #426: the stretch runs runway to runway and it is a wait, not free time. It
+		// used to stop at the check-in deadline, which put the last two hours of a wait at
+		// VIE in a row of their own as though they were a different kind of standing about.
 		expect(itinerary.transferToHotel).toBeUndefined();
 		expect(itinerary.transferToConnectionAirport).toBeUndefined();
-		expect(itinerary.freeTime.start.local).toBe('2026-10-06T23:00:00');
-		expect(itinerary.freeTime.end.local).toBe('2026-10-07T03:00:00');
+		expect(itinerary.airsideWait?.start.local).toBe('2026-10-06T23:00:00');
+		expect(itinerary.airsideWait?.end.local).toBe('2026-10-07T05:00:00');
+		expect(itinerary.freeTime.duration).toBe(0);
 	});
 
 	it('counts a stopover nobody can leave the airport for as airport waiting, not free time', () => {
@@ -774,10 +785,14 @@ describe('buildItineraries — a short overnight is a wait, not a stay (issue #2
 		// two were different time.
 		const itinerary = overnight('2026-10-06T23:00:00', '2026-10-07T05:00:00');
 
-		expect(itinerary.freeTime.duration).toBe(240);
+		expect(itinerary.airsideWait?.duration).toBe(360);
 		expect(itinerary.times.free).toBe(0);
-		// Two 120-minute buffers plus the four hours on the ground between them.
-		expect(itinerary.times.airportWaiting).toBe(120 + 120 + 240);
+		// The 120-minute buffer at LGW plus the whole six hours on the ground at VIE. Issue
+		// #426: the six hours are one number now rather than four hours of free time beside
+		// a two-hour buffer, which is the same total said in a way that made the traveller
+		// look like they had somewhere to be.
+		expect(itinerary.times.airportWaiting).toBe(120 + 360);
+		expect(itinerary.times.connectionAirportWaiting).toBe(360);
 		// Door to door is untouched: those minutes are real either way, and only their name
 		// changed.
 		expect(itinerary.times.total).toBe(120 + 150 + 240 + 120 + 90);
@@ -800,10 +815,12 @@ describe('buildItineraries — a short overnight is a wait, not a stay (issue #2
 		expect(itinerary.transferAnchor).toBeUndefined();
 	});
 
-	it('keeps free time when the ride goes into town rather than to a bed', () => {
-		// Issue #161's case, which issue #365 must not touch: no stay priced, both legs
-		// anchored to the city centre. A traveller with a long layover really does go into
-		// town, and those hours are free time whether or not anyone priced a place to sleep.
+	it('waits at the airport even when a ride into town was routed, once no night is booked', () => {
+		// Issue #161 kept these legs for the traveller with a long daytime layover and no
+		// stay-provider key, and issue #365 deliberately left them alone. Issue #426 is the
+		// owner overruling that for the nightless case: "when 0 nights we assume the user
+		// stays at the airport". The rung of the ladder with a night in it still goes into
+		// town, priced bed or not.
 		const [itinerary] = buildItineraries(
 			baseInput({
 				outboundOffers: [
@@ -838,8 +855,10 @@ describe('buildItineraries — a short overnight is a wait, not a stay (issue #2
 		);
 
 		expect(itinerary?.nightsInConnection).toBe(0);
-		expect(itinerary?.transferToHotel?.duration).toBe(30);
-		expect(itinerary?.times.free).toBeGreaterThan(0);
+		expect(itinerary?.transferToHotel).toBeUndefined();
+		expect(itinerary?.transferToConnectionAirport).toBeUndefined();
+		expect(itinerary?.times.free).toBe(0);
+		expect(itinerary?.airsideWait?.duration).toBe(12 * 60);
 	});
 
 	it('still charges the room when the same gap is long enough to sleep in', () => {
@@ -858,9 +877,12 @@ describe('buildItineraries — a short overnight is a wait, not a stay (issue #2
 		expect(itinerary.nightsInConnection).toBe(1);
 
 		const edited = recomputeItineraryWaitingTimes(itinerary, { connectionWaitingTime: 300 as Duration });
-		expect(edited.freeTime.end.local).toBe('2026-10-07T00:30:00');
 		expect(edited.nightsInConnection).toBe(0);
 		expect(edited.totalPrice.minorUnits).toBe(11000);
+		// Issue #426: and the trip that comes back is a wait at VIE from landing to boarding,
+		// not a five-hour buffer bolted onto four hours in a city nobody is in.
+		expect(edited.airsideWait?.start.local).toBe('2026-10-06T20:30:00');
+		expect(edited.airsideWait?.end.local).toBe('2026-10-07T06:00:00');
 	});
 });
 
@@ -1297,5 +1319,177 @@ describe('perPersonShare, one traveller\'s cut of a party total (issue #425)', (
 			minorUnits: 4500,
 			currency: 'GBP'
 		});
+	});
+});
+
+/**
+ * Issue #426, the owner on production:
+ *
+ * > when a itinerary has 0 nights, the timeline still shows the transport time to the
+ * > imaginary hotel that we never go to and also the waiting time at the airport that
+ * > we're already at... it makes no sense. when 0 nights we assume the user stays at the
+ * > airport, this means that the change has to be codewise, not just in 1 or 2 places.
+ *
+ * Issue #365 answered the half of this where a bed had been priced. The half it left
+ * standing is every first visit: with no stay-provider key there is no bed, `resources.ts`
+ * anchors both rides to the city centre, and a nightless pairing kept them. So the trip the
+ * app printed for a traveller who never leaves the terminal was a ride into town, hours of
+ * free time, a ride back, and then a wait at the airport those two rides had just gone to
+ * and from.
+ *
+ * These fixtures are the ladder's two rungs over one pair of flights: the 0-night one and
+ * the 1-night one. Every total is asserted on both, because the arithmetic that moves the
+ * layover out of free time is the arithmetic that must not move it twice.
+ */
+describe('a nightless stopover is an airport wait, not a stay (issue #426)', () => {
+	const vie = (local: string) => localDateTime(local, 'Europe/Vienna', 120);
+
+	/** Land at 9am, board again at 9pm: twelve hours, no midnight, nothing to sleep through. */
+	function dayLayover(resources: ConnectionResources) {
+		return buildItineraries(
+			baseInput({
+				outboundOffers: [makeFlight('LGW', 'VIE', vie('2026-10-06T09:00:00'), vie('2026-10-06T09:00:00'), 150, 5000)],
+				onwardOffers: [makeFlight('VIE', 'IST', vie('2026-10-06T21:00:00'), vie('2026-10-06T21:00:00'), 90, 6000)],
+				connectionAirports: { VIE: makeAirport('VIE') },
+				connectionResources: { VIE: resources },
+				waitingTimeRules: flatWaitingTime(120)
+			})
+		)[0]!;
+	}
+
+	const intoTown: ConnectionResources = {
+		transferAnchor: 'city-centre',
+		transferToHotel: makeTransfer(30),
+		transferToConnectionAirport: makeTransfer(30)
+	};
+
+	it('plans no ride into town for a traveller who books no night', () => {
+		const itinerary = dayLayover(intoTown);
+
+		expect(itinerary.nightsInConnection).toBe(0);
+		expect(itinerary.transferToHotel).toBeUndefined();
+		expect(itinerary.transferToConnectionAirport).toBeUndefined();
+		expect(itinerary.transferAnchor).toBeUndefined();
+	});
+
+	it('says the layover is a wait at the connection airport, and says it once', () => {
+		const itinerary = dayLayover(intoTown);
+
+		// Landing to boarding again, whole. The traveller is in the terminal for all of it.
+		expect(itinerary.airsideWait?.start.local).toBe('2026-10-06T09:00:00');
+		expect(itinerary.airsideWait?.end.local).toBe('2026-10-06T21:00:00');
+		expect(itinerary.airsideWait?.duration).toBe(720);
+		// And none of it is free time, on either of the two numbers that have to agree.
+		expect(itinerary.freeTime.duration).toBe(0);
+		expect(itinerary.times.free).toBe(0);
+	});
+
+	it('counts the connection wait once, not once as a wait and again as free time', () => {
+		const itinerary = dayLayover(intoTown);
+
+		expect(itinerary.times.connectionAirportWaiting).toBe(720);
+		expect(itinerary.times.airportWaiting).toBe(
+			itinerary.times.originAirportWaiting + itinerary.times.connectionAirportWaiting
+		);
+	});
+
+	it('leaves the price and the door-to-door time exactly where the flights put them', () => {
+		const withRides = dayLayover(intoTown);
+		const withNothing = dayLayover({});
+
+		expect(withRides.totalPrice).toEqual({ minorUnits: 11000, currency: 'EUR' });
+		// 120 buffer + 150 outbound + 720 layover + 90 onward.
+		expect(withRides.times.total).toBe(120 + 150 + 720 + 90);
+		// A routed ride into town changes nothing about a trip that does not take it.
+		expect(withRides.times).toEqual(withNothing.times);
+		expect(withRides.freeTime).toEqual(withNothing.freeTime);
+	});
+
+	it('gives the same layover back as free time the moment a night is worth booking', () => {
+		// The rung above: land 9am on the 6th, board 9pm on the 7th. Same flights, one night.
+		const [overnight] = buildItineraries(
+			baseInput({
+				outboundOffers: [makeFlight('LGW', 'VIE', vie('2026-10-06T09:00:00'), vie('2026-10-06T09:00:00'), 150, 5000)],
+				onwardOffers: [makeFlight('VIE', 'IST', vie('2026-10-07T21:00:00'), vie('2026-10-07T21:00:00'), 90, 6000)],
+				connectionAirports: { VIE: makeAirport('VIE') },
+				connectionResources: { VIE: { ...intoTown, stay: makeStay(3000), transferAnchor: 'stay' } },
+				waitingTimeRules: flatWaitingTime(120)
+			})
+		);
+
+		expect(overnight!.nightsInConnection).toBe(1);
+		expect(overnight!.airsideWait).toBeUndefined();
+		expect(overnight!.transferToHotel?.duration).toBe(30);
+		// 9:30am in town until 6:30pm the next day, and the bed is charged for the night.
+		expect(overnight!.freeTime.start.local).toBe('2026-10-06T09:30:00');
+		expect(overnight!.times.free).toBeGreaterThan(0);
+		expect(overnight!.totalPrice.minorUnits).toBe(11000 + 3000);
+	});
+
+	it('drops the rides when a waiting-time edit turns the last night into a wait', () => {
+		// Land 8:30pm, fly out 6am, with the default buffer that leaves six and a half hours
+		// at the property. Push the buffer to five hours and there is no night left, so
+		// there is no bed, so there is nothing to ride to.
+		const arrival = localDateTime('2026-10-06T20:30:00', 'Europe/London', 60);
+		const departure = localDateTime('2026-10-07T06:00:00', 'Europe/London', 60);
+		const [itinerary] = buildItineraries(
+			baseInput({
+				outboundOffers: [makeFlight('LGW', 'VIE', arrival, arrival, 150, 5000)],
+				onwardOffers: [makeFlight('VIE', 'IST', departure, departure, 90, 6000)],
+				connectionResources: {
+					VIE: {
+						stay: makeStay(3000),
+						transferAnchor: 'stay',
+						transferToHotel: makeTransfer(30),
+						transferToConnectionAirport: makeTransfer(30)
+					}
+				},
+				waitingTimeRules: flatWaitingTime(120)
+			})
+		);
+		expect(itinerary!.nightsInConnection).toBe(1);
+
+		const edited = recomputeItineraryWaitingTimes(itinerary!, { connectionWaitingTime: 300 as Duration });
+
+		expect(edited.nightsInConnection).toBe(0);
+		expect(edited.stay).toBeUndefined();
+		expect(edited.transferToHotel).toBeUndefined();
+		expect(edited.transferToConnectionAirport).toBeUndefined();
+		expect(edited.airsideWait?.duration).toBe(570);
+		expect(edited.times.free).toBe(0);
+	});
+
+	it('drops the rides when a flight swap turns the last night into a wait', () => {
+		const arrival = localDateTime('2026-10-06T20:30:00', 'Europe/London', 60);
+		const departure = localDateTime('2026-10-07T14:00:00', 'Europe/London', 60);
+		const [itinerary] = buildItineraries(
+			baseInput({
+				outboundOffers: [makeFlight('LGW', 'VIE', arrival, arrival, 150, 5000)],
+				onwardOffers: [makeFlight('VIE', 'IST', departure, departure, 90, 6000)],
+				connectionResources: {
+					VIE: {
+						stay: makeStay(3000),
+						transferAnchor: 'stay',
+						transferToHotel: makeTransfer(30),
+						transferToConnectionAirport: makeTransfer(30)
+					}
+				},
+				waitingTimeRules: flatWaitingTime(120)
+			})
+		);
+		expect(itinerary!.nightsInConnection).toBe(1);
+
+		// The traveller picks a much earlier onward flight from the picker: 3am the same
+		// night, which is a wait in a terminal rather than a night in Vienna.
+		const earlier = localDateTime('2026-10-07T03:00:00', 'Europe/London', 60);
+		const { itinerary: swapped } = recomputeItinerarySelection(itinerary!, {
+			onwardFlight: makeFlight('VIE', 'IST', earlier, earlier, 90, 6000)
+		});
+
+		expect(swapped.nightsInConnection).toBe(0);
+		expect(swapped.stay).toBeUndefined();
+		expect(swapped.transferToHotel).toBeUndefined();
+		expect(swapped.airsideWait?.duration).toBe(390);
+		expect(swapped.totalPrice.minorUnits).toBe(11000);
 	});
 });

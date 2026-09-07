@@ -128,13 +128,11 @@ describe('nightsToPayFor', () => {
 });
 
 describe('waitsOvernight (issue #365)', () => {
-	/** Only the two fields the function reads. A `Duration` is not among them: the calendar
-	 * and the night count are the whole question. */
-	function trip(nightsInConnection: number, startLocal: string, endLocal: string) {
-		return {
-			nightsInConnection,
-			freeTime: { start: at(startLocal), end: at(endLocal), duration: 0 as never }
-		};
+	/** Only the field the function reads. Issue #426 made that `airsideWait`, which exists
+	 * on exactly the trips this question is about, so the night count no longer has to be
+	 * passed alongside a window that might not be the right one. */
+	function trip(startLocal: string, endLocal: string) {
+		return { airsideWait: { start: at(startLocal), end: at(endLocal), duration: 0 as never } };
 	}
 
 	it('is true for the owner\'s Porto card once its rides to a bed come off', () => {
@@ -144,14 +142,17 @@ describe('waitsOvernight (issue #365)', () => {
 		// what the card should call the trip: it printed "Same-day connection" over a trip
 		// landing at 9:20pm and boarding at 6:10am.
 		expect(isOvernightWait(at('2026-09-16T21:20:00'), at('2026-09-17T04:10:00'))).toBe(false);
-		expect(waitsOvernight(trip(0, '2026-09-16T21:20:00', '2026-09-17T04:10:00'))).toBe(true);
+		expect(waitsOvernight(trip('2026-09-16T21:20:00', '2026-09-17T04:10:00'))).toBe(true);
 	});
 
 	it('is false for a connection that lands and leaves on one calendar day', () => {
-		expect(waitsOvernight(trip(0, '2026-10-06T10:00:00', '2026-10-06T22:00:00'))).toBe(false);
+		expect(waitsOvernight(trip('2026-10-06T10:00:00', '2026-10-06T22:00:00'))).toBe(false);
 	});
 
 	it('is false whenever a night is actually booked', () => {
-		expect(waitsOvernight(trip(1, '2026-10-06T22:32:00', '2026-10-07T11:43:00'))).toBe(false);
+		// Issue #426: a trip with a night in it carries no `airsideWait` at all, so the
+		// question answers itself rather than being answered by a count read alongside a
+		// window that describes somewhere else.
+		expect(waitsOvernight({ airsideWait: undefined })).toBe(false);
 	});
 });

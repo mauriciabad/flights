@@ -1,7 +1,7 @@
 import { flushSync, mount, unmount } from 'svelte';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import type { Coordinates, Duration, Itinerary, Transfer, TransferLeg } from '../domain';
-import { makeItinerary } from '../results/test-support';
+import type { CityStopoverItinerary, Coordinates, Duration, Itinerary, Transfer, TransferLeg } from '../domain';
+import { makeItinerary, makeStopover } from '../results/test-support';
 import { timeFormat } from '../settings/time-format.svelte';
 import StopoverBlock from './StopoverBlock.svelte';
 
@@ -69,8 +69,8 @@ afterEach(() => {
 
 /** The London stopover from the owner's own comment: in Friday evening, out Monday
  * morning, two whole days in between, a bed for two nights and a ride to reach it. */
-function londonStopover(overrides: Parameters<typeof makeItinerary>[0] = {}): Itinerary {
-	return makeItinerary({
+function londonStopover(overrides: Parameters<typeof makeItinerary>[0] = {}): CityStopoverItinerary {
+	return makeStopover({
 		freeTimeStart: '2026-10-09T21:10:00',
 		freeTimeEnd: '2026-10-12T09:05:00',
 		nightsInConnection: 2,
@@ -198,8 +198,9 @@ describe('what it says when a fact is missing', () => {
 	});
 
 	it('still prints a count when the window has no length at all', () => {
-		// `makeItinerary`'s default free-time window opens and closes on the same instant.
-		expect(render(makeItinerary({}))).toContain('No full days');
+		// A window that opens and closes on the same instant, on a stopover that does book a
+		// night. The nightless version of this is issue #426's airport wait, further down.
+		expect(render(makeItinerary({ nightsInConnection: 1, freeTimeMinutes: 0 }))).toContain('No full days');
 	});
 });
 
@@ -233,18 +234,13 @@ describe('a short overnight wait (issue #231)', () => {
 
 	it('still shows both edges of the window, so the date change is not hidden', () => {
 		render(overnightWait());
+		// Issue #426 replaced the middle line's "No full days" with what the trip is. The two
+		// edges are unchanged, and they are what show the date crossing.
 		expect(timeLines()).toEqual([
 			'Tue 6 from 11:30pm',
-			'No full days',
+			'Waiting at VIE, 3h',
 			'Wed 7 until 2:30am'
 		]);
-	});
-
-	it('does not tell a traveller awake at 3am that their connection is same-day', () => {
-		const unrouted = overnightWait();
-		const { stay: _stay, ...withoutStay } = unrouted;
-		const block = render({ ...withoutStay, transferToHotel: undefined } as Itinerary);
-		expect(block).toContain('Overnight wait, so there is no hotel leg here.');
 	});
 });
 
@@ -357,5 +353,37 @@ describe('StopoverBlock names the rides in the journey to the bed (issue #373)',
 	// transfer nobody itemised still has a mode, and that is what it said before.
 	it('falls back to the mode when there is nothing to summarise', () => {
 		expect(render(ridingTo([]))).toContain('Public transport, 29m from the airport');
+	});
+});
+
+/**
+ * Issue #426. The block above the timeline describes the same layover the timeline draws,
+ * so it has to describe the same trip. With no night booked it was printing the two edges
+ * of a free-time window that is really the traveller sitting in a departures hall, under a
+ * heading naming the city they never reach.
+ */
+describe('a layover the traveller never leaves the airport for (issue #426)', () => {
+	/** In at 11:30pm, out at 2:30am, no night. */
+	const airside = () =>
+		makeItinerary({
+			nightsInConnection: 0,
+			freeTimeStart: '2026-10-06T23:30:00',
+			freeTimeEnd: '2026-10-07T02:30:00',
+			freeTimeMinutes: 180
+		});
+
+	it('calls the gap a wait at the airport rather than days in a city', () => {
+		const block = render(airside());
+
+		expect(block).toContain('Waiting at VIE');
+		expect(block).not.toContain('No full days');
+	});
+
+	it('says nothing about a bed or a ride to one', () => {
+		const block = render(airside());
+
+		expect(block).not.toContain('Test stay');
+		expect(block).not.toContain('Per night');
+		expect(block).not.toContain('hotel leg');
 	});
 });
