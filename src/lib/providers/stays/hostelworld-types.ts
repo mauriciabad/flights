@@ -73,6 +73,13 @@ export interface HostelworldRoom {
 	 * the mapper reads it, so the day a room summary carries one the app draws it, and the
 	 * fixture is the evidence that the shape was measured rather than guessed.
 	 *
+	 * Issue #449 asked what fetching that response would take and answered two thirds of it.
+	 * `tools/probe-hostelworld-rooms.mjs` measured `200` with `Access-Control-Allow-Origin: *`
+	 * from a real page origin, at 6.4 KB over the wire and 450 ms for one property against
+	 * 89.5 KB and 6.9 s for a page of thirty. What is missing is an address. Nothing this app
+	 * carries out of a search can name one Hostelworld property or one of its rooms, so the
+	 * call has nothing to put in its URL. docs/PROVIDERS.md holds the table.
+	 *
 	 * Not unique per room. At property 312244 the female dorm and the mixed dorm publish the
 	 * same three photographs and the private publishes four different ones, so two rooms
 	 * sharing a picture is normal rather than a sign of a mix-up.

@@ -37,6 +37,15 @@
 	 * The opening itself lives in `open-as-modal.ts`, because issue #441's photo lightbox is a
 	 * dialog that is not a map and needs exactly the same three lines.
 	 *
+	 * No focus ring is drawn on the dialog itself, and the rule that suppresses it is
+	 * `dialog:focus-visible` in app.css rather than anything here. A modal dialog is the focus
+	 * scope, so a click on the title, on the panel's text, or on any other part of this
+	 * surface that cannot take focus lands on the `<dialog>`, and the app's accent ring was
+	 * then drawn 2px outside a near-fullscreen surface (#448). `tools/probe-map-dialog-focus.mjs`
+	 * measured it and re-takes the measurement. The map's own canvas is not the trigger, which
+	 * is worth knowing before hunting for one. MapLibre gives it `tabindex="0"`, so the canvas
+	 * takes focus itself.
+	 *
 	 * ## What this component deliberately does not know
 	 *
 	 * Whether the panel reacts to a click, a hover, or neither. #319's stays panel opens on a

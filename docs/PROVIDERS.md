@@ -1036,11 +1036,51 @@ property 312244: the female dorm carries four addresses, the mixed dorm three, t
 four, and the two dorms publish the same three photographs as each other. So a room
 photograph is not unique to a room, and two rooms sharing one is normal rather than a bug.
 
-Two reasons this app does not fetch it. It is a request per property where the search
-already costs one per city, and its CORS behaviour has never been measured from a browser
-here, which the first rule of this document says has to happen before anything is built
-against it. `hostelworld-types.ts` models the field and `hostelworld-mapper.ts` reads it, so
-the day a room summary carries one it is drawn, sized and labelled with no further work.
+`hostelworld-types.ts` models the field and `hostelworld-mapper.ts` reads it, so the day a
+room summary carries one it is drawn, sized and labelled with no further work.
+
+### What the availability endpoint costs, and the reason it is still not called (issue #449)
+
+Both questions #442 left open are now measured, and `tools/probe-hostelworld-rooms.mjs`
+re-takes both. It serves a page from a real `http://` origin, runs `fetch` inside that
+document, and reports what the page saw beside what the wire carried. Run on 2026-09-08,
+London (city 3), three nights from 2026-10-07, EUR, thirty properties.
+
+**CORS passes.** `GET /2.2/properties/{id}/availability/` answered `200` with
+`Access-Control-Allow-Origin: *`, and the page read the body as `type: "cors"`. Same host and
+same header as the city endpoint this app already calls, which is the answer you would guess
+and is exactly why it had to be measured: the sibling host
+`prod.apigee.hostelworld.com/autocomplete-service/` sends no such header to a foreign origin
+and `curl` cannot tell the two apart. Without `date-start` and `num-nights` the endpoint
+answers `400` with its own
+`{"description":[{"code":"2021","message":"date-start is missing or invalid"}, ...]}`, which
+is a real answer rather than a refusal.
+
+**The cost is small once and large thirty times.**
+
+| what | requests | wire bytes | decoded bytes | wall clock |
+|---|---|---|---|---|
+| the city search this app already makes | 1 | 49,900 | 292,798 | 1,899 ms |
+| availability for one property | 1 | 6,413 | 63,969 | 450 ms |
+| availability for all thirty | 30 | 89,498 | 704,121 | 6,917 ms |
+
+Thirty is 1.8x the whole search's bytes for 30x its requests, and the slowest of the thirty
+took 6,911 ms behind the browser's six-per-host connection limit. One is 6.4 KB and 450 ms.
+So it is only ever worth fetching for a property somebody opened, never for a list.
+
+The photographs are there. Across those thirty properties, 160 of 216 rooms carried at least
+one; 21 properties had every room photographed and 4 had none at all, so anything built on
+this has to degrade to what the card shows today.
+
+**It is still not called, and the blocker is now a third thing.** Nothing this app holds can
+address a single Hostelworld property. `Property` is `name, coordinates, images, rating,
+womenOnly` and `Stay` adds `roomKind` and three money fields; `propertyKey` is
+`name@lat,lon`, which identifies a property to us and to nobody else. The availability
+endpoint wants Hostelworld's own numeric id, and the room whose rate a `Stay` quotes wants
+Hostelworld's own room id, and neither survives `hostelworld-mapper.ts`. Carrying them means
+a provider-scoped identity on `Stay`, which is a domain decision affecting all three stay
+adapters and every record already in IndexedDB, so it is its own issue rather than a detail
+of this one.
 
 Booking's `getRoomList` is worth writing down once so nobody looks again. Its `data` also
 holds a `rooms` map beside `block`, which is where a room gallery would plausibly live, and
