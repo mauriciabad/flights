@@ -7,12 +7,13 @@
 	 * design system) rather than callback props, since the page just needs to reassign its
 	 * own `$state` when either changes, no extra shadow state or `$effect` needed here.
 	 *
-	 * The two chip rails CHOOSE rather than exclude (issue #189). Every chip carries its own
+	 * The three chip rails CHOOSE rather than exclude (issue #189). Every chip carries its own
 	 * count, so one click has to leave that many results, and nothing chosen means everything
 	 * shown. Chip itself owns none of this: `selected` is read straight off `filters` and the
 	 * click writes `filters` back, which is the other half of #189.
 	 */
 	import { Chip, Select } from '$lib/components';
+	import { changeCountLabel } from '$lib/components/itinerary-timeline-format';
 	import type { Duration, IataAirlineCode, IataAirportCode, IsoCurrencyCode } from '$lib/domain';
 	import {
 		emptyFilters,
@@ -78,6 +79,13 @@
 
 	function toggleAirline(code: IataAirlineCode) {
 		filters = { ...filters, chosenAirlines: toggleSetMember(filters.chosenAirlines, code) };
+	}
+
+	function toggleChangeCount(changes: number) {
+		filters = {
+			...filters,
+			chosenChangeCounts: toggleSetMember(filters.chosenChangeCounts, changes)
+		};
 	}
 
 	function clearAll() {
@@ -209,6 +217,39 @@
 				oninput={handleMinFreeTime}
 				aria-label="Minimum free time"
 			/>
+		</div>
+	{/if}
+
+	<!-- Issue #424, the owner: "it is way better a hotel with no transfers and a bit more
+	     expensive than one with changes." A rail rather than a slider, because the range is
+	     0 to about 3 and a four-stop slider is a poor tap target on a phone that also cannot
+	     say how many trips each rung leaves standing.
+
+	     Above the two rails below and under the sliders, because this is a question about
+	     how hard the trip is, like the two time sliders it follows, rather than about which
+	     city or which airline. -->
+	{#if options.changeCounts.length > 0}
+		<div class="filter-control">
+			<div class="filter-control-head">
+				<span id="{uid}-changes">Changes on public transport</span>
+				<span class="filter-value font-mono tabular-nums">
+					{chosenSummary(new Set([...filters.chosenChangeCounts].sort((a, b) => a - b).map(changeCountLabel)))}
+				</span>
+			</div>
+			<div class="chip-row" role="group" aria-labelledby="{uid}-changes">
+				{#each options.changeCounts as option (option.value)}
+					<!-- Labelled as a journey, not as a number. "0 (4)" is a row of a table; "No
+					     changes (4)" is the thing the traveller is choosing, and it is the same
+					     three words the transport picker prints on the row that answers it. -->
+					<Chip
+						interactive
+						selected={filters.chosenChangeCounts.has(option.value)}
+						onclick={() => toggleChangeCount(option.value)}
+					>
+						{changeCountLabel(option.value)} <span class="tabular-nums">({option.count})</span>
+					</Chip>
+				{/each}
+			</div>
 		</div>
 	{/if}
 

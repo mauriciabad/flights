@@ -19,6 +19,7 @@
  */
 
 import type { IataAirlineCode, IataAirportCode } from '$lib/domain';
+import { itineraryChanges } from '$lib/domain';
 import { connectionAirportCode } from './types';
 import type { ScoredResult } from './types';
 
@@ -71,10 +72,22 @@ export interface ResultFilters {
 	 * pointing at a carrier on the results screen and saying show me that.
 	 */
 	chosenAirlines: ReadonlySet<IataAirlineCode>;
+	/**
+	 * How many changes on public transport the traveller will accept, door to door, empty
+	 * meaning any. Issue #424, in the owner's words: **"it is way better a hotel with no
+	 * transfers and a bit more expensive than one with changes."**
+	 *
+	 * A chosen SET of counts rather than a maximum, and that is the same decision the two
+	 * rails above made rather than a new one. The range is 0 to about 3, so every value is
+	 * a chip with its own true count, and a traveller who wants the direct trips gets them
+	 * with one tap on a label that promises how many are behind it. A "max 1 change" slider
+	 * at that size is a poor tap target and it cannot say how many trips each rung leaves.
+	 */
+	chosenChangeCounts: ReadonlySet<number>;
 }
 
 export function emptyFilters(): ResultFilters {
-	return { chosenConnectionAirports: new Set(), chosenAirlines: new Set() };
+	return { chosenConnectionAirports: new Set(), chosenAirlines: new Set(), chosenChangeCounts: new Set() };
 }
 
 /** True if no filter is currently narrowing the list, for a "clear filters" control that
@@ -86,7 +99,8 @@ export function isEmptyFilters(filters: ResultFilters): boolean {
 		filters.minNights === undefined &&
 		filters.minFreeTimeMinutes === undefined &&
 		filters.chosenConnectionAirports.size === 0 &&
-		filters.chosenAirlines.size === 0
+		filters.chosenAirlines.size === 0 &&
+		filters.chosenChangeCounts.size === 0
 	);
 }
 
@@ -134,6 +148,15 @@ function passesFilters(result: ScoredResult, filters: ResultFilters): boolean {
 	) {
 		return false;
 	}
+	if (filters.chosenChangeCounts.size > 0) {
+		const changes = itineraryChanges(itinerary);
+		// An itinerary this app cannot measure is never hidden here. `itineraryChanges`
+		// answers `undefined` only for a ground leg whose shape nobody here has seen, and
+		// dropping such a trip out of the list would answer the traveller's question with
+		// silence about a trip that might be exactly what they asked for. It stays, and the
+		// card's own CHANGES cell says the count is unknown.
+		if (changes !== undefined && !filters.chosenChangeCounts.has(changes)) return false;
+	}
 	return true;
 }
 
@@ -164,6 +187,8 @@ export interface FilterBounds {
 export interface FilterOptions {
 	connectionAirports: FilterOptionCount<IataAirportCode>[];
 	airlines: FilterOptionCount<IataAirlineCode>[];
+	/** Ascending by change count, not by popularity. See `deriveFilterOptions`. */
+	changeCounts: FilterOptionCount<number>[];
 	priceRangeMinorUnits?: FilterBounds;
 	totalDurationRangeMinutes?: FilterBounds;
 	nightsRange?: FilterBounds;
@@ -190,6 +215,7 @@ function extendBounds(current: FilterBounds | undefined, value: number): FilterB
 export function deriveFilterOptions(results: readonly ScoredResult[]): FilterOptions {
 	const connectionCounts = new Map<IataAirportCode, number>();
 	const airlineCounts = new Map<IataAirlineCode, number>();
+	const changeCounts = new Map<number, number>();
 	let priceRange: FilterBounds | undefined;
 	let durationRange: FilterBounds | undefined;
 	let nightsRange: FilterBounds | undefined;
@@ -210,11 +236,24 @@ export function deriveFilterOptions(results: readonly ScoredResult[]): FilterOpt
 			nightsRange = extendBounds(nightsRange, option.nights);
 		}
 		freeTimeRange = extendBounds(freeTimeRange, itinerary.freeTime.duration);
+		// An unmeasurable trip gets no chip of its own. There is nothing for one to promise:
+		// `passesFilters` above never hides such a trip, so a chip labelled "Unknown (1)"
+		// would be a choice that changes nothing on screen.
+		const changes = itineraryChanges(itinerary);
+		if (changes !== undefined) bumpCount(changeCounts, changes);
 	}
 
 	return {
 		connectionAirports: toSortedOptionList(connectionCounts),
 		airlines: toSortedOptionList(airlineCounts),
+		// Its own sort rather than `toSortedOptionList`, which orders by frequency. That is
+		// right for a rail of city names, where nothing about VIE puts it before PRG, and
+		// wrong here: 0, 1, 2 IS the axis, and a rail reading "1 change, no changes, 2
+		// changes" would leave the traveller re-sorting it by eye to find the easy end. It
+		// is also typed for strings and could not take these numbers anyway.
+		changeCounts: Array.from(changeCounts.entries())
+			.map(([value, count]) => ({ value, count }))
+			.sort((a, b) => a.value - b.value),
 		priceRangeMinorUnits: priceRange,
 		totalDurationRangeMinutes: durationRange,
 		nightsRange,

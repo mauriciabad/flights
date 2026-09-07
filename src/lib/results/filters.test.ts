@@ -1,6 +1,23 @@
 import { describe, expect, it } from 'vitest';
+import type { Duration, Transfer } from '$lib/domain';
 import { applyFilters, deriveFilterOptions, emptyFilters, isEmptyFilters } from './filters';
 import { makeScoredResult } from './test-support';
+
+/** A transit transfer of `rides` vehicles, walked to and from: the shape
+ * `transitous-mapper.ts` produces, and therefore `rides - 1` changes. */
+function transitTransfer(rides: number): Transfer {
+	const legs: Transfer['legs'] = [{ mode: 'walk', duration: 5 as Duration }];
+	for (let ride = 0; ride < rides; ride += 1) {
+		legs.push({ mode: 'transit', duration: 14 as Duration, vehicle: 'Bus' });
+		legs.push({ mode: 'walk', duration: 4 as Duration });
+	}
+	return { mode: 'transit', duration: 40 as Duration, legs };
+}
+
+/** A transit leg carrying no rides at all, which is the one shape `itineraryChanges`
+ * refuses to call zero. Nothing in this app produces it; a cached `Transfer` or a future
+ * adapter could. */
+const UNMEASURABLE: Transfer = { mode: 'transit', duration: 40 as Duration, legs: [] };
 
 describe('emptyFilters / isEmptyFilters', () => {
 	it('starts empty, hiding nothing', () => {
@@ -9,6 +26,10 @@ describe('emptyFilters / isEmptyFilters', () => {
 
 	it('is not empty once any bound is set', () => {
 		expect(isEmptyFilters({ ...emptyFilters(), maxPriceMinorUnits: 10_000 })).toBe(false);
+	});
+
+	it('is not empty once a change count is chosen', () => {
+		expect(isEmptyFilters({ ...emptyFilters(), chosenChangeCounts: new Set([0]) })).toBe(false);
 	});
 });
 
@@ -146,6 +167,65 @@ describe('applyFilters', () => {
 		expect(filtered.map((r) => r.id)).toEqual([praguePlusRyanair.id]);
 	});
 
+	it('keeps every change count when none is chosen', () => {
+		// Empty means all, the same promise the two rails above make. Issue #424.
+		const direct = makeScoredResult({ transferToHotel: transitTransfer(1) });
+		const twoChanges = makeScoredResult({ transferToHotel: transitTransfer(3) });
+
+		expect(applyFilters([direct, twoChanges], emptyFilters())).toHaveLength(2);
+	});
+
+	it('keeps only the chosen change count', () => {
+		// The promise the chip's own count makes: "No changes (1)" must leave one.
+		const direct = makeScoredResult({ transferToHotel: transitTransfer(1) });
+		const oneChange = makeScoredResult({ transferToHotel: transitTransfer(2) });
+
+		const filtered = applyFilters([direct, oneChange], {
+			...emptyFilters(),
+			chosenChangeCounts: new Set([0])
+		});
+
+		expect(filtered.map((r) => r.id)).toEqual([direct.id]);
+	});
+
+	it('adds the two ground legs up before matching, so one change each is two changes', () => {
+		const oneEachWay = makeScoredResult({
+			transferToHotel: transitTransfer(2),
+			transferToConnectionAirport: transitTransfer(2)
+		});
+
+		expect(
+			applyFilters([oneEachWay], { ...emptyFilters(), chosenChangeCounts: new Set([1]) })
+		).toHaveLength(0);
+		expect(
+			applyFilters([oneEachWay], { ...emptyFilters(), chosenChangeCounts: new Set([2]) })
+		).toHaveLength(1);
+	});
+
+	it('counts a walked trip as no changes rather than excluding it from the easy end', () => {
+		// The fixture's default legs are walks. Somebody asking for the trips with no
+		// changes wants this one most of all, so `undefined` here would be the filter
+		// hiding the best answer to its own question.
+		const walked = makeScoredResult();
+
+		expect(
+			applyFilters([walked], { ...emptyFilters(), chosenChangeCounts: new Set([0]) })
+		).toHaveLength(1);
+	});
+
+	it('never hides an itinerary whose changes it cannot measure', () => {
+		// This app cannot count them, and hiding what it cannot measure answers the
+		// traveller with silence about a trip that might be the one they want.
+		const unmeasurable = makeScoredResult({ transferToHotel: UNMEASURABLE });
+
+		expect(
+			applyFilters([unmeasurable], { ...emptyFilters(), chosenChangeCounts: new Set([0]) })
+		).toHaveLength(1);
+		expect(
+			applyFilters([unmeasurable], { ...emptyFilters(), chosenChangeCounts: new Set([2]) })
+		).toHaveLength(1);
+	});
+
 	it('does NOT hide an avoided airline, avoid is scoring only', () => {
 		// scoreItinerary already covers the score-penalty side (score.test.ts); this just
 		// asserts the results-list filter never conflates the two mechanisms (see this
@@ -196,10 +276,45 @@ describe('deriveFilterOptions', () => {
 		expect(deriveFilterOptions([extendable]).nightsRange).toEqual({ min: 1, max: 4 });
 	});
 
+	it('lists change counts ascending by count, not by how popular each one is', () => {
+		// Two one-change trips against one direct one: sorted by frequency the rail would
+		// open on "1 change", and the traveller looking for the easy end would have to
+		// re-sort it by eye. Issue #424.
+		const direct = makeScoredResult({ transferToHotel: transitTransfer(1) });
+		const oneChangeA = makeScoredResult({ transferToHotel: transitTransfer(2) });
+		const oneChangeB = makeScoredResult({ transferToHotel: transitTransfer(2) });
+
+		expect(deriveFilterOptions([oneChangeA, direct, oneChangeB]).changeCounts).toEqual([
+			{ value: 0, count: 1 },
+			{ value: 1, count: 2 }
+		]);
+	});
+
+	it('counts a trip once, across both of its ground legs', () => {
+		const oneEachWay = makeScoredResult({
+			transferToHotel: transitTransfer(2),
+			transferToConnectionAirport: transitTransfer(2)
+		});
+
+		expect(deriveFilterOptions([oneEachWay]).changeCounts).toEqual([{ value: 2, count: 1 }]);
+	});
+
+	it('gives an unmeasurable itinerary no chip of its own', () => {
+		// `passesFilters` never hides it, so a chip standing for it would be a choice that
+		// changes nothing on screen.
+		const unmeasurable = makeScoredResult({ transferToHotel: UNMEASURABLE });
+		const direct = makeScoredResult({ transferToHotel: transitTransfer(1) });
+
+		expect(deriveFilterOptions([unmeasurable, direct]).changeCounts).toEqual([
+			{ value: 0, count: 1 }
+		]);
+	});
+
 	it('returns empty option lists and no bounds for zero results', () => {
 		const options = deriveFilterOptions([]);
 		expect(options.connectionAirports).toEqual([]);
 		expect(options.airlines).toEqual([]);
+		expect(options.changeCounts).toEqual([]);
 		expect(options.priceRangeMinorUnits).toBeUndefined();
 	});
 });

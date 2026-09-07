@@ -1440,7 +1440,8 @@
 			filters.minNights !== undefined,
 			filters.minFreeTimeMinutes !== undefined,
 			filters.chosenConnectionAirports.size > 0,
-			filters.chosenAirlines.size > 0
+			filters.chosenAirlines.size > 0,
+			filters.chosenChangeCounts.size > 0
 		].filter(Boolean).length
 	);
 </script>
