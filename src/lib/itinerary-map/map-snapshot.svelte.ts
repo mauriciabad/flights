@@ -25,6 +25,19 @@
  * the instance is worth keeping alive between captures and expensive to build per
  * capture. `map.remove()` takes the page's canvas count back to zero.
  *
+ * ## Why the capture is bigger than the box
+ *
+ * MapLibre sizes labels in CSS pixels, so a 120px-wide map gets the same "VIENNA" a
+ * full-screen one does and the word covers the leg. The first build of this shipped
+ * previews reading "ENNA" and "ROPE", which is a feature that looks broken.
+ *
+ * So the hidden container is `SUPERSAMPLE` times the preview's box in each direction and
+ * the same bounds are fitted into it. The geography does not move, because the bounds are
+ * what fixes it and MapLibre takes the extra `log2(SUPERSAMPLE)` of zoom to cover them.
+ * What changes is that a label drawn at its normal pixel size sits on a picture that is
+ * then scaled down into the box, so it comes out at 1/N of the apparent size. The device
+ * pixel ratio still multiplies on top, so a phone gets N x dpr real pixels per box pixel.
+ *
  * ## Reading a snapshot from a `$derived` without hanging the page
  *
  * This is `land-tiles.svelte.ts`'s shape again, and its header records the outage the
@@ -61,6 +74,34 @@ export interface SnapshotCamera {
 const TILE_SIZE = 512;
 
 /**
+ * How many times the preview's box the map is actually drawn at, before the picture is
+ * scaled back down into it. See the header for why a small map needs this at all.
+ *
+ * Three, read off the pictures rather than picked. The box is 120 units wide and renders
+ * anywhere from about 92px on a 375px phone to about 205px on a 1280px screen, so the
+ * desktop row is where a label is largest against its picture and where crowding shows
+ * first. At one, "VIENNA" ran past both edges and read "ENNA". At two it still lost its
+ * first letter at 1280. At three every city and country name sits inside its own
+ * thumbnail, and a dpr-2 phone still gets 720x528 real pixels for an 88px-tall box, which
+ * is more than enough for the roads the owner asked for.
+ */
+export const SUPERSAMPLE = 3;
+
+/**
+ * The zoom the hidden map is allowed to reach, past MapLibre's own default of 22.
+ *
+ * The ceiling exists because clamping would silently frame a different window from the one
+ * the route is drawn against, which is the one thing these pictures may not do. Past 22
+ * CARTO has no deeper tile and MapLibre stretches the last one, which is blurrier and
+ * still in the right place, so overshooting the tile set costs nothing that matters.
+ *
+ * 26 rather than 24 because `SUPERSAMPLE` adds `log2(SUPERSAMPLE)` to every zoom, and the
+ * headroom has to survive that. `map-snapshot.test.ts` checks the tightest leg this app
+ * can produce against it rather than trusting the arithmetic here.
+ */
+export const MAX_CAPTURE_ZOOM = 26;
+
+/**
  * The camera that puts exactly this frame in a box this many CSS pixels wide.
  *
  * Exact rather than close: the route is drawn over the picture by `RoutePreview` against
@@ -94,19 +135,22 @@ export function snapshotKey(
 	width: number,
 	height: number,
 	pixelRatio: number,
+	supersample: number,
 	scheme: ColorScheme
 ): string {
 	const round = (n: number) => Math.round(n * 1e6) / 1e6;
 	const bounds = [frame.west, frame.south, frame.east, frame.north].map(round).join(',');
-	return `${scheme}|${width}x${height}@${round(pixelRatio)}|${bounds}`;
+	return `${scheme}|${width}x${height}@${round(pixelRatio)}x${supersample}|${bounds}`;
 }
 
 interface SnapshotRequest {
 	key: string;
 	camera: SnapshotCamera;
+	/** The preview's own box, in CSS pixels. The map is drawn at `SUPERSAMPLE` times this. */
 	width: number;
 	height: number;
 	pixelRatio: number;
+	supersample: number;
 	scheme: ColorScheme;
 }
 
@@ -116,6 +160,7 @@ interface Renderer {
 	width: number;
 	height: number;
 	pixelRatio: number;
+	supersample: number;
 	scheme: ColorScheme;
 }
 
@@ -151,16 +196,18 @@ const SETTLE_TIMEOUT_MS = 8_000;
  */
 export function mapSnapshot(frame: PreviewFrame, width: number, height: number): string | undefined {
 	if (!browser) return undefined;
-	const camera = cameraForFrame(frame, width);
+	// Framed for the supersampled canvas, not for the box. Same bounds either way, so the
+	// picture shows the same ground; the zoom is what absorbs the difference.
+	const camera = cameraForFrame(frame, width * SUPERSAMPLE);
 	if (!camera) return undefined;
 
 	const scheme = colorScheme();
 	const pixelRatio = window.devicePixelRatio || 1;
-	const key = snapshotKey(frame, width, height, pixelRatio, scheme);
+	const key = snapshotKey(frame, width, height, pixelRatio, SUPERSAMPLE, scheme);
 
 	if (!asked.has(key)) {
 		asked.add(key);
-		queue.push({ key, camera, width, height, pixelRatio, scheme });
+		queue.push({ key, camera, width, height, pixelRatio, supersample: SUPERSAMPLE, scheme });
 		void drain();
 	}
 
@@ -218,7 +265,8 @@ function matches(current: Renderer | undefined, request: SnapshotRequest): curre
 		current.scheme === request.scheme &&
 		current.width === request.width &&
 		current.height === request.height &&
-		current.pixelRatio === request.pixelRatio
+		current.pixelRatio === request.pixelRatio &&
+		current.supersample === request.supersample
 	);
 }
 
@@ -237,7 +285,8 @@ async function build(request: SnapshotRequest): Promise<void> {
 	// one canvas apart from a dialog's when it counts live contexts.
 	container.className = 'map-snapshot-renderer';
 	container.setAttribute('aria-hidden', 'true');
-	container.style.cssText = `position:fixed;top:0;left:-10000px;pointer-events:none;width:${request.width}px;height:${request.height}px`;
+	const drawn = { width: request.width * request.supersample, height: request.height * request.supersample };
+	container.style.cssText = `position:fixed;top:0;left:-10000px;pointer-events:none;width:${drawn.width}px;height:${drawn.height}px`;
 	// Attached before the instance exists, because MapLibre sizes itself from the
 	// container's `clientWidth` and a detached element measures zero. So a constructor that
 	// throws, which is what a device with no WebGL does, has to take the element back out
@@ -266,6 +315,7 @@ async function build(request: SnapshotRequest): Promise<void> {
 		width: request.width,
 		height: request.height,
 		pixelRatio: request.pixelRatio,
+		supersample: request.supersample,
 		scheme: request.scheme
 	};
 	await settled;
@@ -293,13 +343,7 @@ function createMap(
 		// A tile fading in is a tile that is not finished, and this reads the canvas the
 		// moment the map goes idle.
 		fadeDuration: 0,
-		// A hotel-to-airport hop is a few kilometres and frames well under MapLibre's own
-		// default ceiling of 22, but a walk from a terminal to its own car park does not.
-		// Clamping the zoom there would silently frame a different window from the one the
-		// route is drawn against, so the ceiling is lifted instead: past 22 CARTO has no
-		// deeper tile and MapLibre stretches the last one, which is blurrier and still in
-		// the right place.
-		maxZoom: 24,
+		maxZoom: MAX_CAPTURE_ZOOM,
 		pixelRatio: request.pixelRatio
 	});
 }
