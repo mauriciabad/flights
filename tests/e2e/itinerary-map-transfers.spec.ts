@@ -2,7 +2,7 @@ import { test, expect } from './support/fixtures';
 import { routeRyanairFlights } from './support/providers';
 import { FIXTURE_FLIGHT_NUMBERS, FIXTURE_NAMES, FIXTURE_PRICES } from './support/fixture-markers';
 import { mockHostelworld, mockKiwiPublic, mockRyanairNetwork } from './support/providers';
-import { openTimeline } from './support/results-ui';
+import { openTimeline, pickTimelineSegment } from './support/results-ui';
 import { waitForSearchToSettle } from '../shared/search-wait';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -373,19 +373,24 @@ test.describe('itinerary map: every transfer leg, distinct markers, honest geome
 		// -----------------------------------------------------------------
 		//
 		// Issue #280 gives that same sentence a second home: it is the preview button's own
-		// accessible name, so the caveat now travels with the control a traveller taps, and
-		// both halves are asserted without opening anything.
-		const previews = detail.locator('.ground-leg');
+		// accessible name, so the caveat travels with the control a traveller taps, and both
+		// halves are asserted without opening anything. Issue #439 draws one leg at a time, so
+		// the two halves are two selections rather than two tiles in a row.
+		await pickTimelineSegment(page, 'transfer-to-origin-airport');
+		await expect(detail.locator('.ground-leg')).toHaveAccessibleName(
+			/Transfer to KEF \(straight-line estimate\)/
+		);
 
-		await expect(previews.nth(0)).toHaveAccessibleName(/Transfer to KEF \(straight-line estimate\)/);
-		await expect(previews.nth(1)).toHaveAccessibleName(
+		await pickTimelineSegment(page, 'transfer-to-hotel');
+		const stopoverPreview = detail.locator('.ground-leg');
+		await expect(stopoverPreview).toHaveAccessibleName(
 			new RegExp(`Transfer to ${FIXTURE_NAMES.property}`)
 		);
-		await expect(previews.nth(1)).not.toHaveAccessibleName(/straight-line estimate/);
+		await expect(stopoverPreview).not.toHaveAccessibleName(/straight-line estimate/);
 
 		// And the same fact reaches the live region the map announces a selection through,
 		// which issue #141 made visible as the caption under the map.
-		await previews.nth(1).click();
+		await stopoverPreview.click();
 		const announcement = page.locator('dialog.route-dialog .map-status[role="status"]');
 		await expect(announcement).toContainText(`Transfer to ${FIXTURE_NAMES.property}`);
 		await expect(announcement).not.toContainText('straight-line estimate');

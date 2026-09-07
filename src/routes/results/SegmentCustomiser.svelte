@@ -42,8 +42,12 @@
 	 *   all three at once inside the card, so a reader looking at one ride was shown three.
 	 *   `groundLegPreviewIdFor` decides which picture a segment belongs to, from the table the
 	 *   previews are built off.
-	 * - **`StopoverBlock`**, above the nights ladder in the free-time panel, because what you
-	 *   get at the stopover is the question you ask before choosing how long to stay.
+	 * - **`StopoverBlock`**, above the nights ladder, because what you get at the stopover is
+	 *   the question you ask before choosing how long to stay. In the panel for whichever
+	 *   segment IS the stopover on this trip: normally the free time it describes, and on a
+	 *   connection the traveller never leaves the terminal for (issue #426) the wait at the
+	 *   connection airport, because that trip has no free-time row at all and the block would
+	 *   otherwise be unreachable on the one trip #426 wrote it for.
 	 *
 	 * The fourth was a hint sentence, "Pick a step to change it", and it is deleted rather
 	 * than moved. The idle state of this very panel already says it, in more words and in the
@@ -773,6 +777,19 @@
 	const focusedPreviewId = $derived(segment ? groundLegPreviewIdFor(segment) : undefined);
 	const focusedPreview = $derived(groundLegPreviews.find((preview) => preview.id === focusedPreviewId));
 	/**
+	 * Which panel the stopover block belongs to on this trip.
+	 *
+	 * Normally the free time it describes. On a connection the traveller never leaves the
+	 * terminal for, issue #426 draws one wait row instead of a ride, a stay and a ride back,
+	 * so there is no free-time row to select and the wait is the whole stopover. Derived from
+	 * `airsideWait` rather than from the night count, which is the same reading `StopoverBlock`
+	 * itself takes and what stops the two drawing different trips.
+	 */
+	const stopoverSegment = $derived<ItinerarySegmentId>(
+		itinerary.airsideWait ? 'connection-waiting' : 'free-time'
+	);
+
+	/**
 	 * Whether the whole-trip timeline at the top is unfolded.
 	 *
 	 * Plain `$state` seeded from `compact`, not a `$derived` and not bound to it. The rail and
@@ -892,6 +909,18 @@
 		</header>
 
 		<div class="customiser-body">
+			{#if segment === stopoverSegment}
+				<!-- Issue #228's block, in full, and issue #440 moved it here from the card's
+				     fold. Above everything else in this panel because "what do I get here" is
+				     the question a person asks before deciding how long to stay or which bed to
+				     book, and it names the bed that is booked today. -->
+				<StopoverBlock
+					{itinerary}
+					{connectionLabel}
+					connectionCoordinates={connectionAirport?.coordinates}
+				/>
+			{/if}
+
 			{#if segment === 'transfer-to-origin-airport'}
 				{#if itinerary.originLocation && itinerary.transferToOriginAirport}
 					{@render transportPanel(
@@ -958,15 +987,6 @@
 					<p class="customiser-note">{absenceNote('to-hotel')}</p>
 				{/if}
 			{:else if segment === 'free-time'}
-				<!-- Issue #228's block, in full, and issue #440 moved it here from the card's
-				     fold. Above the ladder because "what do I get here" is the question a
-				     person asks before deciding how long to stay, and above the stay picker
-				     for the same reason: it names the bed that is booked today. -->
-				<StopoverBlock
-					{itinerary}
-					{connectionLabel}
-					connectionCoordinates={connectionAirport?.coordinates}
-				/>
 				<!-- How long you stay and where you sleep are the two things you can change
 				     about a stopover, so issue #225's ladder rides with the stay picker
 				     rather than sitting as a header over every flight panel. -->

@@ -220,10 +220,13 @@ test.describe('the picked bed on the card (issue #279)', () => {
 
 		// And no trap. The arrows are ordinary buttons and nothing inside the strip is
 		// focusable, so Tab leaves the carousel rather than cycling inside it.
+		//
+		// Asserted against this carousel rather than against any carousel. Issue #440 put the
+		// bed block and the stay picker in one panel, and the picker draws a carousel of its
+		// own for whichever property is open, so "focus is inside a carousel" stopped meaning
+		// "focus never left this one".
 		await page.keyboard.press('Tab');
-		const trapped = await page.evaluate(() =>
-			Boolean(document.activeElement?.closest('.photo-carousel'))
-		);
+		const trapped = await media.evaluate((element) => element.contains(document.activeElement));
 		expect(trapped).toBe(false);
 	});
 });

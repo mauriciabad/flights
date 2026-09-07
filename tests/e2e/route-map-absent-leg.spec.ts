@@ -1,7 +1,7 @@
 import { test, expect, type Page } from './support/fixtures';
 import { FIXTURE_FLIGHT_NUMBERS, FIXTURE_PRICES } from './support/fixture-markers';
 import { mockAllKeylessProviders, routeRyanairFlights } from './support/providers';
-import { openTimeline, pickTimelineSegment } from './support/results-ui';
+import { openTimeline, pickTimelineSegment, visibleMapCanvases } from './support/results-ui';
 import { waitForSearchToSettle } from '../shared/search-wait';
 
 /**
@@ -184,7 +184,12 @@ test.describe('a leg the map cannot draw (issue #286)', () => {
 
 		// One map, still. Pressing a leg with nothing to draw must not tear the map down or
 		// build a second one.
-		await expect(page.locator('canvas.maplibregl-canvas')).toHaveCount(1);
+		//
+		// `visibleMapCanvases` rather than a raw count: the page also runs one hidden instance
+		// to photograph the ground previews (`map-snapshot.svelte.ts`), it comes and goes on
+		// its own, and since issue #439 selecting a leg is what asks it for a picture. Counting
+		// raw canvases here counts that timer.
+		await expect.poll(() => visibleMapCanvases(page)).toBe(1);
 	});
 
 	test('is reachable by keyboard, and the whole route is still one press away', async ({

@@ -151,11 +151,16 @@ test.describe('a connection with no night in it is a wait at the airport', () =>
 		await expect(wait.locator('.tl-duration')).toHaveText('12h');
 	});
 
-	test('the block above the timeline says where the traveller is, and for how long', async ({
-		page
-	}) => {
+	test('the stopover block says where the traveller is, and for how long', async ({ page }) => {
 		await searchWithBothOnwards(page);
 		await takeOnward(page, ONWARD_SAME_DAY);
+
+		// Issue #440 gave the block to whichever segment IS the stopover, and on this trip that
+		// is the wait: there is no free-time row to select, because #426 draws one wait row
+		// instead of a ride, a stay and a ride back. Reaching it from the row that describes
+		// the same twelve hours is what a traveller does anyway.
+		await pickTimelineSegment(page, 'connection-waiting');
+		await expect(customiser(page)).toHaveAttribute('data-segment', 'connection-waiting');
 
 		// Issue #228's three-line shape, saying the one thing that is true of this trip. It
 		// used to print the two edges of a "free time" window that is a departures hall,

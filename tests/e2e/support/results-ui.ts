@@ -17,13 +17,20 @@ import type { Locator, Page } from '@playwright/test';
  * Puts the first card's full timeline on screen, which since issue #440 means filling the
  * trip inspector with that card and opening the timeline inside it.
  *
- * The stopover cell rather than any other: it is the one cell every itinerary has, and its
- * panel is the stopover's, which is what the specs that call this next go on to read. The
- * timeline is already open on a wide viewport and closed inside the phone sheet, so the
+ * The stopover cell by preference, because its panel is the stopover's and that is what most
+ * of the specs calling this go on to read. A connection with no night in it is a wait at the
+ * airport (issue #426), and the strip draws a wait rather than free time there, so it has no
+ * stopover cell at all; the outbound flight is the one cell every itinerary has, and it is
+ * the fallback.
+ *
+ * The timeline is already open on a wide viewport and closed inside the phone sheet, so the
  * disclosure is pressed only when it is shut.
  */
 export async function openTimeline(page: Page, card: Locator = page.locator('.result-card').first()) {
-	await card.locator('.trip-strip-hit-stopover').first().click();
+	await card.locator('.trip-strip-track').first().waitFor();
+	const stopover = card.locator('.trip-strip-hit-stopover').first();
+	const cell = (await stopover.count()) > 0 ? stopover : card.locator('.trip-strip-hit-flight').first();
+	await cell.click();
 	const summary = page.locator('.customiser-trip-summary');
 	await summary.waitFor();
 	if ((await page.locator('.customiser-trip[open]').count()) === 0) await summary.click();
