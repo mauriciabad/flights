@@ -6,18 +6,22 @@
  * and then deciding whether to paint a ring. Both decisions are Chrome's, and neither
  * exists outside a real one.
  *
- * The two facts this reports, and they are separate mechanisms:
+ * What it found, which is not quite what the issue predicted.
  *
- * 1. `showModal()` focuses the DIALOG itself when no descendant claims focus first. So a
- *    keyboard reader starts on a container rather than on a control.
- * 2. A click on a non-focusable descendant sends focus back to the dialog, because a modal
- *    dialog is the focus scope and focus cannot leave it. `app.css` then draws this app's
- *    2px accent outline 2px outside a near-fullscreen surface, which is the ring around the
- *    whole viewport the issue is named after.
+ * A click on a descendant that cannot take focus sends focus to the dialog, because a modal
+ * dialog is the focus scope and focus cannot leave it. `app.css` then drew this app's 2px
+ * accent outline 2px outside a near-fullscreen surface, which is the ring around the whole
+ * viewport. The map is NOT what does that. MapLibre gives its canvas `tabindex="0"`, so
+ * clicking the map focuses the canvas; the title and the panel's text are what land on the
+ * dialog.
  *
- * `dialogMatchesFocusVisible` is the load-bearing number, and it is read AFTER a keystroke.
- * A mouse click alone does not arm `:focus-visible`; the ring appears on the next key press,
- * which is why this looked like a keyboard bug and is not one.
+ * `showModal()` was also expected to focus the dialog itself, and it does not.
+ * `focusOnOpen` reads `BUTTON.map-dialog-close`, so the browser is already putting focus
+ * where the ARIA modal pattern wants it and nothing here has to move it.
+ *
+ * `dialogOutline` is the load-bearing reading, and it is taken AFTER a keystroke. A mouse
+ * click alone does not arm `:focus-visible`. The ring appears on the next key press, which
+ * is why this looked like a keyboard bug and is not one.
  *
  * ## What it mounts
  *
@@ -185,18 +189,18 @@ async function main() {
 		await page.waitForTimeout(250);
 	}
 	const dialog = page.locator('dialog.probe-dialog');
-	// The reason the failure is caught and re-thrown: a component that failed to compile
-	// leaves an empty page, and Playwright's own timeout says only "not visible". The
-	// console line says which import was wrong.
+	// The failure is caught and re-thrown because a component that failed to compile leaves
+	// an empty page, and Playwright's own timeout says only "not visible". The console line
+	// says which import was wrong.
 	await dialog.waitFor().catch((cause) => {
 		throw new Error(`the dialog never opened. console: ${JSON.stringify(consoleErrors)}`, { cause });
 	});
 	report.opened = await dialog.evaluate((element) => element.open);
 	report.focusOnOpen = await page.evaluate(ACTIVE);
 
-	// The map's own canvas, which MapLibre creates and gives `tabindex="0"`. Waiting for it
-	// rather than for tiles: this measures focus, and a canvas with no tiles on it is the
-	// same click target as one with tiles on it.
+	// The map's own canvas, which MapLibre creates and gives `tabindex="0"`. Waited for
+	// rather than the tiles, because this measures focus and a canvas with no tiles on it is
+	// the same click target as one with tiles on it.
 	const canvas = page.locator('dialog.probe-dialog canvas.maplibregl-canvas');
 	await canvas.waitFor({ timeout: 30_000 });
 
@@ -224,7 +228,8 @@ async function main() {
 		};
 	};
 
-	// The middle of the map, which is the gesture the issue is named after: panning it.
+	// The middle of the map, which is the gesture the issue blames. It is not the one that
+	// does it, and finding that out is why this click is measured rather than assumed.
 	report.mapClick = await afterClicking(canvas, { x: 300, y: 200 });
 	await page.screenshot({ path: path.join(shots, '448-map-dialog-focus-after-map-click-dark-1100.png') });
 
