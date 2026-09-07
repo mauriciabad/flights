@@ -96,6 +96,41 @@ function importsDirectlyFrom(file: string, moduleSpecifier: string): boolean {
 	});
 }
 
+/**
+ * Whether `file` registers a route on the basemap host and answers it itself.
+ *
+ * Asks the compiler for the call rather than reading the text around the host name, so a
+ * spec that aborts the style and fulfils something else forty lines later is not an
+ * offender. A guard that fires on a safe line teaches people to route around guards, which
+ * is the lesson `importsDirectlyFrom` above was rewritten for.
+ */
+function fulfilsTheBasemapStyle(file: string): boolean {
+	const source = ts.createSourceFile(
+		file,
+		readFileSync(file, 'utf-8'),
+		ts.ScriptTarget.Latest,
+		true,
+		ts.ScriptKind.TS
+	);
+
+	let found = false;
+	const visit = (node: ts.Node): void => {
+		if (
+			ts.isCallExpression(node) &&
+			ts.isPropertyAccessExpression(node.expression) &&
+			node.expression.name.text === 'route' &&
+			node.arguments.length >= 2 &&
+			node.arguments[0].getText(source).includes('basemaps.cartocdn.com') &&
+			node.arguments[1].getText(source).includes('fulfill')
+		) {
+			found = true;
+		}
+		ts.forEachChild(node, visit);
+	};
+	visit(source);
+	return found;
+}
+
 const repoRoot = path.resolve(e2eDir, '..', '..');
 
 function findFiles(dir: string, matches: (name: string) => boolean): string[] {
@@ -276,6 +311,55 @@ test.describe('fixtures cannot be mistaken for real results', () => {
 				offenders.join('\n') +
 				`\nForbidden: ${forbidden.join(', ')}. Mock through the \`page\` or \`context\` ` +
 				'fixture, which Playwright closes at the end of the test.'
+		).toEqual([]);
+	});
+
+	test('no test serves a map style with no layers in it', () => {
+		// Issue #433. A style document with an empty `layers` array is not a map, but every
+		// signal this app can read says it is: it fetches with a 200, MapLibre loads it
+		// without complaint and `isStyleLoaded()` answers true. What it draws is a blank
+		// rectangle, and until #431 the ground previews photographed that blank and cached
+		// it. Thirty-six spec files each held a private copy of such a style, so the picture
+		// every one of them asserted about was the fallback rather than the feature.
+		const testsDir = path.join(repoRoot, 'tests');
+		const offenders = findFiles(testsDir, (name) => name.endsWith('.ts') || name.endsWith('.json'))
+			.filter((file) => file !== thisFile)
+			.map((file) => ({ file, code: stripComments(readFileSync(file, 'utf-8')) }))
+			.filter(({ code }) => /["']?layers["']?\s*:\s*\[\s*\]/.test(code))
+			.map(({ file }) => relative(file));
+
+		expect(
+			offenders,
+			'These files serve a style whose `layers` array is empty:\n' +
+				offenders.join('\n') +
+				'\nA style with no layers loads clean and draws nothing, so a spec asserting on a ' +
+				'picture passes against a blank one. Use `mockMapStyle` from support/providers.ts, ' +
+				'which fixtures.ts already registers for every test.'
+		).toEqual([]);
+	});
+
+	test('the basemap style comes from the shared fixture, not from a spec', () => {
+		// The other half of #433, and the half that keeps it swept. `fixtures.ts` answers
+		// `basemaps.cartocdn.com` for every test, so a spec that answers it again is
+		// overriding the shared fixture with a private copy. That is how thirty-six copies of
+		// an empty style came to exist and then stopped agreeing with the one that had a layer
+		// in it.
+		//
+		// Aborting or continuing is a different act and stays allowed. `route-previews.spec.ts`
+		// aborts to test what a preview shows when the basemap never arrives, and
+		// `route-previews.screenshots.spec.ts` continues because its whole point is a picture
+		// of the real thing.
+		const offenders = findSpecFiles(e2eDir)
+			.filter((file) => file !== thisFile)
+			.filter((file) => fulfilsTheBasemapStyle(file))
+			.map(relative);
+
+		expect(
+			offenders,
+			'These specs answer the basemap style themselves:\n' +
+				offenders.join('\n') +
+				'\nDelete the route and let support/fixtures.ts answer it. If you need the style to ' +
+				'fail or to be real, `route.abort()` and `route.continue()` both remain available.'
 		).toEqual([]);
 	});
 

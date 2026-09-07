@@ -35,8 +35,6 @@ import { waitForSearchToSettle } from '../shared/search-wait';
  * on a row that also refused to show a price.
  */
 
-const EMPTY_MAP_STYLE = JSON.stringify({ version: 8, name: 'empty', sources: {}, layers: [] });
-
 const OUT_A = FIXTURE_FLIGHT_NUMBERS[0];
 const OUT_B = FIXTURE_FLIGHT_NUMBERS[1];
 const ONW_1 = FIXTURE_FLIGHT_NUMBERS[2];
@@ -78,9 +76,6 @@ async function searchWithTwoDepartureDates(page: Page) {
 			flightNumber: ONW_2
 		}
 	]);
-	await page.context().route('https://basemaps.cartocdn.com/**', (route) =>
-		route.fulfill({ status: 200, contentType: 'application/json', body: EMPTY_MAP_STYLE })
-	);
 
 	await page.goto('/results/?dep=2027-03-08&arr=2027-03-27&from=BCN&to=TLL');
 	await waitForSearchToSettle(page, { timeout: 20_000 });

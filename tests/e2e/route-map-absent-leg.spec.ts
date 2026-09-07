@@ -27,8 +27,6 @@ import { waitForSearchToSettle } from '../shared/search-wait';
  * provider would name.
  */
 
-const EMPTY_MAP_STYLE = JSON.stringify({ version: 8, name: 'empty', sources: {}, layers: [] });
-
 const ABSENT_LEG_SENTENCE = 'Nothing to draw. Nothing routed into the city for this stopover.';
 
 const BCN_VIE_TLL = [
@@ -53,9 +51,6 @@ const BCN_VIE_TLL = [
 async function searchWithAnUnroutableStopover(page: Page): Promise<void> {
 	await mockAllKeylessProviders(page.context());
 	await routeRyanairFlights(page.context(), BCN_VIE_TLL);
-	await page.context().route('https://basemaps.cartocdn.com/**', (route) =>
-		route.fulfill({ status: 200, contentType: 'application/json', body: EMPTY_MAP_STYLE })
-	);
 
 	// Registered after the keyless mocks, so these match first and `route.fallback()` hands
 	// everything else back to the fixtures. Split by coordinate rather than by turning the

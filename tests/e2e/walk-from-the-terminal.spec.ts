@@ -87,8 +87,6 @@ function originOf(url: string): [number, number] | null {
 	return Number.isFinite(latitude) && Number.isFinite(longitude) ? [latitude, longitude] : null;
 }
 
-const EMPTY_MAP_STYLE = JSON.stringify({ version: 8, name: 'empty', sources: {}, layers: [] });
-
 test.describe('a walk measured from the terminal, not the runway (issue #341)', () => {
 	test('offers the walking option the runway point had hidden', async ({ page }) => {
 		await mockAllKeylessProviders(page.context());
@@ -134,10 +132,6 @@ test.describe('a walk measured from the terminal, not the runway (issue #341)', 
 				flightNumber: FIXTURE_FLIGHT_NUMBERS[4]
 			}
 		]);
-
-		await page.context().route('https://basemaps.cartocdn.com/**', (route) =>
-			route.fulfill({ status: 200, contentType: 'application/json', body: EMPTY_MAP_STYLE })
-		);
 
 		await page.goto('/results/?dep=2027-03-08&arr=2027-03-27&from=BCN&to=TLL');
 		await waitForSearchToSettle(page, { timeout: 20_000 });

@@ -19,7 +19,6 @@ import { waitForSearchToSettle } from '../shared/search-wait';
  * has to say a source is old without anyone opening anything.
  */
 
-const EMPTY_MAP_STYLE = JSON.stringify({ version: 8, name: 'empty', sources: {}, layers: [] });
 const OLD_SOURCE_HOURS = 21;
 
 /** Ages one provider's cache entries and leaves every other entry one minute past its own
@@ -75,9 +74,6 @@ async function openResults(page: Page) {
 			flightNumber: FIXTURE_FLIGHT_NUMBERS[4]
 		}
 	]);
-	await page.context().route('https://basemaps.cartocdn.com/**', (route) =>
-		route.fulfill({ status: 200, contentType: 'application/json', body: EMPTY_MAP_STYLE })
-	);
 	await page.goto('/results/?dep=2027-03-08&arr=2027-03-27&from=BCN&to=TLL');
 	await waitForSearchToSettle(page, { timeout: 20_000 });
 	await expect(page.locator('.result-card').first()).toBeVisible();

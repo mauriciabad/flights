@@ -20,7 +20,6 @@ import { waitForSearchToSettle } from '../shared/search-wait';
  * prints reads the real laid-out box rather than estimating it.
  */
 
-const EMPTY_MAP_STYLE = JSON.stringify({ version: 8, name: 'empty', sources: {}, layers: [] });
 const LABEL = process.env.SHOT_LABEL;
 
 test.skip(!LABEL, 'Screenshot capture. Set SHOT_LABEL to run it.');
@@ -64,9 +63,6 @@ for (const scheme of ['dark', 'light'] as const) {
 					flightNumber: FIXTURE_FLIGHT_NUMBERS[4]
 				}
 			]);
-			await page.context().route('https://basemaps.cartocdn.com/**', (route) =>
-				route.fulfill({ status: 200, contentType: 'application/json', body: EMPTY_MAP_STYLE })
-			);
 
 			await page.setViewportSize({ width, height: 900 });
 			await page.goto('/results/?dep=2027-03-08&arr=2027-03-27&from=BCN&to=TLL');

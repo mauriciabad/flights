@@ -17,8 +17,6 @@ import { waitForSearchToSettle } from '../shared/search-wait';
  * the first card existed.
  */
 
-const EMPTY_MAP_STYLE = JSON.stringify({ version: 8, name: 'empty', sources: {}, layers: [] });
-
 function flights() {
 	const specs = [];
 	for (let index = 0; index < 6; index++) {
@@ -46,9 +44,6 @@ function flights() {
 async function mockASearchThatFinds(page: Page) {
 	await mockAllKeylessProviders(page.context());
 	await routeRyanairFlights(page.context(), flights());
-	await page.context().route('https://basemaps.cartocdn.com/**', (route) =>
-		route.fulfill({ status: 200, contentType: 'application/json', body: EMPTY_MAP_STYLE })
-	);
 }
 
 test.describe('waiting for a search to settle (issue #337)', () => {

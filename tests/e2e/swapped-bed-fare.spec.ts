@@ -23,8 +23,6 @@ import { waitForSearchToSettle } from '../shared/search-wait';
  * `itinerary-editing.spec.ts` swaps to one and never saw this.
  */
 
-const EMPTY_MAP_STYLE = JSON.stringify({ version: 8, name: 'empty', sources: {}, layers: [] });
-
 /** What the OSRM fixture's 18.3 km comes to on Austria's card: €3.80-€4.80 to drop the
  * flag plus €1.40-€1.90 a km. Written out so a rate-card edit fails this test loudly
  * rather than quietly agreeing with whatever the code now says. */
@@ -66,9 +64,6 @@ test.describe('a bed you swap to keeps its fare (issue #356)', () => {
 		// answers to different questions.
 		await page.context().route('https://api.transitous.org/**', (route) =>
 			route.fulfill({ status: 200, contentType: 'application/json', body: '{"itineraries":[]}' })
-		);
-		await page.context().route('https://basemaps.cartocdn.com/**', (route) =>
-			route.fulfill({ status: 200, contentType: 'application/json', body: EMPTY_MAP_STYLE })
 		);
 
 		await page.goto('/results/?dep=2027-03-08&arr=2027-03-27&from=BCN&to=TLL');

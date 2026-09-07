@@ -23,8 +23,6 @@ import { waitForSearchToSettle } from '../shared/search-wait';
  * fails WCAG 2.2 SC 2.5.8 with no exception available.
  */
 
-const EMPTY_MAP_STYLE = JSON.stringify({ version: 8, name: 'empty', sources: {}, layers: [] });
-
 /** Every ground leg the app can draw at once: an origin location, a destination location
  * and a priced bed in between, which is what puts four transfer seams on one strip. That is
  * the case #316 measured, and the one where the 24px floors have the least room. */
@@ -58,9 +56,6 @@ async function openResults(page: Page, url = '/results/?dep=2027-03-08&arr=2027-
 			flightNumber: FIXTURE_FLIGHT_NUMBERS[4]
 		}
 	]);
-	await page.context().route('https://basemaps.cartocdn.com/**', (route) =>
-		route.fulfill({ status: 200, contentType: 'application/json', body: EMPTY_MAP_STYLE })
-	);
 	await page.goto(url);
 	// The reading is worthless until the search settles: a card mid-stream is a different
 	// height and a different set of segments from the one a traveller reads.

@@ -32,8 +32,6 @@ import { waitForSearchToSettle } from '../shared/search-wait';
  * to put in an issue.
  */
 
-const EMPTY_MAP_STYLE = JSON.stringify({ version: 8, name: 'empty', sources: {}, layers: [] });
-
 /** Google's bar for "good", which is what issue #314 asks this page to reach. */
 const GOOD_CLS = 0.1;
 
@@ -135,9 +133,6 @@ async function openStreamingSearch(page: Page) {
 	await mockRyanairNetwork(page.context(), NETWORK);
 	await routeRyanairFlights(page.context(), flights(), { airports: NETWORK });
 	await answerStopoversInTurn(page);
-	await page.context().route('https://basemaps.cartocdn.com/**', (route) =>
-		route.fulfill({ status: 200, contentType: 'application/json', body: EMPTY_MAP_STYLE })
-	);
 }
 
 /** The issue's own instrument, installed before the app's script so `buffered: true` has the

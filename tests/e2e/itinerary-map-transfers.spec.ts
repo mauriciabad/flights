@@ -41,8 +41,6 @@ import { fileURLToPath } from 'node:url';
  * schematic fallback instead.
  */
 
-const EMPTY_MAP_STYLE = JSON.stringify({ version: 8, name: 'empty', sources: {}, layers: [] });
-
 // Real-ish, but fixed, coordinates so this test controls exactly which OSRM request
 // answers which leg rather than depending on the live demo server's actual road network.
 // The IATA codes are the one thing that has to stay real: the app resolves each one
@@ -283,9 +281,6 @@ test.describe('itinerary map: every transfer leg, distinct markers, honest geome
 		// 5. Keyless CARTO basemap — same empty style result-detail.spec.ts uses,
 		//    enough for MapLibre's own `load` event without pulling real vector tiles.
 		// -----------------------------------------------------------------
-		await page.context().route('https://basemaps.cartocdn.com/**', (route) =>
-			route.fulfill({ status: 200, contentType: 'application/json', body: EMPTY_MAP_STYLE })
-		);
 
 		// -----------------------------------------------------------------
 		// 6. The search itself, plus an origin and a destination location so all four

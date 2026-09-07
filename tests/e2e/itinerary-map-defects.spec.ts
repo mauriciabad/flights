@@ -36,8 +36,6 @@ import { waitForSearchToSettle } from '../shared/search-wait';
  * reached by tapping a frozen preview. The component under test is the same one.
  */
 
-const EMPTY_MAP_STYLE = JSON.stringify({ version: 8, name: 'empty', sources: {}, layers: [] });
-
 /** Vienna International and Tallinn Airport, the two coordinates this app resolves out of
  *  its own OurAirports dataset for these IATA codes. Their longitude separation is the
  *  baseline the zoom check below measures against. */
@@ -96,9 +94,6 @@ async function openDetail(page: Page, options: { originLocation?: boolean } = {}
 	]);
 	// A sourceless style still fires MapLibre's `load`, which is all the markers need, and
 	// keeps real vector tiles out of a test that is about DOM markers and a caption.
-	await page.context().route('https://basemaps.cartocdn.com/**', (route) =>
-		route.fulfill({ status: 200, contentType: 'application/json', body: EMPTY_MAP_STYLE })
-	);
 
 	// `fromLoc` is opt-in: only the marker-collision check below needs a second point near
 	// an airport, and every other check reads better on the plainest itinerary that shows

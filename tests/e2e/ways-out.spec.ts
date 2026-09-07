@@ -17,7 +17,6 @@ import { waitForSearchToSettle } from '../shared/search-wait';
  * traveller's own results page two back presses away, which is the state the issue is about.
  */
 
-const EMPTY_MAP_STYLE = JSON.stringify({ version: 8, name: 'empty', sources: {}, layers: [] });
 const RESULTS_URL = '/results/?dep=2027-03-08&arr=2027-03-27&from=BCN&to=TLL';
 
 async function openResults(page: Page) {
@@ -40,9 +39,6 @@ async function openResults(page: Page) {
 			flightNumber: FIXTURE_FLIGHT_NUMBERS[4]
 		}
 	]);
-	await page.context().route('https://basemaps.cartocdn.com/**', (route) =>
-		route.fulfill({ status: 200, contentType: 'application/json', body: EMPTY_MAP_STYLE })
-	);
 	await page.goto(RESULTS_URL);
 	await waitForSearchToSettle(page, { timeout: 20_000 });
 	await expect(page.locator('.result-card').first()).toBeVisible();

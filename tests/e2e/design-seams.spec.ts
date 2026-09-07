@@ -15,8 +15,6 @@ import { pickStripSegment } from './support/results-ui';
  * pass the day somebody puts the right colour on the wrong element.
  */
 
-const EMPTY_MAP_STYLE = JSON.stringify({ version: 8, name: 'empty', sources: {}, layers: [] });
-
 /** WCAG 1.4.3 for text under 18.66px, which is every string measured here. */
 const MINIMUM_CONTRAST = 4.5;
 
@@ -68,9 +66,6 @@ async function openResults(page: Page, { failing = false } = {}) {
 	await mockAllKeylessProviders(page.context());
 	await routeRyanairFlights(page.context(), flights());
 	if (failing) await failOneProvider(page);
-	await page.context().route('https://basemaps.cartocdn.com/**', (route) =>
-		route.fulfill({ status: 200, contentType: 'application/json', body: EMPTY_MAP_STYLE })
-	);
 	await page.goto(SEARCH_URL);
 	await waitForSearchToSettle(page, { timeout: 20_000 });
 	await expect(page.locator('.result-card').first()).toBeVisible();

@@ -26,8 +26,6 @@ import { waitForSearchToSettle } from '../shared/search-wait';
  * two tiles and seeing which one they may click, which is the thing #288 was filed about.
  */
 
-const EMPTY_MAP_STYLE = JSON.stringify({ version: 8, name: 'empty', sources: {}, layers: [] });
-
 /** The trip: one Vienna stopover with a night in it, so the stay picker has something to
  * price. Same pair `keyless-bed.spec.ts` uses. */
 async function searchWithFemales(page: import('@playwright/test').Page, females: number) {
@@ -55,9 +53,6 @@ async function searchWithFemales(page: import('@playwright/test').Page, females:
 			flightNumber: FIXTURE_FLIGHT_NUMBERS[4]
 		}
 	]);
-	await page.context().route('https://basemaps.cartocdn.com/**', (route) =>
-		route.fulfill({ status: 200, contentType: 'application/json', body: EMPTY_MAP_STYLE })
-	);
 
 	await page.goto(
 		`/results/?dep=2027-03-08&arr=2027-03-27&from=BCN&to=TLL&people=2&females=${females}`

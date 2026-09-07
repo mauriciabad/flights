@@ -21,8 +21,6 @@ import { waitForSearchToSettle } from '../shared/search-wait';
  * returned.
  */
 
-const EMPTY_MAP_STYLE = JSON.stringify({ version: 8, name: 'empty', sources: {}, layers: [] });
-
 test.describe('a road route too slow for the distance (issue #119)', () => {
 	test('drops the ride from every row and says what was refused', async ({ page }) => {
 		await mockAllKeylessProviders(page.context());
@@ -48,10 +46,6 @@ test.describe('a road route too slow for the distance (issue #119)', () => {
 				flightNumber: FIXTURE_FLIGHT_NUMBERS[4]
 			}
 		]);
-
-		await page.context().route('https://basemaps.cartocdn.com/**', (route) =>
-			route.fulfill({ status: 200, contentType: 'application/json', body: EMPTY_MAP_STYLE })
-		);
 
 		await page.goto('/results/?dep=2027-03-08&arr=2027-03-27&from=BCN&to=TLL');
 		await waitForSearchToSettle(page, { timeout: 20_000 });

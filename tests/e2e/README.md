@@ -56,6 +56,26 @@ its leg, the mapper was right to refuse it, and both suites measured the
 malformed-response branch for months without a single test disagreeing (issues #194,
 #242). Two more fixtures had the same defect and are fixed in that spec's PR.
 
+## The basemap is not a provider, and you do not mock it
+
+`support/fixtures.ts` answers `basemaps.cartocdn.com` for every test, from
+`tests/shared/map-style-fixture.ts`. Do not register your own. Every card detail draws a
+map now (the ground previews carry a photograph of one), so this is a dependency of the UI
+rather than a provider a spec opts into, and a spec about bus fares should not have to know
+that.
+
+`guard.spec.ts` fails the suite if a spec answers that host itself, because thirty-six of
+them did and every copy said `layers: []`. A style with no layers is not a map, and nothing
+in the stack says so: it fetches with a 200, MapLibre loads it, `isStyleLoaded()` answers
+true, and it draws a blank rectangle. Those specs were asserting about the fallback drawing
+rather than the feature, and the ground previews photographed the blank and cached it until
+#431 (issues #431, #433).
+
+Aborting and continuing are different acts and stay allowed. `route-previews.spec.ts`
+aborts to see what a preview shows when the basemap never arrives.
+`route-previews.screenshots.spec.ts` continues, because its whole point is a picture of the
+real thing.
+
 ## Fixture values are worthless on purpose
 
 Realistic **shape**, worthless **values**. Prices, flight numbers and place names come

@@ -24,8 +24,6 @@ import { waitForSearchToSettle } from '../shared/search-wait';
  * assert the real arithmetic, just on figures nobody would book.
  */
 
-const EMPTY_MAP_STYLE = JSON.stringify({ version: 8, name: 'empty', sources: {}, layers: [] });
-
 test.describe('result detail (issue #104)', () => {
 	test('expanding a real result shows its timeline and map, and a picker change updates the total', async ({
 		page
@@ -68,9 +66,6 @@ test.describe('result detail (issue #104)', () => {
 		// still fires MapLibre's `load` event, which is all this test needs: it proves the
 		// map initialises alongside the timeline and pickers rather than hanging or
 		// throwing, without pulling in real vector tiles.
-		await page.context().route('https://basemaps.cartocdn.com/**', (route) =>
-			route.fulfill({ status: 200, contentType: 'application/json', body: EMPTY_MAP_STYLE })
-		);
 
 		await page.goto('/results/?dep=2027-03-08&arr=2027-03-27&from=BCN&to=TLL');
 		await waitForSearchToSettle(page, { timeout: 20_000 });

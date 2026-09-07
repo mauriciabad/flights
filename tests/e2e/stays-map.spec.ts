@@ -20,8 +20,6 @@ import { waitForSearchToSettle } from '../shared/search-wait';
  * sixteen, so a leak here goes unnoticed until a traveller's ninth dialog.
  */
 
-const EMPTY_MAP_STYLE = JSON.stringify({ version: 8, name: 'empty', sources: {}, layers: [] });
-
 /** A real image with real intrinsic dimensions and no binary fixture to check in. An `<img>`
  * decodes an SVG like any other format and `naturalWidth` reports what the file says, so
  * "did a picture actually decode" is answerable - which a `fetch` cannot answer, since an
@@ -69,9 +67,6 @@ async function openStays(page: Page): Promise<string[]> {
 			flightNumber: FIXTURE_FLIGHT_NUMBERS[4]
 		}
 	]);
-	await page.context().route('https://basemaps.cartocdn.com/**', (route) =>
-		route.fulfill({ status: 200, contentType: 'application/json', body: EMPTY_MAP_STYLE })
-	);
 
 	await page.goto('/results/?dep=2027-03-08&arr=2027-03-27&from=BCN&to=TLL');
 	// The reading this file takes is worthless while a provider is still answering: a card
