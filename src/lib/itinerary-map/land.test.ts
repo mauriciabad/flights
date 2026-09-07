@@ -215,9 +215,20 @@ describe('previewMap: no dot may be left offshore', () => {
 		const frame = frameAround(2.2, 41.25, 0.1);
 		await withTiles(frame);
 
-		expect(previewMap(frame, WIDTH, HEIGHT, [{ x: WIDTH / 2, y: HEIGHT / 2 }]).land.join('')).toBe(
-			WHOLE_BOX
-		);
+		expect(previewMap(frame, WIDTH, HEIGHT, [{ x: WIDTH / 2, y: HEIGHT / 2 }]).land.join('')).toBe(WHOLE_BOX);
+	});
+
+	it('keeps an island destination the window has shrunk below a box unit', () => {
+		// Barcelona to Boa Vista. Cape Verde is 30 km across inside a 4700 km window, so the
+		// ring the destination dot stands on measures under one box unit and `outlineGroup`
+		// dropped it as too small to see. The dot then read as open Atlantic and took the
+		// coast of two continents down with it. The owner saw the result: "it is all gray".
+		const boaVista = { latitude: 16.1365, longitude: -22.8889 };
+		const { frame, points } = projectToBox([[barcelona, boaVista]], [barcelona, boaVista], BOX);
+		const path = land(frame, points);
+
+		expect(path).not.toBe(WHOLE_BOX);
+		expect(path).not.toBe('');
 	});
 
 	it('lets a dot a stroke away from a simplified shore still count as ashore', () => {
