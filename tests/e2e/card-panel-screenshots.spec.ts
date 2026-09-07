@@ -23,7 +23,6 @@ import { waitForSearchToSettle } from '../shared/search-wait';
  * receipt and at a desktop width where it sits beside it.
  */
 
-const EMPTY_MAP_STYLE = JSON.stringify({ version: 8, name: 'empty', sources: {}, layers: [] });
 const LABEL = process.env.SHOT_LABEL;
 
 test.skip(!LABEL, 'Screenshot capture. Set SHOT_LABEL to run it.');
@@ -71,10 +70,10 @@ async function search(page: Parameters<typeof waitForSearchToSettle>[0], bed: bo
 			})
 		);
 	}
+	// No basemap route here. `fixtures.ts` answers `basemaps.cartocdn.com` for every test with
+	// the shared style, and issue #433 is thirty-six private copies of an empty one that drew
+	// nothing while every assertion about the picture passed.
 	await routeRyanairFlights(page.context(), FLIGHTS);
-	await page.context().route('https://basemaps.cartocdn.com/**', (route) =>
-		route.fulfill({ status: 200, contentType: 'application/json', body: EMPTY_MAP_STYLE })
-	);
 	await page.goto(
 		`/results/?dep=2027-03-08&arr=2027-03-27&from=BCN&to=TLL&fromLoc=${encodeURIComponent('FIXTURE start point@41.3851,2.1734')}`
 	);

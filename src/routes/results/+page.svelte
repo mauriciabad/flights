@@ -996,6 +996,7 @@
 		// A new query is an unrelated search: yesterday's connection codes have no business
 		// staying selected, or carrying an edit against whatever streams in next.
 		customising = null;
+		routeMapOpen = false;
 		drafts.clear();
 		// Issue #224: a new query is a new set of stopovers, so a length or a bed chosen for
 		// yesterday's London card has no business applying to whatever LGW turns out to be
@@ -1413,6 +1414,10 @@
 
 	function closeCustomiser() {
 		customising = null;
+		// The map is about the trip this panel is showing, so it goes with it. Not only
+		// cosmetic: the dialog renders under `customisingResult`, so leaving this true would
+		// hide the map now and spring it open again on the next segment somebody picked.
+		routeMapOpen = false;
 		restoreFocus();
 	}
 

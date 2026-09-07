@@ -1,7 +1,13 @@
 import { test, expect, type Page } from './support/fixtures';
 import { FIXTURE_FLIGHT_NUMBERS, FIXTURE_PRICES } from './support/fixture-markers';
 import { mockAllKeylessProviders, mockHostelworld, routeRyanairFlights } from './support/providers';
-import { customiser, openTimeline, pickTimelineSegment, visibleMapCanvases } from './support/results-ui';
+import {
+	customiser,
+	openTimeline,
+	pickStripSegment,
+	pickTimelineSegment,
+	visibleMapCanvases
+} from './support/results-ui';
 import { waitForSearchToSettle } from '../shared/search-wait';
 
 /**
@@ -564,6 +570,28 @@ test.describe('frozen route previews (issue #280)', () => {
 		await page.keyboard.press('Escape');
 		await expect(dialog).toHaveCount(0);
 		await expect.poll(() => visibleMapCanvases(page)).toBe(0);
+	});
+
+	test('closing the panel takes the map with it, and does not spring it open again', async ({
+		page
+	}) => {
+		// The map is the page's since issue #439, and a flag the page holds is a flag the page
+		// has to clear. Left set, it would hide the map when the panel closed and then reopen
+		// it under the next segment somebody picked, which is not a thing a traveller asked
+		// for twice.
+		await search(page, BOTH_ENDS);
+		await openTimeline(page);
+		await pickTimelineSegment(page, 'transfer-to-hotel');
+		await customiser(page).locator('.ground-leg').click();
+		await expect(page.locator('dialog.route-dialog')).toBeVisible();
+
+		await page.keyboard.press('Escape');
+		await expect(page.locator('dialog.route-dialog')).toHaveCount(0);
+		await page.getByRole('button', { name: 'Done' }).click();
+
+		await pickStripSegment(page, 'stopover');
+		await expect(customiser(page)).toHaveAttribute('data-segment', 'free-time');
+		await expect(page.locator('dialog.route-dialog')).toHaveCount(0);
 	});
 
 	test('the dialog opens framed on the leg that was tapped', async ({ page }) => {
