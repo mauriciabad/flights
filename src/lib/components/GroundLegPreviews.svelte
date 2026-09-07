@@ -13,6 +13,13 @@
 	 * half the row and three are each a third with no count to branch on. This component
 	 * never asks how many there are.
 	 *
+	 * Issue #439 is the same rule taken further. The three-at-once row lived in the card's
+	 * fold and showed a reader looking at one leg all of them; the trip inspector hands in
+	 * the one leg it is about, and this component still never counts. What it did gain is
+	 * `fallback`, because the inspector's list is empty for two different reasons: a trip
+	 * with no ground leg anywhere, which still needs the plain button that is its only way to
+	 * a map, and a selection that is a flight or a wait, which needs nothing drawn.
+	 *
 	 * Flex rather than grid, deliberately. `45151ce` fixed the trip strip rendering at
 	 * zero width because definitely-placed grid items pushed auto-placed cells into
 	 * implicit tracks. Equal columns need no placement algorithm to get right.
@@ -63,9 +70,21 @@
 		 * the dialog opens and leaves the matching timeline row highlighted underneath.
 		 */
 		selectedSegmentId: ItinerarySegmentId | null;
+		/**
+		 * What an empty `previews` means. `true` is "this trip has no ground leg to draw", and
+		 * the plain button below is then the traveller's only route to a map. `false` is "the
+		 * caller has nothing to show right now", and nothing is drawn.
+		 *
+		 * The distinction is load-bearing rather than cosmetic. A caller that answered an
+		 * empty list by not rendering this component at all would take the open dialog down
+		 * with it, because the dialog lives here: panning from a ground leg to a flight inside
+		 * the map writes a selection with no picture, and the map would close under the finger
+		 * that moved it.
+		 */
+		fallback?: boolean;
 	}
 
-	let { itinerary, previews, selectedSegmentId = $bindable(null) }: Props = $props();
+	let { itinerary, previews, selectedSegmentId = $bindable(null), fallback = true }: Props = $props();
 
 	// The dialog has no `open` prop: rendering it opens it and dropping it closes it, so
 	// this one variable is the whole state and the MapLibre instance inside it lives
@@ -86,14 +105,16 @@
 </script>
 
 {#if previews.length === 0}
-	<!-- A trip with no origin location, no destination location and a connection city this
-	     app has no coordinates for has no ground leg to draw, and would otherwise leave the
-	     traveller with no way to a map at all. One button, no picture: there is nothing
-	     honest to draw here, and drawing the flights instead would put a thumbnail under a
-	     label that promises ground transport. -->
-	<button type="button" class="ground-leg is-fallback" onclick={() => open(null)}>
-		Open the route map
-	</button>
+	{#if fallback}
+		<!-- A trip with no origin location, no destination location and a connection city this
+		     app has no coordinates for has no ground leg to draw, and would otherwise leave the
+		     traveller with no way to a map at all. One button, no picture: there is nothing
+		     honest to draw here, and drawing the flights instead would put a thumbnail under a
+		     label that promises ground transport. -->
+		<button type="button" class="ground-leg is-fallback" onclick={() => open(null)}>
+			Open the route map
+		</button>
+	{/if}
 {:else}
 	<ul class="ground-legs-row">
 		{#each previews as preview (preview.id)}

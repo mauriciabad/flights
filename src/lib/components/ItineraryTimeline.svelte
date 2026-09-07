@@ -195,9 +195,18 @@
 	// in it gets #141's behaviour back the moment the guard goes. The only caller that does
 	// so is the unit-test harness, which is a fact worth acting on separately rather than
 	// inside this issue.
-	function handleRowClick(event: MouseEvent, segment: ItinerarySegmentId) {
+	//
+	// The row is what "inside" means, and checking that is not optional. `closest` walks the
+	// whole ancestor chain, so it happily matches an element ABOVE this list, and then every
+	// row on the timeline stops selecting. Issue #440 put this component inside the trip
+	// inspector's `<details>` and did exactly that: three specs went red at once with the
+	// panel apparently ignoring every row, because `closest('details')` found the disclosure
+	// two levels up. Any caller with a `<label>`, an `<a>` or a `<summary>` around the
+	// timeline had the same defect waiting for it.
+	function handleRowClick(event: MouseEvent & { currentTarget: HTMLLIElement }, segment: ItinerarySegmentId) {
 		const target = event.target as Element | null;
-		if (target?.closest('.tl-expansion, button, input, label, a, select, summary, details')) return;
+		const control = target?.closest('.tl-expansion, button, input, label, a, select, summary, details');
+		if (control && event.currentTarget.contains(control)) return;
 		selectSegment(segment);
 	}
 

@@ -35,6 +35,7 @@
  * failure somebody could read.
  */
 
+import type { Page } from '@playwright/test';
 import { test, expect, type Bench } from './support/bench';
 import { DESTINATION, ORIGIN, ROUTE_GRAPH, flies, resultsUrl } from './support/scenario';
 import { resultCards, waitForSearchToSettle } from './support/page';
@@ -117,29 +118,36 @@ function flightNumbersOffered(bench: Bench): Set<string> {
 /**
  * Every flight row a card's expanded timeline shows, as text.
  *
- * `ResultDetail` renders as a SIBLING of the card inside the list item, not inside it, so
- * the timeline is read from the row. Cards are opened one at a time because the page owns a
- * single `expandedId` and opening a second closes the first.
- */
 /**
- * Every flight row the full timeline draws for one card, unfolded and folded again.
+ * Every flight row the full timeline draws for one card.
  *
- * Issue #278 replaced the card's "Show details" button with the trip strip's own stopover
- * caption, and moved the timeline inside the card rather than into a sibling below it, so
- * both the gesture and the ancestor walk changed. The rest of this check is untouched: it
- * still reads `.tl-row-flight` and it still fails loudly on an empty list, which is the
- * assertion that caught this rename rather than passing vacuously over it.
+ * Where that timeline lives has moved twice. #278 replaced the card's "Show details" button
+ * with the trip strip's own stopover caption and put the timeline inside the card; #440
+ * deleted that fold and moved the timeline into the trip inspector beside the list, which is
+ * a single panel showing one card at a time. So the gesture is now "select a stretch of this
+ * card's trip" and the rows are read from the inspector rather than from the card.
+ *
+ * The rest of this check is untouched: it still reads `.tl-row-flight` and it still fails
+ * loudly on an empty list, which is the assertion that caught the last rename rather than
+ * passing vacuously over it.
  */
-async function flightsShownOn(card: import('@playwright/test').Locator): Promise<string[]> {
-	const unfold = card.locator('.trip-strip-unfold').first();
-	if ((await unfold.count()) === 0) return [];
-	await unfold.click();
+async function flightsShownOn(
+	page: Page,
+	card: import('@playwright/test').Locator
+): Promise<string[]> {
+	const cell = card.locator('.trip-strip-hit-stopover').first();
+	if ((await cell.count()) === 0) return [];
+	await cell.click();
 
-	const rows = card.locator('.tl-row-flight');
+	const panel = page.getByTestId('segment-customiser');
+	const summary = panel.locator('.customiser-trip-summary');
+	await summary.waitFor({ timeout: 15_000 });
+	if ((await panel.locator('.customiser-trip[open]').count()) === 0) await summary.click();
+
+	const rows = panel.locator('.tl-row-flight');
 	await rows.first().waitFor({ state: 'visible', timeout: 15_000 });
 	const lines = await rows.allInnerTexts();
 
-	await unfold.click();
 	return lines.map((row) => row.replace(/\s+/g, ' ').trim()).filter(Boolean);
 }
 
@@ -237,7 +245,7 @@ test.describe('no fabricated flights', () => {
 		).toBeGreaterThan(0);
 
 		const shownFlights: string[] = [];
-		for (const card of cards) shownFlights.push(...(await flightsShownOn(card)));
+		for (const card of cards) shownFlights.push(...(await flightsShownOn(page, card)));
 
 		expect(
 			shownFlights.length,

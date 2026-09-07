@@ -88,6 +88,7 @@
 		DepartureDates,
 		FlightPicker,
 		GroundLegPreviews,
+		Icon,
 		ItineraryTimeline,
 		Skeleton,
 		StopoverBlock,
@@ -767,15 +768,6 @@
 	const focusedPreviewId = $derived(segment ? groundLegPreviewIdFor(segment) : undefined);
 	const focusedPreview = $derived(groundLegPreviews.find((preview) => preview.id === focusedPreviewId));
 	/**
-	 * A trip with no origin location, no destination location and a connection this app has no
-	 * coordinates for has no ground leg at all, and `GroundLegPreviews` answers that with a
-	 * plain "Open the route map" button. Before issue #440 that button was the only way such a
-	 * traveller reached a map, and it still is, so it is drawn whenever the trip has no legs
-	 * rather than being lost with the row it used to sit in.
-	 */
-	const mapIsReachable = $derived(focusedPreview !== undefined || groundLegPreviews.length === 0);
-
-	/**
 	 * Whether the whole-trip timeline at the top is unfolded.
 	 *
 	 * Plain `$state` seeded from `compact`, not a `$derived` and not bound to it. The rail and
@@ -838,7 +830,14 @@
 	     is exactly once per instance because the rail and the sheet are separate blocks on the
 	     page. Binding it would reopen a timeline the traveller had just closed. -->
 	<details class="customiser-trip" bind:open={timelineOpen}>
-		<summary class="customiser-trip-summary">The whole trip</summary>
+		<summary class="customiser-trip-summary">
+			<!-- An explicit chevron rather than the browser's own marker. A `<summary>` laid out
+			     as a flex container has no `::marker` at all, and this row needs the affordance
+			     more than most: inside the phone sheet it starts closed, and the words alone
+			     would leave a traveller with no sign that the whole trip is one press away. -->
+			<Icon name="chevron-down" class="customiser-trip-chevron" />
+			The whole trip
+		</summary>
 		<ItineraryTimeline
 			itinerary={draft.itinerary}
 			{connectionAirport}
@@ -848,18 +847,22 @@
 		/>
 	</details>
 
-	{#if mapIsReachable}
-		<!-- Issue #439, the owner: "The transport maps should be moved to the right sidebar
-		     when the respective timeline segment is selected." One leg, the one this panel is
-		     about, with the same tap-to-open-the-full-map behaviour it had on the card. Bound
-		     to the page's selection through a function binding, because tapping the picture is
-		     another way of picking a segment. -->
-		<GroundLegPreviews
-			{itinerary}
-			previews={focusedPreview ? [focusedPreview] : []}
-			bind:selectedSegmentId={() => segment, onSelectSegment}
-		/>
-	{/if}
+	<!-- Issue #439, the owner: "The transport maps should be moved to the right sidebar when
+	     the respective timeline segment is selected." One leg, the one this panel is about,
+	     with the same tap-to-open-the-full-map behaviour it had on the card. Bound to the
+	     page's selection through a function binding, because tapping the picture is another
+	     way of picking a segment.
+
+	     Always rendered, never behind an `{#if}`. The map dialog lives inside this component,
+	     and inside that dialog a traveller can pan to a flight, which is a selection with no
+	     ground picture. Unmounting on that would close the map under the finger that moved
+	     it. `fallback` is what says which kind of empty this is. -->
+	<GroundLegPreviews
+		{itinerary}
+		previews={focusedPreview ? [focusedPreview] : []}
+		fallback={groundLegPreviews.length === 0}
+		bind:selectedSegmentId={() => segment, onSelectSegment}
+	/>
 
 	{#if !segment}
 		<!-- The desktop rail before anything is picked. A rail that renders nothing reads as
@@ -1137,6 +1140,9 @@
 		display: flex;
 		align-items: center;
 		gap: var(--space-2);
+		/* Both halves of hiding the default marker: `list-style` for the standard one, and
+		   the WebKit pseudo-element Safari still draws instead. */
+		list-style: none;
 		/* 44px, which is the floor for anything a thumb has to hit, and this one is inside a
 		   sheet where it is the only way to the timeline at all. */
 		min-height: 2.75rem;
@@ -1163,10 +1169,30 @@
 		outline-offset: 2px;
 	}
 
-	/* The browser's own marker, tinted to the one accent this app uses for anything
-	   interactive, so the triangle reads as the affordance rather than as punctuation. */
-	.customiser-trip-summary::marker {
+	.customiser-trip-summary::-webkit-details-marker {
+		display: none;
+	}
+
+	/* The one mark on this row that says it does something. Accent gold, which is what is
+	   interactive everywhere else in this app, and it turns to point at the timeline it has
+	   opened. `:global` because the `<svg>` is `Icon.svelte`'s element rather than one this
+	   component's scoping class lands on. */
+	.customiser-trip-summary :global(.customiser-trip-chevron) {
+		width: 0.85rem;
+		height: 0.85rem;
 		color: var(--color-accent);
+		transition: transform var(--transition-fast);
+	}
+
+	.customiser-trip[open] .customiser-trip-summary :global(.customiser-trip-chevron) {
+		transform: rotate(180deg);
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.customiser-trip-summary,
+		.customiser-trip-summary :global(.customiser-trip-chevron) {
+			transition: none;
+		}
 	}
 
 	.customiser-trip[open] .customiser-trip-summary {

@@ -86,7 +86,7 @@ async function stopoverWithTransitBothWays(page: Page): Promise<void> {
 test.describe('a Transitous timetable reaches the timeline (issue #242)', () => {
 	test('a stopover with a bed shows its bus and the time it boards', async ({ page }) => {
 		await stopoverWithTransitBothWays(page);
-		const timeline = page.locator('.result-detail .itinerary-timeline');
+		const timeline = page.locator('[data-testid="segment-customiser"] .itinerary-timeline');
 		await expect(timeline).toBeVisible();
 
 		// Named by segment rather than by position, and both legs of the stopover, because
@@ -117,7 +117,7 @@ test.describe('a Transitous timetable reaches the timeline (issue #242)', () => 
 		// Issue #368: the stopover block's closing edge and the row's clock are one event.
 		// Before the split they were the deadline minus the ride and the real last bus,
 		// 25 minutes apart here and 1h 28m apart on the owner's own production card.
-		await expect(page.locator('.result-detail .stopover .stopover-edge').last()).toContainText(
+		await expect(page.locator('[data-testid="segment-customiser"] .stopover .stopover-edge').last()).toContainText(
 			'until 8:10am'
 		);
 	});
@@ -131,7 +131,7 @@ test.describe('a Transitous timetable reaches the timeline (issue #242)', () => 
 		// two states side by side, and neither can pass by accident.
 		await stopoverWithTransitBothWays(page);
 
-		const stopover = page.locator('.result-detail .ground-legs-item').filter({ hasText: 'The stopover' });
+		const stopover = page.locator('[data-testid="segment-customiser"] .ground-legs-item').filter({ hasText: 'The stopover' });
 		await expect(stopover).toHaveCount(1);
 
 		const legs = stopover.locator('svg path.rp-leg');

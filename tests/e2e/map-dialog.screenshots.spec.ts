@@ -1,7 +1,7 @@
 import { test, expect, type Page } from './support/fixtures';
 import { FIXTURE_FLIGHT_NUMBERS, FIXTURE_PRICES } from './support/fixture-markers';
 import { mockAllKeylessProviders, routeRyanairFlights } from './support/providers';
-import { openTimeline } from './support/results-ui';
+import { openTimeline, pickTimelineSegment } from './support/results-ui';
 import { waitForSearchToSettle } from '../shared/search-wait';
 
 /**
@@ -104,7 +104,10 @@ for (const viewport of VIEWPORTS) {
 			// #280's, which has no panel at all, so the map takes the whole body. That is the
 			// case a shell with a panel-shaped body would break first.
 			await openTimeline(page);
-			await page.locator('.result-detail .ground-legs-item').nth(1).locator('.ground-leg').click();
+			// The stopover leg. Issue #439 draws one at a time, so it is selected rather than
+			// picked out of a row.
+			await pickTimelineSegment(page, 'transfer-to-hotel');
+			await page.locator('[data-testid="segment-customiser"] .ground-leg').click();
 			const route = page.locator('dialog.route-dialog');
 			await expect(route.getByRole('region', { name: /Route map/ })).toBeVisible({ timeout: 30_000 });
 			await page.screenshot({ path: `docs/screenshots/324-route-${suffix}.png` });

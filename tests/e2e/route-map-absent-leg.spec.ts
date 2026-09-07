@@ -1,7 +1,7 @@
 import { test, expect, type Page } from './support/fixtures';
 import { FIXTURE_FLIGHT_NUMBERS, FIXTURE_PRICES } from './support/fixture-markers';
 import { mockAllKeylessProviders, routeRyanairFlights } from './support/providers';
-import { openTimeline } from './support/results-ui';
+import { openTimeline, pickTimelineSegment } from './support/results-ui';
 import { waitForSearchToSettle } from '../shared/search-wait';
 
 /**
@@ -90,22 +90,23 @@ async function searchWithAnUnroutableStopover(page: Page): Promise<void> {
 	});
 	await page.goto(`/results/?${params}`);
 	await waitForSearchToSettle(page, { timeout: 30_000 });
-	// #278 took the card-level expand away: the trip strip's own stopover caption unfolds
-	// the timeline now, and `openTimeline` is where that gesture lives for every spec.
+	// #278 took the card-level expand away and #440 took the fold with it. `openTimeline`
+	// is where the gesture that puts a trip's timeline on screen lives for every spec.
 	await openTimeline(page);
-	await expect(page.locator('.result-detail')).toBeVisible();
+	await expect(page.getByTestId('segment-customiser')).toBeVisible();
 }
 
 test.describe('a leg the map cannot draw (issue #286)', () => {
 	test('has no preview to tap, which is what closed the old way in', async ({ page }) => {
 		await searchWithAnUnroutableStopover(page);
 
-		const detail = page.locator('.result-detail');
-		// Two, not three: the stopover leg has no geometry, so it gets no thumbnail. This is
-		// the premise of the whole issue rather than a thing under test, and it is asserted
-		// so that a change making the stopover routable again turns this file red instead of
-		// leaving it passing against a scenario that no longer exists.
-		await expect(detail.locator('.ground-legs-item')).toHaveCount(2);
+		const detail = page.getByTestId('segment-customiser');
+		// None at all. `openTimeline` selects the stopover, the stopover leg has no geometry,
+		// and issue #439 draws only the leg the inspector is about. This is the premise of the
+		// whole issue rather than a thing under test, and it is asserted so that a change
+		// making the stopover routable again turns this file red instead of leaving it
+		// passing against a scenario that no longer exists.
+		await expect(detail.locator('.ground-legs-item')).toHaveCount(0);
 		await expect(detail.getByText('The stopover', { exact: true })).toHaveCount(0);
 		// The row a traveller would have clicked before #280 still carries the reason, and
 		// clicking it cannot reach the map any more: the map is behind a modal it opens.
@@ -119,7 +120,11 @@ test.describe('a leg the map cannot draw (issue #286)', () => {
 	}) => {
 		await searchWithAnUnroutableStopover(page);
 
-		await page.locator('.result-detail .ground-leg').first().click();
+		// The way in is another leg's picture, which is the point of the issue: the leg with
+		// nothing to draw has no picture, so the dialog has to be opened from one that does
+		// and then moved. Issue #439 shows one leg at a time, so that leg is selected first.
+		await pickTimelineSegment(page, 'transfer-to-origin-airport');
+		await page.locator('[data-testid="segment-customiser"] .ground-leg').first().click();
 		const dialog = page.locator('dialog.route-dialog');
 		await expect(dialog).toBeVisible();
 
@@ -187,7 +192,9 @@ test.describe('a leg the map cannot draw (issue #286)', () => {
 	}) => {
 		await searchWithAnUnroutableStopover(page);
 
-		await page.locator('.result-detail .ground-leg').first().click();
+		// Same as above: the way into the dialog is a leg that has a picture.
+		await pickTimelineSegment(page, 'transfer-to-origin-airport');
+		await page.locator('[data-testid="segment-customiser"] .ground-leg').first().click();
 		const dialog = page.locator('dialog.route-dialog');
 		await expect(dialog).toBeVisible();
 

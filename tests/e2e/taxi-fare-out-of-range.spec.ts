@@ -47,7 +47,7 @@ test.describe('a transfer longer than the rate cards cover (issue #246)', () => 
 		await waitForSearchToSettle(page, { timeout: 20_000 });
 		await openTimeline(page);
 
-		const detail = page.locator('.result-detail');
+		const detail = page.getByTestId('segment-customiser');
 		const hotelRow = detail.locator('.itinerary-timeline [data-segment="transfer-to-hotel"]');
 		await hotelRow.click();
 

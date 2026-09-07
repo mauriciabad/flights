@@ -15,7 +15,7 @@ import { waitForSearchToSettle } from '../shared/search-wait';
  *
  * Everything here is about that journey and about what the form refuses to send. The
  * search pipeline itself is covered by `results-stream-consumption.spec.ts` and
- * `result-detail.spec.ts`, so these tests deliberately do not assert on fares.
+ * `trip-inspector.spec.ts`, so these tests deliberately do not assert on fares.
  *
  * Dates are far enough out to stay in the future for years, since one of the rules under
  * test is "a date in the past is not a search worth spending".
@@ -24,7 +24,7 @@ import { waitForSearchToSettle } from '../shared/search-wait';
 const DEPARTURE = '2027-03-08';
 const ARRIVAL = '2027-03-27';
 
-/** BCN -> VIE -> TLL, the same chain `result-detail.spec.ts` uses, so a search run
+/** BCN -> VIE -> TLL, the same chain `trip-inspector.spec.ts` uses, so a search run
  * here really produces a card rather than an empty board. Fixture-marked values only. */
 async function mockConnectingFlights(page: import('@playwright/test').Page) {
 	await mockAllKeylessProviders(page.context());

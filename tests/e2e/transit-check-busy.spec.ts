@@ -81,7 +81,7 @@ test('the press stays on screen and says it is running until the answer lands', 
 	const otherBed = customiser(page).locator('.alt-card', { hasText: 'FIXTURE Far Lodge' });
 	await expect(otherBed).toBeVisible();
 	await otherBed.click();
-	await expect(page.locator('.result-detail').locator('.stopover')).toContainText('FIXTURE Far Lodge');
+	await expect(page.getByTestId('segment-customiser').locator('.stopover')).toContainText('FIXTURE Far Lodge');
 
 	await pickTimelineSegment(page, 'transfer-to-hotel');
 	const notice = customiser(page).getByTestId('transit-notice');

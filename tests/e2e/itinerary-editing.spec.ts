@@ -55,7 +55,7 @@ test.describe('editing a stopover keeps one trip on the screen', () => {
 		await waitForSearchToSettle(page, { timeout: 20_000 });
 
 		await openTimeline(page);
-		const detail = page.locator('.result-detail');
+		const detail = page.getByTestId('segment-customiser');
 		await expect(detail).toBeVisible();
 
 		const block = detail.locator('.stopover');

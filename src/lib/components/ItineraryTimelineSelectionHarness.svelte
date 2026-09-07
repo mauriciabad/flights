@@ -26,9 +26,20 @@
 	interface Props {
 		itinerary: Itinerary;
 		withExpansion?: boolean;
+		/**
+		 * Wraps the whole timeline in a `<details>`, which is what the trip inspector does
+		 * since issue #440.
+		 *
+		 * That is the third thing a `.ts` file cannot author, and it is here because it broke
+		 * something. `handleRowClick` ignores a click that landed on a control, and it asked
+		 * `closest()`, which walks past the row to every ancestor: with a `<details>` above
+		 * the list, every row on the timeline stopped selecting. Any caller wrapping this in a
+		 * `<label>`, an `<a>` or a `<summary>` had the same defect waiting.
+		 */
+		insideDisclosure?: boolean;
 	}
 
-	let { itinerary, withExpansion = false }: Props = $props();
+	let { itinerary, withExpansion = false, insideDisclosure = false }: Props = $props();
 
 	let selectedSegmentId = $state<ItinerarySegmentId | null>(null);
 
@@ -45,9 +56,20 @@
 	<button type="button" class="probe">probe {segment}</button>
 {/snippet}
 
-<ItineraryTimeline
-	{itinerary}
-	bind:selectedSegmentId
-	expansion={withExpansion ? probe : undefined}
-	optionMarks={withExpansion ? { 'outbound-flight': '2 flights' } : undefined}
-/>
+{#snippet timeline()}
+	<ItineraryTimeline
+		{itinerary}
+		bind:selectedSegmentId
+		expansion={withExpansion ? probe : undefined}
+		optionMarks={withExpansion ? { 'outbound-flight': '2 flights' } : undefined}
+	/>
+{/snippet}
+
+{#if insideDisclosure}
+	<details open>
+		<summary>The whole trip</summary>
+		{@render timeline()}
+	</details>
+{:else}
+	{@render timeline()}
+{/if}
