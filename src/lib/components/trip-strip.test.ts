@@ -11,7 +11,14 @@ import type {
 	Transfer,
 	TransitSchedule
 } from '../domain';
-import { TRIP_STRIP_SCALE, segmentIdOf, splitFreeTimeAtLocalMidnight, sqrtShares, tripStrip } from './trip-strip';
+import {
+	TRIP_STRIP_SCALE,
+	durationStampSize,
+	segmentIdOf,
+	splitFreeTimeAtLocalMidnight,
+	sqrtShares,
+	tripStrip
+} from './trip-strip';
 
 function at(local: string): LocalDateTime {
 	return { local, timeZone: 'Europe/Vienna', utcOffsetMinutes: 120 };
@@ -546,8 +553,29 @@ describe('the strip, over a layover with a timetable in it', () => {
 	}
 
 	it('draws the ride into town as long as it really takes, wait for the coach included', () => {
-		// 6:50am to 8:06am, not the 69 minutes the transfer claims.
-		expect(cell('transfer', 'to-city').minutes).toBe(76);
+		// 7:20am to 8:06am. Landing is 6:50am, so the 76 minutes to the door are the 30-minute
+		// walk-out and then this; issue #438 gave the walk-out its own cell and this one kept
+		// the rest, which is still not the 69 minutes the transfer claims.
+		const ride = cell('transfer', 'to-city');
+		expect([ride.start.local, ride.end.local]).toEqual(['2026-09-16T07:20:00', '2026-09-16T08:06:00']);
+		expect(ride.minutes).toBe(46);
+	});
+
+	// Issue #438. The two cells have to tile the stretch they replaced, or the strip stops
+	// being a picture of elapsed time. `intoTown` is measured against the two flights, and
+	// nothing about splitting it may change what it covers.
+	it('draws the walk-out in front of the ride, and the two together are the whole way to town', () => {
+		const walkOut = cell('landing', 'to-city');
+		if (walkOut.kind !== 'landing') throw new Error('expected a landing cell');
+		const ride = cell('transfer', 'to-city');
+		expect([walkOut.start.local, walkOut.end.local]).toEqual([
+			'2026-09-16T06:50:00',
+			'2026-09-16T07:20:00'
+		]);
+		expect(walkOut.minutes).toBe(30);
+		expect(walkOut.airport).toBe('LGW');
+		expect(walkOut.minutes + ride.minutes).toBe(76);
+		expect(walkOut.end.local).toBe(ride.start.local);
 	});
 
 	it('draws the ride back between leaving the bed and reaching the terminal', () => {
@@ -622,5 +650,108 @@ describe('the strip, over a ride to the airport with a timetable on it', () => {
 			expect(segment.start.local).toBe(before[index - 1]!.end.local);
 		}
 		expect(before.at(-1)!.end.local).toBe(segments[flightIndex]!.start.local);
+	});
+});
+
+/**
+ * Issue #438: the landing-to-transport buffer, drawn instead of folded into the ride.
+ *
+ * The owner: "The time between the aircraft lands and you can take the transport to the
+ * hotel should be shown in the timelines as well." Both legs that begin on a runway carry
+ * one, and the leg that ends at a gate never does.
+ */
+describe('the walk-out at the end of a flight', () => {
+	function buffered(mode: Transfer['mode'], minutes: number, landingBuffer: number): Transfer {
+		return {
+			mode,
+			duration: minutes as Duration,
+			legs: [{ mode, duration: minutes as Duration }],
+			landingBuffer: landingBuffer as Duration
+		};
+	}
+
+	function strip(toDestination?: Transfer) {
+		return tripStrip(
+			makeItinerary({
+				departs: '2026-10-06T08:00:00',
+				outboundMinutes: 120,
+				stopoverMinutes: 2000,
+				onwardMinutes: 120,
+				toOriginAirport: transfer('taxi', 30),
+				toCity: buffered('transit', 60, 20),
+				toAirport: transfer('transit', 40),
+				toDestination
+			})
+		);
+	}
+
+	it('draws a block in front of each leg that starts on a runway, and none in front of one that ends at a gate', () => {
+		expect(strip(buffered('walk', 35, 20)).segments.map((segment) => segment.kind)).toEqual([
+			'transfer',
+			'wait',
+			'flight',
+			'landing',
+			'transfer',
+			'free',
+			'free',
+			'transfer',
+			'wait',
+			'flight',
+			'landing',
+			'transfer'
+		]);
+	});
+
+	it('leaves the ride to the destination its own length, with the walk-out in front of it', () => {
+		const segments = strip(buffered('taxi', 35, 20)).segments;
+		const walkOut = segments.at(-2)!;
+		const ride = segments.at(-1)!;
+		expect(walkOut.kind).toBe('landing');
+		expect(walkOut.minutes).toBe(20);
+		// 35 minutes landing to doorstep, of which the taxi itself is 15.
+		expect(ride.minutes).toBe(15);
+		// The block starts the moment the wheels touch, which is the only reading it can start
+		// at: the onward flight's own arrival.
+		const onward = segments[strip().onwardIndex]!;
+		expect(walkOut.start.local).toBe(onward.end.local);
+		expect(walkOut.end.local).toBe(ride.start.local);
+	});
+
+	it('draws nothing when the rule is set to zero, rather than a cell of no minutes', () => {
+		const kinds = strip(buffered('walk', 35, 0)).segments.map((segment) => segment.kind);
+		expect(kinds.filter((kind) => kind === 'landing')).toEqual(['landing']);
+	});
+
+	it('fills the leg rather than overrunning it when the buffer is longer than the ride', () => {
+		const segments = strip(buffered('walk', 12, 45)).segments;
+		expect(segments.at(-2)!.minutes).toBe(12);
+		expect(segments.at(-1)!.minutes).toBe(0);
+	});
+
+	it('answers with the id of the leg it opens, so the strip needs no twelfth segment name', () => {
+		const built = strip(buffered('walk', 35, 20));
+		const landings = built.segments.flatMap((segment, index) =>
+			segment.kind === 'landing' ? [segmentIdOf(built, index)] : []
+		);
+		expect(landings).toEqual(['transfer-to-hotel', 'transfer-to-destination-location']);
+	});
+});
+
+describe('durationStampSize', () => {
+	// Every shape `formatDuration` can hand a wait or a walk-out, against the bucket whose
+	// container-query threshold is the width that string measured in a browser.
+	it('sorts each shape into the narrowest bucket that holds it', () => {
+		expect(durationStampSize('2h')).toBe(2);
+		expect(durationStampSize('45m')).toBe(3);
+		expect(durationStampSize('12h')).toBe(3);
+		expect(durationStampSize('1h 5m')).toBe(5);
+		expect(durationStampSize('1h 30m')).toBe(6);
+		expect(durationStampSize('12h 45m')).toBe(7);
+	});
+
+	it('rounds a shape it has no bucket for up rather than clipping it', () => {
+		// There is no four-character duration, so this only pins which way an unexpected one
+		// would go: into a wider cell, never into one it would spill out of.
+		expect(durationStampSize('9h5m')).toBe(5);
 	});
 });

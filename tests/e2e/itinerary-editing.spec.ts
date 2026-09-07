@@ -64,12 +64,13 @@ test.describe('editing a stopover keeps one trip on the screen', () => {
 
 		// The property the search routed to, with a journey somebody actually measured: the
 		// row and the block quote the same 25 minutes, which is the agreement under test.
-		// Both said 55m until issue #290, which is the 25-minute bus with the traveller's own
-		// 30-minute walk-out folded in and the sum labelled as the bus. The 55 is still on
-		// screen, as the moment of arrival rather than as the length of the ride.
+		// Both said one number until issue #290, which is the 25-minute bus with the
+		// traveller's own walk-out folded in and the sum labelled as the bus. The sum is still
+		// on screen, as the moment of arrival rather than as the length of the ride. It is 45
+		// rather than 55 since issue #438 flattened the landing-to-transport rule to 20.
 		await expect(block).toContainText('FIXTURE Far Lodge');
 		await expect(block).toContainText('25m from the airport');
-		await expect(block).toContainText('you arrive 55m after landing');
+		await expect(block).toContainText('you arrive 45m after landing');
 		await expect(toBed.locator('.tl-duration')).toHaveText('25m');
 		// "Nights 2" since issue #279, where the block's night count became a labelled figure
 		// instead of part of a sentence. Issue #309 removed the timeline's totals rail, which
@@ -112,9 +113,9 @@ test.describe('editing a stopover keeps one trip on the screen', () => {
 		await expect(fromBed).toContainText('Nothing routed back from this property');
 		await expect(detail).not.toContainText('no transport provider could route');
 		// The other bed's journey is gone from both surfaces, not merely relabelled: neither
-		// the 25-minute ride nor the 55 minutes it took to arrive.
+		// the 25-minute ride nor the 45 minutes it took to arrive.
 		await expect(toBed).not.toContainText('25m');
-		await expect(toBed).not.toContainText('55m');
+		await expect(toBed).not.toContainText('45m');
 		await expect(block).not.toContainText('25m from the airport');
 		await expect(block).not.toContainText('after landing');
 	});

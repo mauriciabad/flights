@@ -85,7 +85,7 @@
 	import { formatClockTime, formatDuration, formatLongDuration, formatWeekday, formatWeekdayLong } from '$lib/format';
 	import type { ItinerarySegmentId } from '$lib/itinerary-map/segment-id';
 	import { segmentStub, stripTargets } from './segment-stub';
-	import { segmentIdOf, tripStrip } from './trip-strip';
+	import { durationStampSize, segmentIdOf, tripStrip } from './trip-strip';
 	import type { TripStripFreeSegment, TripStripTransferSegment } from './trip-strip';
 	import AirlineLogo from './AirlineLogo.svelte';
 	import Icon from './Icon.svelte';
@@ -178,12 +178,16 @@
 		return positive.length > 0 ? 1 / Math.min(...positive) : 1;
 	});
 
+	/* The 24px floor belongs to a cell that is a tap target in its own right. Free days are not
+	   (their target spans the whole run) and since issue #438 neither is a landing block, which
+	   the leg it opens covers. An eleventh floor on a 335px strip would come out of the free
+	   days, and a block nobody can tap does not need a thumb's worth of width. */
 	const template = $derived(
 		strip.segments
-			.map(
-				(segment) =>
-					`minmax(${segment.kind === 'free' ? '3px' : '24px'}, ${(segment.share * shareScale).toFixed(4)}fr)`
-			)
+			.map((segment) => {
+				const floor = segment.kind === 'free' || segment.kind === 'landing' ? '3px' : '24px';
+				return `minmax(${floor}, ${(segment.share * shareScale).toFixed(4)}fr)`;
+			})
 			.join(' ')
 	);
 
@@ -247,17 +251,17 @@
 			flushFree();
 			if (segment.kind === 'wait') clauses.push(`${formatDuration(segment.minutes)} waiting at ${segment.airport}`);
 			else if (segment.kind === 'flight') clauses.push(`${segment.from} to ${segment.to}, ${formatDuration(segment.minutes)} in the air`);
-			else {
-				// Issue #290: a leg that starts at a runway spends its first minutes getting out
-				// of the terminal, and folding those into "by taxi" is what this sentence used to
-				// do. Two clauses, so the ride is the ride and the spoken journey still covers
-				// every minute the bar beside it covers.
-				const walkOut = segment.transfer.landingBuffer;
-				if (walkOut) clauses.push(`${formatDuration(walkOut)} getting out of the airport`);
+			// Issue #290: a leg that starts at a runway spends its first minutes getting out of
+			// the terminal, and folding those into "by taxi" is what this sentence used to do. Its
+			// own clause, so the ride is the ride and the spoken journey still covers every minute
+			// the bar beside it covers. Since issue #438 those minutes are a cell of their own, so
+			// the clause is read off that cell rather than off the leg after it.
+			else if (segment.kind === 'landing')
+				clauses.push(`${formatDuration(segment.minutes)} getting out of ${segment.airport}`);
+			else
 				clauses.push(
 					`${formatDuration(transferRideDuration(segment.transfer))} ${TRANSFER_MODE_PHRASES[segment.mode]} ${transferWhere(segment)}`
 				);
-			}
 		}
 		flushFree();
 		return `${clauses.join(', then ')}. Drawn on a square-root time scale.`;
@@ -489,6 +493,24 @@
 					</span>
 				{:else if segment.kind === 'free'}
 					<span class="trip-strip-stamp trip-strip-stamp-day font-mono">{weekdayStamp(segment)}</span>
+				{:else if segment.kind === 'wait' || segment.kind === 'landing'}
+					<!-- Issue #436, the owner: "on the timeline strip, the waiting itme at the airport,
+					     show the time inside the segment". The wait is the cost nobody quotes and the
+					     one block on the strip that carried no figure while the flight beside it
+					     printed one. The walk-out (issue #438) prints under the same rule, because it
+					     is drawn as the same kind of block and a reader should not have to learn two.
+
+					     A cell too narrow for its own stamp shows nothing rather than a clipped word,
+					     which is what the logo, the mode icon and the weekday above already do. The
+					     figure is still on the block's own hit target (`aria-label`), in the strip's
+					     one-sentence summary, and on the panel a hover or a tap opens. -->
+					{@const stamp = formatDuration(segment.minutes)}
+					<span
+						class={[
+							'trip-strip-stamp trip-strip-stamp-time font-mono tabular-nums',
+							`is-${durationStampSize(stamp)}`
+						]}>{stamp}</span
+					>
 				{/if}
 			</div>
 		{/each}
@@ -679,6 +701,21 @@
 	.trip-strip-cell-wait {
 		background:
 			repeating-linear-gradient(135deg, var(--color-border-strong) 0 1px, transparent 1px 5px),
+			var(--color-bg-inset);
+		box-shadow: inset 0 0 0 1px var(--color-border);
+	}
+
+	/* Getting out of the airport (issue #438). The same hatching, because it is the same
+	   material, which is time standing still rather than travelling. The lean is the other way,
+	   which
+	   at 20px and up reads as a different texture and below that reads as nothing at all. So
+	   the lean is a quiet second cue and not the answer. What tells the two apart is where the
+	   block sits, always straight after a flight and never before one, and the words: the
+	   figure on the block where it fits, "20m getting out of BUD" in the hit target's name and
+	   in the strip's spoken sentence, and a row of its own in the full timeline. */
+	.trip-strip-cell-landing {
+		background:
+			repeating-linear-gradient(45deg, var(--color-border-strong) 0 1px, transparent 1px 5px),
 			var(--color-bg-inset);
 		box-shadow: inset 0 0 0 1px var(--color-border);
 	}
@@ -878,6 +915,60 @@
 
 	@container (min-width: 1.875rem) {
 		.trip-strip-stamp-day {
+			display: inline;
+		}
+	}
+
+	/* The figure inside a hatched block. It sits on a plate of the block's own ground so the
+	   digits are never read across a hatch line. At `--font-size-xs` the muted text is about
+	   2.4:1 against `--color-border-strong`, and the hatch crosses a stamp several times.
+	   Knocking the pattern out under the text is the same move `.trip-strip-stamp-mode`
+	   already makes against the solid transfer seam. */
+	.trip-strip-stamp-time {
+		padding-inline: 2px;
+		border-radius: 2px;
+		background: var(--color-bg-inset);
+		font-size: var(--font-size-xs);
+		font-weight: var(--font-weight-semibold);
+		line-height: 1.2;
+		color: var(--color-text-muted);
+	}
+
+	/* One threshold per stamp width, because a container query tests the cell and never the
+	   text in it. The literal has to be written out, and one literal cannot serve both "2h"
+	   and "12h 45m". `durationStampSize` sorts a stamp into one of these five, and each
+	   threshold is the width that string measured in a real browser (18.4, 25.6, 40, 47.2 and
+	   54.4px, `tools/probe-strip-figures.mjs`) rounded up to the next whole pixel of air.
+
+	   A cell with no padding and an inset box-shadow rather than a border, which is what a
+	   wait and a walk-out both are, has a content box the size of its border box, so these
+	   compare directly against the widths the probe prints. */
+	@container (min-width: 1.25rem) {
+		.trip-strip-stamp-time.is-2 {
+			display: inline;
+		}
+	}
+
+	@container (min-width: 1.75rem) {
+		.trip-strip-stamp-time.is-3 {
+			display: inline;
+		}
+	}
+
+	@container (min-width: 2.625rem) {
+		.trip-strip-stamp-time.is-5 {
+			display: inline;
+		}
+	}
+
+	@container (min-width: 3rem) {
+		.trip-strip-stamp-time.is-6 {
+			display: inline;
+		}
+	}
+
+	@container (min-width: 3.5rem) {
+		.trip-strip-stamp-time.is-7 {
 			display: inline;
 		}
 	}

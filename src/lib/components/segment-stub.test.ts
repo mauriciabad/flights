@@ -463,4 +463,19 @@ describe('the transport stub and the landing buffer (issue #290)', () => {
 		expect(stub.start).toMatchObject({ time: '8:30pm' });
 		expect(stub.footnote).toBeUndefined();
 	});
+
+	// Issue #438 drew the walk-out as its own cell. It is not a target of its own: the leg it
+	// opens covers both cells, so the strip gains a block and no eleventh tap target, and
+	// pointing at either half opens the one panel about that journey.
+	it('hands the walk-out cell to the leg it opens rather than making a target of it', () => {
+		const { segments } = tripStrip(buffered());
+		const landing = segments.findIndex((segment) => segment.kind === 'landing');
+		expect(landing).toBeGreaterThan(-1);
+
+		const targets = stripTargets(segments);
+		expect(targets.filter((target) => target.from <= landing && landing <= target.to)).toEqual([
+			{ kind: 'transport', from: landing, to: landing + 1 }
+		]);
+		expect(targets.filter((target) => target.kind === 'transport')).toHaveLength(2);
+	});
 });

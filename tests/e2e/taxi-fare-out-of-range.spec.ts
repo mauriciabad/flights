@@ -57,14 +57,14 @@ test.describe('a transfer longer than the rate cards cover (issue #246)', () => 
 		await expect(taxiRow).toBeVisible();
 
 		// The duration is a real measurement and stays: OSRM's 4560 seconds, and nothing else.
-		// It read 1h 46m until issue #290, because the 30-minute landing-to-transport buffer
-		// `applyLandingBuffer` adds was folded in and then labelled as the taxi. The buffer is
-		// still spent, and now says so on its own line above the list. Only the fare is
-		// withheld.
+		// It read the ride plus the buffer until issue #290, because the landing-to-transport
+		// minutes `applyLandingBuffer` adds were folded in and then labelled as the taxi. The
+		// buffer is still spent, and now says so on its own line above the list. Only the fare
+		// is withheld. The buffer is 20 rather than 30 since issue #438 flattened the rule.
 		await expect(taxiRow.locator('.row-duration')).toContainText('1h 16m');
-		await expect(taxiRow.locator('.row-duration')).not.toContainText('1h 46m');
+		await expect(taxiRow.locator('.row-duration')).not.toContainText('1h 36m');
 		await expect(customiser(page).locator('.picker-landing-buffer')).toContainText(
-			'Every option here starts 30m after you land'
+			'Every option here starts 20m after you land'
 		);
 
 		const price = taxiRow.locator('.row-price');
