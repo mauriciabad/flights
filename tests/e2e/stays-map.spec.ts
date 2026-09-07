@@ -1,7 +1,7 @@
 import { expect, test, type Page } from './support/fixtures';
 import { FIXTURE_FLIGHT_NUMBERS, FIXTURE_PRICES } from './support/fixture-markers';
 import { mockAllKeylessProviders, mockHostelworld, routeRyanairFlights } from './support/providers';
-import { customiser, openTimeline, pickStripSegment } from './support/results-ui';
+import { customiser, openTimeline, pickStripSegment, visibleMapCanvases } from './support/results-ui';
 import { waitForSearchToSettle } from '../shared/search-wait';
 
 /**
@@ -212,19 +212,21 @@ test.describe('the stay map (issues #319 and #280)', () => {
 		expect(await preview.locator('circle.rp-dot').count()).toBe(rows + 2);
 
 		// The whole reason it is an SVG. Four live contexts per card would put a results page
-		// over Chromium's sixteen at the fifth card.
-		await expect(page.locator('canvas.maplibregl-canvas')).toHaveCount(0);
+		// over Chromium's sixteen at the fifth card. Counted without the ground previews'
+		// shared off-screen renderer, which is one for the page however many stays there
+		// are; `route-previews.spec.ts` is where that one is pinned.
+		expect(await visibleMapCanvases(page)).toBe(0);
 	});
 
 	test('opening the map makes exactly one, and closing it takes that one away', async ({ page }) => {
 		await openStays(page);
 		const trigger = page.locator('.stay-map-open');
-		await expect(page.locator('canvas.maplibregl-canvas')).toHaveCount(0);
+		expect(await visibleMapCanvases(page)).toBe(0);
 
 		await trigger.click();
 		const dialog = page.locator('dialog.stays-dialog');
 		await expect(dialog).toBeVisible();
-		await expect(page.locator('canvas.maplibregl-canvas')).toHaveCount(1);
+		await expect.poll(() => visibleMapCanvases(page)).toBe(1);
 
 		// Near-fullscreen: a fixed margin and nothing more.
 		const dialogBox = (await dialog.boundingBox())!;
@@ -234,7 +236,7 @@ test.describe('the stay map (issues #319 and #280)', () => {
 
 		await page.keyboard.press('Escape');
 		await expect(dialog).toHaveCount(0);
-		await expect(page.locator('canvas.maplibregl-canvas')).toHaveCount(0);
+		await expect.poll(() => visibleMapCanvases(page)).toBe(0);
 		await expect(trigger).toBeFocused();
 	});
 
@@ -242,17 +244,16 @@ test.describe('the stay map (issues #319 and #280)', () => {
 		await openStays(page);
 		const trigger = page.locator('.stay-map-open');
 		const dialog = page.locator('dialog.stays-dialog');
-		const canvases = page.locator('canvas.maplibregl-canvas');
 
 		// One round proves teardown runs. Ten prove it runs every time, which is the shape
 		// this defect would have: nothing visibly wrong until the seventeenth context.
 		for (let round = 0; round < 10; round++) {
 			await trigger.click();
 			await expect(dialog).toBeVisible();
-			await expect(canvases).toHaveCount(1);
+			await expect.poll(() => visibleMapCanvases(page)).toBe(1);
 			await page.keyboard.press('Escape');
 			await expect(dialog).toHaveCount(0);
-			await expect(canvases).toHaveCount(0);
+			await expect.poll(() => visibleMapCanvases(page)).toBe(0);
 		}
 	});
 

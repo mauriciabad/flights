@@ -515,3 +515,26 @@ export async function mockAirlineLogos(target: Routable) {
 		});
 	}
 }
+
+/**
+ * The CARTO basemap style, answered with a valid style that draws nothing.
+ *
+ * A UI dependency rather than a provider a spec opts into, which is why `fixtures.ts`
+ * registers it for every test the way it registers the airline logos. It used to be the
+ * other kind: only opening the route dialog loaded a style. Since the ground-leg previews
+ * carry a photograph of the same basemap (`map-snapshot.svelte.ts`), merely showing a
+ * card's detail asks for one, and a spec about bus fares should not have to know that.
+ *
+ * Empty rather than a fixture of real map data, on purpose. No behavioural spec asserts
+ * on what the basemap draws, an empty style asks for no tiles at all, and it still
+ * settles, so a preview's capture against it resolves with a real picture of nothing
+ * rather than hanging. `route-previews.screenshots.spec.ts` lets the real host through,
+ * because there the point is a picture a person looks at.
+ */
+const EMPTY_MAP_STYLE = JSON.stringify({ version: 8, name: 'empty', sources: {}, layers: [] });
+
+export async function mockMapStyle(target: Routable) {
+	await target.route('https://basemaps.cartocdn.com/**', async (route) => {
+		await route.fulfill({ status: 200, contentType: 'application/json', body: EMPTY_MAP_STYLE });
+	});
+}
