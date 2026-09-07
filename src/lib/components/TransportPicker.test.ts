@@ -245,6 +245,38 @@ describe('TransportPicker: no-service transit', () => {
 		expect(priceCell).not.toMatch(/\d/);
 	});
 
+	it('says the bus ride is too short for the ticket, not too long for the card', () => {
+		// Issue #421's acceptance criterion, the half that has to be on screen. Gatwick's card
+		// prices a 40 km run into Victoria, and the stay this app pairs with a Gatwick stopover
+		// is 3.2 km away in Horley. The refusal is right either way; printing issue #246's
+		// sentence for it would tell the traveller their three-kilometre bus is too far to
+		// price, which is the opposite of what happened.
+		const walkTransfer: Transfer = { mode: 'walk', duration: 40 as Duration, legs: [] };
+		const itinerary = baseItinerary(walkTransfer);
+		const bus: Transfer = { mode: 'transit', duration: 22 as Duration, legs: [] };
+		const tooShort: FareEstimate = {
+			kind: 'below-range',
+			distanceKm: 3.2,
+			ratedFromKm: 25,
+			countryCode: 'GB',
+			citation: 'National Express 025 from £6.00 and the Gatwick Express Anytime single at £24.10.'
+		};
+
+		const root = mountPicker({ itinerary, alternatives: [{ ...bus, fareEstimate: tooShort }] });
+
+		const text = normalizedText(root);
+		expect(text).toContain('Why there is no fare estimate');
+		expect(text).toContain('3 km is shorter than the journey this ticket is sold for');
+		expect(text).toContain('starts 25 km out from the airport');
+		expect(text).toContain('No fare estimate');
+		// The card that would have answered is still named. Issue #246's rule, and the reason
+		// the refusal carries a citation at all.
+		expect(text).toContain('Gatwick Express Anytime single');
+		// The other refusal's sentence, which would be false here.
+		expect(text).not.toContain('is further than the ticket');
+		expect(text).not.toContain('No rate card here reaches that far');
+	});
+
 	it('offers the taxi against a dead timetable without pretending to know the fare', () => {
 		// The other surface the estimate reaches, and the one the issue quoted: "A taxi now
 		// takes about 1h 46m and costs roughly £268.75-£430.90." The taxi is still the answer

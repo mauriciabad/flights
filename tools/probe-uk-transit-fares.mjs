@@ -1,9 +1,11 @@
 /**
  * Re-reads every British figure in `providers/transfers/transit-fare-table.ts` on the page
- * it was cited from, and says whether the page still carries it. Issue #415. The Gatwick
- * rows check the module header rather than a card: Gatwick's two bounds are cited there as
- * the reason it is now kept out for a distance argument instead of an unreadable fare, and
- * a reason resting on numbers wants the numbers checked too.
+ * it was cited from, and says whether the page still carries it. Issues #415 and #421.
+ *
+ * The Gatwick rows checked the module header until issue #421 turned those two bounds into
+ * a card, and they check the card now. The third of them is not a bound at all: £1.75 is
+ * what a London bus costs, the local fare the Gatwick card's floor declines to price, and a
+ * refusal resting on a number wants the number checked as much as an estimate does.
  *
  *   node tools/probe-uk-transit-fares.mjs [--only BHX] [--dump]
  *
@@ -91,7 +93,7 @@ const CHECKS = [
 	},
 	{
 		airport: 'LGW',
-		claim: 'National Express 025 from £6.00, the cheap end the header says Gatwick has',
+		claim: "National Express 025 from £6.00, the cheap end of Gatwick's card",
 		url: 'https://www.nationalexpress.com/en/airports/gatwick/london-to-gatwick',
 		expect: ['From £6 one-way', 'Limited Availability']
 	},
@@ -104,7 +106,7 @@ const CHECKS = [
 	},
 	{
 		airport: 'LGW',
-		claim: 'a London bus or tram is £1.75, the local fare a Gatwick card would have to reach',
+		claim: "a London bus or tram is £1.75, the local fare Gatwick's floor refuses to price",
 		url: 'https://tfl.gov.uk/fares/find-fares/bus-and-tram-fares',
 		expect: ['Hopper fare', '£1.75']
 	},
