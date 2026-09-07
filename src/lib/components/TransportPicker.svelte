@@ -24,7 +24,7 @@
 	 * and a bordered card inside a bordered row was the box-in-a-box look this replaces.
 	 */
 	import type { Duration, Itinerary, LocalDateTime, Transfer, TransferMode } from '../domain';
-	import { transferRideDuration } from '../domain';
+	import { transferChanges, transferRideDuration } from '../domain';
 	import {
 		diffTransfers,
 		recomputeItinerarySelection,
@@ -41,6 +41,7 @@
 	import ModeIcon from './ModeIcon.svelte';
 	import { legIconKind, transferIconKind } from './mode-icon';
 	import {
+		changeCountLabel,
 		formatCalendarDate,
 		formatClockTime,
 		formatDuration,
@@ -52,7 +53,7 @@
 		isDifferentCalendarDate,
 		landingBufferPickerNote,
 		refusedRouteSentence,
-		summariseTransferLegs,
+		summariseTransferVehicles,
 		transferModeLabel,
 		transferFareNote
 	} from './itinerary-timeline-format';
@@ -338,7 +339,14 @@
 			     mode it prices. -->
 			{@const rowFare = row.transfer.fareEstimate}
 			{@const ridesTransit = row.transfer.mode === 'transit'}
-			{@const summary = summariseTransferLegs(row.transfer.legs)}
+			{@const vehicles = summariseTransferVehicles(row.transfer.legs)}
+			<!-- Issue #424, the owner: "i also want to see how many changes i have to do
+			     clearly in public transport". It was a parenthetical at the tail of the
+			     summary, which is the last thing on the row a reader reaches and one of the
+			     first things they are choosing on. `undefined` on a walk, a taxi and a drive,
+			     and the row then prints nothing here, because a car has nothing to change
+			     between and "no changes" over a taxi is true and useless. -->
+			{@const changes = transferChanges(row.transfer.legs)}
 			<!-- Issue #249: five answers, one function. A walk says "No fare", which is a fact
 			     about walking rather than a gap in what a provider told us (#119); a rate-card
 			     range says roughly what the meter will read; a ride past that card's range says
@@ -370,7 +378,8 @@
 					</span>
 					<span class="row-duration">
 						<span class="font-mono tabular-nums">{formatDuration(transferRideDuration(row.transfer))}</span>
-						{#if summary}<span class="row-summary">&middot; {summary}</span>{/if}
+						{#if changes !== undefined}<span class="row-changes">{changeCountLabel(changes)}</span>{/if}
+						{#if vehicles}<span class="row-summary">&middot; {vehicles}</span>{/if}
 					</span>
 				</span>
 				<span class="row-price font-mono tabular-nums">
@@ -759,6 +768,28 @@
 		font-size: var(--font-size-xs);
 		color: var(--color-text-muted);
 		text-wrap: pretty;
+	}
+
+	/* Issue #424. The change count used to be a parenthetical at the end of the summary,
+	   where it read as a footnote to the vehicle names rather than as the thing the
+	   traveller is choosing on. A bordered stamp at full-strength text, between two muted
+	   runs, is what makes it legible at a glance beside the duration.
+
+	   No second colour for the direct case, tempting as it is. This row sits on three
+	   different backgrounds (plain, hover, and the accent tint of the current pick) and any
+	   colour picked against one of them has to be re-measured against the other two;
+	   `--color-text` is already the strongest thing available and passes wherever the muted
+	   duration beside it does. The word "No" is doing the work colour would. */
+	.row-changes {
+		display: inline-block;
+		margin-right: var(--space-1);
+		padding: 0 var(--space-1);
+		border: 1px solid var(--color-border-strong);
+		border-radius: var(--radius-sm);
+		font-family: var(--font-mono);
+		font-weight: var(--font-weight-medium);
+		color: var(--color-text);
+		white-space: nowrap;
 	}
 
 	/* Deliberately the same colour as the duration it sits beside, not quieter. It is real
