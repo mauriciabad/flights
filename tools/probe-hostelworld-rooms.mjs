@@ -132,6 +132,16 @@ const report = { pageOrigin: ORIGIN, dateStart, city: CITY_ID, nights: NIGHTS };
 const city = await fetchFromPage(cityUrl);
 report.citySearch = { url: cityUrl, ...city, body: undefined, ...(await wireFacts(cityUrl)) };
 
+// Reported rather than thrown. A run that cannot get a property list still knows something
+// worth printing, and a bare `JSON.parse` of `undefined` would say only that.
+if (!city.ok) {
+	report.stoppedBecause = 'the city search did not answer, so there are no property ids to ask about';
+	console.log(JSON.stringify(report, null, 2));
+	await browser.close();
+	server.close();
+	process.exit(1);
+}
+
 const properties = JSON.parse(city.body).properties ?? [];
 const ids = properties.map((property) => property.id).filter((id) => id !== undefined);
 report.citySearch.propertiesReturned = ids.length;
@@ -217,5 +227,7 @@ report.requestFailed = failures;
 
 console.log(JSON.stringify(report, null, 2));
 
+// Both, always. A probe that leaves a Chromium and a listening socket behind is the thing
+// AGENTS.md counted fourteen of on this machine one morning.
 await browser.close();
 server.close();
