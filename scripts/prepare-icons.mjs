@@ -53,6 +53,8 @@ const ICON_NAMES = {
 	clock: 'ModeIcon, the airport wait',
 	ferry: 'ModeIcon, a transit transfer that rides the water',
 	flag: 'ItineraryMap, the marker on where the trip ends',
+	heart: 'a saved itinerary: the section mark and the empty state on /saved/',
+	'heart-minus': 'take a trip out of the saved list',
 	home: 'a property with no photograph, and the ItineraryMap marker on where the trip starts',
 	'info-circle': 'ErrorState severity info, and a room-tile caveat',
 	maximize: 'GroundLegPreviews, open the full map',
