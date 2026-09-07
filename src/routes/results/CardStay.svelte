@@ -63,7 +63,11 @@
 	     the reader has reached, and carrying that count to a different hostel would open the
 	     new one on its second picture and fetch it unasked. -->
 	{#key propertyKey(bed.property)}
-		<section class="card-stay" aria-label="Where you sleep">
+		<!-- A plain div, not a labelled `<section>`. A section with an accessible name is a
+		     landmark, and four cards on screen would put four identically named landmarks in
+		     the list a screen-reader user navigates by. The room kind says what this is, and
+		     the receipt beside it has already said "Hotel". -->
+		<div class="card-stay">
 			<div class="card-stay-body">
 				{#if bed.property.images.length > 0}
 					<div class="card-stay-photo">
@@ -90,7 +94,7 @@
 					{/if}
 				</div>
 			</div>
-		</section>
+		</div>
 	{/key}
 {/if}
 
