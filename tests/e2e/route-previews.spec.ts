@@ -28,8 +28,6 @@ import { waitForSearchToSettle } from '../shared/search-wait';
  * Fare values come from `support/fixture-markers.ts` for the reason that file explains.
  */
 
-const EMPTY_MAP_STYLE = JSON.stringify({ version: 8, name: 'empty', sources: {}, layers: [] });
-
 const BCN_VIE_TLL = [
 	{
 		dep: 'BCN',
@@ -55,7 +53,7 @@ const BCN_VIE_TLL = [
 async function search(
 	page: Page,
 	ends: { fromLoc?: string; toLoc?: string },
-	{ beds = false }: { beds?: boolean } = {}
+	{ beds = false, basemap = true }: { beds?: boolean; basemap?: boolean } = {}
 ): Promise<void> {
 	await mockAllKeylessProviders(page.context());
 	// `mockAllKeylessProviders` answers Hostelworld with an empty city, which is what every
@@ -70,9 +68,17 @@ async function search(
 		);
 	}
 	await routeRyanairFlights(page.context(), BCN_VIE_TLL);
-	await page.context().route('https://basemaps.cartocdn.com/**', (route) =>
-		route.fulfill({ status: 200, contentType: 'application/json', body: EMPTY_MAP_STYLE })
-	);
+	// No basemap route here on purpose. `fixtures.ts` registers `mockMapStyle` for every
+	// test, and this file is the one that asserts on the picture a preview shows, so it
+	// wants that style rather than a local copy which could drift from it. A copy did
+	// drift: it served a document with no layers, so every capture in this file was of a
+	// blank map and every assertion about a picture still passed.
+	//
+	// `basemap: false` takes the host away instead, which is the traveller on a train with
+	// no signal, or CARTO having a bad afternoon. Registered last, so it wins.
+	if (!basemap) {
+		await page.context().route('https://basemaps.cartocdn.com/**', (route) => route.abort());
+	}
 
 	const params = new URLSearchParams({
 		dep: '2027-03-08',
@@ -302,6 +308,57 @@ test.describe('frozen route previews (issue #280)', () => {
 
 		// CARTO's terms, satisfied once for the row rather than once per picture.
 		await expect(page.locator('.result-detail .ground-legs-credit')).toHaveText('© OpenStreetMap, © CARTO');
+	});
+
+	test('a preview with no basemap draws the coast instead, and still shows the route', async ({ page }) => {
+		// What a traveller sees when the map cannot be had. This is the assertion the first
+		// build of this feature was missing, and it was missing in the direction that
+		// matters: the picture arrived in every test, so nothing ever rendered the case the
+		// whole design rests on being survivable.
+		await search(page, BOTH_ENDS, { basemap: false });
+		await openTimeline(page);
+
+		const items = page.locator('.result-detail .ground-legs-item');
+		await expect(items).toHaveCount(3);
+
+		// No picture, rather than a picture of nothing. A style that will not load still
+		// goes idle and still captures, as a flat rectangle, and caching that would be a
+		// worse preview than this drawing and a permanent one.
+		await expect(page.locator('img.inert-map-picture')).toHaveCount(0);
+
+		// Every one of them draws ground, and the land tile arrives on its own schedule so
+		// this waits for it rather than assuming it.
+		//
+		// `.rp-land` without an element name on purpose. `RoutePreview` draws land as
+		// `<path>` normally and as a masked `<rect>` wherever a country boundary crosses the
+		// window, and two of these three take the second branch. A locator naming `path`
+		// passes on the one preview that has no border in it and silently ignores the two
+		// that do, which is the wrong two: the bordered ones carry more of the picture.
+		await expect
+			.poll(() => page.locator('.result-detail .ground-legs-row .rp-land').count(), {
+				message: 'every preview must fall back to the drawn coast',
+				timeout: 30_000
+			})
+			.toBe(3);
+
+		for (let index = 0; index < 3; index++) {
+			const preview = items.nth(index).locator('.route-preview');
+			await expect(preview.locator('.rp-land')).toHaveCount(1);
+			// And the route is still on it. A fallback that lost the one line these pictures
+			// exist to draw would be no better than the blank box.
+			const leg = preview.locator('path.rp-leg').first();
+			await expect(leg).toBeVisible();
+			const legBox = (await leg.boundingBox())!;
+			expect(legBox.width + legBox.height, `preview ${index} route`).toBeGreaterThan(20);
+			const box = (await preview.boundingBox())!;
+			expect(box.width, `preview ${index} width`).toBeGreaterThan(40);
+			expect(box.height, `preview ${index} height`).toBeGreaterThan(30);
+		}
+
+		// And the renderer let go of its context rather than holding one open for a map it
+		// could not draw. The timeout has to clear `IDLE_RELEASE_MS`, which is deliberately
+		// several seconds so a page being scrolled does not rebuild an instance per card.
+		await expect.poll(() => page.locator('canvas.maplibregl-canvas').count(), { timeout: 20_000 }).toBe(0);
 	});
 
 	test('a missing origin location leaves two previews, each wider than three would be', async ({ page }) => {

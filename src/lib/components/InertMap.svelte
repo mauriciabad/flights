@@ -15,13 +15,31 @@
 	 * ceiling, at which point it evicts the oldest and a traveller scrolling back to card
 	 * one finds blank rectangles.
 	 *
-	 * ## The fallback is the background, and there is only one
+	 * ## What is under the picture when there is no picture
 	 *
-	 * The container is painted `--color-map-land` and the picture sits on top. No snapshot
-	 * yet, no WebGL on this device, or a capture that failed all leave exactly the solid
-	 * fill these previews showed before, which is the same honest answer `land.ts` gives a
-	 * window it cannot vouch for. Nothing here watches for an error, because there is
-	 * nothing better to show if one happens.
+	 * The drawing `RoutePreview` already knows how to make: the coast, the sea and the
+	 * country seams from the region's own land tile, a median of 389 B
+	 * (`land-tiles.svelte.ts`). No snapshot yet, no WebGL on this device, a style that
+	 * would not load, or a capture that failed all leave the traveller exactly the picture
+	 * these previews showed before this change, rather than a blank box.
+	 *
+	 * The first build of this passed `land={false}` unconditionally, on the reasoning that
+	 * a preview with a basemap coming should not spend a fetch on a coastline it would
+	 * never draw. That was true and it was the wrong trade. It made the ordinary case a
+	 * few hundred bytes cheaper and the failure case worse than what it replaced, on a
+	 * feature whose whole subject is a map that might not arrive. 389 B is a fair price
+	 * for the failure case being a map of somewhere.
+	 *
+	 * It is gated on the snapshot being absent rather than drawn underneath and covered,
+	 * and that is not an optimisation either. Both children are positioned, so they paint
+	 * in source order and the `<svg>` is second, which is what puts the route over the
+	 * basemap. Land left on would put a flat fill over the basemap too.
+	 *
+	 * The container paints nothing of its own, and that is load-bearing rather than tidy.
+	 * It used to be `--color-map-land`, which made the whole box the exact colour
+	 * `RoutePreview` fills land with, so the drawn coast was invisible against it and the
+	 * degraded preview came out as one flat rectangle. The sea has to be the card, the way
+	 * it was before this feature existed, or there is no coastline to see.
 	 *
 	 * ## Why the projection is computed twice
 	 *
@@ -66,20 +84,23 @@
 	{#if snapshot}
 		<img class="inert-map-picture" src={snapshot} alt="" aria-hidden="true" draggable="false" />
 	{/if}
-	<RoutePreview {lines} {points} {width} {height} land={false} />
+	<RoutePreview {lines} {points} {width} {height} land={snapshot === undefined} />
 </span>
 
 <style>
 	/* The route `<svg>` is in normal flow and the picture is absolutely positioned over it,
 	   so this box is exactly the drawing's box with no aspect ratio repeated here to drift
-	   from the one the SVG already carries. */
+	   from the one the SVG already carries.
+
+	   No background, and that one is measured rather than reasoned. `RoutePreview` fills
+	   land with `--color-map-land` and leaves the sea as whatever the parent paints, so
+	   painting this box that same colour hides the coast completely. The first build did
+	   paint it, and the capture with the basemap blocked came out as one flat rectangle. */
 	.inert-map {
 		position: relative;
 		display: block;
 		overflow: hidden;
 		border-radius: var(--radius-md);
-		/* The fallback, and the only one. See the header. */
-		background: var(--color-map-land);
 	}
 
 	.inert-map-picture {

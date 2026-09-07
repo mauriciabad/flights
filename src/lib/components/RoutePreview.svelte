@@ -24,9 +24,10 @@
 	 * `land={false}` turns all of that off, and `InertMap` is the only caller that does.
 	 * It puts a photograph of the real basemap under the same box, at the same window,
 	 * which answers "where is this" better than a grey silhouette in every way except the
-	 * one that matters here. The flight picture is a comparison between two arcs, and a
-	 * basemap under it is noise, so `FlightDetour` keeps the land and this prop stays
-	 * defaulted.
+	 * one that matters here. It turns the land back on whenever that photograph is missing,
+	 * so this drawing is what a traveller sees when the basemap cannot be had. The flight
+	 * picture is a comparison between two arcs, and a basemap under it is noise, so
+	 * `FlightDetour` keeps the land and this prop stays defaulted.
 	 *
 	 * ## The country boundaries #408 asked for, and why they are not lines
 	 *
@@ -117,8 +118,8 @@
 	// tile lands. Reading is all that happens here; nothing in this component writes, which
 	// is what keeps it clear of the self-retriggering effect that cost this app a release.
 	//
-	// Not called at all when the land is off, so a preview with a basemap under it never
-	// asks for a coastline block it would not draw.
+	// Not called at all when the land is off, which is what `InertMap` does the moment its
+	// basemap picture arrives and covers this drawing's ground.
 	const map = $derived(land ? previewMap(shape.frame, width, height, shape.points) : undefined);
 	// Unique per instance, and only referenced when there is a boundary to cut: five cards
 	// put twenty of these on a page and a shared id would mask them all with the first

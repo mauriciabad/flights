@@ -246,10 +246,13 @@ async function capture(request: SnapshotRequest): Promise<string | undefined> {
 			release();
 			await build(request);
 		}
-		// A style that never loaded still goes idle, because nothing is pending, and it
-		// captures as a flat rectangle of MapLibre's own background. Cached, that would be
-		// a worse fallback than the fill the preview is already showing, and permanent.
-		if (!renderer?.map.isStyleLoaded()) return undefined;
+		if (!drawsAMap(renderer)) {
+			// Dropped rather than kept for the rest of the queue. A dead instance answers
+			// every later window the same way, and holding a WebGL context open for a map
+			// that will never render is the one cost this whole design exists to avoid.
+			release();
+			return undefined;
+		}
 		return renderer.map.getCanvas().toDataURL('image/png');
 	} catch {
 		// No WebGL, a lost context, a style that would not parse. The instance is dropped
@@ -257,6 +260,25 @@ async function capture(request: SnapshotRequest): Promise<string | undefined> {
 		release();
 		return undefined;
 	}
+}
+
+/**
+ * Whether this instance is showing a map, as opposed to a rectangle.
+ *
+ * Two ways it is not. A style that never loaded still goes idle, because nothing is
+ * pending, and captures as a flat fill of MapLibre's own background. And a style that
+ * loaded with no layers in it draws exactly the same nothing.
+ *
+ * The second is worth its own check because it is the shape this feature has already been
+ * burned by. CARTO's raster endpoint answers every request 200 with a real PNG carrying
+ * the words "API KEY REQUIRED", so a status code proves nothing about whether a map came
+ * back. A style document with no layers is that failure one level up. Nothing here can
+ * tell a good map from a bad one, but it can refuse to photograph an empty one, and a
+ * refusal costs the traveller only the drawn coast `InertMap` shows instead.
+ */
+function drawsAMap(current: Renderer | undefined): current is Renderer {
+	if (!current?.map.isStyleLoaded()) return false;
+	return (current.map.getStyle()?.layers?.length ?? 0) > 0;
 }
 
 function matches(current: Renderer | undefined, request: SnapshotRequest): current is Renderer {
@@ -348,15 +370,30 @@ function createMap(
 	});
 }
 
+/**
+ * Waits for the map to have nothing left to draw.
+ *
+ * `error` ends the wait too, but only while the style has not loaded, and that
+ * qualification is the whole subtlety. A style that cannot be fetched never goes idle at
+ * all, so without this every preview on an offline page would sit out the full timeout in
+ * turn and the page would hold a context for half a minute to show nothing. A missing tile
+ * on a style that did load also raises `error`, and that one must not cut the wait short,
+ * because the map is coming and half of it is not worth photographing.
+ */
 function afterIdle(map: MapLibreMap): Promise<void> {
 	return new Promise((resolve) => {
 		const finish = (): void => {
 			clearTimeout(timer);
 			map.off('idle', finish);
+			map.off('error', onError);
 			resolve();
+		};
+		const onError = (): void => {
+			if (!map.isStyleLoaded()) finish();
 		};
 		const timer = setTimeout(finish, SETTLE_TIMEOUT_MS);
 		map.on('idle', finish);
+		map.on('error', onError);
 	});
 }
 
