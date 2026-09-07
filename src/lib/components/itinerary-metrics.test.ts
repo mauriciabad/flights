@@ -47,6 +47,14 @@ describe('itineraryMetrics', () => {
 		expect(itineraryMetrics(sameDay, ['total-price'])[0]!.note).toBeUndefined();
 	});
 
+	it('says None, not Unknown, in the changes cell of a trip nobody leaves the airport for', () => {
+		// Issue #426 against issue #424. The airside arm carries neither connection-side leg,
+		// so the cell has two fewer legs to add up rather than a measurement it failed to
+		// take, and "Unknown" would be the card apologising for an answer it has. A traveller
+		// who lands, waits at the gate and boards again changes vehicle no times.
+		expect(valueOf(makeItinerary({ nightsInConnection: 0 }), 'changes')).toBe('None');
+	});
+
 	it('flags a total that excludes an unpriced bed for a stopover that does spend a night', () => {
 		const overnight = withoutStay(makeStopover({ nightsInConnection: 2 }));
 		expect(itineraryMetrics(overnight, ['total-price'])[0]!.note).toBe('excludes an unpriced stay');

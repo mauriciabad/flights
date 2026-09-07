@@ -339,10 +339,20 @@ export function unpricedTransferLegs(legs: Pick<CityStopoverItinerary, Itinerary
  * shape nobody here has seen, and reporting it as "no changes" would be this app inventing
  * an answer. AGENTS.md, "When the data is missing": say what you do not know.
  *
+ * A trip the traveller never leaves the connection airport for reads `0` on the same rule,
+ * and that is an answer rather than a silence. Issue #426 gave that trip its own arm of the
+ * union, where `transferToHotel` and `transferToConnectionAirport` are typed `undefined`,
+ * so the sum here is whatever the origin and destination rides come to, and nothing at all
+ * when the traveller has neither. Landing, waiting at the gate and boarding again is no
+ * changes, and the "No changes" chip has to contain it.
+ *
  * Derived rather than stored, and taking the four legs rather than a whole `Itinerary`, for
- * the same two reasons `unpricedTransferLegs` above does both.
+ * the same two reasons `unpricedTransferLegs` above does both. It names the stopover arm
+ * for the same reason those two do. That arm types the pair of connection-side legs as
+ * `Transfer | undefined`, and every `AirsideItinerary` satisfies it with its own two
+ * `undefined`s, so one signature reads both shapes and no caller has to narrow first.
  */
-export function itineraryChanges(legs: Pick<Itinerary, ItineraryTransferLeg>): number | undefined {
+export function itineraryChanges(legs: Pick<CityStopoverItinerary, ItineraryTransferLeg>): number | undefined {
 	let changes = 0;
 	for (const leg of TRANSFER_LEGS_IN_TRIP_ORDER) {
 		const transfer = legs[leg];

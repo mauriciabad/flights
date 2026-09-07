@@ -409,7 +409,7 @@ describe('what the trip costs each, when the party is more than one (issue #425)
 		// make the column add up would print a different number to one traveller than to the
 		// others.
 		const rated = {
-			...makeItinerary({ nightsInConnection: 1, travellers: 3 }),
+			...makeStopover({ nightsInConnection: 1, travellers: 3 }),
 			transferToHotel: ratedTaxi,
 			transferToConnectionAirport: ratedTaxi
 		};
