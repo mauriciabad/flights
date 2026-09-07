@@ -612,116 +612,111 @@
 		timeReferences.outboundArrival
 	)}
 
-	{@render transferRow(
-		'transferToHotel',
-		// Issue #365: named only where a bed is booked. A nightless stopover carries the
-		// quote the search found, and titling an absent leg with a hostel's name is the same
-		// wtf as drawing the ride to it.
-		itinerary.stay && itinerary.nightsInConnection > 0
-			? `To ${itinerary.stay.property.name}`
-			: 'To the stopover',
-		'transfer-to-hotel',
-		'to-hotel'
-	)}
+	{#if itinerary.airsideWait}
+		<!-- Issue #426. One row for one thing: the traveller lands, waits in the terminal, and
+		     boards again. The four rows this replaces described a ride to a stopover, hours in
+		     a city, a ride back, and then a wait at the airport those rides had left from and
+		     returned to, on a trip that never leaves the building. `airsideWait` is what says
+		     so, so a row cannot be drawn for a journey the itinerary does not carry. -->
+		{@render waitingRow(
+			connectionAirport ? `${connectionAirport.name} (${connectionAirport.iataCode})` : `the connection airport (${itinerary.outboundFlight.arrivalAirport})`,
+			itinerary.outboundFlight.arrivalAirport,
+			itinerary.airsideWait.duration,
+			'connection-waiting'
+		)}
+	{:else}
+		{@render transferRow(
+			'transferToHotel',
+			itinerary.stay ? `To ${itinerary.stay.property.name}` : 'To the stopover',
+			'transfer-to-hotel',
+			'to-hotel'
+		)}
 
-	<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-	<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-	<li
-		class="tl-row tl-row-stopover"
-		class:is-selected={selectedSegmentId === 'free-time'}
-		data-segment="free-time"
-		tabindex="0"
-		aria-roledescription="selectable step"
-		aria-label={`The stopover, in ${connectionLabel}`}
-		aria-current={selectedSegmentId === 'free-time' ? 'true' : undefined}
-		onclick={(event) => handleRowClick(event, 'free-time')}
-		onkeydown={(event) => handleRowKeydown(event, 'free-time')}
-	>
-		<span class="tl-when tl-when-pair">
-			<TimeCell value={itinerary.freeTime.start} reference={timeReferences.freeStart} align="end" />
-			<TimeCell value={itinerary.freeTime.end} reference={timeReferences.freeEnd} align="end" />
-		</span>
-		<span class="tl-rail">{@render marker('stopover', 'stopover')}</span>
-		<div class="tl-content tl-stopover">
-			<p class="tl-stopover-nights">
-				<!-- Issue #140: the night count comes off the flight schedule alone (build.ts's
-				     `nightsBetween`, issue #105), never off whether a bed was priced, so it
-				     leads here whether or not a stay provider is configured. Zero nights is a
-				     same-day connection, a fact about the schedule, not a missing purchase. -->
-				{#if itinerary.nightsInConnection > 0}
+		<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+		<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+		<li
+			class="tl-row tl-row-stopover"
+			class:is-selected={selectedSegmentId === 'free-time'}
+			data-segment="free-time"
+			tabindex="0"
+			aria-roledescription="selectable step"
+			aria-label={`The stopover, in ${connectionLabel}`}
+			aria-current={selectedSegmentId === 'free-time' ? 'true' : undefined}
+			onclick={(event) => handleRowClick(event, 'free-time')}
+			onkeydown={(event) => handleRowKeydown(event, 'free-time')}
+		>
+			<span class="tl-when tl-when-pair">
+				<TimeCell value={itinerary.freeTime.start} reference={timeReferences.freeStart} align="end" />
+				<TimeCell value={itinerary.freeTime.end} reference={timeReferences.freeEnd} align="end" />
+			</span>
+			<span class="tl-rail">{@render marker('stopover', 'stopover')}</span>
+			<div class="tl-content tl-stopover">
+				<p class="tl-stopover-nights">
+					<!-- Issue #140: the night count comes off the flight schedule alone (build.ts's
+					     `nightsBetween`, issue #105), never off whether a bed was priced, so it
+					     leads here whether or not a stay provider is configured. Zero nights is a
+					     same-day connection, a fact about the schedule, not a missing purchase. -->
 					<strong class="font-mono tabular-nums">{itinerary.nightsInConnection}</strong>
 					{itinerary.nightsInConnection === 1 ? 'night' : 'nights'} in {connectionLabel}
-				{:else if waitsOvernight(itinerary)}
-					<!-- Issue #365: 9:20pm to 4:10am at Porto is not a day and it is not a
-					     stopover. `waitsOvernight` is the same reading the block above this
-					     timeline and the strip's own hover panel take, so all three say one
-					     thing about one trip. -->
-					Overnight wait in {connectionLabel}
-				{:else}
-					Day stopover in {connectionLabel}
-				{/if}
-				{@render optionMark('free-time')}
-			</p>
-			<!-- Issue #185: the row names the bed when there is one and says nothing when
-			     there is not. It used to print "No bed priced yet." here, which was the fourth
-			     of seven places on one screen saying so, and this row is the one that adds
-			     least: the line above it already says how many nights, the price line on the
-			     card carries the chip that qualifies the number, and the fold this row opens
-			     is where the reason and the fix live (`stays/no-stays-reason.ts`). The
-			     zero-night line went with it, because "Day stopover in London" one line up
-			     already says no night is spent here. -->
-			<!-- Issue #365: `nightsInConnection > 0` as well, matching `StopoverBlock`'s own
-			     rule. A nightless stopover carries the bed the search quoted, and naming a
-			     hostel under a trip that books no night is the same wtf as drawing the ride
-			     to it. -->
-			{#if itinerary.stay && itinerary.nightsInConnection > 0}
-				<!-- Issue #245: `&nbsp;&middot;` rather than a newline before the separator.
-				     Svelte trims the whitespace at the start of an `{#if}` block, so the
-				     indented version rendered as "dorm· rated" on production. Same
-				     `&nbsp;&middot;` the unrouted-leg row above uses, for the same reason. -->
-				<p class="tl-stopover-stay">
-					{itinerary.stay.property.name} &middot; {itinerary.stay.roomKind}{#if itinerary.stay.property.rating}&nbsp;&middot;
-						rated {formatPropertyRating(itinerary.stay.property.rating)}{/if}
+					{@render optionMark('free-time')}
 				</p>
-			{/if}
-		</div>
-		<div class="tl-meta">
-			<!-- Issue #228: this cell read "2d 15h free", the owner's own example of the
-			     thing that is "misleading and wrong". A duration flatters a stopover that is
-			     really two evenings and a morning. The count is the honest headline, and
-			     `StopoverBlock` above the timeline carries the two edge times with it. -->
-			<span class="tl-duration tl-duration-free font-mono tabular-nums"
-				>{freeTimeCount(itinerary)}</span
-			>
-			{#if staySubtotal && itinerary.nightsInConnection > 0}
-				<span class="tl-price font-mono tabular-nums">{formatMoney(staySubtotal)}</span>
-			{/if}
-		</div>
-		{@render rowExpansion('free-time')}
-	</li>
+				<!-- Issue #185: the row names the bed when there is one and says nothing when
+				     there is not. It used to print "No bed priced yet." here, which was the fourth
+				     of seven places on one screen saying so, and this row is the one that adds
+				     least: the line above it already says how many nights, the price line on the
+				     card carries the chip that qualifies the number, and the fold this row opens
+				     is where the reason and the fix live (`stays/no-stays-reason.ts`). -->
+				{#if itinerary.stay}
+					<!-- Issue #245: `&nbsp;&middot;` rather than a newline before the separator.
+					     Svelte trims the whitespace at the start of an `{#if}` block, so the
+					     indented version rendered as "dorm· rated" on production. Same
+					     `&nbsp;&middot;` the unrouted-leg row above uses, for the same reason. -->
+					<p class="tl-stopover-stay">
+						{itinerary.stay.property.name} &middot; {itinerary.stay.roomKind}{#if itinerary.stay.property.rating}&nbsp;&middot;
+							rated {formatPropertyRating(itinerary.stay.property.rating)}{/if}
+					</p>
+				{/if}
+			</div>
+			<div class="tl-meta">
+				<!-- Issue #228: this cell read "2d 15h free", the owner's own example of the
+				     thing that is "misleading and wrong". A duration flatters a stopover that is
+				     really two evenings and a morning. The count is the honest headline, and
+				     `StopoverBlock` above the timeline carries the two edge times with it. -->
+				<span class="tl-duration tl-duration-free font-mono tabular-nums"
+					>{freeTimeCount(itinerary)}</span
+				>
+				{#if staySubtotal}
+					<span class="tl-price font-mono tabular-nums">{formatMoney(staySubtotal)}</span>
+				{/if}
+			</div>
+			{@render rowExpansion('free-time')}
+		</li>
 
-	{@render transferRow(
-		'transferToConnectionAirport',
-		'To the connection airport',
-		'transfer-to-connection-airport',
-		'from-hotel'
-	)}
+		{@render transferRow(
+			'transferToConnectionAirport',
+			'To the connection airport',
+			'transfer-to-connection-airport',
+			'from-hotel'
+		)}
 
-	{@render waitingRow(
-		// Itinerary never stores a full Airport record for the connection, only the two
-		// flights that touch it (see domain/itinerary.ts), so this shows the one fact we
-		// actually have (the IATA code) rather than fabricating a name, city or country.
-		`the connection airport (${itinerary.outboundFlight.arrivalAirport})`,
-		itinerary.outboundFlight.arrivalAirport,
-		// Issue #368: what the layover leaves, not the buffer the traveller set. The row
-		// above prints the real last service to the airport, and on the owner's Porto card
-		// that lands them in the terminal 1h 32m before the 2h rule would have. Printing the
-		// rule here left the three rows failing to add up to the flight below them. The
-		// stepper that edits the rule is in the customise panel, which is where a minimum
-		// belongs.
-		itinerary.times.connectionAirportWaiting,
-		'connection-waiting'
-	)}
+		{@render waitingRow(
+			// The connection airport's own name once the caller has resolved the record, and
+			// its code until then: `Itinerary` carries only the two flights that touch it
+			// (see domain/itinerary.ts), and this row has never fabricated a name.
+			connectionAirport
+				? `${connectionAirport.name} (${connectionAirport.iataCode})`
+				: `the connection airport (${itinerary.outboundFlight.arrivalAirport})`,
+			itinerary.outboundFlight.arrivalAirport,
+			// Issue #368: what the layover leaves, not the buffer the traveller set. The row
+			// above prints the real last service to the airport, and on the owner's Porto card
+			// that lands them in the terminal 1h 32m before the 2h rule would have. Printing the
+			// rule here left the three rows failing to add up to the flight below them. The
+			// stepper that edits the rule is in the customise panel, which is where a minimum
+			// belongs.
+			itinerary.times.connectionAirportWaiting,
+			'connection-waiting'
+		)}
+	{/if}
 
 	{@render flightRow(
 		itinerary.onwardFlight,

@@ -88,8 +88,10 @@ describe('applyFilters', () => {
 	});
 
 	it('filters by minimum free time', () => {
-		const short = makeScoredResult({ freeTimeMinutes: 60 });
-		const long = makeScoredResult({ freeTimeMinutes: 600 });
+		// A night each, since issue #426: a trip with none has no free time to filter on, it
+		// has a wait at the airport.
+		const short = makeScoredResult({ nightsInConnection: 1, freeTimeMinutes: 60 });
+		const long = makeScoredResult({ nightsInConnection: 1, freeTimeMinutes: 600 });
 
 		const filtered = applyFilters([short, long], { ...emptyFilters(), minFreeTimeMinutes: 300 });
 

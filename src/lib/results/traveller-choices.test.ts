@@ -180,9 +180,10 @@ describe('reapplyWaitingTimes', () => {
 	it('clamps the connection buffer to the free time the new pairing has to give', () => {
 		// The fixture waits 120 minutes and has 300 free, so 420 is the whole layover and a
 		// buffer pinned on a longer stopover cannot exceed it. What free time is left is
-		// `deriveItinerary`'s answer, not this function's, and this fixture's window is not
-		// the 300 minutes it declares.
-		const rebuilt = makeItinerary({ nightsInConnection: 0, freeTimeMinutes: 300 });
+		// `deriveTrip`'s answer, not this function's, and this fixture's window is not the
+		// 300 minutes it declares. One night, since issue #426 gives a nightless trip no free
+		// time to clamp against.
+		const rebuilt = makeItinerary({ nightsInConnection: 1, freeTimeMinutes: 300 });
 		const withBuffer = reapplyWaitingTimes(rebuilt, { connectionWaitingTime: 600 as Duration });
 		expect(withBuffer.connectionWaitingTime).toBe(420);
 	});

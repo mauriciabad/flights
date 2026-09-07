@@ -86,6 +86,32 @@ function baseInput(overrides: Partial<BuildItinerariesInput> = {}): BuildItinera
 	};
 }
 
+/** An overnight stopover with two slow in-city legs, so the journey to the bed really
+ * moves the free-time window, the night count and the total. Those are exactly the
+ * numbers a swap used to leave describing the previous property. */
+function overnightItinerary() {
+	const outboundArrival = localDateTime('2026-06-01T21:00:00');
+	const onwardDeparture = localDateTime('2026-06-02T12:00:00');
+	const outbound = makeFlight('LGW', 'VIE', outboundArrival, outboundArrival, 150);
+	const onward = makeFlight('VIE', 'IST', onwardDeparture, onwardDeparture, 90);
+	const [itinerary] = buildItineraries(
+		baseInput({
+			outboundOffers: [outbound],
+			onwardOffers: [onward],
+			connectionResources: {
+				VIE: {
+					stay: makeStay(),
+					transferAnchor: 'stay',
+					transferToHotel: makeTransfer(75),
+					transferToConnectionAirport: makeTransfer(45)
+				}
+			}
+		})
+	);
+	if (!itinerary) throw new Error('fixture itinerary failed to build');
+	return itinerary;
+}
+
 /** One itinerary with a 40-minute layover (above the 30-minute default minimum), zero
  * airport-waiting buffers so free time equals the raw gap minus the two transfers. */
 function baseItinerary() {
@@ -124,7 +150,12 @@ describe('recomputeItinerarySelection: minimum layover', () => {
 		const result = recomputeItinerarySelection(itinerary, { outboundFlight: earlierOutbound });
 
 		expect(result.warnings).toHaveLength(0);
-		expect(result.itinerary.freeTime.duration).toBeGreaterThan(itinerary.freeTime.duration);
+		// Landing half an hour earlier for the same onward flight is half an hour more of
+		// the connection. Issue #426: on this fixture's same-day gap that is half an hour
+		// more in the terminal rather than half an hour more of free time, and the number
+		// that grows is the one that says where the traveller spends it.
+		expect(result.itinerary.airsideWait!.duration).toBe(itinerary.airsideWait!.duration + 30);
+		expect(result.itinerary.freeTime.duration).toBe(0);
 	});
 
 	/**
@@ -172,17 +203,32 @@ describe('recomputeItinerarySelection: minimum layover', () => {
 
 describe('recomputeItinerarySelection: connection time', () => {
 	it('warns when a longer transfer leaves no free time, without throwing or dropping the pick', () => {
-		const itinerary = baseItinerary();
-		// The base fixture's 30 minutes of free time is comfortably positive; picking a
-		// transfer this long from the hotel to the connection airport eats all of it and more.
+		const itinerary = overnightItinerary();
+		// A night in Vienna, and then a ride back to the airport a week long: it eats the
+		// whole stopover and more.
 		const veryLongTransfer = makeTransfer(10_000);
 
 		const result = recomputeItinerarySelection(itinerary, { transferToConnectionAirport: veryLongTransfer });
 
 		expect(result.warnings.map((warning) => warning.code)).toContain('insufficient-connection-time');
+		expect(result.itinerary.transferToConnectionAirport).toBe(veryLongTransfer);
+	});
+
+	it('does not answer a pick that will not fit by deleting the row it was made in', () => {
+		// Issue #426 turns a connection with no night into a wait at the airport, and a
+		// backwards window reads as no night if nothing tells the two apart. Reshaping this
+		// trip would take away the stopover row, and with it the transport picker the
+		// traveller is holding. So the pick stands, negative window and all, and the warning
+		// above is what says it does not fit.
+		const itinerary = overnightItinerary();
+		const veryLongTransfer = makeTransfer(10_000);
+
+		const result = recomputeItinerarySelection(itinerary, { transferToConnectionAirport: veryLongTransfer });
+
+		expect(result.itinerary.transferToConnectionAirport).toBe(veryLongTransfer);
+		expect(result.itinerary.airsideWait).toBeUndefined();
 		expect(result.itinerary.freeTime.duration).toBeLessThan(0);
 		expect(result.itinerary.nightsInConnection).toBe(0);
-		expect(result.itinerary.transferToConnectionAirport).toBe(veryLongTransfer);
 	});
 });
 
@@ -216,7 +262,7 @@ describe('selectionIsUnusable', () => {
 	});
 
 	it('is false when the transfers overrun, which the waiting-time stepper can still fix', () => {
-		const itinerary = baseItinerary();
+		const itinerary = overnightItinerary();
 		const veryLongTransfer = makeTransfer(10_000);
 
 		const result = recomputeItinerarySelection(itinerary, { transferToConnectionAirport: veryLongTransfer });
@@ -251,9 +297,13 @@ describe('recomputeItinerarySelection: totals and nights', () => {
 		expect(result.warnings).toHaveLength(0);
 		expect(result.itinerary.nightsInConnection).toBe(1);
 		expect(result.itinerary.onwardFlight.price.minorUnits).toBe(6000);
-		// outbound (5000) + onward (6000) + one night (3000) + two zero-duration/zero-price
-		// transfers already on the fixture = 14000.
-		expect(result.itinerary.totalPrice.minorUnits).toBe(14000);
+		// outbound (5000) + onward (6000) = 11000, and no bed, because issue #426 took the
+		// quote off a connection with no night in it along with the rides to it. The card
+		// reads "No bed priced, so the total is a floor" until the stay picker under the
+		// stopover row puts one back, which is the row this swap has just brought into
+		// existence.
+		expect(result.itinerary.stay).toBeUndefined();
+		expect(result.itinerary.totalPrice.minorUnits).toBe(11000);
 		expect(result.itinerary.times.inFlight).toBe(150 + 90);
 	});
 
@@ -301,7 +351,9 @@ describe('recomputeItinerarySelection: totals and nights', () => {
 	});
 
 	it('leaves every other field untouched when only one transfer is overridden', () => {
-		const itinerary = baseItinerary();
+		// A stopover with a night in it, since a connection nobody leaves the airport for has
+		// no hotel leg to override (issue #426).
+		const itinerary = overnightItinerary();
 		const newHotelTransfer = makeTransfer(15, 200, 'taxi');
 
 		const result = recomputeItinerarySelection(itinerary, { transferToHotel: newHotelTransfer });
@@ -454,32 +506,6 @@ describe('diffTransfers', () => {
 });
 
 describe('recomputeItinerarySelection: swapping the bed (issue #243)', () => {
-	/** An overnight stopover with two slow in-city legs, so the journey to the bed really
-	 * moves the free-time window, the night count and the total. Those are exactly the
-	 * numbers a swap used to leave describing the previous property. */
-	function overnightItinerary() {
-		const outboundArrival = localDateTime('2026-06-01T21:00:00');
-		const onwardDeparture = localDateTime('2026-06-02T12:00:00');
-		const outbound = makeFlight('LGW', 'VIE', outboundArrival, outboundArrival, 150);
-		const onward = makeFlight('VIE', 'IST', onwardDeparture, onwardDeparture, 90);
-		const [itinerary] = buildItineraries(
-			baseInput({
-				outboundOffers: [outbound],
-				onwardOffers: [onward],
-				connectionResources: {
-					VIE: {
-						stay: makeStay(),
-						transferAnchor: 'stay',
-						transferToHotel: makeTransfer(75),
-						transferToConnectionAirport: makeTransfer(45)
-					}
-				}
-			})
-		);
-		if (!itinerary) throw new Error('fixture itinerary failed to build');
-		return itinerary;
-	}
-
 	function otherProperty(pricePerNightMinorUnits: number): Stay {
 		return {
 			...makeStay(pricePerNightMinorUnits),
@@ -572,7 +598,10 @@ describe('one free-time window, whichever path derives it (issue #265)', () => {
 	 * so a window that deducts the transfers and one that does not are 45 minutes apart. */
 	function bedlessCityCentreItinerary() {
 		const outboundArrival = localDateTime('2026-06-01T10:00:00');
-		const onwardDeparture = localDateTime('2026-06-01T12:00:00');
+		// Next day, so there is a night in it. Issue #426 turned the same-day version of this
+		// fixture into a wait in the terminal, which has no ride into town to deduct and so
+		// cannot show what #265 is about.
+		const onwardDeparture = localDateTime('2026-06-02T12:00:00');
 		const outbound = makeFlight('LGW', 'VIE', outboundArrival, outboundArrival, 150);
 		const onward = makeFlight('VIE', 'IST', onwardDeparture, onwardDeparture, 90);
 		const [itinerary] = buildItineraries(
@@ -596,7 +625,7 @@ describe('one free-time window, whichever path derives it (issue #265)', () => {
 		const itinerary = bedlessCityCentreItinerary();
 		expect(itinerary.stay).toBeUndefined();
 		expect(itinerary.freeTime.start.local).toBe('2026-06-01T10:20:00');
-		expect(itinerary.freeTime.end.local).toBe('2026-06-01T11:35:00');
+		expect(itinerary.freeTime.end.local).toBe('2026-06-02T11:35:00');
 
 		const swapped = recomputeItinerarySelection(itinerary, { outboundFlight: itinerary.outboundFlight });
 

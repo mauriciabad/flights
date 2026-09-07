@@ -302,10 +302,18 @@ function waitStub(segment: Extract<TripStripSegment, { kind: 'wait' }>, context:
 		// owner's card this panel would have read "6h 14m is the setting for this airport"
 		// over a 2h setting. The minimum is still theirs and still the floor, and saying both
 		// is shorter than either of them being wrong.
-		footnote:
-			`Not a measured queue: it is what the ride before it leaves you. Never under the ` +
-			`${formatDuration(waitMinimum(segment, context))} minimum you set for this airport, ` +
-			`and picking this wait is where you change that.`,
+		// Issue #426: with no night booked there is no ride before the connection wait, because
+		// the traveller never leaves the terminal, and the whole layover is this cell. Told
+		// apart by the flight it precedes rather than by the airport code, for the reason the
+		// strip's own test names: a trip back through the airport it left from gives both
+		// waits the same code.
+		footnote: context.itinerary.airsideWait && next === context.itinerary.onwardFlight
+			? `The whole gap between the flights, because no night is booked here. Never under ` +
+				`the ${formatDuration(waitMinimum(segment, context))} minimum you set for this ` +
+				`airport, and picking this wait is where you change that.`
+			: `Not a measured queue: it is what the ride before it leaves you. Never under the ` +
+				`${formatDuration(waitMinimum(segment, context))} minimum you set for this airport, ` +
+				`and picking this wait is where you change that.`,
 		facts: [
 			{ label: 'Before', value: `${next.carrier.name} ${next.flightNumber} to ${to}, ${formatClockTime(next.departure)}` }
 		],
@@ -508,17 +516,20 @@ function stopoverStub(start: LocalDateTime, end: LocalDateTime, context: StubCon
 	const nights = itinerary.nightsInConnection;
 	// Issue #365: "Day stopover in Porto, 4h 26m free" was the panel on a window running
 	// 10:37pm to 3:03am with no bed booked and nothing to leave the airport for. Neither word
-	// survives that: it is not a day and none of it is free. `times.free` is what `build.ts`
-	// decides, and it is zero exactly when the traveller never leaves the terminal.
-	const airside = itinerary.times.free <= 0;
-	const title =
-		nights > 0
+	// survives that: it is not a day and none of it is free.
+	//
+	// Issue #426 gave that trip its own shape, so this reads it rather than inferring it from
+	// a zero. The strip draws such a layover as one wait cell and `waitStub` answers for it,
+	// so this branch is the belt to that: two surfaces cannot disagree about one trip if only
+	// one fact decides both.
+	const wait = itinerary.airsideWait;
+	const title = wait
+		? `Waiting at ${connectionCode}`
+		: nights > 0
 			? `${nights} ${nights === 1 ? 'night' : 'nights'} in ${connectionLabel}`
-			: airside
-				? `Waiting at ${connectionCode}`
-				: `Day stopover in ${connectionLabel}`;
-	const free = airside
-		? formatLongDuration(itinerary.freeTime.duration)
+			: `Day stopover in ${connectionLabel}`;
+	const free = wait
+		? formatLongDuration(wait.duration)
 		: `${formatLongDuration(itinerary.freeTime.duration)} free`;
 
 	// Issue #219's whole complaint: the list ranks a bed 48 km out above one 2.8 km away

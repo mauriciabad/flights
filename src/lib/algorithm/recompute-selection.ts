@@ -6,12 +6,14 @@
  * itinerary the traveller is looking at, and a picker only ever changes one flight, one
  * transfer leg, or (issue #243) the bed and the two legs that reach it.
  * What changes is which parts the trip is made of. Everything that follows from them —
- * the free-time window, the nights, the total, the times breakdown — comes back from
- * `build.ts`'s `deriveItinerary`, the one implementation the builder itself runs. This
- * module used to hold a second copy of that arithmetic, and issue #265 is what a second
- * copy costs: it kept a `stay &&` on both edges of the free-time window that
- * `buildItineraries` dropped in #161, so a flight swap on a bedless stopover with a routed
- * ride into town reported free time the builder had never given it.
+ * the free-time window, the nights, the total, the times breakdown, and whether this is a
+ * stopover at all — comes back from `build.ts`'s `deriveTrip`, the one function that builds
+ * an itinerary. This module used to hold a second copy of that arithmetic, and issue #265
+ * is what a second copy costs: it kept a `stay &&` on both edges of the free-time window
+ * that `buildItineraries` dropped in #161, so a flight swap on a bedless stopover with a
+ * routed ride into town reported free time the builder had never given it. Issue #426 is
+ * the same lesson one layer up: calling a narrower entry point than the builder does is a
+ * second copy of the rule, spelled as an omission.
  *
  * Waiting times (`originWaitingTime`, `connectionWaitingTime`) are deliberately carried
  * over unchanged from the itinerary being edited, never re-derived from the new flight's
@@ -22,7 +24,7 @@
  * used; it does not silently re-open how long the traveller waits at the gate.
  */
 
-import { deriveItinerary, minutesBetween, type ItineraryParts } from './build';
+import { deriveFreeTime, deriveTrip, minutesBetween, tripEndsOf, type ItineraryParts } from './build';
 import type { Duration, FlightOffer, Itinerary, Stay, Transfer, TransferAnchor } from '../domain';
 import { DEFAULT_MIN_LAYOVER_TIME_MINUTES } from '../domain';
 
@@ -206,19 +208,27 @@ export function recomputeItinerarySelection(
 		transferToConnectionAirport,
 		transferToDestinationLocation
 	};
-	// Issue #365's rule that a nightless stopover plans no ride to a bed lives in
-	// `pairConnections`, not here. Every leg on this path is one the traveller picked, and
-	// `recomputeItinerarySelection` answering a pick by deleting it is the thing the
-	// `insufficient-connection-time` warning below exists to avoid: the app says what the
-	// choice costs and leaves the choice standing.
-	const derived = deriveItinerary(parts);
+	// Issue #426. This used to go round `deriveTrip` on the reasoning that every leg here is
+	// one the traveller picked, and deleting one would be the app taking their choice back.
+	// The choice a picker actually offers is a flight, and picking an onward flight five
+	// hours earlier is picking a connection with no night in it. The app then drew a metro
+	// to a hostel, hours in a city, and a metro back, inside a gap the traveller now spends
+	// entirely at the gate. The rule belongs to the trip, not to the call site, so there is
+	// one function that builds one and this is it.
+	const derived = deriveTrip(parts, transferAnchor);
 
+	// Measured on the legs the traveller picked, not on the trip that came back. Since issue
+	// #426 a connection with no night in it comes back as a wait in the terminal with both
+	// rides gone, so `derived.freeTime` is zero for a pick that does not fit and zero for one
+	// that was never going anywhere. This is the window the pick itself implies, and it is
+	// the only place the two are still told apart.
+	//
 	// Not reported alongside `flights-out-of-order`, because there it is the consequence
 	// rather than the cause and it names the wrong culprit. Two flights in the wrong order
 	// leave negative free time whatever the transfers and the buffer are, and production
 	// stacked both sentences on one row: the second blamed the transfers for a trip that
 	// had no connection in it at all.
-	if (derived.freeTime.duration < 0 && !flightsOutOfOrder) {
+	if (deriveFreeTime(parts).duration < 0 && !flightsOutOfOrder) {
 		warnings.push({
 			code: 'insufficient-connection-time',
 			message:
@@ -228,7 +238,7 @@ export function recomputeItinerarySelection(
 	}
 
 	return {
-		itinerary: { ...itinerary, ...parts, ...derived, transferAnchor },
+		itinerary: { ...derived, ...tripEndsOf(itinerary) },
 		warnings
 	};
 }

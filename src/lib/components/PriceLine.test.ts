@@ -1,7 +1,7 @@
 import { flushSync, mount, unmount } from 'svelte';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { Duration, Itinerary, Transfer } from '../domain';
-import { makeItinerary } from '../results/test-support';
+import { makeItinerary, makeStopover } from '../results/test-support';
 import PriceLine from './PriceLine.svelte';
 
 /**
@@ -91,7 +91,7 @@ const ratedTaxi: Transfer = {
  * other three taxis nobody quoted. */
 function threeTaxisAndAWalk(travellers = 1): Itinerary {
 	return {
-		...makeItinerary({ nightsInConnection: 1, travellers }),
+		...makeStopover({ nightsInConnection: 1, travellers }),
 		transferToOriginAirport: walk,
 		transferToHotel: taxi,
 		transferToConnectionAirport: taxi,
@@ -156,7 +156,7 @@ describe('the ground lines on the receipt', () => {
 describe('an estimated ground line (issue #249)', () => {
 	function twoRatedTaxis(): Itinerary {
 		return {
-			...makeItinerary({ nightsInConnection: 1 }),
+			...makeStopover({ nightsInConnection: 1 }),
 			transferToHotel: ratedTaxi,
 			transferToConnectionAirport: ratedTaxi
 		};
@@ -186,7 +186,7 @@ describe('an estimated ground line (issue #249)', () => {
 
 	it('never adds the estimate to the total, even in one currency', () => {
 		const trip = {
-			...makeItinerary({ nightsInConnection: 1 }),
+			...makeStopover({ nightsInConnection: 1 }),
 			transferToHotel: {
 				...taxi,
 				fareEstimate: {
@@ -221,7 +221,7 @@ describe('an estimated ground line (issue #249)', () => {
 			}
 		};
 		const trip = {
-			...makeItinerary({ nightsInConnection: 1 }),
+			...makeStopover({ nightsInConnection: 1 }),
 			transferToHotel: ratedTaxi,
 			transferToConnectionAirport: beyondTheCard
 		};
@@ -261,7 +261,7 @@ describe("a converted ground line (issue #339)", () => {
 
 	function convertedTrip(): Itinerary {
 		return {
-			...makeItinerary({ nightsInConnection: 1 }),
+			...makeStopover({ nightsInConnection: 1 }),
 			transferToHotel: convertedTaxi,
 			transferToConnectionAirport: convertedTaxi
 		};
@@ -322,7 +322,7 @@ describe("a converted ground line (issue #339)", () => {
 			}
 		};
 		return {
-			...makeItinerary({ nightsInConnection: 1 }),
+			...makeStopover({ nightsInConnection: 1 }),
 			transferToHotel: spanish,
 			transferToConnectionAirport: spanish
 		};

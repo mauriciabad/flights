@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { deriveItinerary } from '../algorithm/build';
+import { deriveTrip, tripEndsOf } from '../algorithm/build';
 import type {
+	CityStopoverItinerary,
 	Airport,
 	Duration,
 	FlightOffer,
@@ -69,7 +70,7 @@ interface Shape {
  * plus the leg into the city to the take-off minus the buffer and the leg back. Every
  * clock reading is a wall-clock string at one offset, so the numbers below are exact.
  */
-function makeItinerary(shape: Shape): Itinerary {
+function makeItinerary(shape: Shape): CityStopoverItinerary {
 	const waiting = shape.waiting ?? 120;
 	const iso = (date: Date) => date.toISOString().slice(0, 19);
 	const departure = new Date(`${shape.departs}Z`);
@@ -533,7 +534,7 @@ describe('the strip, over a layover with a timetable in it', () => {
 				plannedFor: { time: at('2026-09-17T04:10:00'), arriveBy: true }
 			})
 		});
-		return tripStrip({ ...base, ...deriveItinerary(base) });
+		return tripStrip({ ...deriveTrip(base, 'stay'), ...tripEndsOf(base) });
 	}
 
 	function cell(kind: string, leg?: string) {
@@ -594,7 +595,7 @@ describe('the strip, over a ride to the airport with a timetable on it', () => {
 				}
 			}
 		});
-		return tripStrip({ ...base, ...deriveItinerary(base) });
+		return tripStrip({ ...deriveTrip(base, 'stay'), ...tripEndsOf(base) });
 	}
 
 	it('draws the ride between boarding and arriving, not backwards off the deadline', () => {

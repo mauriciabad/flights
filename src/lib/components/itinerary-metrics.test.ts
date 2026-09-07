@@ -1,16 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import type { Duration, Itinerary, Money, Transfer } from '../domain';
+import type { CityStopoverItinerary, Duration, Itinerary, Money, Transfer } from '../domain';
 import { sumMoney } from '../algorithm/build';
-import { makeItinerary } from '../results/test-support';
+import { makeItinerary, makeStopover } from '../results/test-support';
 import { ALL_METRIC_IDS, CARD_METRIC_IDS, itineraryMetrics, priceBreakdown } from './itinerary-metrics';
 
 function valueOf(itinerary: Itinerary, id: (typeof ALL_METRIC_IDS)[number]): string {
 	return itineraryMetrics(itinerary, [id])[0]!.value;
 }
 
-function withoutStay(itinerary: Itinerary): Itinerary {
+function withoutStay(itinerary: CityStopoverItinerary): CityStopoverItinerary {
 	const { stay: _stay, ...rest } = itinerary;
-	return rest as Itinerary;
+	return rest;
 }
 
 describe('itineraryMetrics', () => {
@@ -24,7 +24,7 @@ describe('itineraryMetrics', () => {
 		// used to print "No stay priced" in this slot, which is the mistake a shared
 		// builder exists to make impossible: a 12-night stopover is 12 nights with no stay
 		// provider configured, which is every first-time visitor's state.
-		const priced = makeItinerary({ nightsInConnection: 12 });
+		const priced = makeStopover({ nightsInConnection: 12 });
 		const unpriced = withoutStay(priced);
 		expect(valueOf(priced, 'nights')).toBe('12');
 		expect(valueOf(unpriced, 'nights')).toBe('12');
@@ -33,7 +33,7 @@ describe('itineraryMetrics', () => {
 	it('keeps the missing-bed caveat on the price, not under the night count', () => {
 		// The count is a fact about the schedule; the missing bed is a fact about the
 		// price. Noting it under both put the same warning twice on one card.
-		const unpriced = withoutStay(makeItinerary({ nightsInConnection: 3 }));
+		const unpriced = withoutStay(makeStopover({ nightsInConnection: 3 }));
 		const [nights] = itineraryMetrics(unpriced, ['nights']);
 		expect(nights!.value).toBe('3');
 		expect(nights!.note).toBeUndefined();
@@ -42,13 +42,13 @@ describe('itineraryMetrics', () => {
 
 	it('says nothing about a missing bed on a same-day connection, which has none to miss', () => {
 		// Issue #140: warning here would invent a cost the trip never had.
-		const sameDay = withoutStay(makeItinerary({ nightsInConnection: 0 }));
+		const sameDay = makeItinerary({ nightsInConnection: 0 });
 		expect(itineraryMetrics(sameDay, ['nights'])[0]!.note).toBeUndefined();
 		expect(itineraryMetrics(sameDay, ['total-price'])[0]!.note).toBeUndefined();
 	});
 
 	it('flags a total that excludes an unpriced bed for a stopover that does spend a night', () => {
-		const overnight = withoutStay(makeItinerary({ nightsInConnection: 2 }));
+		const overnight = withoutStay(makeStopover({ nightsInConnection: 2 }));
 		expect(itineraryMetrics(overnight, ['total-price'])[0]!.note).toBe('excludes an unpriced stay');
 	});
 
@@ -61,6 +61,7 @@ describe('itineraryMetrics', () => {
 	// whole days off the real window, and no longer reads `times.free` at all.
 	it('counts free time in whole days, off the window rather than off its duration', () => {
 		const overFourNights = makeItinerary({
+			nightsInConnection: 3,
 			freeTimeStart: '2026-10-09T21:10:00',
 			freeTimeEnd: '2026-10-13T09:05:00'
 		});
@@ -71,6 +72,7 @@ describe('itineraryMetrics', () => {
 		// A mandatory one-night connection: in at 9:55pm, out at 4:55am. Seven hours of
 		// free time and not one whole day, which "7h" flattered and this does not.
 		const oneNight = makeItinerary({
+			nightsInConnection: 1,
 			freeTimeStart: '2026-10-08T21:55:00',
 			freeTimeEnd: '2026-10-09T04:55:00'
 		});
@@ -111,14 +113,14 @@ describe('priceBreakdown', () => {
 	});
 
 	it('leaves the bed out entirely when nothing priced one, and says so separately', () => {
-		const unpriced = withoutStay(makeItinerary({ nightsInConnection: 4 }));
+		const unpriced = withoutStay(makeStopover({ nightsInConnection: 4 }));
 		const breakdown = priceBreakdown(unpriced);
 		expect(breakdown.parts.map((part) => part.id)).toEqual(['flights']);
 		expect(breakdown.missingStay).toBe(true);
 	});
 
 	it('does not call a same-day connection incomplete', () => {
-		const sameDay = withoutStay(makeItinerary({ nightsInConnection: 0 }));
+		const sameDay = makeItinerary({ nightsInConnection: 0 });
 		expect(priceBreakdown(sameDay).missingStay).toBe(false);
 	});
 
@@ -156,7 +158,7 @@ describe('priceBreakdown', () => {
 	});
 
 	it('has no hotel group at all when nothing priced a bed', () => {
-		expect(priceBreakdown(withoutStay(makeItinerary({ nightsInConnection: 4 }))).hotel).toBeUndefined();
+		expect(priceBreakdown(withoutStay(makeStopover({ nightsInConnection: 4 }))).hotel).toBeUndefined();
 		expect(priceBreakdown(makeItinerary({ nightsInConnection: 0 })).hotel).toBeUndefined();
 	});
 
@@ -181,7 +183,7 @@ describe('priceBreakdown', () => {
 		// A Hostelworld dorm bed. `pricePerNight` is the party's cost and
 		// `pricePerPersonPerNight` is the rate it was multiplied up from, so this figure is
 		// the response's own number rather than a division of a total.
-		const base = makeItinerary({ nightsInConnection: 2, travellers: 3 });
+		const base = makeStopover({ nightsInConnection: 2, travellers: 3 });
 		const inADorm: Itinerary = {
 			...base,
 			stay: {
@@ -204,7 +206,7 @@ describe('priceBreakdown', () => {
 		// purpose rather than `makeItinerary`'s walked default, because the claim really is
 		// true of a walk and `walkedTransferCount` is where that belongs.
 		const taxi = { mode: 'taxi' as const, duration: 30 as Duration, legs: [] };
-		const byTaxi = { ...makeItinerary({}), transferToHotel: taxi, transferToConnectionAirport: taxi };
+		const byTaxi = { ...makeStopover({}), transferToHotel: taxi, transferToConnectionAirport: taxi };
 		expect(priceBreakdown(byTaxi).parts.some((part) => part.id === 'ground')).toBe(false);
 	});
 
@@ -214,7 +216,7 @@ describe('priceBreakdown', () => {
 		// quoted rides and two unquoted ones reads as four legs rather than as one line
 		// contradicting the other.
 		const bus = { mode: 'transit' as const, duration: 25 as Duration, legs: [], price: { minorUnits: 650, currency: 'EUR' } };
-		const withFares = { ...makeItinerary({}), transferToHotel: bus, transferToConnectionAirport: bus };
+		const withFares = { ...makeStopover({}), transferToHotel: bus, transferToConnectionAirport: bus };
 		const ground = priceBreakdown(withFares).parts.find((part) => part.id === 'ground');
 
 		expect(ground?.detail).toBe('2 rides');
@@ -232,7 +234,7 @@ describe('priceBreakdown', () => {
 
 	it('counts each ground leg nobody quoted a fare for', () => {
 		const taxi = { mode: 'taxi' as const, duration: 30 as Duration, legs: [] };
-		const byTaxi = { ...makeItinerary({}), transferToHotel: taxi, transferToConnectionAirport: taxi };
+		const byTaxi = { ...makeStopover({}), transferToHotel: taxi, transferToConnectionAirport: taxi };
 		expect(priceBreakdown(byTaxi).unpricedTransferCount).toBe(2);
 	});
 
@@ -240,16 +242,16 @@ describe('priceBreakdown', () => {
 		// Two warning chips stacked under one number read as two separate problems when
 		// they are one: the total is a floor.
 		const taxi = { mode: 'taxi' as const, duration: 30 as Duration, legs: [] };
-		const both = { ...withoutStay(makeItinerary({ nightsInConnection: 3 })), transferToHotel: taxi };
+		const both = { ...withoutStay(makeStopover({ nightsInConnection: 3 })), transferToHotel: taxi };
 		expect(itineraryMetrics(both, ['total-price'])[0]!.note).toBe('excludes a bed and ground transport');
 	});
 
 	it('names only the omission that actually applies', () => {
 		const taxi = { mode: 'taxi' as const, duration: 30 as Duration, legs: [] };
-		const groundOnly = { ...makeItinerary({ nightsInConnection: 3 }), transferToHotel: taxi };
+		const groundOnly = { ...makeStopover({ nightsInConnection: 3 }), transferToHotel: taxi };
 		expect(itineraryMetrics(groundOnly, ['total-price'])[0]!.note).toBe('excludes unpriced ground transport');
 
-		const bedOnly = withoutStay(makeItinerary({ nightsInConnection: 3 }));
+		const bedOnly = withoutStay(makeStopover({ nightsInConnection: 3 }));
 		expect(itineraryMetrics(bedOnly, ['total-price'])[0]!.note).toBe('excludes an unpriced stay');
 	});
 
@@ -259,7 +261,7 @@ describe('priceBreakdown', () => {
 		// back is two rides whose cost is completely unknown, which is a bigger hole than an
 		// unquoted fare, not a smaller one. A total that read as complete here would be the
 		// same overstatement issue #204 exists to remove, in a new shape.
-		const { transferToHotel: _to, transferToConnectionAirport: _back, ...unrouted } = makeItinerary({
+		const { transferToHotel: _to, transferToConnectionAirport: _back, ...unrouted } = makeStopover({
 			nightsInConnection: 3
 		});
 		const breakdown = priceBreakdown(unrouted as Itinerary);
@@ -274,7 +276,7 @@ describe('priceBreakdown', () => {
 		// Without a stay there is no hotel leg to have failed, so the missing legs are not a
 		// routing failure and counting them would manufacture a caveat.
 		const { transferToHotel: _to, transferToConnectionAirport: _back, ...bedless } = withoutStay(
-			makeItinerary({ nightsInConnection: 3 })
+			makeStopover({ nightsInConnection: 3 })
 		);
 		expect(priceBreakdown(bedless as Itinerary).unpricedTransferCount).toBe(0);
 	});
@@ -305,7 +307,7 @@ describe('priceBreakdown', () => {
 		const walk = { mode: 'walk' as const, duration: 15 as Duration, legs: [] };
 		const taxi = { mode: 'taxi' as const, duration: 30 as Duration, legs: [] };
 		const breakdown = priceBreakdown({
-			...makeItinerary({ nightsInConnection: 1 }),
+			...makeStopover({ nightsInConnection: 1 }),
 			transferToOriginAirport: walk,
 			transferToHotel: taxi,
 			transferToConnectionAirport: taxi,
@@ -335,7 +337,7 @@ describe('priceBreakdown', () => {
 	it('claims no walk on a leg nobody could route', () => {
 		// Issue #211: a leg that does not exist is neither free nor quoted. Counting it as a
 		// walk would turn a routing failure into good news.
-		const { transferToHotel: _to, transferToConnectionAirport: _back, ...unrouted } = makeItinerary({
+		const { transferToHotel: _to, transferToConnectionAirport: _back, ...unrouted } = makeStopover({
 			nightsInConnection: 3
 		});
 		const breakdown = priceBreakdown(unrouted as Itinerary);
@@ -355,7 +357,7 @@ describe('priceBreakdown', () => {
 			price: { minorUnits: 200, currency: 'EUR' }
 		};
 		const breakdown = priceBreakdown({
-			...makeItinerary({ nightsInConnection: 1 }),
+			...makeStopover({ nightsInConnection: 1 }),
 			transferToHotel: paidWalk,
 			transferToConnectionAirport: paidWalk
 		});
@@ -432,7 +434,7 @@ describe('priceBreakdown: a ride the rate card can describe', () => {
 
 	it('sums the estimated rides into their own line, never into the total', () => {
 		const trip = {
-			...makeItinerary({ nightsInConnection: 1 }),
+			...makeStopover({ nightsInConnection: 1 }),
 			transferToHotel: ratedTaxi(2426, 3830, 'GBP'),
 			transferToConnectionAirport: ratedTaxi(2426, 3830, 'GBP')
 		};
@@ -450,7 +452,7 @@ describe('priceBreakdown: a ride the rate card can describe', () => {
 
 	it('stops calling an estimated ride unpriced, so no leg is counted twice', () => {
 		const trip = {
-			...makeItinerary({ nightsInConnection: 1 }),
+			...makeStopover({ nightsInConnection: 1 }),
 			transferToHotel: ratedTaxi(2426, 3830, 'GBP'),
 			transferToConnectionAirport: ratedTaxi(2426, 3830, 'GBP')
 		};
@@ -465,7 +467,7 @@ describe('priceBreakdown: a ride the rate card can describe', () => {
 		// 5.1 km city ride. That refusal is still a hole in the total, and the receipt says so
 		// rather than quietly reporting one leg where the trip has two.
 		const trip = {
-			...makeItinerary({ nightsInConnection: 1 }),
+			...makeStopover({ nightsInConnection: 1 }),
 			transferToHotel: ratedTaxi(2426, 3830, 'GBP'),
 			transferToConnectionAirport: unratedTaxi
 		};
@@ -480,7 +482,7 @@ describe('priceBreakdown: a ride the rate card can describe', () => {
 	it('never estimates a bus, because Transitous quotes no fares at all', () => {
 		const bus: Transfer = { mode: 'transit', duration: 35 as Duration, legs: [] };
 		const trip = {
-			...makeItinerary({ nightsInConnection: 1 }),
+			...makeStopover({ nightsInConnection: 1 }),
 			transferToHotel: bus,
 			transferToConnectionAirport: bus
 		};
@@ -500,7 +502,7 @@ describe('priceBreakdown: a ride the rate card can describe', () => {
 		// puts every one of these in the traveller's currency and they collapse to one
 		// line. The rows below carry no `converted`, which is exactly that case.
 		const trip = {
-			...makeItinerary({ nightsInConnection: 1 }),
+			...makeStopover({ nightsInConnection: 1 }),
 			transferToOriginAirport: ratedTaxi(1300, 1900, 'EUR'),
 			transferToHotel: ratedTaxi(2426, 3830, 'GBP'),
 			transferToConnectionAirport: ratedTaxi(2426, 3830, 'GBP')
@@ -515,7 +517,7 @@ describe('priceBreakdown: a ride the rate card can describe', () => {
 
 	it('puts the size of the gap in the caveat under the total', () => {
 		const trip = {
-			...makeItinerary({ nightsInConnection: 1 }),
+			...makeStopover({ nightsInConnection: 1 }),
 			transferToHotel: ratedTaxi(2426, 3830, 'GBP'),
 			transferToConnectionAirport: ratedTaxi(2426, 3830, 'GBP')
 		};
@@ -526,7 +528,7 @@ describe('priceBreakdown: a ride the rate card can describe', () => {
 
 	it('names no figure when part of the ground has none, rather than one that covers half of it', () => {
 		const trip = {
-			...makeItinerary({ nightsInConnection: 1 }),
+			...makeStopover({ nightsInConnection: 1 }),
 			transferToHotel: ratedTaxi(2426, 3830, 'GBP'),
 			transferToConnectionAirport: unratedTaxi
 		};
@@ -535,7 +537,7 @@ describe('priceBreakdown: a ride the rate card can describe', () => {
 
 	it('names no figure when two currencies are involved, for the same reason', () => {
 		const trip = {
-			...makeItinerary({ nightsInConnection: 1 }),
+			...makeStopover({ nightsInConnection: 1 }),
 			transferToOriginAirport: ratedTaxi(1300, 1900, 'EUR'),
 			transferToHotel: ratedTaxi(2426, 3830, 'GBP')
 		};
@@ -550,7 +552,7 @@ describe('priceBreakdown: a ride the rate card can describe', () => {
 		// currency, which is a sum, so the traveller finally gets one number for what the
 		// ground will cost.
 		const trip = {
-			...makeItinerary({ nightsInConnection: 1 }),
+			...makeStopover({ nightsInConnection: 1 }),
 			transferToOriginAirport: convertedTaxi(1300, 1900, 'EUR'),
 			transferToHotel: convertedTaxi(2824, 4459, 'GBP'),
 			transferToConnectionAirport: convertedTaxi(2824, 4459, 'GBP')
@@ -569,7 +571,7 @@ describe('priceBreakdown: a ride the rate card can describe', () => {
 		// The sum above must not cost the traveller the fact that one of these rides is paid
 		// in pounds. Each row still carries where its own figure came from.
 		const trip = {
-			...makeItinerary({ nightsInConnection: 1 }),
+			...makeStopover({ nightsInConnection: 1 }),
 			transferToOriginAirport: convertedTaxi(1300, 1900, 'EUR'),
 			transferToHotel: convertedTaxi(2824, 4459, 'GBP'),
 			transferToConnectionAirport: convertedTaxi(2824, 4459, 'GBP')
@@ -586,7 +588,7 @@ describe('priceBreakdown: a ride the rate card can describe', () => {
 		// A merged row prints one "from" line, and it would have to be wrong about one of
 		// them. Two rows each telling the truth beats one row averaging two rate cards.
 		const trip = {
-			...makeItinerary({ nightsInConnection: 1 }),
+			...makeStopover({ nightsInConnection: 1 }),
 			transferToHotel: convertedTaxi(2824, 4459, 'GBP'),
 			transferToConnectionAirport: convertedTaxi(2900, 4500, 'CHF')
 		};
@@ -595,7 +597,7 @@ describe('priceBreakdown: a ride the rate card can describe', () => {
 
 	it('still says a bed is missing alongside an estimated ride', () => {
 		const trip = {
-			...withoutStay(makeItinerary({ nightsInConnection: 3 })),
+			...withoutStay(makeStopover({ nightsInConnection: 3 })),
 			transferToHotel: ratedTaxi(2426, 3830, 'GBP')
 		};
 		expect(itineraryMetrics(trip, ['total-price'])[0]!.note).toBe('excludes a bed and ground transport');
@@ -627,7 +629,7 @@ describe('priceBreakdown: the receipt names each ground leg', () => {
 
 	it('folds the two hotel-side rides into the one row the owner named', () => {
 		const trip = {
-			...makeItinerary({ nightsInConnection: 1 }),
+			...makeStopover({ nightsInConnection: 1 }),
 			transferToHotel: ratedTaxi(1200, 1900, 'EUR'),
 			transferToConnectionAirport: ratedTaxi(1200, 1900, 'EUR')
 		};
@@ -646,7 +648,7 @@ describe('priceBreakdown: the receipt names each ground leg', () => {
 		// about the pair would be false in one direction, which is the whole reason the
 		// aggregate rows this replaced were wrong.
 		const trip = {
-			...makeItinerary({ nightsInConnection: 1 }),
+			...makeStopover({ nightsInConnection: 1 }),
 			transferToHotel: walk,
 			transferToConnectionAirport: ratedTaxi(1200, 1900, 'EUR')
 		};
@@ -663,7 +665,7 @@ describe('priceBreakdown: the receipt names each ground leg', () => {
 
 	it('names the outer legs from the traveller end, in trip order', () => {
 		const trip = {
-			...makeItinerary({ nightsInConnection: 1 }),
+			...makeStopover({ nightsInConnection: 1 }),
 			transferToOriginAirport: bus,
 			transferToDestinationLocation: bus
 		};
@@ -686,7 +688,7 @@ describe('priceBreakdown: the receipt names each ground leg', () => {
 	it('still prints the hotel row when the bed exists and nothing could route to it', () => {
 		// Issue #211: the traveller has to reach that bed and come back whether or not any
 		// provider answered, so the row says "not priced" rather than vanishing.
-		const { transferToHotel: _to, transferToConnectionAirport: _back, ...unrouted } = makeItinerary({
+		const { transferToHotel: _to, transferToConnectionAirport: _back, ...unrouted } = makeStopover({
 			nightsInConnection: 3
 		});
 
@@ -696,11 +698,11 @@ describe('priceBreakdown: the receipt names each ground leg', () => {
 	});
 
 	it('gives a same-day connection no hotel row, because it has no bed to reach', () => {
-		const { transferToHotel: _to, transferToConnectionAirport: _back, ...sameDay } = withoutStay(
-			makeItinerary({ nightsInConnection: 0 })
-		);
+		// Issue #426: a same-day connection has no bed and no legs to begin with, so there is
+		// nothing to strip off the fixture any more.
+		const sameDay = makeItinerary({ nightsInConnection: 0 });
 
-		expect(priceBreakdown(sameDay as Itinerary).groundRows).toEqual([]);
+		expect(priceBreakdown(sameDay).groundRows).toEqual([]);
 	});
 
 	it('reads a bus as unknown and a walk as free, never as the same thing', () => {
@@ -708,12 +710,12 @@ describe('priceBreakdown: the receipt names each ground leg', () => {
 		// per row instead of into two counts. This is the distinction issue #249 made and
 		// the one a single "Ground" line could not print.
 		const byBus = {
-			...makeItinerary({ nightsInConnection: 1 }),
+			...makeStopover({ nightsInConnection: 1 }),
 			transferToHotel: bus,
 			transferToConnectionAirport: bus
 		};
 		const onFoot = {
-			...makeItinerary({ nightsInConnection: 1 }),
+			...makeStopover({ nightsInConnection: 1 }),
 			transferToHotel: walk,
 			transferToConnectionAirport: walk
 		};

@@ -1,6 +1,7 @@
 import { flushSync, mount, unmount } from 'svelte';
 import { afterEach, describe, expect, it } from 'vitest';
 import type {
+	CityStopoverItinerary,
 	Airport,
 	City,
 	Country,
@@ -83,7 +84,7 @@ function makeItinerary(
 		onwardDeparture?: LocalDateTime;
 		stayRating?: PropertyRating;
 	} = {}
-): Itinerary {
+): CityStopoverItinerary {
 	const outboundArrival = overrides.outboundArrival ?? localDateTime('2026-06-01T10:00:00', 'Europe/Vienna', 120);
 	const onwardDeparture = overrides.onwardDeparture ?? localDateTime('2026-06-03T14:00:00', 'Europe/Vienna', 120);
 
@@ -102,6 +103,9 @@ function makeItinerary(
 		},
 		waitingTimeRules: [{ waitingTime: 120 as Duration }]
 	});
+	// Two nights in Vienna, so this is the arm with a bed and two rides in it. Saying so lets
+	// a test override one of them; issue #426's type will not put a ride on the other arm.
+	if (itinerary.airsideWait) throw new Error('fixture built a connection with no night in it');
 	return itinerary;
 }
 
@@ -117,10 +121,10 @@ afterEach(() => {
 	target = undefined;
 });
 
-function renderTimeline(itinerary: Itinerary) {
+function renderTimeline(itinerary: Itinerary, connectionAirport?: Airport) {
 	target = document.createElement('div');
 	document.body.appendChild(target);
-	instance = mount(ItineraryTimeline, { target, props: { itinerary } });
+	instance = mount(ItineraryTimeline, { target, props: { itinerary, connectionAirport } });
 	flushSync();
 	return target;
 }
@@ -786,7 +790,9 @@ describe('ItineraryTimeline, a layover the traveller never leaves the airport fo
 	});
 
 	it('names the airport the traveller is waiting in', () => {
-		const root = renderTimeline(airsideItinerary());
+		// The record the results page resolves a beat after the itinerary. Without it the row
+		// still says VIE and never guesses a name.
+		const root = renderTimeline(airsideItinerary(), connection);
 		const wait = root.querySelector('[data-segment="connection-waiting"]');
 
 		expect(wait!.getAttribute('aria-label')).toContain('Vienna International');

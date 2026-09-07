@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import type { Airport, Duration, FlightOffer, Itinerary, LocalDateTime, Stay, Transfer } from '$lib/domain';
+import type {
+	Airport,
+	CityStopoverItinerary,
+	Duration,
+	FlightOffer,
+	Itinerary,
+	LocalDateTime,
+	Stay,
+	Transfer
+} from '$lib/domain';
 import { allCoordinates, buildItineraryMapModel, findSegment, groundLegSteps } from './segments';
 import { itineraryMapStatus } from './status';
 import type { ItinerarySegmentId } from './segment-id';
@@ -86,7 +95,7 @@ const stay: Stay = {
 
 /** The minimum valid Itinerary: no origin/destination location, so no transfer to/from
  *  either end — just airport to airport. */
-function baseItinerary(): Itinerary {
+function baseItinerary(): CityStopoverItinerary {
 	return {
 		originAirport,
 		originWaitingTime: 120 as Duration,
@@ -235,7 +244,7 @@ describe('buildItineraryMapModel', () => {
 });
 
 describe('buildItineraryMapModel: no stay priced (issue #94)', () => {
-	function itineraryWithoutStay(): Itinerary {
+	function itineraryWithoutStay(): CityStopoverItinerary {
 		return { ...baseItinerary(), stay: undefined, transferToHotel: undefined, transferToConnectionAirport: undefined };
 	}
 
@@ -404,7 +413,7 @@ describe('buildItineraryMapModel: a route that crosses the antimeridian', () => 
 		sizeClass: 'large'
 	};
 
-	function pacificItinerary(): Itinerary {
+	function pacificItinerary(): CityStopoverItinerary {
 		return {
 			...baseItinerary(),
 			originAirport: auckland,
@@ -480,7 +489,7 @@ describe('absentSegmentNotes (issue #141: a selected step the map cannot draw)',
 		'destination-location'
 	];
 
-	function fullItinerary(overrides: Partial<Itinerary> = {}): Itinerary {
+	function fullItinerary(overrides: Partial<CityStopoverItinerary> = {}): CityStopoverItinerary {
 		return {
 			...baseItinerary(),
 			originLocation: { label: 'Home', coordinates: { latitude: 40.42, longitude: -3.7 } },
@@ -622,7 +631,7 @@ describe('point precision (issue #141)', () => {
 });
 
 describe('groundLegSteps (issue #286: reaching a leg the map cannot draw)', () => {
-	function withBothEnds(overrides: Partial<Itinerary> = {}): Itinerary {
+	function withBothEnds(overrides: Partial<CityStopoverItinerary> = {}): CityStopoverItinerary {
 		return {
 			...baseItinerary(),
 			originLocation: { label: 'Home', coordinates: { latitude: 40.42, longitude: -3.7 } },

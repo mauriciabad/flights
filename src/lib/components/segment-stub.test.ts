@@ -1,5 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import type { Airport, Duration, FlightOffer, Itinerary, LocalDateTime, Money, Stay, Transfer } from '../domain';
+import type {
+	Airport,
+	CityStopoverItinerary,
+	Duration,
+	FlightOffer,
+	Itinerary,
+	LocalDateTime,
+	Money,
+	Stay,
+	Transfer
+} from '../domain';
 import { segmentStub, stripTargets } from './segment-stub';
 import type { StubContext } from './segment-stub';
 import { tripStrip } from './trip-strip';
@@ -65,7 +75,7 @@ function walk(minutes: number, overrides: Partial<Transfer> = {}): Transfer {
 	return { mode: 'walk', duration: minutes as Duration, legs: [{ mode: 'walk', duration: minutes as Duration }], ...overrides };
 }
 
-function itineraryFor(overrides: Partial<Itinerary> = {}): Itinerary {
+function itineraryFor(overrides: Partial<CityStopoverItinerary> = {}): CityStopoverItinerary {
 	const outbound = flight();
 	const toHotel = walk(40);
 	const toAirport = walk(40);
@@ -388,23 +398,39 @@ describe('the stopover stub', () => {
 		expect(stub.duration).toBe('2h 30m free');
 	});
 
-	it('calls a stopover nobody leaves the airport for a wait, and none of it free', () => {
+	it('draws a layover nobody leaves the airport for as one wait, not a stopover', () => {
 		// Issue #365, measured on production: 10:37pm to 3:03am at Porto with no bed booked,
-		// and this panel read "Day stopover in Porto, 4h 26m free". `build.ts` puts a layover
-		// with no way out of the terminal into `times.airportWaiting`, and `times.free` at
-		// zero is how every surface knows.
-		const base = itineraryFor({
-			nightsInConnection: 0,
-			freeTime: { start: at('2026-10-06T22:17:00', 60), end: at('2026-10-07T04:10:00', 60), duration: 353 as Duration }
-		});
-		const airside = { ...base, times: { ...base.times, free: 0 as Duration } };
-		const stub = stubOf(airside, 'stopover');
+		// and this panel read "Day stopover in Porto, 4h 26m free". Issue #426 made that trip
+		// its own shape, and `airsideWait` is how every surface knows: the wait's own length,
+		// not a free-time window that is empty by construction.
+		const base = itineraryFor({ nightsInConnection: 0 });
+		const airside = {
+			...base,
+			stay: undefined,
+			transferToHotel: undefined,
+			transferToConnectionAirport: undefined,
+			transferAnchor: undefined,
+			nightsInConnection: 0 as const,
+			freeTime: { start: at('2026-10-06T22:17:00', 60), end: at('2026-10-06T22:17:00', 60), duration: 0 as Duration },
+			airsideWait: {
+				start: at('2026-10-06T22:17:00', 60),
+				end: at('2026-10-07T04:10:00', 60),
+				duration: 353 as Duration
+			},
+			times: { ...base.times, free: 0 as Duration }
+		};
+		// There is no stopover target on this trip at all: the strip draws one wait cell over
+		// the whole layover, so the panel a traveller opens is the wait's, not a stopover's
+		// with the word changed. `occurrence: 1` is the connection wait, after the origin one.
+		expect(stripTargets(tripStrip(airside).segments).map((target) => target.kind)).not.toContain(
+			'stopover'
+		);
 
-		expect(stub.title).toBe('Waiting at LGW');
+		const stub = stubOf(airside, 'wait', contextFor(airside), 1);
+
+		expect(stub.title).toBe('London Gatwick LGW');
 		expect(stub.duration).toBe('5h 53m');
-		// The bed is a quote this trip does not book, so how far it is from the runway is not
-		// a fact about the trip on screen.
-		expect(stub.facts).toEqual([]);
+		expect(stub.footnote).toContain('no night is booked here');
 	});
 });
 
