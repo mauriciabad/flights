@@ -21,7 +21,15 @@ export type { GenderFit, RoomGenderRestriction } from './gendered-room-fit';
 export { bedNightlyRate, moneyDifference, stayTotalDelta, stayTotalForNights, formatMoney } from './pricing';
 export type { NightlyRate } from './pricing';
 export { formatDistanceKm, haversineDistanceKm } from './distance';
-export { ROOM_KIND_LABELS } from './room-kind';
+export {
+	BED_KINDS,
+	BED_KIND_LABELS,
+	NO_BED_KIND_FILTER,
+	ROOM_KIND_LABELS,
+	allowsBedKind,
+	bedKindOf
+} from './room-kind';
+export type { BedKind } from './room-kind';
 export { cheapestSelectableOption, isOptionSelectable, rankProperties, selectableOptions } from './rank';
 export type { StopoverForRanking } from './rank';
 export { firstBookableStay, recommendedStay, stopoverForRanking } from './recommended-bed';

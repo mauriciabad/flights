@@ -20,3 +20,63 @@ export const ROOM_KIND_LABELS: Record<RoomKind, string> = {
 	'female-dorm': 'Female-only dorm',
 	'male-dorm': 'Male-only dorm'
 };
+
+/**
+ * The two things a traveller is actually choosing between when they ask to see one or the
+ * other: a bed in a room with other people in it, or a room of their own.
+ *
+ * Issue #423 asks for a filter over "dorm or provate room", and `RoomKind` has four values.
+ * Offering four chips would put `Male-only dorm` in front of a party that cannot book one,
+ * because who may sleep in a restricted dorm is already decided by the search's `females`
+ * count through `gendered-room-fit.ts` and not by anything the traveller can click here. So
+ * the restricted dorms fold into `dorm`, and the filter composes with the gender rule rather
+ * than competing with it.
+ */
+export type BedKind = 'dorm' | 'private';
+
+/** In the order the chips are drawn: the cheap one first, which is the order every other
+ * price-led control on this screen uses. */
+export const BED_KINDS: readonly BedKind[] = ['dorm', 'private'];
+
+/**
+ * Which of the two a room kind belongs to.
+ *
+ * A table rather than `roomKind === 'private' ? ... : 'dorm'`, so a fifth `RoomKind` is a
+ * type error here instead of quietly defaulting to a dorm. `domain/stay.ts` treats a
+ * restricted dorm as different inventory rather than a flag, and that is exactly the kind
+ * of value this list grows.
+ */
+const BED_KIND_BY_ROOM_KIND: Record<RoomKind, BedKind> = {
+	dorm: 'dorm',
+	private: 'private',
+	'female-dorm': 'dorm',
+	'male-dorm': 'dorm'
+};
+
+export function bedKindOf(roomKind: RoomKind): BedKind {
+	return BED_KIND_BY_ROOM_KIND[roomKind];
+}
+
+/** The same wording the room tiles use, so the chip that hides a room and the tile that
+ * prices it call it one thing. `ROOM_KIND_LABELS` above is where both come from. */
+export const BED_KIND_LABELS: Record<BedKind, string> = {
+	dorm: ROOM_KIND_LABELS.dorm,
+	private: ROOM_KIND_LABELS.private
+};
+
+/**
+ * No narrowing at all, which is what an empty set means everywhere a chosen-set filter
+ * appears in this app - `ResultFilters.chosenConnectionAirports` states the reasoning
+ * (`results/filters.ts`). Shared rather than built per call so a `$derived` that falls back
+ * to "no filter" does not hand its readers a new object on every recompute.
+ */
+export const NO_BED_KIND_FILTER: ReadonlySet<BedKind> = new Set();
+
+/**
+ * Whether a room of this kind survives the traveller's filter. Empty means every kind, so
+ * an unset filter and a filter with both chips on are one answer rather than two code paths.
+ */
+export function allowsBedKind(allowed: ReadonlySet<BedKind> | undefined, roomKind: RoomKind): boolean {
+	if (!allowed || allowed.size === 0) return true;
+	return allowed.has(bedKindOf(roomKind));
+}
