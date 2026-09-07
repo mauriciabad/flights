@@ -12,7 +12,7 @@
 	import { base } from '$app/paths';
 	import type { Airport, Money, Stay } from '$lib/domain';
 	import { formatPropertyRating } from '$lib/format';
-	import { Button, Card, EmptyState, RoutePreview, Select } from '$lib/components';
+	import { Button, Card, Chip, EmptyState, RoutePreview, Select } from '$lib/components';
 	import RoomKindTile from './RoomKindTile.svelte';
 	import StayAlternativeCard from './StayAlternativeCard.svelte';
 	import PhotoCarousel from './PhotoCarousel.svelte';
@@ -23,7 +23,14 @@
 	import { STAY_SORT_LABELS, availableStaySortKeys, sortStayChoices, type StaySortKey } from './sort';
 	import { formatDistanceKm, haversineDistanceKm } from './distance';
 	import { stayTotalDelta, stayTotalForNights } from './pricing';
-	import { cheapestSelectableOption, isOptionSelectable, rankProperties } from './rank';
+	import {
+		cheapestSelectableOption,
+		countPropertiesByBedKind,
+		isOptionSelectable,
+		isPropertyOnOffer,
+		rankProperties
+	} from './rank';
+	import { BED_KINDS, BED_KIND_LABELS, NO_BED_KIND_FILTER, type BedKind } from './room-kind';
 	import { firstBookableStay } from './recommended-bed';
 	import { describeStayCatalogue, type StayProviderOutcome } from './no-stays-reason';
 	import { isSameBed, isSameProperty, propertyOf, type PropertyStayOptions } from './types';
@@ -51,6 +58,17 @@
 		 * cheapest option this group can actually book, so there is always a real value
 		 * to show and to hand a parent from the very first render. */
 		selected?: Stay;
+		/**
+		 * Bindable: which bed kinds the alternatives list and the map are narrowed to (issue
+		 * #423), empty meaning both. The owner asked for "a filter for the bed kind (dorm or
+		 * provate room)... same on the map".
+		 *
+		 * Bound rather than owned here because `SegmentCustomiser` answers the same question
+		 * from outside this component: its `recommendedForNow` ranks `stayCandidates` itself,
+		 * so a filter kept private to the picker would let "Use the recommended bed" hand back
+		 * a dorm to somebody looking at private rooms.
+		 */
+		bedKinds?: ReadonlySet<BedKind>;
 		/** Fires on every change with the Money delta the itinerary total should apply -
 		 * already multiplied by `nights`, so a caller holding an `Itinerary.totalPrice`
 		 * can add this directly instead of recomputing the whole total. */
@@ -95,6 +113,7 @@
 		travellers,
 		females,
 		selected = $bindable(),
+		bedKinds = $bindable(NO_BED_KIND_FILTER),
 		onchange,
 		stayProviders = [],
 		unconfiguredStayProviders = [],
@@ -103,6 +122,8 @@
 		reachByProperty,
 		reachFailures = []
 	}: Props = $props();
+
+	const uid = $props.id();
 
 	// Issue #374: the same question asked of a list that is NOT empty. 54 Hostelworld
 	// hostels look like the market until something says they are one provider's catalogue,
@@ -126,11 +147,12 @@
 			connectionAirport: connectionAirport.coordinates,
 			cityCentre: connectionAirport.city.coordinates,
 			nights,
-			visitDays
+			visitDays,
+			bedKinds
 		})
 	);
 
-	const fallbackStay = $derived(firstBookableStay(ranked, travellers, females));
+	const fallbackStay = $derived(firstBookableStay(ranked, travellers, females, bedKinds));
 	const effectiveSelected = $derived(selected ?? fallbackStay);
 
 	// Structurally, not by reference. `stayCandidatesByConnection` is replaced wholesale on
@@ -148,8 +170,14 @@
 	// The head of the list the traveller is looking at, which is also what the results page
 	// would put on this trip if they had not chosen. Offering the swap only when those two
 	// differ keeps the action off a card that is already the recommendation.
+	// `fallbackStay` has to exist for this to mean anything: under a bed-kind filter that
+	// nothing matches there is no recommendation to hand back, and the button would have run
+	// `useRecommendedBed` against an `undefined` and done nothing at all.
 	const recommendationMoved = $derived(
-		chosen && openProperty !== undefined && !isSameProperty(fallbackStay?.property, openProperty)
+		chosen &&
+			fallbackStay !== undefined &&
+			openProperty !== undefined &&
+			!isSameProperty(fallbackStay.property, openProperty)
 	);
 
 	/**
@@ -166,9 +194,37 @@
 			nights,
 			travellers,
 			females,
+			bedKinds,
 			reachByProperty
 		})
 	);
+
+	/**
+	 * Issue #423's filter, applied here and nowhere else.
+	 *
+	 * The alternatives list, the map's points and the map's sidebar are all renderings of
+	 * `sortedChoices`, so narrowing upstream of it is what makes the owner's "same on the map"
+	 * true without the map knowing a filter exists.
+	 *
+	 * A property nobody in the group can book stays on the list carrying its reason, because
+	 * no click of theirs changes that; one the traveller hid goes, because showing it is
+	 * showing them what they asked to hide. `isPropertyOnOffer` is where those two part.
+	 *
+	 * The property the trip books never leaves. The map marks it as the current pick and every
+	 * delta on this screen is measured from its price.
+	 */
+	const onOffer = $derived(
+		choices.filter((choice) => choice.isPicked || isPropertyOnOffer(choice.group, travellers, females, bedKinds))
+	);
+
+	/** Inventory per kind, for the two chips. Read off `properties` rather than off the
+	 * filtered list, so the count on the chip the traveller has NOT chosen is the count of what
+	 * choosing it would show them rather than a count of their own current answer. */
+	const bedKindCounts = $derived(countPropertiesByBedKind(properties, travellers, females));
+
+	/** The one kind the traveller narrowed to, or `undefined` when they have not narrowed at
+	 * all. Neither chip and both chips are one request, which is why this is not a size. */
+	const onlyBedKind = $derived(bedKinds.size === 1 ? [...bedKinds][0] : undefined);
 
 	/**
 	 * Issue #406, and the reason it lives up here rather than in the row: the list, the map's
@@ -179,12 +235,16 @@
 	 */
 	let sortKey = $state<StaySortKey>('recommended');
 	const sortCurrency = $derived(effectiveSelected?.pricePerNight.currency);
-	const sortKeys = $derived(availableStaySortKeys(choices, sortCurrency));
+	// Filter first, then sort what is left: the two are orthogonal, and asking which keys are
+	// worth offering of rows the reader cannot see would offer a bus-ride sort for a bus ride
+	// to a property the filter has already taken away.
+	const sortKeys = $derived(availableStaySortKeys(onOffer, sortCurrency));
 	// A key can stop being offered under the traveller: a different stopover has no city
-	// centre, or its beds are quoted in another currency. Falling back to the default beats
-	// holding a selection the control no longer shows.
+	// centre, its beds are quoted in another currency, or a bed-kind filter has just taken the
+	// only routed row away. Falling back to the default beats holding a selection the control
+	// no longer shows.
 	const activeSortKey = $derived(sortKeys.includes(sortKey) ? sortKey : 'recommended');
-	const sortedChoices = $derived(sortStayChoices(choices, activeSortKey, sortCurrency));
+	const sortedChoices = $derived(sortStayChoices(onOffer, activeSortKey, sortCurrency));
 
 	/** What the order currently is, in the words of the key that produced it. The default's
 	 * sentence is the one issue #219 needs, and every other key gets a plain statement rather
@@ -202,6 +262,47 @@
 	);
 
 	const alternatives = $derived(sortedChoices.filter((choice) => choice.group !== openGroup));
+
+	/** Every other property this connection has, before any of it is filtered. What it decides
+	 * is whether there is a second stay here at all, which is a different question from whether
+	 * the filter left one standing, and the two need different words on screen. */
+	const otherStays = $derived(choices.filter((choice) => choice.group !== openGroup));
+
+	/**
+	 * Said when the traveller's own filter is what emptied the list.
+	 *
+	 * Distinct from `nothingBookable` on purpose. That one is about a connection where nobody
+	 * in this party can sleep anywhere, and there is no click that fixes it. This one is a
+	 * choice they made a moment ago, so it names the kind that found nothing and the button
+	 * beside it puts the other beds back.
+	 */
+	const filteredOutNote = $derived.by(() => {
+		if (alternatives.length > 0 || onlyBedKind === undefined) return undefined;
+		const kind = BED_KIND_LABELS[onlyBedKind].toLowerCase();
+		const others =
+			otherStays.length === 1
+				? 'The one other stay found here does not offer'
+				: `None of the other ${otherStays.length} stays found here offers`;
+		return {
+			title: `No other ${kind} near this connection`,
+			description: `${others} a ${kind} this group can book. The stay above still shows every room it has.`
+		};
+	});
+
+	/**
+	 * Flips one chip, by rebuilding the set rather than mutating a copy of it.
+	 *
+	 * `bedKinds` is a `ReadonlySet` the parent holds in `$state` and this replaces wholesale,
+	 * which is `ResultFilters`' convention (`results/filters.ts`) and is what makes the
+	 * reassignment the reactive signal. Building the new value out of `BED_KINDS` keeps the
+	 * result plain and immutable, so nothing here needs a reactive collection.
+	 */
+	function toggleBedKind(kind: BedKind) {
+		const turningOn = !bedKinds.has(kind);
+		bedKinds = new Set(
+			BED_KINDS.filter((candidate) => (candidate === kind ? turningOn : bedKinds.has(candidate)))
+		);
+	}
 
 	/** The map exists while this is true and not one moment longer, which is issue #280's
 	 * rule about where MapLibre may live. Mounting the dialog creates the only instance on
@@ -336,7 +437,7 @@
 			</div>
 		</Card>
 
-		{#if alternatives.length > 0}
+		{#if otherStays.length > 0}
 			<div class="stay-alternatives">
 				<h3 class="stay-alternatives-heading">Other stays near this connection</h3>
 				<!-- The default order is what the whole stopover costs rather than the rate alone
@@ -349,75 +450,126 @@
 					Prices compare against the stay this trip books now.
 				</p>
 
-				<!--
-					A native select rather than a row of chips (issue #406). Five keys as chips wrap
-					to three lines in the 312px rail, and on a phone this hands the traveller the
-					platform's own picker. It is keyboard-reachable with a real focus ring, and the
-					active key is a word in the closed control rather than a colour on one chip.
-					Offered only where there is more than one thing to choose between: a list nothing
-					has routed yet has no second key, and a control with one option is furniture.
-				-->
-				{#if sortKeys.length > 1}
-					<Select
-						class="stay-sort"
-						label="Sort these stays by"
-						options={sortKeys.map((key) => ({ value: key, label: STAY_SORT_LABELS[key] }))}
-						bind:value={() => activeSortKey, (next) => (sortKey = next as StaySortKey)}
-					/>
-				{/if}
+				<!-- The two view controls together, because they answer one question between them:
+				     which of these stays am I looking at, and in what order. They stack in the
+				     300px rail and sit side by side the moment there is room for both. -->
+				<div class="stay-view-controls">
+					<!--
+						Chips here and a `Select` beside them, which is not an inconsistency. Sorting
+						picks one of five keys, and issue #406 chose the platform's own picker for
+						that. This picks a subset of two, and a subset is what a chip rail is for:
+						both counts are readable at once, which is the whole answer to "are there any
+						private rooms here". The treatment is `FilterPanel`'s, down to the head with
+						its right-hand readout, so the two filter rails in this app read as one idea.
+					-->
+					<div class="stay-filter">
+						<div class="stay-filter-head">
+							<span id="{uid}-bed-kind">Bed kind</span>
+							<span class="stay-filter-value">{onlyBedKind ? BED_KIND_LABELS[onlyBedKind] : 'Any'}</span>
+						</div>
+						<div class="chip-row" role="group" aria-labelledby="{uid}-bed-kind">
+							{#each BED_KINDS as kind (kind)}
+								<Chip
+									interactive
+									selected={bedKinds.has(kind)}
+									disabled={bedKindCounts[kind] === 0}
+									onclick={() => toggleBedKind(kind)}
+								>
+									{BED_KIND_LABELS[kind]}
+									<span class="tabular-nums">({bedKindCounts[kind]})</span>
+								</Chip>
+							{/each}
+						</div>
+					</div>
 
-				<!-- Issue #405. Absence of a bus time on thirty rows would read as "there is no bus
-				     to any of these", which nobody checked. This is the true version of that claim,
-				     said once. -->
-				{#if reachNote}
-					<p class="stay-alternatives-note" data-testid="stay-reach-note">{reachNote}</p>
-				{/if}
-				<!-- AGENTS.md, "show the error you got": the router's own sentence and status code,
-				     not our paraphrase of them. -->
-				{#each reachFailures as failure (failure)}
-					<p class="stay-failure font-mono" data-testid="stay-reach-failure">{failure}</p>
-				{/each}
+					<!--
+						A native select rather than a row of chips (issue #406). Five keys as chips wrap
+						to three lines in the 312px rail, and on a phone this hands the traveller the
+						platform's own picker. It is keyboard-reachable with a real focus ring, and the
+						active key is a word in the closed control rather than a colour on one chip.
+						Offered only where there is more than one thing to choose between: a list nothing
+						has routed yet has no second key, and a control with one option is furniture.
+					-->
+					{#if sortKeys.length > 1}
+						<Select
+							class="stay-sort"
+							label="Sort these stays by"
+							options={sortKeys.map((key) => ({ value: key, label: STAY_SORT_LABELS[key] }))}
+							bind:value={() => activeSortKey, (next) => (sortKey = next as StaySortKey)}
+						/>
+					{/if}
+				</div>
 
-				<!--
-					Issue #280's architecture, applied to a second map. This picture is an inline
-					`<svg>` with no basemap, no controls and no WebGL: `tools/probe-map-cost.mjs`
-					measured four live MapLibre instances per card settling in 4.5s on a throttled
-					phone and twenty never settling at all, because Chromium evicts the oldest of
-					more than sixteen live contexts. So the list carries a drawing and the dialog
-					carries the map.
-				-->
-				<button type="button" class="stay-map-open" onclick={() => (mapOpen = true)}>
-					<RoutePreview
-						lines={[]}
-						points={[
-							{ coordinates: connectionAirport.coordinates, tone: 'neutral' },
-							...sortedChoices.map((choice) => ({
-								coordinates: choice.property.coordinates,
-								tone: 'stopover' as const
-							}))
-						]}
-						width={320}
-						height={120}
-					/>
-					<span class="stay-map-open-label">
-						Open the map of all {sortedChoices.length} stays
-						<span class="stay-map-open-hint">Pick a point to compare it against this one</span>
-					</span>
-				</button>
-
-				<ul class="stay-alternatives-list">
-					{#each alternatives as choice (choice.key)}
-						<li>
-							<StayAlternativeCard
-								{choice}
-								{nights}
-								onselect={() => {
-									if (choice.cheapest) choose(choice.cheapest.stay);
-								}}
-							/>
-						</li>
+				<!-- The list the traveller asked for, or the reason it is empty. Both the map and
+				     the rows below read `sortedChoices`, so with nothing matching there is no map
+				     worth opening either: what belongs here is the way back. -->
+				{#if filteredOutNote}
+					<EmptyState title={filteredOutNote.title} description={filteredOutNote.description}>
+						{#snippet action()}
+							<Button size="md" variant="secondary" onclick={() => (bedKinds = NO_BED_KIND_FILTER)}>
+								Show every bed kind
+							</Button>
+						{/snippet}
+					</EmptyState>
+				{:else}
+					<!-- Issue #405. Absence of a bus time on thirty rows would read as "there is no bus
+					     to any of these", which nobody checked. This is the true version of that claim,
+					     said once. -->
+					{#if reachNote}
+						<p class="stay-alternatives-note" data-testid="stay-reach-note">{reachNote}</p>
+					{/if}
+					<!-- AGENTS.md, "show the error you got": the router's own sentence and status code,
+					     not our paraphrase of them. -->
+					{#each reachFailures as failure (failure)}
+						<p class="stay-failure font-mono" data-testid="stay-reach-failure">{failure}</p>
 					{/each}
-				</ul>
+
+					<!--
+						Issue #280's architecture, applied to a second map. This picture is an inline
+						`<svg>` with no basemap, no controls and no WebGL: `tools/probe-map-cost.mjs`
+						measured four live MapLibre instances per card settling in 4.5s on a throttled
+						phone and twenty never settling at all, because Chromium evicts the oldest of
+						more than sixteen live contexts. So the list carries a drawing and the dialog
+						carries the map.
+					-->
+					<button type="button" class="stay-map-open" onclick={() => (mapOpen = true)}>
+						<RoutePreview
+							lines={[]}
+							points={[
+								{ coordinates: connectionAirport.coordinates, tone: 'neutral' },
+								...sortedChoices.map((choice) => ({
+									coordinates: choice.property.coordinates,
+									tone: 'stopover' as const
+								}))
+							]}
+							width={320}
+							height={120}
+						/>
+						<span class="stay-map-open-label">
+							<!-- "all" stops being true the moment the traveller narrows, and the map is
+							     narrowed with the list (issue #423). Saying "matching" is what stops this
+							     label promising a hostel the map will not draw. -->
+							{onlyBedKind
+								? `Open the map of ${sortedChoices.length} matching stays`
+								: `Open the map of all ${sortedChoices.length} stays`}
+							<span class="stay-map-open-hint">Pick a point to compare it against this one</span>
+						</span>
+					</button>
+
+					<ul class="stay-alternatives-list">
+						{#each alternatives as choice (choice.key)}
+							<li>
+								<StayAlternativeCard
+									{choice}
+									{nights}
+									onselect={() => {
+										if (choice.cheapest) choose(choice.cheapest.stay);
+									}}
+								/>
+							</li>
+						{/each}
+					</ul>
+				{/if}
 			</div>
 		{/if}
 
@@ -568,8 +720,48 @@
 		font-weight: var(--font-weight-semibold);
 	}
 
-	.stay-picker :global(.stay-sort) {
+	/* Mobile first: one column in the 300px rail and on a phone, side by side as soon as
+	   there is room for both. The chips are the wider of the two and take the spare space,
+	   because a truncated "Private room (4)" costs the reader the count. */
+	.stay-view-controls {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: flex-end;
+		gap: var(--space-3);
 		margin-bottom: var(--space-3);
+	}
+
+	.stay-filter {
+		display: flex;
+		flex: 1 1 13rem;
+		flex-direction: column;
+		gap: var(--space-2);
+	}
+
+	/* `FilterPanel`'s head, kept to the pixel: the label on the left and what the group is
+	   currently set to on the right, so a rail scrolled past its own chips still says what it
+	   is doing. */
+	.stay-filter-head {
+		display: flex;
+		justify-content: space-between;
+		gap: var(--space-2);
+		font-size: var(--font-size-sm);
+		color: var(--color-text-muted);
+	}
+
+	.stay-filter-value {
+		color: var(--color-text);
+		font-weight: var(--font-weight-medium);
+	}
+
+	.chip-row {
+		display: flex;
+		flex-wrap: wrap;
+		gap: var(--space-2);
+	}
+
+	.stay-view-controls :global(.stay-sort) {
+		flex: 1 1 11rem;
 	}
 
 	.stay-alternatives-note {

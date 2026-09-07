@@ -94,6 +94,7 @@
 	import type { DepartureDateOption } from '$lib/results/departure-ladder';
 	import { VARIANT_VIEW, type StopoverLengthOption } from '$lib/results/types';
 	import {
+		NO_BED_KIND_FILTER,
 		StayPicker,
 		describeNoStays,
 		fetchStayReach,
@@ -105,7 +106,7 @@
 		stayReachTargets,
 		stopoverForRanking
 	} from '$lib/stays';
-	import type { StayProviderOutcome, StayReach } from '$lib/stays';
+	import type { BedKind, StayProviderOutcome, StayReach } from '$lib/stays';
 
 	interface Props {
 		/** The trip this panel edits. The card beside it reads the same object, which is
@@ -487,11 +488,29 @@
 		return `${length} moved the bed from ${swap.from.property.name} to ${swap.to.property.name}.`;
 	}
 
+	/**
+	 * Which bed kinds the picker is narrowed to (issue #423), held here rather than inside it.
+	 *
+	 * `recommendedForNow` below ranks `stayCandidates` itself, going around the picker
+	 * entirely, so a filter kept private to the picker would let "Use the recommended bed"
+	 * hand a dorm to somebody who had just asked to see private rooms. One piece of state
+	 * feeding both is what stops the button and the list disagreeing.
+	 *
+	 * Not reset when the trip on screen changes. It is a preference about the kind of bed the
+	 * traveller wants, and it survives moving between connections the way the sort key does.
+	 */
+	let stayBedKinds = $state<ReadonlySet<BedKind>>(NO_BED_KIND_FILTER);
+
 	/** The bed the ranking puts first for the trip as it now stands, which is what the
-	 * picker below is drawing at the head of its own list. */
+	 * picker below is drawing at the head of its own list. `bedKinds` is added at this call
+	 * site rather than inside `stopoverForRanking`, because it is the only caller the filter
+	 * applies to: the page's own re-rank on a nights change must stay unfiltered. */
 	const recommendedForNow = $derived(
 		connectionAirport
-			? recommendedStay(stayCandidates, stopoverForRanking(itinerary, connectionAirport, travellers, females))
+			? recommendedStay(stayCandidates, {
+					...stopoverForRanking(itinerary, connectionAirport, travellers, females),
+					bedKinds: stayBedKinds
+				})
 			: undefined
 	);
 
@@ -848,6 +867,7 @@
 							{travellers}
 							{females}
 							selected={itinerary.stay}
+							bind:bedKinds={stayBedKinds}
 							onchange={applyStaySelection}
 							{stayProviders}
 							unconfiguredStayProviders={widerProvidersToAdd}
