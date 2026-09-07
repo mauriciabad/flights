@@ -330,8 +330,11 @@ export function transferFareNote(transfer: Transfer, compact = false): TransferF
 				each: fareEachShare(fare.estimate)
 			};
 		case 'beyond-rate-card':
-			// Issue #246. The column is too narrow for the reason; `TransportPicker`'s own
-			// disclosure carries it, and this states the fact.
+		case 'under-rate-card':
+			// Issues #246 and #421. Two different refusals and one sentence, because the column
+			// is too narrow for either reason. `TransportPicker`'s own disclosure is where they
+			// separate, and squeezing "too far" or "too short" in here would be a word the
+			// reader cannot act on next to a price they can.
 			return {
 				text: compact ? 'no estimate' : 'No fare estimate',
 				amount: false,

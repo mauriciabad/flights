@@ -292,9 +292,10 @@ export interface PricePart {
  * named leg rather than three aggregate rows, so the cost has to travel with the row
  * instead of being counted into a separate bucket.
  *
- * The four cases are `groundFare`'s own four answers narrowed to what a receipt can print.
- * `beyond-rate-card` and `unquoted` both land on `unknown`, because to a traveller reading
- * a price they are the same sentence: nobody has given us a number for this ride.
+ * The four cases are `groundFare`'s own six answers narrowed to what a receipt can print.
+ * `beyond-rate-card`, `under-rate-card` and `unquoted` all land on `unknown`, because to a
+ * traveller reading a price they are the same sentence: nobody has given us a number for
+ * this ride. Why nobody did is the picker's job to say, not a receipt line's.
  */
 export type GroundRowCost =
 	| { kind: 'quoted'; money: Money }
@@ -481,6 +482,7 @@ function costOf(transfer: Transfer): GroundRowCost {
 				audience: fareAudience(fare.estimate.party)
 			};
 		case 'beyond-rate-card':
+		case 'under-rate-card':
 		case 'unquoted':
 			return { kind: 'unknown' };
 	}

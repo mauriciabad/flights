@@ -52,8 +52,8 @@ import { inTravellerCurrency } from './fare-currency';
  * fourth invented card". Pricing Rome's airport at the €14 Leonardo Express while the FL1
  * regional train does the same trip for less would be exactly that, so Rome is not here.
  * Neither are Stansted, Heathrow, Luton, Dublin, Malpensa or Vienna, each for the same
- * reason and each named below or in issue #407 with the fare that was missing. Gatwick is
- * out for a different reason, which has its own section.
+ * reason and each named below or in issue #407 with the fare that was missing. Gatwick was
+ * out for a different reason again, and that reason has its own section.
  *
  * ## What made Britain readable, after a pass that decided it was not
  *
@@ -80,28 +80,34 @@ import { inTravellerCurrency } from './fare-currency';
  * hoped for and why `domain/fare.ts` did not need the one-sided bound that issue proposed as
  * its fallback.
  *
- * ## Gatwick is readable now and still not here, for a new reason
+ * ## Gatwick, and the assumption every other card was resting on
  *
- * Both its bounds came out: National Express service 025 runs London Victoria to Gatwick
- * from £6.00 one way (nationalexpress.com, read 2026-09-06), and the Gatwick Express Anytime
- * single is £24.10, the £21.30 Anytime Day Single carrying "Not valid for travel on Gatwick
- * Express services" and £24.10 being what the non-stop service those conditions exclude
- * sells (National Rail Enquiries, read 2026-09-06). By the rule above that is a card.
+ * Issue #421. Gatwick's two bounds were read a pass before this one and left out anyway, and
+ * the reason was never the fare. National Express service 025 runs London Victoria to
+ * Gatwick from £6.00 one way, the Gatwick Express Anytime single is £24.10, and the card
+ * below cites both. By the rule above that was already a card, and writing one would still
+ * have been wrong.
  *
- * What stops it is the assumption every other card rests on without saying so: **a flat band
- * may be applied to any journey inside `ratedUpToKm` only where the fare does not depend on
- * the distance.** Barcelona sells one integrated single whether you ride two stops or twelve,
- * so stretching it over a shorter journey costs nothing. Gatwick sells a 40 km ticket into
- * central London, and the stay this app pairs with a Gatwick stopover is usually not in
- * London at all. That is deliberate and it is the owner's own issue #204: he asked for the
- * hostels in Horley, thirty minutes on foot from the terminal, and `docs/PROVIDERS.md` has
- * the adapter now reaching them. On the acceptance trip the stay came back 3.2 km from the
- * runway with Transitous planning bus 100 to reach it (`tools/probe-transit-legs.mjs`,
- * 2026-09-06). Pricing that hop at £6.00 to £24.10 would overstate the cheapest way to make
- * it several times over, which is the Rome mistake in a British accent. A card that fits
- * Gatwick needs a floor distance as well as a ceiling, and that is a change to this module's
- * shape rather than another row in it. Issue #421 carries both fares so the next pass does
- * not read them again, and Stansted, Heathrow and Luton sit behind the same change.
+ * What stopped it is the assumption every other card rested on without saying so: **a flat
+ * band may be applied to any journey inside `ratedUpToKm` only where the fare does not
+ * depend on the distance.** Barcelona sells one integrated single whether you ride two stops
+ * or twelve, so stretching it over a shorter journey costs nothing. Gatwick sells a 40 km
+ * ticket into central London, and the stay this app pairs with a Gatwick stopover is usually
+ * not in London at all. That is deliberate and it is the owner's own issue #204: he asked
+ * for the hostels in Horley, thirty minutes on foot from the terminal, and
+ * `docs/PROVIDERS.md` has the adapter now reaching them. On the acceptance trip the stay
+ * came back 3.2 km from the runway with Transitous planning bus 100 to reach it
+ * (`tools/probe-transit-legs.mjs`, 2026-09-06). Pricing that hop at £6.00 to £24.10 would
+ * overstate the cheapest way to make it several times over, which is the Rome mistake in a
+ * British accent.
+ *
+ * So the assumption is a field now. `fareCovers` says whether a card's fares buy an area's
+ * whole network or one corridor between this airport and its city, and a corridor card is
+ * rated from `ratedFromKm` as well as up to `ratedUpToKm`. Below that floor
+ * `estimateTransitFare` answers with a refusal of its own instead of the band, because a
+ * local bus out of Gatwick has a fare and nobody here has read it. A paragraph would have
+ * left the next card's author to rediscover all of this; a required field makes them answer
+ * it before their card compiles.
  *
  * Three more British airports fail on narrower points than "the fare is unreadable".
  * Stansted's cheap end is National Express's £7.00 lead fare, and the page carrying it says
@@ -159,15 +165,32 @@ interface TransitFareCard {
 	onwardMinorUnits?: readonly [number, number];
 	/** Straight-line kilometres from the runway to the city centre this card prices a
 	 * journey into, measured against `data/city-centres.generated.json` on 2026-09-06.
-	 * `ratedUpToKm` below is derived from it rather than written down twice. */
+	 * `ratedUpToKm` and `ratedFromKm` below are both derived from it rather than written
+	 * down twice. */
 	centreKm: number;
+	/**
+	 * What the cited fares buy, which decides whether this band may be stretched over a
+	 * shorter journey than the one it was read for. Issue #421.
+	 *
+	 * `'area'` is a ticket the network sells for the whole place: Barcelona's integrated
+	 * single costs the same for two stops or twelve, so any journey inside `ratedUpToKm`
+	 * pays it and there is no floor. `'corridor'` is a ticket sold for one run between this
+	 * airport and its city and priced by that run, so a journey materially shorter than it
+	 * is a different journey with a fare of its own, and this card refuses rather than
+	 * quoting the long one.
+	 *
+	 * Required, with no default, and that is the whole point of the field. Fourteen cards
+	 * were written before anybody said this out loud and every one of them was relying on
+	 * it. The compiler now asks.
+	 */
+	fareCovers: 'area' | 'corridor';
 	/** The operator, the product and the page each bound came from, and what this card does
 	 * NOT price. */
 	citation: string;
 }
 
 /**
- * How far past the city centre a card still describes the journey.
+ * How far either side of the city centre a card still describes the journey.
  *
  * 15 km, and the number is arguable, so here is the argument. Every card below prices a
  * journey into the centre, and a bed is not at the centre. A bed 15 km beyond it is still
@@ -178,6 +201,15 @@ interface TransitFareCard {
  * over ground it was not sold for. Same shape and the same reasoning as
  * `MAX_RATED_TAXI_DISTANCE_KM`, which refuses a 94.9 km motorway run off a card
  * back-calculated from a 5.1 km city ride.
+ *
+ * The same 15 km is the tolerance at the other end of a corridor card's band (issue #421),
+ * for the first half of that reason and not the second. A bed short of the centre is still
+ * a bed near it, so the journey to reach it is still substantially the run the ticket was
+ * sold for, and 15 km short of central London the Gatwick corridor is still selling rail
+ * and coach fares rather than a local single. There is no zone argument underneath that,
+ * which makes the floor the weaker of the two bounds and worth saying so. It is also
+ * bounded: it can overstate by whatever a corridor fare tapers across its last 15 km, where
+ * applying the band at 3 km overstates by a multiple.
  */
 export const TRANSIT_FARE_SLACK_KM = 15;
 
@@ -186,6 +218,30 @@ export const TRANSIT_FARE_SLACK_KM = 15;
  * stored, so a card cannot claim a reach its measured distance does not support. */
 export function ratedUpToKm(card: { centreKm: number }): number {
 	return Math.ceil(card.centreKm / 5) * 5 + TRANSIT_FARE_SLACK_KM;
+}
+
+/**
+ * The shortest journey `card` describes, and 0 for every card whose fare does not care.
+ * Issue #421.
+ *
+ * `ratedUpToKm` pointed the other way, deliberately down to the last mark: to the centre,
+ * rounded DOWN to the previous 5 km, minus the same slack. Same quantisation and the same
+ * tolerance at both ends, so neither bound implies a precision the measurement does not
+ * have, and neither is a second number a card could contradict.
+ *
+ * An `'area'` card has no floor at all, which is a fact about the ticket rather than a
+ * default. Barcelona's integrated single is the same fare two stops out as twelve, so there
+ * is no shorter journey for it to stop describing.
+ *
+ * The clamp to 0 is what makes this inert for the table as it stands, and that is worth
+ * checking rather than trusting: only a `centreKm` above 20 produces a floor at all, and of
+ * the cards here today only Charles de Gaulle at 22.9 km is even that far out. It is
+ * `'area'`, so it gets nothing. Gatwick at 40.2 km is the first card this function has ever
+ * answered for.
+ */
+export function ratedFromKm(card: Pick<TransitFareCard, 'centreKm' | 'fareCovers'>): number {
+	if (card.fareCovers === 'area') return 0;
+	return Math.max(0, Math.floor(card.centreKm / 5) * 5 - TRANSIT_FARE_SLACK_KM);
 }
 
 /**
@@ -204,6 +260,7 @@ export const TRANSIT_FARE_TABLE: Readonly<Record<IataAirportCode, TransitFareCar
 		journeyMinorUnits: [550, 550],
 		onwardMinorUnits: [340, 340],
 		centreKm: 11.2,
+		fareCovers: 'area',
 		citation:
 			'NS, the Dutch national rail operator, prices a Schiphol Airport to Amsterdam e-ticket ' +
 			'from €5.50 on its own route page (ns.nl, read 2026-09-06). That ticket ends at the ' +
@@ -217,6 +274,7 @@ export const TRANSIT_FARE_TABLE: Readonly<Record<IataAirportCode, TransitFareCar
 		currency: 'EUR',
 		journeyMinorUnits: [550, 900],
 		centreKm: 19.0,
+		fareCovers: 'area',
 		citation:
 			"OASA's own fare list (oasa.gr, read 2026-09-06) prices both published airport " +
 			'services: the Airport Express bus at €5.50 and the Metro line 3 airport ticket at ' +
@@ -229,6 +287,7 @@ export const TRANSIT_FARE_TABLE: Readonly<Record<IataAirportCode, TransitFareCar
 		currency: 'EUR',
 		journeyMinorUnits: [290, 590],
 		centreKm: 12.2,
+		fareCovers: 'area',
 		citation:
 			"TMB's own 2026 fare table (tmb.cat, read 2026-09-06, fares effective 15 January 2026): " +
 			'an integrated 1-zone single is €2.90 and the Bitllet Aeroport is €5.90. The €2.90 ' +
@@ -241,6 +300,7 @@ export const TRANSIT_FARE_TABLE: Readonly<Record<IataAirportCode, TransitFareCar
 		currency: 'EUR',
 		journeyMinorUnits: [500, 500],
 		centreKm: 19.1,
+		fareCovers: 'area',
 		citation:
 			"BVG's own single-ticket page (bvg.de, read 2026-09-06): fare zone AB is €4.00 and ABC " +
 			'is €5.00, valid 120 minutes with changes permitted. Berlin Brandenburg sits in zone C, ' +
@@ -254,6 +314,7 @@ export const TRANSIT_FARE_TABLE: Readonly<Record<IataAirportCode, TransitFareCar
 		currency: 'GBP',
 		journeyMinorUnits: [300, 500],
 		centreKm: 10.7,
+		fareCovers: 'area',
 		citation:
 			'National Express West Midlands prices an nBus adult single trip at £3.00 on its own ' +
 			'fares page (nxbus.co.uk/west-midlands/tickets-prices/single-trips-day-tickets, read ' +
@@ -277,6 +338,7 @@ export const TRANSIT_FARE_TABLE: Readonly<Record<IataAirportCode, TransitFareCar
 		journeyMinorUnits: [50000, 250000],
 		onwardMinorUnits: [50000, 50000],
 		centreKm: 18.3,
+		fareCovers: 'area',
 		citation:
 			"BKK's own price list (bkk.hu, read 2026-09-06): a single ticket is 500 Ft and the " +
 			'airport shuttle bus single is 2,500 Ft. A BKK single buys one vehicle rather than one ' +
@@ -290,6 +352,7 @@ export const TRANSIT_FARE_TABLE: Readonly<Record<IataAirportCode, TransitFareCar
 		currency: 'EUR',
 		journeyMinorUnits: [205, 1400],
 		centreKm: 22.9,
+		fareCovers: 'area',
 		citation:
 			"Île-de-France Mobilités' own 2026 fare table (iledefrance-mobilites.fr, read " +
 			'2026-09-06, rates applicable as of 1 January 2026): the Paris Region ↔ Airports single ' +
@@ -299,12 +362,37 @@ export const TRANSIT_FARE_TABLE: Readonly<Record<IataAirportCode, TransitFareCar
 			'on it. That they take the €2.05 bus ticket instead is inferred from the airport ' +
 			"ticket's stated scope rather than read, which is why the band is this wide."
 	},
+	LGW: {
+		city: 'London',
+		countryCode: 'GB',
+		currency: 'GBP',
+		journeyMinorUnits: [600, 2410],
+		centreKm: 40.2,
+		fareCovers: 'corridor',
+		citation:
+			'National Express service 025 runs London Victoria to Gatwick from £6.00 one way, its ' +
+			'own page saying "From £6 one-way" under "Limited Availability" with the £1.50 booking ' +
+			'fee included (nationalexpress.com/en/airports/gatwick/london-to-gatwick, read ' +
+			'2026-09-07). The dear end is the Gatwick Express Anytime single at £24.10 (National ' +
+			'Rail Enquiries journey planner, Gatwick Airport to London Victoria, read 2026-09-07). ' +
+			'The £21.30 Anytime Day Single on that same list carries "Not valid for travel on ' +
+			'Gatwick Express services", so £24.10 is what the non-stop service those conditions ' +
+			'exclude sells. Both price the whole 40 km run into central London and nothing after ' +
+			'it: a change onto the Underground or a bus is a further TfL fare, £1.75 on a bus or ' +
+			'tram (tfl.gov.uk/fares/find-fares/bus-and-tram-fares, read 2026-09-07), which this ' +
+			'card does not read and does not add, so the leg count is not an input to this fare. ' +
+			'Missing that change understates by one local ticket; adding a figure nobody read here ' +
+			'would be inventing one. Neither bound prices a local journey around the airport, and ' +
+			"that is what `fareCovers: 'corridor'` refuses rather than approximating: the hostels " +
+			'issue #204 asks for sit about 3 km away in Horley, reached by bus 100.'
+	},
 	LIN: {
 		city: 'Milan',
 		countryCode: 'IT',
 		currency: 'EUR',
 		journeyMinorUnits: [220, 220],
 		centreKm: 7.2,
+		fareCovers: 'area',
 		citation:
 			"ATM's own English ticket page (atm.it, read 2026-09-06): the Milan urban ticket is " +
 			'€2.20. Linate is inside the urban area, so bus 73 and metro M4 into the centre both ' +
@@ -317,6 +405,7 @@ export const TRANSIT_FARE_TABLE: Readonly<Record<IataAirportCode, TransitFareCar
 		currency: 'EUR',
 		journeyMinorUnits: [190, 190],
 		centreKm: 6.4,
+		fareCovers: 'area',
 		citation:
 			"Metropolitano de Lisboa's own \"New fares 2026\" notice (metrolisboa.pt, read " +
 			'2026-09-06): a Carris/Metro ticket is €1.90, valid for one journey across the whole ' +
@@ -329,6 +418,7 @@ export const TRANSIT_FARE_TABLE: Readonly<Record<IataAirportCode, TransitFareCar
 		currency: 'EUR',
 		journeyMinorUnits: [450, 500],
 		centreKm: 14.0,
+		fareCovers: 'area',
 		citation:
 			"Metro de Madrid's own airport fares page (metromadrid.es, read 2026-09-06): a Zone A " +
 			'single is €1.50 to €2.00 depending on how many stations you pass, and every journey to ' +
@@ -342,6 +432,7 @@ export const TRANSIT_FARE_TABLE: Readonly<Record<IataAirportCode, TransitFareCar
 		currency: 'GBP',
 		journeyMinorUnits: [200, 620],
 		centreKm: 14.9,
+		fareCovers: 'area',
 		citation:
 			"TfGM's own bus ticket page (tfgm.com/tickets-and-passes/bus-tickets, read 2026-09-06) " +
 			"prices the Bee Bus single 'hopper' at £2.00 for adults, and the airport names 43, 103, " +
@@ -361,6 +452,7 @@ export const TRANSIT_FARE_TABLE: Readonly<Record<IataAirportCode, TransitFareCar
 		currency: 'EUR',
 		journeyMinorUnits: [205, 1400],
 		centreKm: 13.8,
+		fareCovers: 'area',
 		citation:
 			"Île-de-France Mobilités' own 2026 fare table (iledefrance-mobilites.fr, read " +
 			'2026-09-06, rates applicable as of 1 January 2026): the Paris Region ↔ Airports single ' +
@@ -375,6 +467,7 @@ export const TRANSIT_FARE_TABLE: Readonly<Record<IataAirportCode, TransitFareCar
 		currency: 'CZK',
 		journeyMinorUnits: [4600, 5000],
 		centreKm: 11.6,
+		fareCovers: 'area',
 		citation:
 			"Dopravní podnik hlavního města Prahy's own price list (dpp.cz, read 2026-09-06): a " +
 			'90-minute ticket is 46 Kč in the PID Lítačka app and 50 Kč on paper, valid on every ' +
@@ -387,6 +480,7 @@ export const TRANSIT_FARE_TABLE: Readonly<Record<IataAirportCode, TransitFareCar
 		currency: 'PLN',
 		journeyMinorUnits: [440, 440],
 		centreKm: 7.8,
+		fareCovers: 'area',
 		citation:
 			"Warszawski Transport Publiczny's own tariff page (wtp.waw.pl, read 2026-09-06): the " +
 			'75-minute transfer ticket for zone 1 is 4.40 zł at the standard rate, and a 20-minute ' +
@@ -419,14 +513,16 @@ function partyShare(
 
 /**
  * Turns one airport, one journey length and one boarding count into a transit fare range,
- * or into a refusal, or into nothing at all.
+ * or into one of two refusals, or into nothing at all.
  *
- * Three answers, and the difference between the last two is the point. A `FareRange` is a
+ * Four answers, and the difference between the last three is the point. A `FareRange` is a
  * cited guess. A `FareBeyondRatedRange` is this table saying the journey has left the fare
- * area its ticket was sold for, which a screen can put in words. `undefined` is no card for
- * this airport, which reaches a reader as `groundFare`'s existing `'unquoted'` and the
- * words "Price not available", the app's oldest and most honest answer, and the right one
- * for the 97% of connection airports nobody has read a tariff for.
+ * area its ticket was sold for, and a `FareBelowRatedRange` is it saying the journey never
+ * entered one, which are two different sentences for a screen to put in words. `undefined`
+ * is no card for this airport, which reaches a reader as `groundFare`'s existing
+ * `'unquoted'` and the words "Price not available", the app's oldest and most honest
+ * answer, and the right one for the 97% of connection airports nobody has read a tariff
+ * for.
  *
  * Pure and synchronous, the same property `estimateTaxiFare` has and for the same reason:
  * it is arithmetic over a static table, so nothing here needs caching or a network. That
@@ -439,9 +535,11 @@ function partyShare(
  *
  * `straightLineKm` rather than a routed distance because a transit leg has no geometry
  * (Transitous returns a schedule, not a path). It is a lower bound on the real journey, so
- * the refusal below fires less often than a routed measurement would, which is the
+ * the ceiling refusal fires less often than a routed measurement would, which is the
  * direction every bound in this app errs in: `SLOWEST_USEFUL_TRANSIT_KM_PER_HOUR` makes the
- * same choice for the same reason.
+ * same choice for the same reason. The floor takes that same understatement the other way
+ * and lands on the same side of the argument, since a journey measured short refuses more
+ * often than a routed one would, and refusing is the answer that cannot overstate a fare.
  */
 export function estimateTransitFare(
 	airportCode: IataAirportCode,
@@ -463,6 +561,17 @@ export function estimateTransitFare(
 			kind: 'out-of-range',
 			distanceKm: straightLineKm,
 			ratedUpToKm: ratedUpTo,
+			countryCode: card.countryCode,
+			citation: card.citation
+		};
+	}
+
+	const ratedFrom = ratedFromKm(card);
+	if (straightLineKm < ratedFrom) {
+		return {
+			kind: 'below-range',
+			distanceKm: straightLineKm,
+			ratedFromKm: ratedFrom,
 			countryCode: card.countryCode,
 			citation: card.citation
 		};

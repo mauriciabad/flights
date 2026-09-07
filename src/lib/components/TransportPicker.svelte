@@ -521,7 +521,7 @@
 					     own remove-button handler. -->
 					<details class="fare-citation">
 						<summary onclick={(event) => event.stopPropagation()}>
-							{#if rowFare.kind === 'out-of-range'}
+							{#if rowFare.kind === 'out-of-range' || rowFare.kind === 'below-range'}
 								Why there is no fare estimate
 							{:else if rowFare.rateSource === 'fallback'}
 								Approximate rate (no country-specific data)
@@ -545,6 +545,17 @@
 								{formatKilometres(rowFare.distanceKm)} is past the city rate card these estimates come from,
 								which covers rides up to {formatKilometres(rowFare.ratedUpToKm)}. Stretched that far it put
 								this transfer above the price of the flight it connects to, so it is not stretched.
+							</p>
+						{:else if rowFare.kind === 'below-range'}
+							<!-- Issue #421, and the mirror image of the transit branch above. That one
+							     runs out of zone; this one never enters the journey the ticket is sold
+							     for. Both numbers are named because the gap between them is the whole
+							     reason there is nothing to show. -->
+							<p>
+								{formatKilometres(rowFare.distanceKm)} is shorter than the journey this ticket is sold for,
+								which starts {formatKilometres(rowFare.ratedFromKm)} out from the airport. A hop this short
+								has a local fare of its own and nobody here has read it, so the airport ticket's price is
+								not stretched down over it.
 							</p>
 						{/if}
 						{#if rowFare.kind === 'estimate' && rowFare.party}

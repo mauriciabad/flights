@@ -431,6 +431,28 @@ describe('transferFareNote (issues #119, #249)', () => {
 		expect(transferFareNote(beyond, true).text).toBe('no estimate');
 	});
 
+	it("gives issue #421's refusal the same words, because the column cannot carry either reason", () => {
+		// Deliberately identical to the branch above. A price column three characters wide
+		// cannot say "too far" or "too short" usefully, and the picker's disclosure is where
+		// the two separate. What must not happen is one of them printing a number.
+		const tooShort = ride('transit', {
+			fareEstimate: {
+				kind: 'below-range',
+				distanceKm: 3.2,
+				ratedFromKm: 25,
+				countryCode: 'GB',
+				citation: 'National Express 025 and the Gatwick Express'
+			}
+		});
+		expect(transferFareNote(tooShort)).toEqual({
+			text: 'No fare estimate',
+			amount: false,
+			estimated: false,
+			unknown: true
+		});
+		expect(transferFareNote(tooShort, true).text).toBe('no estimate');
+	});
+
 	it('prefers a real quote over an estimate, and never marks it as one', () => {
 		const quoted = ride('transit', { price: { minorUnits: 450, currency: 'EUR' } });
 		expect(transferFareNote(quoted)).toEqual({

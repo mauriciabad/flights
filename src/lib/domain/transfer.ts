@@ -1,7 +1,12 @@
 import type { Coordinates } from './coordinates';
 import type { LocalDateTime } from './datetime';
 import type { Duration } from './duration';
-import type { FareBeyondRatedRange, FareEstimate, FareRange } from './fare';
+import type {
+	FareBelowRatedRange,
+	FareBeyondRatedRange,
+	FareEstimate,
+	FareRange
+} from './fare';
 import type { Money } from './money';
 import type { TransitSchedule } from './transit-schedule';
 
@@ -290,10 +295,12 @@ export interface Transfer {
 	 * range with its source attached, it never reaches a total, and `groundFare` below is
 	 * what makes a reader choose between them deliberately.
 	 *
-	 * `'out-of-range'` is a populated field too, not an absent one: issue #246 refuses to
+	 * Either refusal is a populated field too, not an absent one. Issue #246 declines to
 	 * rate a 94.9 km motorway run off a card back-calculated from a 5.1 km city ride, and
-	 * that refusal carries the distance and the ceiling so a screen can say which ride it
-	 * declined to price instead of going quiet. Absent means nobody even asked, because no
+	 * issue #421 declines to price a three-kilometre bus hop out of Gatwick off a ticket
+	 * sold for the 40 km run into London. Both carry the distance and the bound they broke,
+	 * so a screen can say which ride it declined to price instead of going quiet. Absent
+	 * means nobody even asked, because no
 	 * rate card covers the mode (a bus fare: Transitous returns a timetable, not a ticket
 	 * price) or the caller had no country to rate the ride against.
 	 */
@@ -310,18 +317,23 @@ export interface Transfer {
  * Rendering all three as one word ("not priced") throws away the difference between
  * "roughly £24-£38", "too far for any card here to say" and "nobody prices buses".
  *
- * The five, and what each one licenses a caller to do:
+ * The six, and what each one licenses a caller to do:
  *
  * | kind | means | belongs in a total |
  * | --- | --- | --- |
  * | `free` | a walk, and walking really is free | yes, as nothing |
  * | `quoted` | a provider gave a fare | yes |
  * | `estimated` | a rate card guessed a range | **no** |
- * | `beyond-rate-card` | asked, and declined to guess (issue #246) | no |
+ * | `beyond-rate-card` | too long for the card, so no guess (issue #246) | no |
+ * | `under-rate-card` | too short for the card, so no guess (issue #421) | no |
  * | `unquoted` | nobody has a number and nothing tried | no |
  *
+ * The two refusals are one word apart in meaning and deliberately several apart in
+ * spelling, because a reader skimming a switch has to tell them apart at a glance and
+ * `below-rate-card` beside `beyond-rate-card` would not survive that.
+ *
  * The right-hand column is the line issues #212 and #246 were both about. Only the first
- * two are money this app was given; the last three are money it was not, and
+ * two are money this app was given; the last four are money it was not, and
  * `Itinerary.totalPrice` sums the first two alone. An estimate inside a total is a guess a
  * traveller can sort on, filter by and screenshot, which is worse than a gap because it is
  * invisible.
@@ -336,6 +348,7 @@ export type GroundFare =
 	| { kind: 'quoted'; price: Money }
 	| { kind: 'estimated'; estimate: FareRange }
 	| { kind: 'beyond-rate-card'; refusal: FareBeyondRatedRange }
+	| { kind: 'under-rate-card'; refusal: FareBelowRatedRange }
 	| { kind: 'unquoted' };
 
 export function groundFare(transfer: Transfer): GroundFare {
@@ -348,6 +361,8 @@ export function groundFare(transfer: Transfer): GroundFare {
 		return { kind: 'estimated', estimate: transfer.fareEstimate };
 	if (transfer.fareEstimate?.kind === 'out-of-range')
 		return { kind: 'beyond-rate-card', refusal: transfer.fareEstimate };
+	if (transfer.fareEstimate?.kind === 'below-range')
+		return { kind: 'under-rate-card', refusal: transfer.fareEstimate };
 	return { kind: 'unquoted' };
 }
 

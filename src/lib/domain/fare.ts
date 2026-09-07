@@ -193,5 +193,29 @@ export interface FareBeyondRatedRange {
 	citation: string;
 }
 
-/** Everything a rate card can say about one ride: a range, or a refusal. */
-export type FareEstimate = FareRange | FareBeyondRatedRange;
+/**
+ * The ride is shorter than the journey the card's ticket is sold for, so there is no fare
+ * here either. Issue #421, and see `ratedFromKm` for what settled the boundary.
+ *
+ * The other refusal's mirror image and deliberately not the same member of this union,
+ * because the two put opposite sentences on a screen. `FareBeyondRatedRange` says the
+ * journey has left the area the ticket covers. This says the journey never entered it: a
+ * £6.00 coach into central London is not what a three-kilometre hop out of Gatwick costs,
+ * and stretching that band down over one would overstate the cheapest way to make it
+ * several times over.
+ *
+ * What is missing below the floor is a local fare nobody has read, not a fare that does not
+ * exist, which is why `citation` comes along. A screen can still name the card it declined
+ * to stretch, the same courtesy issue #246 built into the refusal above.
+ */
+export interface FareBelowRatedRange {
+	kind: 'below-range';
+	distanceKm: number;
+	/** The shortest journey the matched card describes. Below it the card refuses. */
+	ratedFromKm: number;
+	countryCode: IsoCountryCode;
+	citation: string;
+}
+
+/** Everything a rate card can say about one ride: a range, or one of two refusals. */
+export type FareEstimate = FareRange | FareBeyondRatedRange | FareBelowRatedRange;

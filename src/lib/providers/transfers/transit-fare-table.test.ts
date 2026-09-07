@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
 	countTransitBoardings,
 	estimateTransitFare,
+	ratedFromKm,
 	ratedUpToKm,
 	TRANSIT_FARE_SLACK_KM,
 	TRANSIT_FARE_TABLE
@@ -48,8 +49,12 @@ describe('estimateTransitFare', () => {
 		// `rateSource: 'fallback'` is the taxi table's word for a generic band standing in
 		// for a country nobody read. This table has no such band, so nothing it produces
 		// may wear that label.
-		for (const code of Object.keys(TRANSIT_FARE_TABLE)) {
-			expect(range(code).rateSource).toBe('country');
+		//
+		// Asked at each card's own floor rather than at a fixed 5 km, which is 0 for every
+		// area card and 25 km at Gatwick. A corridor card refuses a 5 km journey on purpose
+		// and that refusal carries no `rateSource` to check.
+		for (const [code, card] of Object.entries(TRANSIT_FARE_TABLE)) {
+			expect(range(code, ratedFromKm(card)).rateSource, code).toBe('country');
 		}
 	});
 
@@ -70,6 +75,29 @@ describe('estimateTransitFare', () => {
 	it('still prices a journey at the edge of what its card describes', () => {
 		const limit = ratedUpToKm(TRANSIT_FARE_TABLE.BER);
 		expect(range('BER', limit).lowMinorUnits).toBe(500);
+	});
+
+	it('leaves every area card with no floor at all, which is what makes issue #421 inert', () => {
+		// The regression guard for the whole change. A floor derived for a card whose ticket
+		// does not care about distance would start refusing the short journeys this table has
+		// priced correctly since issue #407, and it would do it silently, one airport at a
+		// time. Barcelona at 1 km is the shape of that failure.
+		for (const [code, card] of Object.entries(TRANSIT_FARE_TABLE)) {
+			if (card.fareCovers !== 'area') continue;
+			expect(ratedFromKm(card), code).toBe(0);
+			expect(estimateTransitFare(code, 0, 1)?.kind, code).toBe('estimate');
+		}
+	});
+
+	it('derives the floor from the measured centre distance and the same slack, pointed down', () => {
+		// `ratedUpToKm`'s mirror image, written out rather than recomputed with the
+		// implementation's own expression, so a change to the rule has to be made deliberately
+		// here too. The clamp is the case that matters: an area card is exempt by its own
+		// field, and a corridor card closer in than the slack still has no floor to speak of.
+		expect(ratedFromKm({ centreKm: 40.2, fareCovers: 'corridor' })).toBe(40 - TRANSIT_FARE_SLACK_KM);
+		expect(ratedFromKm({ centreKm: 45, fareCovers: 'corridor' })).toBe(45 - TRANSIT_FARE_SLACK_KM);
+		expect(ratedFromKm({ centreKm: 12.2, fareCovers: 'corridor' })).toBe(0);
+		expect(ratedFromKm({ centreKm: 40.2, fareCovers: 'area' })).toBe(0);
 	});
 
 	it('derives the rated distance from the measured centre distance and the stated slack', () => {
@@ -255,15 +283,42 @@ describe('the British cards (issue #415)', () => {
 		}
 	});
 
-	it('still says nothing at Gatwick, whose fare is readable and whose journey is not', () => {
-		// Both of Gatwick's bounds came out of this pass, £6.00 on a National Express coach
-		// and £24.10 on the Gatwick Express, and it is still absent. That band prices a 40 km
-		// ticket into central London, and the stopover this app plans at Gatwick puts the
-		// stay a few kilometres from the runway on a local bus. A card fitting both needs a
-		// floor distance as well as a ceiling; the module header carries the argument and
-		// issue #421 carries the fares, so adding LGW here without that change is a revert.
-		expect(TRANSIT_FARE_TABLE.LGW).toBeUndefined();
-		expect(estimateTransitFare('LGW', 40, 1)).toBeUndefined();
+	it('prices the run into central London off the coach and the Gatwick Express', () => {
+		const gatwick = range('LGW', 40.2);
+		expect(gatwick.lowMinorUnits).toBe(600);
+		expect(gatwick.highMinorUnits).toBe(2410);
+		expect(gatwick.currency).toBe('GBP');
+		expect(gatwick.countryCode).toBe('GB');
+		expect(gatwick.citation).toContain('nationalexpress.com');
+	});
+
+	it('refuses the Horley hop rather than billing it at a London fare', () => {
+		// Issue #421's acceptance case, and the reason the card could not be written before
+		// it. The owner asked for the hostels beside the terminal (issue #204) and the
+		// acceptance trip's stay came back 3.2 km from the runway on bus 100. £6.00 to £24.10
+		// buys a 40 km run into Victoria, so applying it here would overstate the cheapest way
+		// to make that hop several times over, which is the one direction this table may not
+		// err in.
+		const refusal = estimateTransitFare('LGW', 3.2, 1);
+
+		expect(refusal?.kind).toBe('below-range');
+		if (refusal?.kind !== 'below-range') throw new Error('expected the floor refusal');
+		expect(refusal.ratedFromKm).toBe(25);
+		expect(refusal.distanceKm).toBeCloseTo(3.2);
+		// Same courtesy issue #246 built into the ceiling refusal: the card that would have
+		// answered is still named, so the screen can say what it declined to stretch.
+		expect(refusal.citation).toBe(TRANSIT_FARE_TABLE.LGW.citation);
+	});
+
+	it('tells the two Gatwick refusals apart, because they are two different sentences', () => {
+		// A single 'out-of-range' for both ends would put "too far for this ticket" on a
+		// three-kilometre bus ride. The picker prints one sentence per kind and neither is
+		// true of the other distance.
+		expect(estimateTransitFare('LGW', 3.2, 1)?.kind).toBe('below-range');
+		expect(estimateTransitFare('LGW', 24.9, 1)?.kind).toBe('below-range');
+		expect(estimateTransitFare('LGW', 25, 1)?.kind).toBe('estimate');
+		expect(estimateTransitFare('LGW', 60, 1)?.kind).toBe('estimate');
+		expect(estimateTransitFare('LGW', 60.1, 1)?.kind).toBe('out-of-range');
 	});
 
 	it('prices Birmingham from the bus and from the free monorail plus a train', () => {
