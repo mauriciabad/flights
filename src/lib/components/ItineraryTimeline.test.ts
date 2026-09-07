@@ -576,10 +576,23 @@ describe('ItineraryTimeline, the row into town says what the ride costs (issue #
 		expect(durationCell(renderTimeline(buffered()), 'transfer-to-hotel')).toBe('30m');
 	});
 
-	it('keeps the 45 minutes on the row, named as the buffer plus the ride', () => {
-		expect(rowText(renderTimeline(buffered()), 'transfer-to-hotel')).toContain(
-			'Plus your own 15m to get out of the airport, so you arrive 45m after landing.'
+	// Issue #438 turned that sentence into a row. The 45 minutes are still both on screen and
+	// still add up; what changed is that the walk-out is drawn rather than explained.
+	it('draws the walk-out as its own row above the leg, with its own duration', () => {
+		const root = renderTimeline(buffered());
+		const landing = root.querySelector('.tl-row-landing');
+		expect(landing?.textContent?.replace(/\s+/g, ' ').trim()).toBe('Getting out of VIE 15m');
+		expect(landing?.nextElementSibling?.getAttribute('data-segment')).toBe('transfer-to-hotel');
+	});
+
+	it('drops the sentence that said the same thing, so the buffer has one surface', () => {
+		expect(rowText(renderTimeline(buffered()), 'transfer-to-hotel')).not.toContain(
+			'to get out of the airport'
 		);
+	});
+
+	it('draws no row at all when nothing padded the leg', () => {
+		expect(renderTimeline(makeItinerary()).querySelector('.tl-row-landing')).toBeNull();
 	});
 
 	it('leaves the leg back to the airport alone: nothing pads a leg that ends at a gate', () => {

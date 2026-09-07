@@ -79,7 +79,6 @@
 		formatLongDuration,
 		formatMoney,
 		formatPropertyRating,
-		landingBufferNote,
 		staleScheduleNote,
 		transferDetailLine,
 		transferFareNote,
@@ -444,14 +443,6 @@
 						{/if}
 					{/if}
 				{/if}
-				<!-- Issue #290: the meta column now shows the ride, and this is where the rest
-				     of the row's duration goes. Last, so a stale-timetable warning stays next
-				     to the label it contradicts; this one is not a warning, it is the
-				     arithmetic behind the clock at the end of the row. -->
-				{@const walkOut = landingBufferNote(transfer)}
-				{#if walkOut}
-					<p class="tl-note">{walkOut}</p>
-				{/if}
 			{:else}
 				<!-- Issue #140: why this leg has no route, never "not available yet".
 				     See unroutedLegNote for what each case actually observed. -->
@@ -483,6 +474,43 @@
 		</div>
 		{@render rowExpansion(segment)}
 	</li>
+{/snippet}
+
+<!--
+	Issue #438, the owner: **"The time between the aircraft lands and you can take the
+	transport to the hotel should be shown in the timelines as well. it does nto count towards
+	airport time, but it has the same style in the timelines."**
+
+	So it is drawn like the wait rows and worded so it cannot be read as one. A wait is time
+	before a departure and it is what "Airport wait" on the card counts; this is the other end
+	of a flight, it counts towards nothing on the card, and the row after it is now the ride
+	alone.
+
+	Not selectable, and the only row here that is not. Every other row opens a picker for the
+	thing it names, and there is no picker for this. The minutes are the traveller's own
+	`Landing to transport` setting, changed in the search form, and the ride is changed on the
+	row below. A row that highlighted and unfolded nothing would be an affordance that lies.
+	`handleListKeydown` walks `[data-segment]` rows, so leaving that attribute off is also
+	what keeps this row out of the arrow-key sequence.
+-->
+{#snippet landingRow(field: TransitLegField, airportLabel: string, code: string)}
+	{@const buffer = itinerary[field]?.landingBuffer}
+	{#if buffer}
+		<li class="tl-row tl-row-landing">
+			<span class="tl-when"></span>
+			<!-- Walking, not waiting. The glyph is the one difference a reader takes in before
+			     the words, and this is a walk through a terminal to whatever is carrying them
+			     next. Giving it the `wait` mark would make the two rows identical apart from a
+			     verb. -->
+			<span class="tl-rail">{@render marker('walk', 'muted')}</span>
+			<div class="tl-content tl-content-waiting">
+				<p class="tl-label" title={airportLabel}>Getting out of {code}</p>
+			</div>
+			<div class="tl-meta">
+				<span class="tl-duration font-mono tabular-nums">{formatDuration(buffer)}</span>
+			</div>
+		</li>
+	{/if}
 {/snippet}
 
 {#snippet waitingRow(airportLabel: string, code: string, minutes: Duration, segment: ItinerarySegmentId)}
@@ -625,6 +653,14 @@
 			'connection-waiting'
 		)}
 	{:else}
+		{@render landingRow(
+			'transferToHotel',
+			connectionAirport
+				? `${connectionAirport.name} (${connectionAirport.iataCode})`
+				: `the connection airport (${itinerary.outboundFlight.arrivalAirport})`,
+			itinerary.outboundFlight.arrivalAirport
+		)}
+
 		{@render transferRow(
 			'transferToHotel',
 			itinerary.stay ? `To ${itinerary.stay.property.name}` : 'To the stopover',
@@ -727,6 +763,12 @@
 	)}
 
 	{#if itinerary.destinationLocation}
+		{@render landingRow(
+			'transferToDestinationLocation',
+			`${itinerary.destinationAirport.name} (${itinerary.destinationAirport.iataCode})`,
+			itinerary.destinationAirport.iataCode
+		)}
+
 		{@render transferRow(
 			'transferToDestinationLocation',
 			'To the destination',
@@ -793,6 +835,17 @@
 
 	.tl-row:hover {
 		background: var(--color-surface-hover);
+	}
+
+	/* The walk-out row (issue #438), which is the one row here that selects nothing. It keeps
+	   the timetable's shape and drops every affordance: no pointer and no hover tint, because
+	   there is nothing behind it to open. */
+	.tl-row-landing {
+		cursor: default;
+	}
+
+	.tl-row-landing:hover {
+		background: none;
 	}
 
 	/* A box-shadow, not `outline`: `outline` is reserved for the global `:focus-visible` ring,

@@ -114,6 +114,26 @@ export interface TripStripWaitSegment extends SegmentBase {
 	beforeFlight: FlightOffer;
 }
 
+/**
+ * Wheels down to being able to move: the landing-to-transport buffer, drawn instead of
+ * folded into the ride after it. Issue #438, the owner: "The time between the aircraft
+ * lands and you can take the transport to the hotel should be shown in the timelines as
+ * well."
+ *
+ * It is not a `TripStripWaitSegment` and must never be counted as one. A wait is a buffer
+ * before a departure, which is what `times.airportWaiting` measures and what the card's
+ * "Airport wait" figure prints. This is the other end of a flight, and the same issue says so.
+ * The owner's words are "it does nto count towards airport time".
+ */
+export interface TripStripLandingSegment extends SegmentBase {
+	kind: 'landing';
+	/** IATA code of the airport the flight has just landed at. */
+	airport: string;
+	/** The ground leg this buffer opens. It is the front of that leg rather than a step of
+	 * its own, so it answers with that leg's segment id and needs none of its own. */
+	leg: 'to-city' | 'to-destination';
+}
+
 export interface TripStripFlightSegment extends SegmentBase {
 	kind: 'flight';
 	from: string;
@@ -140,6 +160,7 @@ export interface TripStripFreeSegment extends SegmentBase {
 export type TripStripSegment =
 	| TripStripTransferSegment
 	| TripStripWaitSegment
+	| TripStripLandingSegment
 	| TripStripFlightSegment
 	| TripStripFreeSegment;
 
@@ -256,6 +277,31 @@ export function splitFreeTimeAtLocalMidnight(start: LocalDateTime, end: LocalDat
 }
 
 /**
+ * A ground leg that begins on a runway, as the two stretches the strip draws it as: the
+ * walk-out at the front, then the journey. Issue #438.
+ *
+ * `available` is the whole stretch the two cells have to fill between them, so the split is
+ * a subtraction rather than two independent readings and the pair cannot stop tiling. For
+ * the leg into town that is `intoTown`, measured against the two flights and longer than
+ * the ride whenever a timetable made the traveller wait for a service; for the leg off the
+ * last flight nothing is pinned after it, so it is the transfer's own duration and `ride`
+ * comes out at exactly `transferRideDuration`.
+ *
+ * The clamp is not decoration. `Transfer.landingBuffer` is a rule the traveller set, so a
+ * four-hour buffer on a twelve-minute walk would otherwise draw a cell longer than the leg
+ * and a ride of negative minutes. Neither is drawable, and the honest answer to an over-long
+ * buffer is that it fills what there is.
+ *
+ * A zero walk-out is the answer for an absent `landingBuffer`, which means two things (a leg
+ * that does not start at a runway, or one nobody applied the rule to) that are both "draw
+ * nothing" here.
+ */
+function runwayLegSplit(transfer: Transfer, available: number): { walkOut: number; ride: number } {
+	const walkOut = Math.max(0, Math.min(transfer.landingBuffer ?? 0, available));
+	return { walkOut, ride: available - walkOut };
+}
+
+/**
  * Every part of the itinerary in schedule order, with its real minutes and its share of
  * the bar. Ground legs appear only when the itinerary has them: `search/resources.ts`
  * looks up the two connection-side transfers only when there is a bed or a checked city
@@ -331,15 +377,31 @@ export function tripStrip(itinerary: Itinerary): TripStrip {
 		end: outboundFlight.arrival
 	});
 	if (transferToHotel) {
+		// Issue #438: the walk-out is its own cell, and the ride beside it covers the ride.
+		// Split here rather than at the two ends, because `intoTown` is landing to the moment
+		// free time starts and the buffer is the front of it, so two cells carved out of one
+		// number still add up to exactly what the one cell covered.
+		const { walkOut, ride } = runwayLegSplit(transferToHotel, layover.intoTown);
+		const onTheMove = addLocalMinutes(outboundFlight.arrival, walkOut);
+		if (walkOut > 0) {
+			parts.push({
+				kind: 'landing',
+				airport: outboundFlight.arrivalAirport,
+				leg: 'to-city',
+				minutes: walkOut,
+				start: outboundFlight.arrival,
+				end: onTheMove
+			});
+		}
 		parts.push({
 			kind: 'transfer',
 			mode: transferToHotel.mode,
 			transfer: transferToHotel,
 			leg: 'to-city',
-			// Landing to `freeTime.start`, which is the leg plus any wait for the service
-			// that runs it, never `Transfer.duration` on its own.
-			minutes: layover.intoTown,
-			start: outboundFlight.arrival,
+			// The rest of the way to `freeTime.start`, which is the leg plus any wait for the
+			// service that runs it, never `Transfer.duration` on its own.
+			minutes: ride,
+			start: onTheMove,
 			end: freeTime.start
 		});
 	}
@@ -391,13 +453,29 @@ export function tripStrip(itinerary: Itinerary): TripStrip {
 		end: onwardFlight.arrival
 	});
 	if (transferToDestinationLocation) {
+		// The same split as the leg into town, at the other end of the trip.
+		const { walkOut, ride } = runwayLegSplit(
+			transferToDestinationLocation,
+			transferToDestinationLocation.duration
+		);
+		const onTheMove = addLocalMinutes(onwardFlight.arrival, walkOut);
+		if (walkOut > 0) {
+			parts.push({
+				kind: 'landing',
+				airport: onwardFlight.arrivalAirport,
+				leg: 'to-destination',
+				minutes: walkOut,
+				start: onwardFlight.arrival,
+				end: onTheMove
+			});
+		}
 		parts.push({
 			kind: 'transfer',
 			mode: transferToDestinationLocation.mode,
 			transfer: transferToDestinationLocation,
 			leg: 'to-destination',
-			minutes: transferToDestinationLocation.duration,
-			start: onwardFlight.arrival,
+			minutes: ride,
+			start: onTheMove,
 			end: addLocalMinutes(onwardFlight.arrival, transferToDestinationLocation.duration)
 		});
 	}
@@ -438,6 +516,13 @@ export function segmentIdOf(strip: TripStrip, index: number): ItinerarySegmentId
 	switch (segment.kind) {
 		case 'free':
 			return 'free-time';
+		// A landing block belongs to the leg it opens, so it answers with that leg's id.
+		// Issue #438 deliberately adds no twelfth `ItinerarySegmentId`. That vocabulary is the
+		// contract the map and the timeline share, the buffer has no geography of its own (the
+		// reason waiting and free time key off a place in `segment-id.ts`), and nothing on it is
+		// pickable. What a traveller changes here is the ride, or the setting in the search form,
+		// and the leg's own panel is where both are named.
+		case 'landing':
 		case 'transfer':
 			return TRANSFER_LEG_SEGMENT_IDS[segment.leg];
 		case 'flight':
@@ -453,3 +538,39 @@ const TRANSFER_LEG_SEGMENT_IDS: Record<TripStripTransferSegment['leg'], Itinerar
 	'to-connection-airport': 'transfer-to-connection-airport',
 	'to-destination': 'transfer-to-destination-location'
 };
+
+/**
+ * The buckets the strip's container queries hold a duration stamp to, in characters.
+ *
+ * `formatDuration` produces exactly five shapes for a figure this small: "2h", "45m",
+ * "1h 5m", "1h 30m" and "12h 45m". In the mono face at `--font-size-xs` those measured
+ * 18.4, 25.6, 40, 47.2 and 54.4 pixels in a real browser at both 375 and 1440
+ * (`tools/probe-strip-figures.mjs`), which is a flat 7.2px per character plus the 4px the
+ * stamp's plate adds. There is no four-character shape, because the minutes half of a pair is
+ * what pushes a stamp past three.
+ */
+const DURATION_STAMP_BUCKETS = [2, 3, 5, 6, 7] as const;
+
+export type DurationStampBucket = (typeof DURATION_STAMP_BUCKETS)[number];
+
+/**
+ * Which bucket a stamp belongs in, so the strip can gate it on a container query. Issue #436.
+ *
+ * A container query tests the cell and never the text in it, so its threshold has to be a
+ * literal, and one literal cannot serve both "2h" and "12h 45m". One threshold sized for the
+ * longest would blank a round "2h" wait in the 24px cell that easily holds it, which is the
+ * cell the owner asked about. So the string picks its own threshold and the short shapes
+ * survive the narrow cells.
+ *
+ * Each threshold is the measured width rounded up to the next whole pixel, so a cell within a
+ * pixel of its stamp shows nothing rather than digits jammed edge to edge with no hatching
+ * left around them. That costs the occasional near miss, and near misses are what the block's
+ * accessible name and the timeline's own row are for.
+ *
+ * The `?? 7` is unreachable for the two kinds of cell that carry a stamp. A walk-out is
+ * minutes and an airport wait is bounded by a layover, so the longest either can print is
+ * "23h 59m". It is there to keep the function total rather than to handle a case.
+ */
+export function durationStampSize(text: string): DurationStampBucket {
+	return DURATION_STAMP_BUCKETS.find((bucket) => text.length <= bucket) ?? 7;
+}

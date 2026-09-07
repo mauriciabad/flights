@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { CityStopoverItinerary, Duration, Itinerary, Money, Transfer } from '../domain';
-import { sumMoney } from '../algorithm/build';
+import { deriveTrip, sumMoney, tripEndsOf } from '../algorithm/build';
 import { makeItinerary, makeStopover } from '../results/test-support';
 import { ALL_METRIC_IDS, CARD_METRIC_IDS, itineraryMetrics, priceBreakdown } from './itinerary-metrics';
 
@@ -94,6 +94,40 @@ describe('itineraryMetrics', () => {
 		expect(tones['free-time']).toBe('stopover');
 		expect(tones['total-price']).toBe('primary');
 		expect(tones['in-flight']).toBe('default');
+	});
+});
+
+/**
+ * Issue #438. The owner's words are that the landing-to-transport buffer "does nto count
+ * towards airport time". This says which way it goes today rather than assuming, because the
+ * answer is not visible from the metric. It reads `times.airportWaiting`, and where that
+ * number picks up its minutes is `algorithm/build.ts`'s business.
+ *
+ * So both itineraries here go through the real builder and differ in exactly one field. Any
+ * movement in the cell is the buffer leaking into it.
+ */
+describe('the Airport wait figure and the landing-to-transport buffer', () => {
+	function overnight(transferToHotel: Transfer): Itinerary {
+		const base = makeStopover({
+			outboundDeparture: '2026-10-14T09:00:00',
+			outboundArrival: '2026-10-14T11:00:00',
+			onwardDeparture: '2026-10-15T20:00:00',
+			transferToHotel
+		});
+		return { ...deriveTrip(base, 'stay'), ...tripEndsOf(base) };
+	}
+
+	const ride: Transfer = { mode: 'taxi', duration: 15 as Duration, legs: [{ mode: 'taxi', duration: 15 as Duration }] };
+	const buffered: Transfer = { ...ride, duration: 35 as Duration, landingBuffer: 20 as Duration };
+
+	it('leaves the cell alone when the buffer is applied, because a wait is time before a departure', () => {
+		expect(valueOf(overnight(buffered), 'airport-waiting')).toBe(
+			valueOf(overnight(ride), 'airport-waiting')
+		);
+	});
+
+	it('takes the buffer out of free time, which is the stretch it actually spends', () => {
+		expect(overnight(buffered).times.free).toBe(overnight(ride).times.free - 20);
 	});
 });
 

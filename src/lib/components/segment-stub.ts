@@ -37,7 +37,6 @@
  */
 
 import { scaleFareForParty } from '$lib/algorithm/build';
-import { addLocalMinutes } from '$lib/algorithm/build';
 import { readMissedService, readStaleSchedule } from '$lib/algorithm/transit-schedule';
 import type {
 	Airport,
@@ -76,8 +75,9 @@ import type { ItinerarySegmentId } from '$lib/itinerary-map/segment-id';
  * price line's "Ground" is a separate inconsistency and not this issue's to fix. */
 export type StubKind = 'flight' | 'wait' | 'transport' | 'stopover';
 
-/** One thing on the strip a reader can point at, as a run of segments. Everything is one
- * segment except the stopover, whose day cells are a visual subdivision of one booking. */
+/** One thing on the strip a reader can point at, as a run of segments. Two runs are longer
+ * than one segment: the stopover, whose day cells are a visual subdivision of one booking,
+ * and a ground leg that starts on a runway, whose walk-out cell is the front of that leg. */
 export interface StripTarget {
 	kind: StubKind;
 	/** Index of the first strip segment covered. */
@@ -97,6 +97,23 @@ export function stripTargets(segments: readonly TripStripSegment[]): StripTarget
 			}
 			targets.push({ kind: 'stopover', from: index, to: index });
 			return;
+		}
+		// Issue #438: a landing block is drawn but is not a target of its own, and the leg it
+		// opens swallows it. Two reasons, both about the phone. Every non-free target carries a
+		// 24px floor since issue #316, and an eleventh floor on a 335px strip would come
+		// straight out of the free days this app exists to sell. And there is nothing behind it
+		// to open, since the buffer is a search-form setting. The panel would say what the block
+		// already says and offer no control.
+		if (segment.kind === 'landing') {
+			targets.push({ kind: 'transport', from: index, to: index });
+			return;
+		}
+		if (segment.kind === 'transfer' && segments[index - 1]?.kind === 'landing') {
+			const openLeg = targets.at(-1);
+			if (openLeg) {
+				openLeg.to = index;
+				return;
+			}
 		}
 		targets.push({ kind: segment.kind === 'transfer' ? 'transport' : segment.kind, from: index, to: index });
 	});
@@ -485,13 +502,13 @@ function transportStub(segment: TripStripTransferSegment, context: StubContext):
 	if (missed) facts.push(missed);
 
 	// Issue #290: the panel spends its two clocks and its duration on the ride, so the
-	// walk-out has to come off all three or they contradict each other. `segment.start` is
-	// the flight's arrival and `segment.minutes` is arrival to doorstep; the vehicle leaves
-	// once the traveller is out of the terminal, which is that arrival plus the buffer, and
-	// the footnote is what accounts for the minutes between. The strip's own bar still spans
-	// `segment.minutes`, because the bar is a picture of elapsed time and that time elapses.
+	// walk-out is not in any of the three, and the footnote is what accounts for the minutes
+	// between the wheels touching and the vehicle leaving. Since issue #438 the strip carries
+	// those minutes as their own cell in front of this one, so `segment.start` is already the
+	// moment the traveller starts moving rather than the flight's arrival, and this reads it
+	// instead of adding the buffer back on.
 	const ride = transferRideDuration(transfer);
-	const departure = addLocalMinutes(segment.start, transfer.landingBuffer ?? 0);
+	const departure = segment.start;
 	const start = clockAt(departure, stamped === 'start' ? code : undefined, stamped === 'start' ? place : undefined);
 	const bareEnd = clockAt(segment.end, stamped === 'end' ? code : undefined, stamped === 'end' ? place : undefined);
 
@@ -579,7 +596,10 @@ export function segmentStub(
 	if (target.kind === 'stopover') return stopoverStub(first.start, last.end, context);
 	if (first.kind === 'flight') return flightStub(first, context);
 	if (first.kind === 'wait') return waitStub(first, context);
-	return transportStub(first as TripStripTransferSegment, context);
+	// The ride, which is the last cell of the target rather than the first: a leg that starts
+	// on a runway opens with its walk-out cell (issue #438), and the panel is about the
+	// journey. What that walk-out costs is the footnote, where it already was.
+	return transportStub(last as TripStripTransferSegment, context);
 }
 
 /**
