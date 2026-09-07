@@ -1,4 +1,4 @@
-import { test, expect, type Page } from './support/fixtures';
+import { test, expect, type Locator, type Page } from './support/fixtures';
 import { FIXTURE_FLIGHT_NUMBERS, FIXTURE_PRICES } from './support/fixture-markers';
 import { mockAllKeylessProviders, routeRyanairFlights } from './support/providers';
 import { openTimeline } from './support/results-ui';
@@ -72,6 +72,30 @@ async function openResults(page: Page, toLoc = 'FIXTURE end point@59.4370,24.753
 	await waitForSearchToSettle(page, { timeout: 20_000 });
 }
 
+/**
+ * Waits for every ground preview in a row to be showing its basemap picture.
+ *
+ * The capture is deliberately late: a preview paints the solid fill first and swaps the
+ * map in when the shared hidden renderer reaches its window (`map-snapshot.svelte.ts`).
+ * Without this wait the photograph is that fill, which is the exact grey this feature
+ * exists to replace, and the picture would read as the feature failing rather than as the
+ * capture not having happened yet.
+ */
+async function waitForSnapshots(row: Locator): Promise<void> {
+	await row.scrollIntoViewIfNeeded();
+	const pictures = row.locator('img.inert-map-picture');
+	await expect(pictures).toHaveCount(3, { timeout: 60_000 });
+	await expect
+		.poll(
+			() =>
+				pictures.evaluateAll((images) =>
+					images.every((image) => (image as HTMLImageElement).naturalWidth > 0)
+				),
+			{ message: 'every ground preview must be showing a decoded basemap before the capture' }
+		)
+		.toBe(true);
+}
+
 for (const viewport of VIEWPORTS) {
 	for (const scheme of SCHEMES) {
 		test(`@screenshot ${viewport.name} ${scheme}`, async ({ page }) => {
@@ -87,6 +111,7 @@ for (const viewport of VIEWPORTS) {
 			await openTimeline(page);
 			const previews = page.locator('.result-detail .ground-legs-row');
 			await expect(previews.locator('.ground-leg')).toHaveCount(3);
+			await waitForSnapshots(previews);
 			await previews.screenshot({
 				path: `docs/screenshots/280-ground-previews-${viewport.name}-${scheme}.png`
 			});
@@ -129,5 +154,6 @@ test('@screenshot ground preview across water', async ({ page }) => {
 
 	const previews = page.locator('.result-detail .ground-legs-row');
 	await expect(previews.locator('.ground-leg')).toHaveCount(3);
+	await waitForSnapshots(previews);
 	await previews.screenshot({ path: 'docs/screenshots/346-ground-preview-across-water.png' });
 });
