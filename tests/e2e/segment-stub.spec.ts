@@ -305,6 +305,57 @@ test.describe('tapping a segment on a phone', () => {
 		).toBe(false);
 	});
 
+	test('a thumb that rests on a segment does not flash the preview the press suppresses', async ({
+		page,
+		context
+	}) => {
+		// Issue #456. The strip suppresses the preview for the focus a press causes, and the
+		// whole question is how long that suppression lasts. `tap()` is no use here: it sends
+		// `touchStart` and `touchEnd` in the same millisecond, which is not a gesture a hand
+		// makes and is the one duration where every version of this passes. A thumb rests on
+		// the glass for 50 to 150ms, so this presses and holds through CDP.
+		//
+		// 160ms because Chromium suppresses timer queues for the first 100ms after a
+		// `touchstart` and no longer. That is what made a zero-delay clear a defect rather
+		// than a race: past that mark the macrotask ran mid-gesture, every time, and the
+		// compatibility focus that followed it opened the panel. Measured at 375x812 before
+		// the fix, a press of 80ms and every longer one did it (`tools/probe-strip-press.mjs`).
+		await page.emulateMedia({ reducedMotion: 'reduce' });
+		const card = await openResults(page);
+		const hit = card.locator('.trip-strip-hit-flight').first();
+		await hit.scrollIntoViewIfNeeded();
+
+		// Read as each event is dispatched rather than after the gesture. The panel opens and
+		// shuts again inside one press, so anything sampled afterwards sees nothing, and its
+		// own `toggle` event is no better: the HTML spec replaces a queued popover toggle
+		// task, so an open and a close in one turn dispatch a single closed-to-closed event.
+		await page.evaluate(() => {
+			const seen: string[] = [];
+			for (const type of ['mousedown', 'focusin', 'mouseup', 'click']) {
+				document.addEventListener(
+					type,
+					() => seen.push(`${type} ${document.querySelector('.stub:popover-open') ? 'OPEN' : 'shut'}`),
+					{ capture: true }
+				);
+			}
+			Object.assign(window, { pressStates: seen });
+		});
+
+		const cell = (await hit.boundingBox())!;
+		const touchPoints = [{ x: cell.x + cell.width / 2, y: cell.y + cell.height / 2 }];
+		const cdp = await context.newCDPSession(page);
+		await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints });
+		await page.waitForTimeout(160);
+		await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+
+		// The press still selects the segment. Without this the test would pass just as well
+		// on a strip that had stopped responding to a thumb altogether.
+		await expect(page.locator('.customise-sheet')).toBeVisible();
+
+		const states = await page.evaluate(() => (window as unknown as { pressStates: string[] }).pressStates);
+		expect(states.join(', ')).not.toContain('OPEN');
+	});
+
 	test('the sheet closes on Escape, on its close button, and on a tap outside it', async ({ page }) => {
 		const card = await openResults(page);
 		const sheet = page.locator('.customise-sheet');
