@@ -42,7 +42,7 @@
 	 * here until a point is chosen.
 	 */
 	import { Button, Icon, MapDialog } from '$lib/components';
-	import type { Airport, Stay } from '$lib/domain';
+	import type { Airport, RoomPhotoLookup, Stay } from '$lib/domain';
 	import { formatPropertyRating } from '$lib/format';
 	import { describePriceComparison, showsWholeStayFigures, stayDistances, type StayChoice } from './choice';
 	import PhotoCarousel from './PhotoCarousel.svelte';
@@ -56,6 +56,10 @@
 		choices: readonly StayChoice[];
 		connectionAirport: Airport;
 		nights: number;
+		/** Issue #449, by `propertyKey`. Usually holds the open card's property and nothing
+		 * else: nobody fetches this for a list of thirty, so a property the sidebar opens
+		 * without one draws the building's photographs, exactly as it did before. */
+		roomPhotosByProperty?: ReadonlyMap<string, RoomPhotoLookup>;
 		/** Picks a property's cheapest bookable room without closing the dialog: the whole
 		 * point of the sidebar is comparing, and every delta on screen re-bases on the new
 		 * pick the moment it lands, which is what "the difference from the currently picked"
@@ -66,7 +70,7 @@
 		onclose: () => void;
 	}
 
-	let { choices, connectionAirport, nights, onchoose, onclose }: Props = $props();
+	let { choices, connectionAirport, nights, roomPhotosByProperty, onchoose, onclose }: Props = $props();
 
 	/** The property whose detail the sidebar shows, or `null` for the list. Starts at the
 	 * list: the dialog is "all the locations" first, which is what the owner asked to be
@@ -95,7 +99,8 @@
 					<PhotoCarousel
 						photos={stayPhotos(
 							open.property,
-							open.group.options.map((option) => option.stay)
+							open.group.options.map((option) => option.stay),
+							roomPhotosByProperty?.get(open.key)
 						)}
 						name={open.property.name}
 					/>

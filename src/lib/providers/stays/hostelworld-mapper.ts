@@ -10,7 +10,7 @@
  */
 
 import { moneyFromDecimalString } from '../../domain';
-import type { Coordinates, Money, RoomKind, Stay, StaySource } from '../../domain';
+import type { Coordinates, Money, RoomKind, RoomPhotoLookup, Stay, StaySource } from '../../domain';
 import { haversineDistanceKm } from './agoda-geo';
 import { hostelworldCardPhoto } from './hostelworld-photo';
 import type {
@@ -498,4 +498,58 @@ export function rankCitiesNear(
 		? withinRadius.filter((entry) => normaliseCityName(entry.city.name) === wanted)
 		: [];
 	return [...new Set([...named, ...withinRadius].map((entry) => entry.city.id))];
+}
+
+/**
+ * How many photographs of one room KIND a property may contribute. Issue #449.
+ *
+ * A room's own set is small by nature: the fixture's four rooms carry three to five each,
+ * and the live London page's rooms carry five. A kind's set is the union across every room
+ * of that kind, which at a property selling seven mixed dorms is thirty-odd near-identical
+ * pictures behind a counter reading "1 / 37". `PhotoCarousel` fetches only what a reader
+ * pages to, so this is not about bytes; it is about the counter being a number somebody can
+ * act on.
+ */
+const MAX_PHOTOS_PER_KIND = 8;
+
+/**
+ * Every room photograph one availability response carries, keyed both ways a `Stay` can
+ * honestly claim one. Issue #449; `domain/stay.ts`'s `RoomPhotoLookup` argues the two
+ * keyings.
+ *
+ * Pure, like everything else in this file. `hostelworld-rooms.ts` does the fetching and the
+ * caching, so the part most likely to be wrong is the part cheapest to test.
+ *
+ * A room with no id still contributes to its kind. The id is what makes the strong claim
+ * possible and its absence is not a reason to throw away a true weaker one.
+ */
+export function mapAvailabilityToRoomPhotos(
+	response: HostelworldAvailabilityResponse | undefined
+): RoomPhotoLookup {
+	const byRoomId: Record<string, string[]> = {};
+	const byKind: Partial<Record<RoomKind, string[]>> = {};
+
+	const rooms = [...(response?.rooms?.dorms ?? []), ...(response?.rooms?.privates ?? [])];
+	for (const room of rooms) {
+		const urls = imageUrls(room?.images);
+		if (urls.length === 0) continue;
+
+		const id = room?.id;
+		if (typeof id === 'number' && Number.isFinite(id)) byRoomId[String(id)] = urls;
+
+		// `classifyRoomKind` is what keeps a female dorm out of the mixed-dorm set and a
+		// mixed one out of the female set. Those are different inventory, and #288 is what
+		// happens when the two get pooled.
+		const kind = classifyRoomKind(room);
+		if (!kind) continue;
+		const held = (byKind[kind] ??= []);
+		for (const url of urls) {
+			if (held.length >= MAX_PHOTOS_PER_KIND) break;
+			// The same photograph under two rooms of one kind is normal rather than a mix-up
+			// (docs/PROVIDERS.md, property 312244), so it earns one slot and not two.
+			if (!held.includes(url)) held.push(url);
+		}
+	}
+
+	return { provider: HOSTELWORLD_PROVIDER_ID, byRoomId, byKind };
 }

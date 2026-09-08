@@ -160,6 +160,45 @@ export interface StaySource {
 }
 
 /**
+ * Photographs of the rooms at one property, as a provider publishes them, keyed both ways a
+ * `Stay` can honestly claim one. Issue #449.
+ *
+ * Card-sized already, through the same `*-photo.ts` rewriter `Property.images` and
+ * `Stay.roomImages` go through, so nothing in here can arrive as the multi-megabyte original.
+ *
+ * Two keyings because a `Stay` has two kinds of claim on a photograph and they are not the
+ * same claim.
+ *
+ * `byRoomId` is the strong one. `Stay.source.roomId` names the room the rate came from, so a
+ * photograph found under that id really is a photograph of the room whose price is on screen.
+ *
+ * `byKind` is the honest weaker one. A `dorm` or a `private` at Hostelworld is priced from a
+ * property-level average that no single room quotes, so no photograph is of "the room" and
+ * the strong claim is unavailable for the two commonest kinds. What is still true is that
+ * these are the dorms at this property. `$lib/stays/stay-photos.ts` labels the two
+ * differently and that difference is the whole point: "Dorm rooms at Rest Up London" is a
+ * true sentence, and "this is the bed you are buying" is not one anybody can make here.
+ *
+ * Plain records rather than `Map`s because this is cached, and a record survives the trip
+ * through IndexedDB as itself.
+ */
+export interface RoomPhotoLookup {
+  /** Whose room ids `byRoomId` is keyed by. Two adapters can describe one building
+   * (`groupByProperty` merges them on name and coordinates), and their room ids come from
+   * different namespaces, so matching one provider's id against another's table would put a
+   * stranger's room under a price. The kind table below is safe across providers because it
+   * is a claim about the building rather than about a listing. */
+  provider: ProviderId;
+  /** Keyed by the provider's own room id, the same text `StaySource.roomId` carries. */
+  byRoomId: Record<string, string[]>;
+  /** Every photographed room of one kind at this property, in the order the provider listed
+   * them. A restricted dorm never contributes to `dorm` and a mixed one never to
+   * `female-dorm`, because those are different inventory (#27, #288) and mixing them would
+   * put a women-only room under a bed anyone can book. */
+  byKind: Partial<Record<RoomKind, string[]>>;
+}
+
+/**
  * Bumped whenever the stored shape of a `Stay` changes, and mixed into the cache key of
  * every cache that holds one. Issue #450, and #131 before it.
  *

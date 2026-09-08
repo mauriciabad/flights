@@ -32,6 +32,7 @@ export {
 	BED_KIND_LABELS,
 	NO_BED_KIND_FILTER,
 	ROOM_KIND_LABELS,
+	ROOM_KIND_PLURAL_LABELS,
 	allowsBedKind,
 	bedKindOf
 } from './room-kind';
@@ -65,6 +66,8 @@ export {
 export type { ModeReach, ReachMode, ReachPoint, StayReach } from './reach';
 export { fetchStayReach, pendingReach, stayReachTargets } from './fetch-reach';
 export type { ReachLookupResult, ReachTarget } from './fetch-reach';
+export { roomPhotoQueryFor, roomPhotosAvailableFrom, stayRoomPhotos } from './fetch-room-photos';
+export type { RoomPhotoAnswer, RoomPhotoQuery } from './fetch-room-photos';
 export {
 	STAY_SORT_KEYS,
 	STAY_SORT_LABELS,

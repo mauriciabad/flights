@@ -80,3 +80,20 @@ export function allowsBedKind(allowed: ReadonlySet<BedKind> | undefined, roomKin
 	if (!allowed || allowed.size === 0) return true;
 	return allowed.has(bedKindOf(roomKind));
 }
+
+/**
+ * The same four kinds, named as ROOMS and in the plural, for a caption over a photograph
+ * that is of rooms of this kind rather than of one room. Issue #449.
+ *
+ * Not a pluralisation of `ROOM_KIND_LABELS` above, and the difference is the point.
+ * "Dorm bed" is what the traveller buys, one bed in a shared room. "Dorm rooms" is what a
+ * set of photographs of the dorms at a property shows. A caption reading "Dorm beds at Rest
+ * Up London" over a picture of a room would be describing the wrong object, and the plural
+ * is what stops the reader taking any one of them for the room whose price is on screen.
+ */
+export const ROOM_KIND_PLURAL_LABELS: Record<RoomKind, string> = {
+	dorm: 'Dorm rooms',
+	private: 'Private rooms',
+	'female-dorm': 'Female-only dorms',
+	'male-dorm': 'Male-only dorms'
+};

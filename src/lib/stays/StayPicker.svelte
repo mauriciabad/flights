@@ -10,7 +10,7 @@
 	 * shape of delta regardless of which list the click came from.
 	 */
 	import { base } from '$app/paths';
-	import type { Airport, Money, Stay } from '$lib/domain';
+	import type { Airport, Money, RoomPhotoLookup, Stay } from '$lib/domain';
 	import { formatPropertyRating } from '$lib/format';
 	import { Button, Card, Chip, EmptyState, RoutePreview, Select } from '$lib/components';
 	import RoomKindTile from './RoomKindTile.svelte';
@@ -34,7 +34,7 @@
 	import { BED_KINDS, BED_KIND_LABELS, NO_BED_KIND_FILTER, type BedKind } from './room-kind';
 	import { firstBookableStay } from './recommended-bed';
 	import { describeStayCatalogue, type StayProviderOutcome } from './no-stays-reason';
-	import { isSameBed, isSameProperty, propertyOf, type PropertyStayOptions } from './types';
+	import { isSameBed, isSameProperty, propertyKey, propertyOf, type PropertyStayOptions } from './types';
 
 	interface Props {
 		/** Every candidate property for this connection, each with its priced room-kind
@@ -99,6 +99,18 @@
 		/** Whatever the reach lookup failed with, in the provider's own words. */
 		reachFailures?: readonly string[];
 		/**
+		 * Issue #449: the room photographs a provider published for one property, by
+		 * `propertyKey`. Fetched by whoever owns provider access (`SegmentCustomiser`) rather
+		 * than here, the same division `reachByProperty` above keeps, so this component stays
+		 * a pure function of its props and testable without a network.
+		 *
+		 * Never fetched for the whole list. Thirty of these cost 30 requests and up to 7
+		 * seconds (`hostelworld-rooms.ts` has the measurement), against 6.4 KB and under half
+		 * a second for the one property somebody has open. So this holds the open property and
+		 * usually nothing else, and every other card renders exactly as it did before.
+		 */
+		roomPhotosByProperty?: ReadonlyMap<string, RoomPhotoLookup>;
+		/**
 		 * Hands the bed back to the app, so it follows the recommendation again. Offered only
 		 * where it would change something: the traveller has chosen a bed AND the ranking now
 		 * puts a different property first.
@@ -121,7 +133,8 @@
 		chosen = false,
 		onuseRecommended,
 		reachByProperty,
-		reachFailures = []
+		reachFailures = [],
+		roomPhotosByProperty
 	}: Props = $props();
 
 	const uid = $props.id();
@@ -395,7 +408,8 @@
 					<PhotoCarousel
 						photos={stayPhotos(
 							openProperty,
-							openGroup.options.map((option) => option.stay)
+							openGroup.options.map((option) => option.stay),
+							roomPhotosByProperty?.get(propertyKey(openProperty))
 						)}
 						name={openProperty.name}
 					/>
@@ -607,6 +621,7 @@
 			choices={sortedChoices}
 			{connectionAirport}
 			{nights}
+			{roomPhotosByProperty}
 			onchoose={choose}
 			onclose={() => (mapOpen = false)}
 		/>

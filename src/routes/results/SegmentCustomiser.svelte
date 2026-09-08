@@ -86,8 +86,9 @@
 	 * and from nowhere else, and `results/pick-bed.ts` says so where it is defined.
 	 */
 	import { untrack } from 'svelte';
+	import { SvelteMap } from 'svelte/reactivity';
 	import { base } from '$app/paths';
-	import type { Airport, Duration, FlightOffer, Itinerary, Stay } from '$lib/domain';
+	import type { Airport, Duration, FlightOffer, Itinerary, RoomPhotoLookup, Stay } from '$lib/domain';
 	import { DEFAULT_LANDING_TO_TRANSPORT_RULES } from '$lib/domain';
 	import type { ItinerarySegmentId } from '$lib/itinerary-map/segment-id';
 	import { recomputeItineraryWaitingTimes } from '$lib/algorithm/build';
@@ -156,7 +157,10 @@
 		pendingReach,
 		propertyKey,
 		recommendedStay,
+		roomPhotoQueryFor,
+		roomPhotosAvailableFrom,
 		stayReachTargets,
+		stayRoomPhotos,
 		stopoverForRanking
 	} from '$lib/stays';
 	import type { BedKind, StayProviderOutcome, StayReach } from '$lib/stays';
@@ -488,6 +492,79 @@
 		untrack(() => startReachLookup(controller.signal));
 		return () => controller.abort();
 	});
+
+	/**
+	 * Issue #449: the room photographs for the property whose bed is on screen, by
+	 * `propertyKey`. One property, never the list.
+	 *
+	 * The picker opens on the card holding the selected bed, so the open card and the picked
+	 * bed are one property and one lookup serves both. Thirty of these would cost 30 requests
+	 * and up to 7 seconds behind the browser's connection limit; this one costs 6.4 KB and
+	 * under half a second, and `hostelworld-rooms.ts` caches it for an hour under the shared
+	 * stale-first rules, so opening the same hostel again spends nothing.
+	 *
+	 * Two yields, not one. The held answer paints at once and the fresh one replaces it in
+	 * place, which is AGENTS.md's "stale first, then fresh" and the reason this is a `for
+	 * await` rather than an assignment.
+	 */
+	const roomPhotosByProperty = new SvelteMap<string, RoomPhotoLookup>();
+
+	/**
+	 * The one tracked read, and a string rather than the stay, for the reason the reach
+	 * signature above gives at length: the candidate list is rebuilt on every snapshot, so
+	 * depending on the object would restart this on every background refresh.
+	 *
+	 * `roomPhotosAvailableFrom` is what keeps a Booking or an Agoda bed from starting a
+	 * lookup that has nowhere to go. Their responses carry no room photographs at all
+	 * (docs/PROVIDERS.md), so asking would be a request spent to learn nothing.
+	 */
+	const roomPhotoSignature = $derived.by(() => {
+		const stay = itinerary.stay;
+		const query = roomPhotoQueryFor(itinerary);
+		if (!stay?.source || !query) return '';
+		if (segment !== 'free-time' || !stayIsRelevant) return '';
+		if (!roomPhotosAvailableFrom(stay.source.provider)) return '';
+		return [
+			propertyKey(stay.property),
+			stay.source.provider,
+			stay.source.propertyId,
+			query.checkIn,
+			query.nights,
+			query.guests,
+			query.currency
+		].join('|');
+	});
+
+	$effect(() => {
+		if (roomPhotoSignature === '') return;
+		const controller = new AbortController();
+		untrack(() => startRoomPhotoLookup(controller.signal));
+		return () => controller.abort();
+	});
+
+	/**
+	 * AGENTS.md, "The Svelte trap that cost us a working search". This function's synchronous
+	 * prefix really does run on the effect's own call stack, which is what #87 was about, so
+	 * that prefix only reads and every write to `roomPhotosByProperty` happens after an
+	 * `await`. `untrack` around the call is the second guard: the reads it does make are not
+	 * dependencies either way.
+	 */
+	async function startRoomPhotoLookup(signal: AbortSignal) {
+		const stay = itinerary.stay;
+		const query = roomPhotoQueryFor(itinerary);
+		if (!stay || !query) return;
+		const key = propertyKey(stay.property);
+		try {
+			for await (const answer of stayRoomPhotos(stay, query, { signal })) {
+				if (signal.aborted) return;
+				roomPhotosByProperty.set(key, answer.photos);
+			}
+		} catch {
+			// A property whose rooms could not be fetched shows the building's photographs,
+			// which is what every card showed before this existed. There is no sentence to
+			// print here: nothing on screen is wrong, there is just less of it.
+		}
+	}
 
 	function startReachLookup(signal: AbortSignal) {
 		const airport = connectionAirport;
@@ -1060,6 +1137,7 @@
 							onuseRecommended={useRecommendedBed}
 							{reachByProperty}
 							{reachFailures}
+							{roomPhotosByProperty}
 						/>
 					{/if}
 				{/if}

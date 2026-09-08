@@ -320,7 +320,7 @@
 		<div class="lightbox-head">
 			<p class="lightbox-caption">
 				<span class={['lightbox-subject', photo.subject]}>
-					{photo.subject === 'room' ? 'Room' : 'Building'}
+					{photo.badge ?? 'Building'}
 				</span>
 				{photo.caption}
 			</p>
@@ -513,10 +513,14 @@
 		color: var(--color-text-muted);
 	}
 
-	/* The room is the one the traveller is buying, so it carries the accent and the building
-	   stays neutral. Colour is not the only signal: the word is right there in the chip, which
-	   is what a reader who cannot see the accent reads instead. */
-	.lightbox-subject.room {
+	/* A room photograph carries the accent and the building stays neutral, because telling a
+	   lobby from a bedroom is the distinction a reader cannot afford to get wrong. Which KIND
+	   of room claim it is comes from the word in the chip rather than from a third colour:
+	   "Room" is the room whose rate is quoted, a plural is rooms of that kind at this property.
+	   Colour is not the only signal either way, which is what a reader who cannot see the
+	   accent reads instead. */
+	.lightbox-subject.room,
+	.lightbox-subject.room-kind {
 		border-color: var(--color-accent);
 		background: var(--color-accent-muted);
 		color: var(--color-accent-muted-text);
@@ -748,7 +752,8 @@
 	/* A room's thumbnail is marked along its bottom edge, which is the only place in the strip
 	   there is room to say "this one is the room" without covering the picture. The caption
 	   above says it in words for anyone who cannot see the bar. */
-	.lightbox-thumb.room {
+	.lightbox-thumb.room,
+	.lightbox-thumb.room-kind {
 		border-bottom: 3px solid var(--color-accent);
 	}
 

@@ -391,10 +391,16 @@ export async function mockKiwiPublic(
 export async function mockHostelworld(
 	target: Routable,
 	continentsFixture = 'hostelworld/continents-empty.json',
-	propertiesFixture = 'hostelworld/properties-empty.json'
+	propertiesFixture = 'hostelworld/properties-empty.json',
+	availabilityFixture = 'hostelworld/property-availability.json'
 ) {
 	await mockJson(target, 'https://api.m.hostelworld.com/2.2/continents/**', continentsFixture);
 	await mockJson(target, 'https://api.m.hostelworld.com/2.2/cities/**', propertiesFixture);
+	// Issue #449: the picker asks this for the one property whose bed is on screen. Answered
+	// here rather than per spec because the network guard blocks anything no mock wanted, so
+	// leaving it out would fail every spec that opens the customise rail on a stopover with a
+	// Hostelworld bed, with a message about a provider call rather than about the feature.
+	await mockJson(target, 'https://api.m.hostelworld.com/2.2/properties/**', availabilityFixture);
 }
 
 /** Transitous/MOTIS public transport timetables. Needs no key. */

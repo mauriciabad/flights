@@ -280,6 +280,13 @@ export class Bench {
 		if (host === HOSTELWORLD_HOST && pathname.includes('/continents/')) {
 			return recorded.hostelworldContinent(url);
 		}
+		// Issue #449's per-property room lookup, which the picker asks on demand for the one
+		// property whose bed is on screen. Matched before the city page for the reason the
+		// OSRM pair below records: two endpoints on one host, and the path is the only thing
+		// that tells them apart.
+		if (host === HOSTELWORLD_HOST && pathname.includes('/availability/')) {
+			return recorded.hostelworldAvailability();
+		}
 		if (host === HOSTELWORLD_HOST) return recorded.hostelworldProperties(url);
 		if (host === NOMINATIM_HOST) return recorded.nominatimReverse();
 		// A map style, not a provider answer. Answered from the fixture both suites share so

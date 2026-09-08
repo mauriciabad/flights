@@ -45,7 +45,7 @@ describe('stayPhotos', () => {
 		expect(photos).toEqual([
 			{ src: LOBBY, subject: 'property', caption: 'Rest Up London' },
 			{ src: FRONT, subject: 'property', caption: 'Rest Up London' },
-			{ src: BUNKS, subject: 'room', caption: 'Female-only dorm at Rest Up London' }
+			{ src: BUNKS, subject: 'room', caption: 'Female-only dorm at Rest Up London', badge: 'Room' }
 		]);
 	});
 
@@ -58,8 +58,13 @@ describe('stayPhotos', () => {
 			stay('male-dorm', [BUNKS, SHOWER])
 		]);
 		expect(photos.filter((photo) => photo.subject === 'room')).toEqual([
-			{ src: BUNKS, subject: 'room', caption: 'Female-only dorm and male-only dorm at Rest Up London' },
-			{ src: SHOWER, subject: 'room', caption: 'Male-only dorm at Rest Up London' }
+			{
+				src: BUNKS,
+				subject: 'room',
+				caption: 'Female-only dorm and male-only dorm at Rest Up London',
+				badge: 'Room'
+			},
+			{ src: SHOWER, subject: 'room', caption: 'Male-only dorm at Rest Up London', badge: 'Room' }
 		]);
 	});
 
@@ -81,6 +86,120 @@ describe('stayPhotos', () => {
 
 	it('is empty for a property that came back without a picture', () => {
 		expect(stayPhotos({ ...property, images: [] }, [stay('dorm')])).toEqual([]);
+	});
+});
+
+describe('stayPhotos, the rooms a provider answered about on demand (issue #449)', () => {
+	/**
+	 * The judgement call this whole issue turns on. A `dorm` and a `private` are priced from a
+	 * property-level average no single room quotes, so no photograph is of the room whose rate
+	 * is on screen, and the mapper has always refused to pretend otherwise. That refusal left
+	 * the two commonest kinds with nothing: 121 of the 216 rooms on a live London page are
+	 * mixed dorms and 51 are privates.
+	 *
+	 * These are the weaker true claim in its place, and the tests that keep it weak.
+	 */
+	const lookup = {
+		provider: 'hostelworld' as const,
+		byRoomId: { '851743': [BUNKS] },
+		byKind: { dorm: [SHOWER], private: [FRONT] }
+	};
+
+	function sourced(roomKind: RoomKind, roomId?: string): Stay {
+		return {
+			...stay(roomKind),
+			source: { provider: 'hostelworld' as const, propertyId: '312244', ...(roomId ? { roomId } : {}) }
+		};
+	}
+
+	it('calls a room-kind photograph what it is, in the plural, and never "Room"', () => {
+		const photos = stayPhotos(property, [sourced('dorm')], lookup);
+		expect(photos.filter((photo) => photo.subject !== 'property')).toEqual([
+			{
+				src: SHOWER,
+				subject: 'room-kind',
+				caption: 'Dorm rooms at Rest Up London',
+				badge: 'Dorm rooms'
+			}
+		]);
+	});
+
+	it('gives the exact room the strong claim when the provider named one', () => {
+		const photos = stayPhotos(property, [sourced('female-dorm', '851743')], lookup);
+		expect(photos.filter((photo) => photo.subject !== 'property')).toEqual([
+			{
+				src: BUNKS,
+				subject: 'room',
+				caption: 'Female-only dorm at Rest Up London',
+				badge: 'Room'
+			}
+		]);
+	});
+
+	it('never mixes one kind\'s rooms into another kind\'s claim', () => {
+		// #27 and #288: a restricted dorm is different inventory from a mixed one, so a private
+		// room's photograph under a dorm price would be the same category error one layer up.
+		const photos = stayPhotos(property, [sourced('private')], lookup);
+		expect(photos.filter((photo) => photo.subject !== 'property').map((photo) => photo.src)).toEqual([]);
+		// FRONT is in `byKind.private`, and it is also one of the building's own, which wins.
+		expect(photos.map((photo) => photo.subject)).toEqual(['property', 'property']);
+	});
+
+	it('prefers the strong claim when one photograph carries both', () => {
+		const both = {
+			provider: 'hostelworld' as const,
+			byRoomId: { '851743': [BUNKS] },
+			byKind: { 'female-dorm': [BUNKS] }
+		};
+		const photos = stayPhotos(
+			property,
+			[sourced('female-dorm', '851743'), sourced('female-dorm')],
+			both
+		);
+		const rooms = photos.filter((photo) => photo.subject !== 'property');
+		expect(rooms).toHaveLength(1);
+		expect(rooms[0].subject).toBe('room');
+	});
+
+	it('falls back to the kind when the named room is not in the answer', () => {
+		// A room sold out between the search and the look is an ordinary result, not a reason
+		// to show nothing.
+		const photos = stayPhotos(property, [sourced('dorm', '999999')], lookup);
+		expect(photos.filter((photo) => photo.subject === 'room-kind').map((photo) => photo.src)).toEqual([
+			SHOWER
+		]);
+	});
+
+	it('still offers the kind to a stay with no provider identity on it', () => {
+		// Every `Stay` in a cache or a saved trip written before #450 is this one, and so is
+		// every Booking or Agoda stay merged into the same building. "These are the dorms at
+		// this property" is a claim about the building, and `groupByProperty` only merged the
+		// two records because it is one building, so it holds for both.
+		const photos = stayPhotos(property, [stay('dorm')], lookup);
+		expect(photos.map((photo) => photo.subject)).toEqual(['property', 'property', 'room-kind']);
+	});
+
+	it('refuses another provider\'s room id, whose numbers mean nothing here', () => {
+		const elsewhere: Stay = {
+			...stay('female-dorm'),
+			source: { provider: 'booking', propertyId: '71662', roomId: '851743' }
+		};
+		const photos = stayPhotos(property, [elsewhere], lookup);
+		// Not BUNKS under a "Room" badge. `byKind` has no `female-dorm` entry either, so this
+		// property shows what it showed before.
+		expect(photos.map((photo) => photo.subject)).toEqual(['property', 'property']);
+	});
+
+	it('says "Rooms" rather than a list when two kinds share one picture', () => {
+		const shared = {
+			provider: 'hostelworld' as const,
+			byRoomId: {},
+			byKind: { dorm: [SHOWER], private: [SHOWER] }
+		};
+		const photos = stayPhotos(property, [sourced('dorm'), sourced('private')], shared);
+		const room = photos.find((photo) => photo.subject === 'room-kind');
+		expect(room?.badge).toBe('Rooms');
+		expect(room?.caption).toBe('Dorm rooms and private rooms at Rest Up London');
 	});
 });
 
