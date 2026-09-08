@@ -1,7 +1,7 @@
 import { expect, test, type Page } from './support/fixtures';
 import { FIXTURE_FLIGHT_NUMBERS, FIXTURE_PRICES } from './support/fixture-markers';
 import { mockAllKeylessProviders, mockHostelworld, routeRyanairFlights } from './support/providers';
-import { customiser, openTimeline, pickStripSegment } from './support/results-ui';
+import { customiser, openTimeline } from './support/results-ui';
 import { waitForSearchToSettle } from '../shared/search-wait';
 
 /**
@@ -70,8 +70,11 @@ async function openPicker(page: Page): Promise<OpenedPicker> {
 	await page.goto('/results/?dep=2027-03-08&arr=2027-03-27&from=BCN&to=TLL');
 	await waitForSearchToSettle(page, { timeout: 30_000 });
 	await expect(page.locator('.result-card').first()).toBeVisible();
+	// `openTimeline` picks the stopover on its way in, and a second activation of the picked
+	// segment clears it, which is how a traveller hands the map back the whole route. So
+	// asking for the stopover again here emptied the panel this spec had just filled.
+	// `pickTimelineSegment` guards against the same thing by reading `aria-current` first.
 	await openTimeline(page);
-	await pickStripSegment(page, 'stopover');
 	await expect(customiser(page).locator('.photo-carousel').first()).toBeVisible({ timeout: 20_000 });
 
 	return { availabilityRequests };
