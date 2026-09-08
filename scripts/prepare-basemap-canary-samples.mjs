@@ -5,9 +5,9 @@
  * `pnpm data:basemap-canary`
  *
  * Writes five pictures into tests/fixtures/basemap/ and prints the calibration table that
- * src/lib/itinerary-map/basemap-canary.ts quotes. Re-run it when CARTO changes the notice,
- * or when a threshold in that module needs its evidence checked. It only ever reads the
- * network; nothing here answers a request.
+ * src/lib/itinerary-map/basemap-canary.ts quotes, scored by that module's own functions.
+ * Re-run it when CARTO changes the notice, or when a threshold in that module needs its
+ * evidence checked. It only ever reads the network; nothing here answers a request.
  *
  * The notice is derived rather than drawn: it is the set of pixels that carry ink in every
  * one of the sixteen watermarked tiles, across eight cities and both raster styles. Anything
@@ -27,6 +27,16 @@ import sharp from 'sharp';
 // What the two test suites answer this host with, imported rather than copied. A private
 // copy here is how the table below would go on reporting a fixture nobody serves any more.
 import { fixtureMapStyle } from '../tests/shared/map-style-fixture.ts';
+// The arithmetic the thresholds police, imported for the same reason (#462). This script is
+// what the calibration table was read off, so a private copy of `inkMask` here would mean
+// the table and the check that quotes it came from two implementations, free to drift with
+// nothing failing. Bare Node resolves it because the module imports nothing at all.
+import {
+	describeWindow,
+	inkMask,
+	keyNoticeCoverage,
+	readMapWindow
+} from '../src/lib/itinerary-map/basemap-canary.ts';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repo = path.join(here, '..');
@@ -149,53 +159,9 @@ async function renderWindow(browser, style, bounds) {
 	}
 }
 
-async function lumaOf(png) {
+async function windowOf(png) {
 	const { data } = await sharp(png).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
-	const pixels = SIZE * SIZE;
-	const luma = new Float64Array(pixels);
-	for (let i = 0; i < pixels; i++) {
-		luma[i] = (0.2126 * data[i * 4] + 0.7152 * data[i * 4 + 1] + 0.0722 * data[i * 4 + 2]) / 255;
-	}
-	return luma;
-}
-
-function backgroundLuma(luma) {
-	const bins = new Array(64).fill(0);
-	for (const l of luma) bins[Math.min(63, Math.max(0, Math.floor(l * 64)))]++;
-	let fullest = 0;
-	for (let i = 1; i < 64; i++) if (bins[i] > bins[fullest]) fullest = i;
-	return (fullest + 0.5) / 64;
-}
-
-function inkMask(luma) {
-	const background = backgroundLuma(luma);
-	const mask = new Uint8Array(luma.length);
-	for (let i = 0; i < luma.length; i++) mask[i] = Math.abs(luma[i] - background) > 0.08 ? 1 : 0;
-	return mask;
-}
-
-function statsOf(luma) {
-	const mask = inkMask(luma);
-	let ink = 0;
-	for (const m of mask) ink += m;
-	let sum = 0;
-	for (const l of luma) sum += l;
-	const mean = sum / luma.length;
-	let squares = 0;
-	for (const l of luma) squares += (l - mean) ** 2;
-	return { inkShare: ink / luma.length, lumaSpread: Math.sqrt(squares / luma.length) };
-}
-
-function coverageOf(luma, notice) {
-	const mask = inkMask(luma);
-	let marked = 0;
-	let drawn = 0;
-	for (let i = 0; i < notice.length; i++) {
-		if (!notice[i]) continue;
-		marked++;
-		if (mask[i]) drawn++;
-	}
-	return drawn / marked;
+	return readMapWindow(data, SIZE, SIZE);
 }
 
 async function fetchPng(url) {
@@ -232,7 +198,7 @@ try {
 	// watermarked tiles ink it, and only the overlay is in all sixteen.
 	const notice = new Uint8Array(SIZE * SIZE).fill(1);
 	for (const { png } of watermarked) {
-		const mask = inkMask(await lumaOf(png));
+		const mask = inkMask(await windowOf(png));
 		for (let i = 0; i < notice.length; i++) if (!mask[i]) notice[i] = 0;
 	}
 	let marked = 0;
@@ -252,8 +218,8 @@ try {
 	const report = async (label, samples) => {
 		const rows = [];
 		for (const { png } of samples) {
-			const luma = await lumaOf(png);
-			rows.push({ ...statsOf(luma), coverage: coverageOf(luma, notice) });
+			const window = await windowOf(png);
+			rows.push({ ...describeWindow(window), coverage: keyNoticeCoverage(window, notice) });
 		}
 		const range = (key, digits) => {
 			const values = rows.map((r) => r[key]);
