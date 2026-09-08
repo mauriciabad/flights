@@ -66,7 +66,7 @@
 	}: Props = $props();
 
 	let panel = $state<HTMLElement>();
-	let top = $state<HTMLElement>();
+	let counterfoil = $state<HTMLElement>();
 	let placement = $state<'above' | 'below'>('above');
 
 	/** Clear between the tail's tip and the cell it points at. */
@@ -78,8 +78,14 @@
 
 	function place(element: HTMLElement, target: HTMLElement) {
 		const cell = target.getBoundingClientRect();
+		// Uncapped before it is measured, because the cap the last placement wrote is still on
+		// the node and a panel is only too tall for a side at its own height.
+		element.style.setProperty('--stub-body-max', 'none');
 		const rect = element.getBoundingClientRect();
-		const topHeight = top?.getBoundingClientRect().height ?? 0;
+		// Everything that is not the scrolling list: the tinted top half, the perforation, and
+		// `.stub-bottom`'s own padding and borders. Read off the box rather than added up from
+		// the tokens, so this cannot drift from the stylesheet (issue #457).
+		const around = rect.height - (counterfoil?.getBoundingClientRect().height ?? 0);
 
 		const left = Math.min(
 			Math.max(cell.left + cell.width / 2 - rect.width / 2, EDGE),
@@ -90,9 +96,9 @@
 		const roomBelow = window.innerHeight - cell.bottom - GAP - EDGE;
 		const above = rect.height <= roomAbove || roomAbove >= roomBelow;
 		const room = above ? roomAbove : roomBelow;
+		const fits = rect.height <= room;
 
 		element.style.setProperty('--x', `${Math.round(left)}px`);
-		element.style.setProperty('--y', `${Math.round(above ? cell.top - GAP - rect.height : cell.bottom + GAP)}px`);
 		// The tail sits over the cell's centre wherever the panel had to slide to, clamped
 		// so it never hangs off a rounded corner.
 		element.style.setProperty(
@@ -100,11 +106,14 @@
 			`${Math.round(Math.min(Math.max(cell.left + cell.width / 2 - left, 14), rect.width - 14))}px`
 		);
 		// Only when neither side fits. The top half is the identity of the thing and never
-		// scrolls; the counterfoil is the list, and a list is what scrolls.
-		element.style.setProperty(
-			'--stub-body-max',
-			rect.height <= room ? 'none' : `${Math.max(MIN_BODY, Math.floor(room - topHeight))}px`
-		);
+		// scrolls; the counterfoil is the list, and a list is what scrolls. The budget is the
+		// room less everything wrapped around the list, so the panel ends up `room` tall rather
+		// than `room` plus that box.
+		element.style.setProperty('--stub-body-max', fits ? 'none' : `${Math.max(MIN_BODY, Math.floor(room - around))}px`);
+		// Read back rather than carried over from the measurement above: `--y` has to be the
+		// height the panel settles at, and the line before this one is what decides it.
+		const height = fits ? rect.height : element.getBoundingClientRect().height;
+		element.style.setProperty('--y', `${Math.round(above ? cell.top - GAP - height : cell.bottom + GAP)}px`);
 		placement = above ? 'above' : 'below';
 	}
 
@@ -164,7 +173,7 @@
 	onpointerenter={onPointerEnter}
 	onpointerleave={onPointerLeave}
 >
-	<div class="stub-top" bind:this={top}>
+	<div class="stub-top">
 		<p class="stub-eyebrow">
 			<span><span class="stub-key" aria-hidden="true"></span>{stub.eyebrow}</span>
 			<span>{stub.day}</span>
@@ -206,7 +215,7 @@
 	</div>
 
 	<div class="stub-bottom">
-		<div class="stub-body">
+		<div class="stub-body" bind:this={counterfoil}>
 			{#if stub.rendersStopoverBlock}
 				<!-- Issue #307, the owner: "dont show the images inside the toooltip, it is too
 				     large." Measured before the change, this panel stood 542px tall on a 900px

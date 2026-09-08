@@ -304,15 +304,39 @@
 	let openTimer: ReturnType<typeof setTimeout> | undefined;
 	let closeTimer: ReturnType<typeof setTimeout> | undefined;
 	/** True for the length of one pointer gesture on a hit target. Plain bookkeeping: the
-	 * focus handler reads it, nothing renders from it. Cleared in a macrotask, which lands
-	 * after the focus and the click the same press dispatches. */
+	 * focus handler reads it, nothing renders from it. */
 	let focusFromPointer = false;
+
+	/**
+	 * The end of the gesture, which is what the flag above is scoped to (issue #456).
+	 *
+	 * `mouseup` on the window is the first event that both follows the compatibility focus
+	 * and always arrives. `pointerup` fires before that focus, `blur` fires before the focus
+	 * of the button being moved to, and `click` never comes for a press that drags off the
+	 * target, which would strand the flag and silence the keyboard preview for this card.
+	 * `pointercancel` is here because a touch that turns into a scroll produces no
+	 * compatibility events at all.
+	 *
+	 * It was a zero-delay timer, whose comment claimed the macrotask landed after the focus
+	 * and the click of the same press. Chromium suppresses timer queues for the first 100ms
+	 * after a `touchstart` and no longer, so on any press held past that mark the clear ran
+	 * mid-gesture and the focus that followed opened the preview a tap exists to suppress.
+	 * Measured at 375x812 with `tools/probe-strip-press.mjs`: a 40ms press cleared after the
+	 * click, an 80ms press and every longer one cleared before the focus, and a thumb rests
+	 * on the glass for 50 to 150ms.
+	 */
+	function endPress() {
+		focusFromPointer = false;
+		window.removeEventListener('mouseup', endPress, true);
+		window.removeEventListener('pointercancel', endPress, true);
+	}
 
 	function onHitPointerDown() {
 		focusFromPointer = true;
-		setTimeout(() => {
-			focusFromPointer = false;
-		}, 0);
+		// Registering the same function twice is a no-op, so a press that begins before the
+		// last one ended cannot stack listeners.
+		window.addEventListener('mouseup', endPress, { capture: true });
+		window.addEventListener('pointercancel', endPress, { capture: true });
 	}
 
 	const lastTarget = $derived(Math.max(0, targets.length - 1));
@@ -440,7 +464,12 @@
 		};
 	});
 
-	$effect(() => () => stopTimers());
+	$effect(() => () => {
+		stopTimers();
+		// A card unmounted mid-press (the list re-renders while a thumb is down) would
+		// otherwise leave its listeners on the window.
+		endPress();
+	});
 </script>
 
 <div class={['trip-strip', { 'is-quiet': deprioritized }]} role="group" aria-label={summary}>
