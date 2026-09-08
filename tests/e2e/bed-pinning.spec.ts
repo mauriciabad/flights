@@ -81,7 +81,7 @@ test.describe('a longer stopover re-picks the bed, and a chosen bed keeps its pl
 		page
 	}) => {
 		await searchWithTwoLengths(page);
-		const block = page.locator('.result-detail .stopover');
+		const block = page.locator('[data-testid="segment-customiser"] .stopover');
 		const panel = customiser(page);
 		const rung = (label: string) => panel.locator('.rung').filter({ hasText: label });
 

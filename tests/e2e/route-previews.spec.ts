@@ -1,7 +1,13 @@
 import { test, expect, type Page } from './support/fixtures';
 import { FIXTURE_FLIGHT_NUMBERS, FIXTURE_PRICES } from './support/fixture-markers';
 import { mockAllKeylessProviders, mockHostelworld, routeRyanairFlights } from './support/providers';
-import { customiser, openTimeline, pickTimelineSegment, visibleMapCanvases } from './support/results-ui';
+import {
+	customiser,
+	openTimeline,
+	pickStripSegment,
+	pickTimelineSegment,
+	visibleMapCanvases
+} from './support/results-ui';
 import { waitForSearchToSettle } from '../shared/search-wait';
 
 /**
@@ -19,11 +25,25 @@ import { waitForSearchToSettle } from '../shared/search-wait';
  * break anything visible until a traveller's ninth dialog, which is exactly the kind of
  * defect no one traces back.
  *
- * The three ground previews now carry a photograph of the real basemap under the route,
- * captured by one hidden MapLibre instance shared by the page
- * (`map-snapshot.svelte.ts`). That is a second thing that can render at no size, or in
- * the wrong place, or over the route instead of under it, without looking broken from a
- * semantic assertion. It gets measured the same way.
+ * The ground previews carry a photograph of the real basemap under the route, captured by
+ * one hidden MapLibre instance shared by the page (`map-snapshot.svelte.ts`). That is a
+ * second thing that can render at no size, or in the wrong place, or over the route instead
+ * of under it, without looking broken from a semantic assertion. It gets measured the same
+ * way.
+ *
+ * ## Issue #439: one leg at a time
+ *
+ * The row of three lived in the card's fold and showed a reader looking at one ride all of
+ * them. The owner: "The transport maps should be moved to the right sidebar when the
+ * respective timeline segment is selected." So the picture is in the trip inspector now,
+ * there is one of it, and which one is whichever leg is selected.
+ *
+ * Losing the three-at-once view is the point of that issue rather than a casualty of it. The
+ * rule it used to prove, that an itinerary with no origin location draws no origin preview,
+ * is a property of `buildGroundLegPreviews` and is asserted in `previews.test.ts` where it
+ * cannot depend on a layout. What is left here is what only a browser can answer: that the
+ * picture the inspector shows is the leg it is about, that it has a real box, and that the
+ * map behind it opens and closes exactly once.
  *
  * Fare values come from `support/fixture-markers.ts` for the reason that file explains.
  */
@@ -135,21 +155,16 @@ test.describe('frozen route previews (issue #280)', () => {
 		await search(page, BOTH_ENDS);
 
 		await expect(page.locator('.result-card').first()).toBeVisible();
-		// Issue #278: every card, one at a time. The unfold control is the trip strip's own
-		// stopover caption, so its accessible name carries the city and cannot be matched by
-		// a fixed string; the class is what identifies it.
-		for (const unfold of await page.locator('.trip-strip-unfold').all()) {
-			await unfold.click();
-		}
+		await openTimeline(page);
 		await expect(page.locator('.ground-legs-item').first()).toBeVisible();
 
 		// Counted, not assumed: a zero-context assertion passes for the wrong reason if the
-		// page happens to be holding no previews. This fixture yields one card, so four is
-		// what one card asks for, and four live contexts per card is the arithmetic that
-		// puts a results page over Chromium's sixteen at the fifth card.
-		// `tools/probe-map-cost.mjs` is where that ceiling is measured across card counts;
-		// a browser test cannot conjure five itineraries out of two mocked flights.
-		expect(await page.locator('.route-preview').count()).toBeGreaterThanOrEqual(4);
+		// page happens to be holding no previews. Two is what one card asks for since issue
+		// #439 cut the row to the selected leg: the flight ornament on the card, and the one
+		// ground picture in the inspector. `tools/probe-map-cost.mjs` is where the sixteen
+		// live contexts Chromium allows are measured across card counts; a browser test
+		// cannot conjure five itineraries out of two mocked flights.
+		expect(await page.locator('.route-preview').count()).toBeGreaterThanOrEqual(2);
 
 		// One is the number because there is one renderer for the page, not one per
 		// preview and not one per card. Chromium evicts the oldest of more than sixteen
@@ -186,9 +201,10 @@ test.describe('frozen route previews (issue #280)', () => {
 		await search(page, BOTH_ENDS, { beds: true });
 		await openTimeline(page);
 
-		const detail = page.locator('.result-detail');
+		const detail = customiser(page);
 		const items = detail.locator('.ground-legs-item');
-		await expect(items).toHaveCount(3);
+		// One, because the inspector opened on the stopover and the stopover has one picture.
+		await expect(items).toHaveCount(1);
 
 		// First condition. `canCheckTransit` (SegmentCustomiser.svelte) offers the press only
 		// for a bed the search never routed to, since the search's own bed already has its
@@ -222,31 +238,63 @@ test.describe('frozen route previews (issue #280)', () => {
 		});
 		await expect(notice).toHaveCount(0);
 
-		await expect(items).toHaveCount(3);
-		// Keyed on a fixed set of three preview ids, so a duplicate is not representable;
-		// this checks the row is still one preview per leg and not one per timeline row.
-		await expect(detail.locator('.ground-leg')).toHaveCount(3);
+		// Still exactly one picture, for the leg still selected. A duplicate is what this test
+		// is named after: the previews derive from the same `Itinerary` the press rewrites, so
+		// a second copy appearing, or the only one vanishing, is the shape the defect takes.
+		await expect(items).toHaveCount(1);
+		await expect(detail.locator('.ground-leg')).toHaveCount(1);
 		expect(await visibleMapCanvases(page)).toBe(0);
 	});
 
-	test('three ground legs render three previews, each with real size', async ({ page }) => {
+	test('the inspector draws the leg it is about, one at a time, each with real size', async ({
+		page
+	}) => {
+		// Issue #439's whole content, read as behaviour: pick a ground leg and its picture is
+		// there, pick another and the picture is the other one. Three legs on this fixture,
+		// walked in journey order, so a component that quietly kept drawing the first would
+		// fail on the second.
 		await search(page, BOTH_ENDS);
 		await openTimeline(page);
 
-		const detail = page.locator('.result-detail');
-		const items = detail.locator('.ground-legs-item');
-		await expect(items).toHaveCount(3);
+		const detail = customiser(page);
+		const legs = [
+			['transfer-to-origin-airport', 'To the airport'],
+			['transfer-to-hotel', 'The stopover'],
+			['transfer-to-destination-location', 'To the destination']
+		] as const;
 
-		for (const label of ['To the airport', 'The stopover', 'To the destination']) {
+		for (const [segment, label] of legs) {
+			await pickTimelineSegment(page, segment);
+			await expect(detail.locator('.ground-legs-item')).toHaveCount(1);
 			await expect(detail.getByText(label, { exact: true })).toBeVisible();
+
+			const box = await detail.locator('.ground-legs-item .route-preview').boundingBox();
+			expect(box, `${label} must have a bounding box`).not.toBeNull();
+			expect(box!.width, `${label} width`).toBeGreaterThan(40);
+			expect(box!.height, `${label} height`).toBeGreaterThan(30);
 		}
 
-		for (let index = 0; index < 3; index++) {
-			const box = await items.nth(index).locator('.route-preview').boundingBox();
-			expect(box, `preview ${index} must have a bounding box`).not.toBeNull();
-			expect(box!.width, `preview ${index} width`).toBeGreaterThan(40);
-			expect(box!.height, `preview ${index} height`).toBeGreaterThan(30);
-		}
+		// The ride out to the bed and the ride back are one hop drawn twice, so they share a
+		// picture. Selecting the second must not produce a second one.
+		await pickTimelineSegment(page, 'transfer-to-connection-airport');
+		await expect(detail.locator('.ground-legs-item')).toHaveCount(1);
+		await expect(detail.getByText('The stopover', { exact: true })).toBeVisible();
+	});
+
+	test('a step that is not a ground leg draws no map, and offers no button pretending to', async ({
+		page
+	}) => {
+		// The other half of #439. A reader on a flight or a wait is shown nothing rather than
+		// whichever picture happened to be first, and a trip with ground legs must not fall
+		// back to the "Open the route map" button either: that button exists for the trip that
+		// has no ground leg at all, and offering it here would put a control on every flight
+		// panel.
+		await search(page, BOTH_ENDS);
+		await openTimeline(page);
+
+		await pickTimelineSegment(page, 'outbound-flight');
+		await expect(customiser(page).getByRole('radiogroup', { name: /Outbound/ })).toBeVisible();
+		await expect(customiser(page).locator('.ground-leg')).toHaveCount(0);
 	});
 
 	test('each ground preview lays a real basemap picture under its route, in its own box', async ({
@@ -259,11 +307,18 @@ test.describe('frozen route previews (issue #280)', () => {
 		await search(page, BOTH_ENDS);
 		await openTimeline(page);
 
-		const items = page.locator('.result-detail .ground-legs-item');
-		await expect(items).toHaveCount(3);
-
-		for (let index = 0; index < 3; index++) {
-			const map = items.nth(index).locator('.inert-map');
+		const items = customiser(page).locator('.ground-legs-item');
+		// Each leg in turn, since issue #439 draws one at a time. Every one of them has to
+		// survive the capture, and a leg that only ever rendered while two others shared the
+		// row would go untested.
+		for (const segment of [
+			'transfer-to-origin-airport',
+			'transfer-to-hotel',
+			'transfer-to-destination-location'
+		]) {
+			await pickTimelineSegment(page, segment);
+			await expect(items).toHaveCount(1);
+			const map = items.first().locator('.inert-map');
 			const picture = map.locator('img.inert-map-picture');
 			await map.scrollIntoViewIfNeeded();
 
@@ -278,20 +333,20 @@ test.describe('frozen route previews (issue #280)', () => {
 
 			const mapBox = (await map.boundingBox())!;
 			const pictureBox = (await picture.boundingBox())!;
-			expect(mapBox.width, `preview ${index} map width`).toBeGreaterThan(40);
+			expect(mapBox.width, `${segment} map width`).toBeGreaterThan(40);
 			// Edge to edge on the box, not roughly. The route is stroked against the same
 			// rectangle the picture was captured for, so a picture inset by a few pixels is
 			// a map offset from the road it is drawing.
-			expect(pictureBox.x, `preview ${index} picture left`).toBeCloseTo(mapBox.x, 0);
-			expect(pictureBox.y, `preview ${index} picture top`).toBeCloseTo(mapBox.y, 0);
-			expect(pictureBox.width, `preview ${index} picture width`).toBeCloseTo(mapBox.width, 0);
-			expect(pictureBox.height, `preview ${index} picture height`).toBeCloseTo(mapBox.height, 0);
+			expect(pictureBox.x, `${segment} picture left`).toBeCloseTo(mapBox.x, 0);
+			expect(pictureBox.y, `${segment} picture top`).toBeCloseTo(mapBox.y, 0);
+			expect(pictureBox.width, `${segment} picture width`).toBeCloseTo(mapBox.width, 0);
+			expect(pictureBox.height, `${segment} picture height`).toBeCloseTo(mapBox.height, 0);
 
 			// It decoded, rather than leaving a broken-image box of exactly the right size.
 			// That is what a failed capture or a tainted canvas looks like from out here,
 			// and every assertion above passes while it is true.
 			const decoded = await picture.evaluate((img) => (img as HTMLImageElement).naturalWidth);
-			expect(decoded, `preview ${index} picture decoded`).toBeGreaterThan(0);
+			expect(decoded, `${segment} picture decoded`).toBeGreaterThan(0);
 
 			// The route is over the map, not under it. Not a detail: the picture is
 			// absolutely positioned and the drawing is not, and a positioned element paints
@@ -303,11 +358,11 @@ test.describe('frozen route previews (issue #280)', () => {
 				const hit = document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2);
 				return hit !== null && hit.closest('.route-preview') !== null;
 			});
-			expect(onTop, `preview ${index} draws the route over the basemap`).toBe(true);
+			expect(onTop, `${segment} draws the route over the basemap`).toBe(true);
 		}
 
 		// CARTO's terms, satisfied once for the row rather than once per picture.
-		await expect(page.locator('.result-detail .ground-legs-credit')).toHaveText('© OpenStreetMap, © CARTO');
+		await expect(customiser(page).locator('.ground-legs-credit')).toHaveText('© OpenStreetMap, © CARTO');
 	});
 
 	test('a preview with no basemap draws the coast instead, and still shows the route', async ({ page }) => {
@@ -318,41 +373,49 @@ test.describe('frozen route previews (issue #280)', () => {
 		await search(page, BOTH_ENDS, { basemap: false });
 		await openTimeline(page);
 
-		const items = page.locator('.result-detail .ground-legs-item');
-		await expect(items).toHaveCount(3);
+		const items = customiser(page).locator('.ground-legs-item');
 
 		// No picture, rather than a picture of nothing. A style that will not load still
 		// goes idle and still captures, as a flat rectangle, and caching that would be a
 		// worse preview than this drawing and a permanent one.
 		await expect(page.locator('img.inert-map-picture')).toHaveCount(0);
 
-		// Every one of them draws ground, and the land tile arrives on its own schedule so
-		// this waits for it rather than assuming it.
-		//
-		// `.rp-land` without an element name on purpose. `RoutePreview` draws land as
-		// `<path>` normally and as a masked `<rect>` wherever a country boundary crosses the
-		// window, and two of these three take the second branch. A locator naming `path`
-		// passes on the one preview that has no border in it and silently ignores the two
-		// that do, which is the wrong two: the bordered ones carry more of the picture.
-		await expect
-			.poll(() => page.locator('.result-detail .ground-legs-row .rp-land').count(), {
-				message: 'every preview must fall back to the drawn coast',
-				timeout: 30_000
-			})
-			.toBe(3);
+		// Each leg in turn, since issue #439 draws one at a time. A leg that only ever
+		// rendered while two others shared the row would go untested.
+		for (const segment of [
+			'transfer-to-origin-airport',
+			'transfer-to-hotel',
+			'transfer-to-destination-location'
+		]) {
+			await pickTimelineSegment(page, segment);
+			await expect(items).toHaveCount(1);
+			const preview = items.first().locator('.route-preview');
 
-		for (let index = 0; index < 3; index++) {
-			const preview = items.nth(index).locator('.route-preview');
-			await expect(preview.locator('.rp-land')).toHaveCount(1);
+			// The land tile arrives on its own schedule, so this waits for it rather than
+			// assuming it.
+			//
+			// `.rp-land` without an element name on purpose. `RoutePreview` draws land as
+			// `<path>` normally and as a masked `<rect>` wherever a country boundary crosses
+			// the window, and two of these three take the second branch. A locator naming
+			// `path` passes on the one leg that has no border in it and silently ignores the
+			// two that do, which is the wrong two: the bordered ones carry more of the
+			// picture.
+			await expect
+				.poll(() => preview.locator('.rp-land').count(), {
+					message: `${segment} must fall back to the drawn coast`,
+					timeout: 30_000
+				})
+				.toBe(1);
+
 			// And the route is still on it. A fallback that lost the one line these pictures
 			// exist to draw would be no better than the blank box.
 			const leg = preview.locator('path.rp-leg').first();
 			await expect(leg).toBeVisible();
 			const legBox = (await leg.boundingBox())!;
-			expect(legBox.width + legBox.height, `preview ${index} route`).toBeGreaterThan(20);
+			expect(legBox.width + legBox.height, `${segment} route`).toBeGreaterThan(20);
 			const box = (await preview.boundingBox())!;
-			expect(box.width, `preview ${index} width`).toBeGreaterThan(40);
-			expect(box.height, `preview ${index} height`).toBeGreaterThan(30);
+			expect(box.width, `${segment} width`).toBeGreaterThan(40);
+			expect(box.height, `${segment} height`).toBeGreaterThan(30);
 		}
 
 		// And the renderer let go of its context rather than holding one open for a map it
@@ -361,21 +424,29 @@ test.describe('frozen route previews (issue #280)', () => {
 		await expect.poll(() => page.locator('canvas.maplibregl-canvas').count(), { timeout: 20_000 }).toBe(0);
 	});
 
-	test('a missing origin location leaves two previews, each wider than three would be', async ({ page }) => {
+	test('a leg the trip never had draws nothing, and the ones it has still draw', async ({ page }) => {
+		// The owner's rule, read through issue #439's one-at-a-time panel: "if one is not
+		// existing, for example origin location was not set, the map for that part is not
+		// shown". With three pictures in a row that showed as two, slightly wider; with one
+		// picture it shows as none at all for that leg, and the panel says why in words
+		// instead (`unroutedLegNote`).
+		//
+		// The row-width half of the old assertion moved to `previews.test.ts`, where the
+		// "only the legs this itinerary has" rule belongs and cannot depend on a layout.
 		await search(page, { toLoc: BOTH_ENDS.toLoc });
 		await openTimeline(page);
 
-		const detail = page.locator('.result-detail');
-		const items = detail.locator('.ground-legs-item');
-		await expect(items).toHaveCount(2);
-		await expect(detail.getByText('To the airport', { exact: true })).toHaveCount(0);
+		const detail = customiser(page);
 
-		// The owner asked for "only 2 maps in this case sigtly wider", so width is the
-		// assertion. Two previews sharing a row are each near half of it; three would be
-		// near a third, and the gap between those two figures is what this pins.
-		const rowBox = (await detail.locator('.ground-legs-row').boundingBox())!;
-		const firstBox = (await items.first().locator('.route-preview').boundingBox())!;
-		expect(firstBox.width).toBeGreaterThan(rowBox.width / 3);
+		await pickTimelineSegment(page, 'transfer-to-hotel');
+		await expect(detail.locator('.ground-legs-item')).toHaveCount(1);
+
+		// This search names no origin location, so there is no ride to the airport and no
+		// picture of one. The picture the previous selection drew must go, rather than
+		// staying on screen under a step it does not belong to.
+		await pickTimelineSegment(page, 'origin-waiting');
+		await expect(detail.locator('.ground-leg')).toHaveCount(0);
+		await expect(detail.getByText('To the airport', { exact: true })).toHaveCount(0);
 	});
 
 	test('tapping a preview opens one map, and closing it takes the map away and gives focus back', async ({
@@ -384,8 +455,7 @@ test.describe('frozen route previews (issue #280)', () => {
 		await search(page, BOTH_ENDS);
 		await openTimeline(page);
 
-		const detail = page.locator('.result-detail');
-		const trigger = detail.locator('.ground-leg').first();
+		const trigger = customiser(page).locator('.ground-leg').first();
 		expect(await visibleMapCanvases(page)).toBe(0);
 
 		await trigger.click();
@@ -415,7 +485,7 @@ test.describe('frozen route previews (issue #280)', () => {
 		await search(page, BOTH_ENDS);
 		await openTimeline(page);
 
-		const trigger = page.locator('.result-detail .ground-leg').first();
+		const trigger = customiser(page).locator('.ground-leg').first();
 		await trigger.click();
 
 		const dialog = page.locator('dialog.route-dialog');
@@ -431,14 +501,14 @@ test.describe('frozen route previews (issue #280)', () => {
 		await search(page, BOTH_ENDS);
 		await openTimeline(page);
 
-		const previews = page.locator('.result-detail .ground-leg');
+		const preview = customiser(page).locator('.ground-leg').first();
 		const dialog = page.locator('dialog.route-dialog');
 
 		// One open and close proves teardown runs. Ten prove it runs every time, which is
 		// the shape this defect would have: nothing visibly wrong until Chromium evicts the
 		// oldest of sixteen live contexts, long after the change that caused it.
 		for (let round = 0; round < 10; round++) {
-			await previews.nth(round % 3).click();
+			await preview.click();
 			await expect(dialog).toBeVisible();
 			await expect.poll(() => visibleMapCanvases(page)).toBe(1);
 			await page.keyboard.press('Escape');
@@ -447,13 +517,92 @@ test.describe('frozen route previews (issue #280)', () => {
 		}
 	});
 
+	test('clearing the selection inside the map does not close the map', async ({ page }) => {
+		// Found twice while wiring issue #439, before it could ship, and the second one is why
+		// the dialog is the page's rather than `GroundLegPreviews`'s.
+		//
+		// The map inside the dialog writes the page's selection: "Show whole route" clears it,
+		// and clicking a flight line sets a segment with no ground picture. An inspector that
+		// rendered the previews only when the selection had a picture unmounted the dialog on
+		// either. And on a phone the sheet itself only mounts while a segment is selected, so
+		// even a preview that stayed put would have gone down with its container. Both closed
+		// the map under the press that asked for more of it.
+		await search(page, BOTH_ENDS);
+		await openTimeline(page);
+		await pickTimelineSegment(page, 'transfer-to-hotel');
+
+		await customiser(page).locator('.ground-leg').click();
+		const dialog = page.locator('dialog.route-dialog');
+		await expect(dialog).toBeVisible();
+
+		await dialog.getByRole('button', { name: 'Show whole route' }).click();
+
+		await expect(dialog).toBeVisible();
+		await expect(dialog.locator('.map-status')).toContainText('Showing the whole route');
+		await expect.poll(() => visibleMapCanvases(page)).toBe(1);
+
+		// And it still closes the ordinary way afterwards, rather than being left mounted by
+		// whatever kept it alive.
+		await page.keyboard.press('Escape');
+		await expect(dialog).toHaveCount(0);
+		await expect.poll(() => visibleMapCanvases(page)).toBe(0);
+	});
+
+	test('the map opened from the phone sheet outlives the sheet', async ({ page }) => {
+		// The same defect one container up, and the reason the dialog is rendered by the page.
+		// The sheet mounts only while a segment is selected (`sheetIsOpen`), so "Show whole
+		// route" used to close the sheet and unmount the map with it. A press inside the
+		// dialog must not read as a press outside the sheet either.
+		await page.setViewportSize({ width: 375, height: 812 });
+		await search(page, BOTH_ENDS);
+		await openTimeline(page);
+		await pickTimelineSegment(page, 'transfer-to-hotel');
+
+		await customiser(page).locator('.ground-leg').click();
+		const dialog = page.locator('dialog.route-dialog');
+		await expect(dialog).toBeVisible();
+
+		await dialog.getByRole('button', { name: 'Show whole route' }).click();
+
+		await expect(dialog).toBeVisible();
+		await expect.poll(() => visibleMapCanvases(page)).toBe(1);
+
+		await page.keyboard.press('Escape');
+		await expect(dialog).toHaveCount(0);
+		await expect.poll(() => visibleMapCanvases(page)).toBe(0);
+	});
+
+	test('closing the panel takes the map with it, and does not spring it open again', async ({
+		page
+	}) => {
+		// The map is the page's since issue #439, and a flag the page holds is a flag the page
+		// has to clear. Left set, it would hide the map when the panel closed and then reopen
+		// it under the next segment somebody picked, which is not a thing a traveller asked
+		// for twice.
+		await search(page, BOTH_ENDS);
+		await openTimeline(page);
+		await pickTimelineSegment(page, 'transfer-to-hotel');
+		await customiser(page).locator('.ground-leg').click();
+		await expect(page.locator('dialog.route-dialog')).toBeVisible();
+
+		await page.keyboard.press('Escape');
+		await expect(page.locator('dialog.route-dialog')).toHaveCount(0);
+		await page.getByRole('button', { name: 'Done' }).click();
+
+		await pickStripSegment(page, 'stopover');
+		await expect(customiser(page)).toHaveAttribute('data-segment', 'free-time');
+		await expect(page.locator('dialog.route-dialog')).toHaveCount(0);
+	});
+
 	test('the dialog opens framed on the leg that was tapped', async ({ page }) => {
 		await search(page, BOTH_ENDS);
 		await openTimeline(page);
 
-		// The stopover leg, second of the three, so a wrong pick reads as the wrong sentence
-		// rather than coincidentally matching the first.
-		await page.locator('.result-detail .ground-legs-item').nth(1).locator('.ground-leg').click();
+		// The stopover leg, which is not the first one in journey order, so a component that
+		// drew whichever picture happened to be first would fail here rather than
+		// coincidentally matching.
+		await pickTimelineSegment(page, 'transfer-to-hotel');
+		await customiser(page).locator('.ground-leg').click();
 
 		const dialog = page.locator('dialog.route-dialog');
 		// The map's own status line names what it is showing, and it is the leg the button

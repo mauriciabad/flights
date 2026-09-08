@@ -2,7 +2,7 @@ import { test, expect } from './support/fixtures';
 import { routeRyanairFlights } from './support/providers';
 import { FIXTURE_FLIGHT_NUMBERS, FIXTURE_NAMES, FIXTURE_PRICES } from './support/fixture-markers';
 import { mockHostelworld, mockKiwiPublic, mockRyanairNetwork } from './support/providers';
-import { openTimeline } from './support/results-ui';
+import { openTimeline, pickTimelineSegment } from './support/results-ui';
 import { waitForSearchToSettle } from '../shared/search-wait';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -29,7 +29,7 @@ import { fileURLToPath } from 'node:url';
  *
  * Ryanair stands in for Skyscanner here (keyless, no RapidAPI key needed) purely as a
  * source of matching flight offers for this fictional pairing — the same substitution
- * `result-detail.spec.ts` already makes for its own route. Booking.com gets a fake
+ * `trip-inspector.spec.ts` already makes for its own route. Booking.com gets a fake
  * key through the settings UI so a stay actually prices, which is what makes
  * `transferToHotel`/`transferToConnectionAirport` exist at all (issue #94's "all three
  * together or none").
@@ -278,7 +278,7 @@ test.describe('itinerary map: every transfer leg, distinct markers, honest geome
 		});
 
 		// -----------------------------------------------------------------
-		// 5. Keyless CARTO basemap — same empty style result-detail.spec.ts uses,
+		// 5. Keyless CARTO basemap, the same empty style trip-inspector.spec.ts uses,
 		//    enough for MapLibre's own `load` event without pulling real vector tiles.
 		// -----------------------------------------------------------------
 
@@ -303,12 +303,14 @@ test.describe('itinerary map: every transfer leg, distinct markers, honest geome
 		await expect(card).toContainText('OSL');
 
 		await openTimeline(page);
-		const detail = page.locator('.result-detail');
+		const detail = page.getByTestId('segment-customiser');
 		await expect(detail).toBeVisible();
-		// Issue #280: what mounts here now is one frozen preview per ground leg. All four
-		// legs exist on this search, and the two connection-side ones are one preview, so
-		// three is the count. The map itself is behind them, in a dialog.
-		await expect(detail.locator('.ground-legs-item')).toHaveCount(3);
+		// Issue #280 put a frozen preview under each ground leg and issue #439 cut the row to
+		// the leg the inspector is about, so this is one: `openTimeline` selects the stopover
+		// and the stopover has one picture. The map itself is behind it, in a dialog. That
+		// every leg of this four-leg search has a preview of its own is
+		// `route-previews.spec.ts`'s subject; this file's is what OSRM was asked for.
+		await expect(detail.locator('.ground-legs-item')).toHaveCount(1);
 
 		// Every OSRM route request this search made asked for the geometry as a parameter
 		// on a request already being made — #118's whole premise — and never as an extra
@@ -371,19 +373,24 @@ test.describe('itinerary map: every transfer leg, distinct markers, honest geome
 		// -----------------------------------------------------------------
 		//
 		// Issue #280 gives that same sentence a second home: it is the preview button's own
-		// accessible name, so the caveat now travels with the control a traveller taps, and
-		// both halves are asserted without opening anything.
-		const previews = detail.locator('.ground-leg');
+		// accessible name, so the caveat travels with the control a traveller taps, and both
+		// halves are asserted without opening anything. Issue #439 draws one leg at a time, so
+		// the two halves are two selections rather than two tiles in a row.
+		await pickTimelineSegment(page, 'transfer-to-origin-airport');
+		await expect(detail.locator('.ground-leg')).toHaveAccessibleName(
+			/Transfer to KEF \(straight-line estimate\)/
+		);
 
-		await expect(previews.nth(0)).toHaveAccessibleName(/Transfer to KEF \(straight-line estimate\)/);
-		await expect(previews.nth(1)).toHaveAccessibleName(
+		await pickTimelineSegment(page, 'transfer-to-hotel');
+		const stopoverPreview = detail.locator('.ground-leg');
+		await expect(stopoverPreview).toHaveAccessibleName(
 			new RegExp(`Transfer to ${FIXTURE_NAMES.property}`)
 		);
-		await expect(previews.nth(1)).not.toHaveAccessibleName(/straight-line estimate/);
+		await expect(stopoverPreview).not.toHaveAccessibleName(/straight-line estimate/);
 
 		// And the same fact reaches the live region the map announces a selection through,
 		// which issue #141 made visible as the caption under the map.
-		await previews.nth(1).click();
+		await stopoverPreview.click();
 		const announcement = page.locator('dialog.route-dialog .map-status[role="status"]');
 		await expect(announcement).toContainText(`Transfer to ${FIXTURE_NAMES.property}`);
 		await expect(announcement).not.toContainText('straight-line estimate');

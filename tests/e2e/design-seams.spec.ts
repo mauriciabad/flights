@@ -157,17 +157,48 @@ test.describe('what a screen reader is told', () => {
 		expect(stops.filter((value) => value === '-1').length).toBeGreaterThan(0);
 	});
 
-	test('the timeline control has no space in front of its comma', async ({ page }) => {
+	test('the strip caption reads as one phrase, and promises no fold', async ({ page }) => {
 		await openResults(page);
 
-		// "8h 22m in Napoli , show the full timeline", from the indentation between two
-		// elements being a text node.
+		// Issue #318's defect was "8h 22m in Napoli , show the full timeline": the indentation
+		// between two elements is a text node, and it put a space in front of the comma in the
+		// accessible name. Issue #440 deleted the fold that sentence advertised, so the half
+		// that survives is the caption itself, which still assembles a number and a city name
+		// out of two elements and can still grow a stray space between them.
 		const name = await page
 			.locator('.trip-strip-caption-mid')
 			.first()
 			.evaluate((element) => element.textContent!.replace(/\s+/g, ' ').trim());
 		expect(name).not.toContain(' ,');
-		expect(name).toMatch(/, (show|hide) the full timeline$/);
+		expect(name).toMatch(/^(\d+ nights? in|[\dhm ]+ in) \S/);
+		// And it no longer offers a disclosure, because there is none on the card to offer.
+		expect(name).not.toContain('the full timeline');
+		await expect(page.locator('.trip-strip-caption-mid[aria-expanded]')).toHaveCount(0);
+	});
+
+	test('the trip inspector says the whole trip is one press away', async ({ page }) => {
+		await openResults(page);
+		await pickStripSegment(page, 'stopover');
+
+		// Issue #440 moved the full timeline into the inspector and, inside the phone sheet,
+		// left it closed: a sheet capped under half the screen would otherwise open on eleven
+		// rows instead of the picker the tap asked for. What that costs is discoverability, so
+		// the control has to be a real disclosure a screen reader can find and announce.
+		const summary = page.locator('.customiser-trip-summary');
+		await expect(summary).toBeVisible();
+		await expect(page.locator('.customiser-trip[open]')).toHaveCount(0);
+		// Not absent, hidden. A closed `<details>` keeps its content in the DOM and stops
+		// rendering it, which is the whole reason the element is worth using: the rows are
+		// there for the accessibility tree to find as soon as a reader opens the disclosure.
+		await expect(page.locator('.itinerary-timeline')).not.toBeVisible();
+
+		// 44px, which is the floor for anything a thumb has to hit, and this one is the only
+		// way to the timeline on a phone.
+		const box = (await summary.boundingBox())!;
+		expect(box.height).toBeGreaterThanOrEqual(44);
+
+		await summary.click();
+		await expect(page.locator('.itinerary-timeline')).toBeVisible();
 	});
 });
 

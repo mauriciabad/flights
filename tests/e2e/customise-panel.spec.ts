@@ -97,8 +97,11 @@ test.describe('the customise rail on a wide screen', () => {
 		// Picked on the strip, and the timeline row says so.
 		await pickStripSegment(page, 'flight');
 		await expect(customiser(page)).toHaveAttribute('data-segment', 'outbound-flight');
+		// Issue #440 moved the timeline out of the card and into this panel, which is what
+		// makes "the strip, the timeline and the rail agree" a claim about two places rather
+		// than three. The row still has to say it is the selected one.
 		await expect(
-			card.locator('.itinerary-timeline [data-segment="outbound-flight"]')
+			customiser(page).locator('.itinerary-timeline [data-segment="outbound-flight"]')
 		).toHaveAttribute('aria-current', 'true');
 
 		// Picked on the timeline, and the strip's own cell says so.

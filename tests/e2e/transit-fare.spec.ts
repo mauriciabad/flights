@@ -71,7 +71,7 @@ test.describe('a public-transport leg carries a ticket price (issue #407)', () =
 		await waitForSearchToSettle(page, { timeout: 20_000 });
 
 		await openTimeline(page);
-		const toAirport = page.locator('.result-detail [data-segment="transfer-to-origin-airport"]');
+		const toAirport = page.locator('[data-testid="segment-customiser"] [data-segment="transfer-to-origin-airport"]');
 
 		// The timeline names the vehicle the timetable answered with, where the picker names
 		// the mode. "Bus" here and "Public transport" in the test below are the same leg.

@@ -13,6 +13,22 @@
 	 * half the row and three are each a third with no count to branch on. This component
 	 * never asks how many there are.
 	 *
+	 * Issue #439 is the same rule taken further. The three-at-once row lived in the card's
+	 * fold and showed a reader looking at one leg all of them; the trip inspector hands in
+	 * the one leg it is about, and this component still never counts. What it did gain is
+	 * `fallback`, because the inspector's list is empty for two different reasons: a trip
+	 * with no ground leg anywhere, which still needs the plain button that is its only way to
+	 * a map, and a selection that is a flight or a wait, which needs nothing drawn.
+	 *
+	 * ## The dialog is the page's now, not this component's
+	 *
+	 * It used to be rendered here, which was right while these pictures sat in a fold inside a
+	 * card that nothing could unmount. In the inspector it is wrong, and phone-shaped: the
+	 * sheet only mounts while a segment is selected, and the map inside the dialog writes that
+	 * selection. Pressing "Show whole route" cleared it, the sheet unmounted, and the dialog
+	 * went with it. So this component reports a tap and the page opens the map, the same way
+	 * `ConnectionsMapDialog` is already the page's.
+	 *
 	 * Flex rather than grid, deliberately. `45151ce` fixed the trip strip rendering at
 	 * zero width because definitely-placed grid items pushed auto-placed cells into
 	 * implicit tracks. Equal columns need no placement algorithm to get right.
@@ -49,13 +65,10 @@
 	 */
 	import Icon from './Icon.svelte';
 	import InertMap from './InertMap.svelte';
-	import RouteMapDialog from './RouteMapDialog.svelte';
-	import type { Itinerary } from '$lib/domain';
 	import type { ItinerarySegmentId } from '$lib/itinerary-map/segment-id';
 	import type { GroundLegPreview } from '$lib/itinerary-map/previews';
 
 	interface Props {
-		itinerary: Itinerary;
 		previews: GroundLegPreview[];
 		/**
 		 * The selection shared with `ItineraryTimeline` (`segment-id.ts` documents the
@@ -63,37 +76,49 @@
 		 * the dialog opens and leaves the matching timeline row highlighted underneath.
 		 */
 		selectedSegmentId: ItinerarySegmentId | null;
+		/**
+		 * What an empty `previews` means. `true` is "this trip has no ground leg to draw", and
+		 * the plain button below is then the traveller's only route to a map. `false` is "the
+		 * caller has nothing to show right now", and nothing is drawn.
+		 *
+		 * The distinction is load-bearing rather than cosmetic. A caller that answered an
+		 * empty list by not rendering this component at all would take the open dialog down
+		 * with it, because the dialog lives here: panning from a ground leg to a flight inside
+		 * the map writes a selection with no picture, and the map would close under the finger
+		 * that moved it.
+		 */
+		fallback?: boolean;
+		/** Somebody tapped a picture. The page opens the map, framed on the leg it carries.
+		 * `null` is the fallback button, which asks for the whole route. */
+		onopen: (segment: ItinerarySegmentId | null) => void;
 	}
 
-	let { itinerary, previews, selectedSegmentId = $bindable(null) }: Props = $props();
-
-	// The dialog has no `open` prop: rendering it opens it and dropping it closes it, so
-	// this one variable is the whole state and the MapLibre instance inside it lives
-	// exactly as long as the dialog does.
-	let mapOpen = $state(false);
+	let { previews, selectedSegmentId = $bindable(null), fallback = true, onopen }: Props = $props();
 
 	/**
-	 * Tapping a preview frames the dialog's map on that leg and nothing more. It used to
-	 * hand the dialog a heading too, and issue #286 took that away: the dialog now lets a
-	 * traveller move between the trip's legs, so a heading naming whichever tile opened it
-	 * goes stale the moment they do. `RouteMapDialog` names the journey instead, and which
-	 * leg is on screen is answered by the map's own status line, live, under the map.
+	 * Tapping a preview frames the map on that leg and nothing more. It used to hand the
+	 * dialog a heading too, and issue #286 took that away: the dialog lets a traveller move
+	 * between the trip's legs, so a heading naming whichever tile opened it goes stale the
+	 * moment they do. `RouteMapDialog` names the journey instead, and which leg is on screen
+	 * is answered by the map's own status line, live, under the map.
 	 */
 	function open(segmentId: ItinerarySegmentId | null): void {
 		selectedSegmentId = segmentId;
-		mapOpen = true;
+		onopen(segmentId);
 	}
 </script>
 
 {#if previews.length === 0}
-	<!-- A trip with no origin location, no destination location and a connection city this
-	     app has no coordinates for has no ground leg to draw, and would otherwise leave the
-	     traveller with no way to a map at all. One button, no picture: there is nothing
-	     honest to draw here, and drawing the flights instead would put a thumbnail under a
-	     label that promises ground transport. -->
-	<button type="button" class="ground-leg is-fallback" onclick={() => open(null)}>
-		Open the route map
-	</button>
+	{#if fallback}
+		<!-- A trip with no origin location, no destination location and a connection city this
+		     app has no coordinates for has no ground leg to draw, and would otherwise leave the
+		     traveller with no way to a map at all. One button, no picture: there is nothing
+		     honest to draw here, and drawing the flights instead would put a thumbnail under a
+		     label that promises ground transport. -->
+		<button type="button" class="ground-leg is-fallback" onclick={() => open(null)}>
+			Open the route map
+		</button>
+	{/if}
 {:else}
 	<ul class="ground-legs-row">
 		{#each previews as preview (preview.id)}
@@ -119,10 +144,6 @@
 	     here. Once under the row rather than once per preview: it is one map source, and
 	     three copies of it in a 375px row would be louder than the pictures. -->
 	<p class="ground-legs-credit">© OpenStreetMap, © CARTO</p>
-{/if}
-
-{#if mapOpen}
-	<RouteMapDialog {itinerary} bind:selectedSegmentId onclose={() => (mapOpen = false)} />
 {/if}
 
 <style>

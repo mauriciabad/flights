@@ -43,8 +43,10 @@ import { waitForSearchToSettle } from '../shared/search-wait';
  * `COLLAPSED_CARD_BLOCKS` names one, and the owner's position is that the card earns its
  * height. Which block goes is his call, not a test's.
  *
- * Moving the ceiling to 740 sets the limit to whatever the card happens to measure, which
- * is the original defect wearing a bigger number. #302 said so and was right.
+ * Moving the ceiling to whatever the card happens to measure is the original defect wearing
+ * a bigger number. #302 said so and was right, which is why every term below is named and
+ * why the worst case is now derived the same way the ordinary card is instead of being a
+ * bare observation with a paragraph of argument attached.
  *
  * Outside guidance does not settle it either. Nobody states one card per screen as a goal
  * and no source gives a card-height figure at all. The one source that speaks to it argues
@@ -63,12 +65,31 @@ import { waitForSearchToSettle } from '../shared/search-wait';
  * out of the way is this". #305 then put it beside the receipt instead of above it, so
  * today it costs the card nothing at all.
  *
+ * ## What issue #435 cost, measured both ways
+ *
+ * The bed panel is the first block to arrive on this card since #232's price band, and it is
+ * the only one so far whose whole point is to cost nothing. On a card wide enough to seat
+ * three items in the first row it is free: the row still costs the receipt, which is taller.
+ * At 375px there is no such room, so it wraps and costs 64px plus a 16px gap.
+ *
+ * Measured on 2026-09-08 at 375x812 against these two fixtures, on a machine at load average
+ * 17 before and after, the ordinary card went from 744px to 824px and the worst case from
+ * 852px to 932px. Both are the same 80px, which is the property worth having: the panel is a
+ * photograph and three short lines whatever the fare, the party size or the currency count.
+ *
+ * That is a real cost on the screen that has the least room, and it was argued in #435 rather
+ * than here. The owner asked for the property "including image carrousel" in the space the
+ * card was wasting, and the space it was wasting is on a desktop card. The phone pays 80px so
+ * the desktop card stops printing a blank half-row.
+ *
  * ## The blocks, in the order the card prints them
  *
- * Heights measured on 2026-09-06 at 375px against `typicalSearch`, which builds a 748px
- * card. Five of the six match the 727px card production serves exactly; the rail is the
- * one that does not, and its entry says why. The test prints what it measures on every
- * run, so this table cannot go quietly stale the way #197's comment did.
+ * Every height below was measured on 2026-09-08 at 375x812 against the two fixtures in this
+ * file, on a machine at load average 17. Both tables add up to what the test measures, to the
+ * pixel, and since issue #430 the test asserts each block's own height as well as the total.
+ * That is what #430 asked for: the px column feeds the budget the card is policed against, so
+ * a row that drifts from what the block actually costs moves the bound quietly and in
+ * whichever direction the drift went. It cannot now.
  */
 interface CardBlock {
 	/** First class on the block's own element, which is what the card is asserted against. */
@@ -76,41 +97,92 @@ interface CardBlock {
 	/** The issue that put it on the card, so a failure names what there is to argue about. */
 	readonly issue: string;
 	readonly px: number;
-	/** Set when the block is a row rather than a stack. The row costs the taller occupant,
-	 * so `px` above is that one's height and not the pair's sum. */
-	readonly beside?: readonly string[];
+	/** Set when the block is a row. `px` is the row's own height either way; these are the
+	 * children measured inside it, and they are asserted too. */
+	readonly beside?: readonly CardBlock[];
 }
+
+/**
+ * What each block is allowed to differ from its recorded height by.
+ *
+ * Not zero. A label that breaks at a slightly different width across Chromium versions moves
+ * a block by a few pixels without anything on the card having changed, and a test that fails
+ * on that teaches people to edit the number rather than read it. Three pixels is under a
+ * line of any type size this card uses, so a block that gained or lost a row still fails.
+ */
+const BLOCK_HEIGHT_TOLERANCE_PX = 3;
 
 const COLLAPSED_CARD_BLOCKS: readonly CardBlock[] = [
 	/* The route line. #278 took the neutral freshness badge out of it: "Current price" said
 	   what the footer's "fetched 3m ago" already said, and at 375px it wrapped and cost the
 	   card a row it could not spare. */
 	{ block: 'card-header', issue: '#278', px: 90 },
-	/* #305, the owner: the flight map "is placed to the left of the Getting there price
-	   breakdown, so space is better used". One row holding two blocks, so it costs the
-	   taller of them instead of both. `flight-shape` is #287's 80px drawing and `price-line`
-	   is the receipt, and the receipt is what governs. */
-	{ block: 'card-getting-there', issue: '#305', px: 156, beside: ['flight-shape', 'price-line'] },
+	/* #305 put the detour drawing beside the receipt, and #435 put the bed beside both.
+	   Three items on flex bases, which at 375px seats the drawing and the receipt on one
+	   line and wraps the bed under them. So this row costs the receipt plus a gap plus the
+	   bed, not the tallest of the three: 152 + 16 + 64. On a card wide enough for all three
+	   it costs the receipt alone, which is the whole reason the bed went here. */
+	{
+		block: 'card-getting-there',
+		issue: '#305, #435',
+		px: 232,
+		beside: [
+			{ block: 'flight-shape', issue: '#287', px: 80 },
+			{ block: 'price-line', issue: '#305', px: 152 },
+			/* #435, the owner: "on the card, there's a empty space on the right, it is a great
+			   spot to put info about the hotel, including image carrousel." A photograph, the
+			   name, the rating and the journey out, in the compact side-by-side form it takes
+			   once it has wrapped to a line of its own. It is absent from a card with no bed. */
+			{ block: 'card-stay', issue: '#435', px: 64 }
+		]
+	},
 	/* #232, directly under the receipt because the band is about the figure in it. The
 	   largest optional block on the card. */
 	{ block: 'price-band', issue: '#232', px: 140 },
-	/* #278: the preview is the expander, so the affordance sits on the thing that opens and
-	   the card spends no row on a button of its own. */
+	/* #278 made the trip strip's caption the card's expander and #440 took the fold away, so
+	   the caption is a caption again and this block costs exactly what it did. */
 	{ block: 'card-strip', issue: '#278', px: 79 },
 	/* #309: every summary figure has exactly one surface on this card, and free time, in
-	   flight, airport wait and door to door are this rail's. 143 where production's is 122,
-	   and that 21px is the whole difference between this card and the tallest one production
-	   serves. Barcelona to Vienna to Tallinn leaves "Part of a day" of free time, which
-	   wraps in a cell sized for "2 full days". Geography, not a block. */
+	   flight, airport wait, changes and door to door are this rail's. */
 	{ block: 'metric-rail', issue: '#309', px: 143 },
 	/* The carriers, #210's technical-stop note and #312's source note, on one ellipsised
 	   line that costs the same whatever it carries. */
 	{ block: 'card-footer', issue: '#312', px: 58 }
 ];
 
-/** The blocks' own heights. A row costs its taller occupant, which is already what that
- * entry's `px` is, so this is a plain sum. */
-const CARD_BLOCKS_PX = COLLAPSED_CARD_BLOCKS.reduce((total, block) => total + block.px, 0);
+/**
+ * The same six blocks on the worst case, which is a different card and therefore different
+ * numbers. Two of them are what `worstCaseSearch`'s escalations buy: an "Airline you avoid"
+ * badge and a wrapping route line take the header from 90 to 130, and a receipt carrying two
+ * currencies and a "for 2" audience takes `price-line` from 152 to 220.
+ *
+ * The bed panel is the one block that costs the same on both. It is a photograph and three
+ * short lines whatever the party size and whatever the fare, which is worth knowing: it is
+ * the newest arrival on this card and it does not grow.
+ */
+const WORST_CASE_CARD_BLOCKS: readonly CardBlock[] = [
+	{ block: 'card-header', issue: '#278', px: 130 },
+	{
+		block: 'card-getting-there',
+		issue: '#305, #435',
+		px: 300,
+		beside: [
+			{ block: 'flight-shape', issue: '#287', px: 80 },
+			{ block: 'price-line', issue: '#305', px: 220 },
+			{ block: 'card-stay', issue: '#435', px: 64 }
+		]
+	},
+	{ block: 'price-band', issue: '#232', px: 140 },
+	{ block: 'card-strip', issue: '#278', px: 79 },
+	{ block: 'metric-rail', issue: '#309', px: 143 },
+	{ block: 'card-footer', issue: '#312', px: 58 }
+];
+
+/** The blocks' own heights. A row's `px` is already what the row costs, children included,
+ * so this is a plain sum over the top level. */
+function blocksHeight(blocks: readonly CardBlock[]): number {
+	return blocks.reduce((total, block) => total + block.px, 0);
+}
 
 /** What the card spends on nothing, derived rather than observed. `.card-main` pads
  * `--space-4` top and bottom and puts a `--space-4` gap between its four blocks, and the
@@ -121,16 +193,21 @@ const CARD_GAPS_AND_PADDING_PX = 16 * 2 + 16 * 3 + 2;
  * inside the slack. Over the 21px one wrapped line costs, measured as the difference between
  * this rail at 143px and production's at 122px, so a label that breaks at a slightly
  * different width does not fail a test whose subject is the block set. It buys exactly one
- * such wrap and no second one. Rows arriving inside a block are the worst-case test's
- * subject, and its slack is the tight one. */
+ * such wrap and no second one. */
 const CARD_HEIGHT_SLACK_PX = 24;
 
 /**
- * The ceiling for the ordinary card, as a sum rather than an observation. Raising it means
- * raising a named term or adding a named block, both of which a reviewer reads in the diff.
+ * The two ceilings, as sums rather than observations. Raising either means raising a named
+ * term or adding a named block, both of which a reviewer reads in the diff.
+ *
+ * The worst case used to be a bare 860 with a paragraph arguing about it. It is derived the
+ * same way as the ordinary card now, which is issue #430's ask read at the other end of the
+ * file: a magic number nobody can recompute is a table that has already drifted.
  */
 const TYPICAL_CARD_HEIGHT_BUDGET_PX =
-	CARD_BLOCKS_PX + CARD_GAPS_AND_PADDING_PX + CARD_HEIGHT_SLACK_PX;
+	blocksHeight(COLLAPSED_CARD_BLOCKS) + CARD_GAPS_AND_PADDING_PX + CARD_HEIGHT_SLACK_PX;
+const WORST_CASE_HEIGHT_BUDGET_PX =
+	blocksHeight(WORST_CASE_CARD_BLOCKS) + CARD_GAPS_AND_PADDING_PX + CARD_HEIGHT_SLACK_PX;
 
 /** What a phone leaves for a card, from the measurement at the top of this file. Nothing
  * asserts it any more. The test prints the overflow against it because a number the owner
@@ -138,49 +215,6 @@ const TYPICAL_CARD_HEIGHT_BUDGET_PX =
  * with numbers in them that nobody rechecked. */
 const PHONE_SCREEN_PX = 620;
 
-/**
- * What the tallest card this app can build measures, which is a different question from the
- * one above and the reason issue #298 was filed.
- *
- * The fixture the first test used to run was a bare card: two flights, no bed, no ground
- * legs, no price band. It measured 531px on 2026-09-06 and it always would, so the ceiling
- * over it passed every day while production served cards nobody had measured. That fixture
- * is gone and `typicalSearch` replaced it. On 2026-09-05, at 375x812 against
- * `flights.mauri.app/results/?arr=2026-10-12&dep=2026-10-06&from=BCN&to=PFO`, the six
- * settled cards measured 715, 730, 715, 730, 770 and 730. Every one of them over the
- * ceiling that was green. A limit that cannot see the cards which would fail it is not a
- * limit, and that is the same defect as `45151ce`'s strip rendering at 0px under five green
- * tests, and as #240, #242, #255 and #257.
- *
- * So the second test measures the worst case rather than the average one. `worstCaseSearch`
- * turns on every optional block the collapsed card has, all at once, and this number is
- * what that card measures.
- *
- * The slack was under 22px when #302 set it, which is one receipt row, so anything adding a
- * row failed here instead of passing on headroom. It drifted out to 48px as the card came
- * down to 812px and 860 stayed put, and then closed again on its own the same afternoon:
- * `fca6d4d` put the trip's dates in the route line, which wraps at 375px and took this
- * card's header from 98px to 130px. Measured on 2026-09-06 after that landed, the worst
- * card is 844px and the slack is 16px, tighter than the figure #302 chose.
- *
- * That is worth reading twice, because it is this file's whole argument in one afternoon.
- * The drift was real, nobody had to chase it, and the reason it is a number here rather
- * than a memory is that the test prints what it measures.
- *
- * The parts are printed by the test on every run, the way the ordinary card's are, rather
- * than transcribed into this comment where nobody rechecks them.
- *
- * This number is not a target and it is not the screen. `PHONE_SCREEN_PX` is still what a
- * phone leaves, and the worst card is 224px over it, so on that card the screen holds
- * one trip and comparing two is impossible. Closing that gap means taking a whole block off
- * the card, and which block is the owner's call rather than a test's: the band is 140px and
- * the newest arrival (#232), the totals rail is 143px. Taking the detour off would buy
- * nothing at all, which is not what this comment used to say. #305 moved it beside the
- * receipt, and measured on 2026-09-06 the receipt is 212px against the drawing's 80px, so
- * the row costs the receipt's height either way. This test exists so that gap is a number
- * somebody decided to carry rather than one nobody could see.
- */
-const WORST_CASE_HEIGHT_BUDGET_PX = 860;
 
 interface MeasuredBlock {
 	block: string;
@@ -189,8 +223,8 @@ interface MeasuredBlock {
 
 /**
  * The blocks one card is made of, in the order it prints them, each named by the first
- * class on its own element. The two occupants of the `card-getting-there` row are listed
- * under it, because that row costs the taller of them rather than their sum.
+ * class on its own element. The occupants of the `card-getting-there` row are listed under
+ * it, prefixed with the row's name.
  *
  * The point of naming blocks rather than only measuring the total is that a block which
  * arrives shows up here whatever it measures. A card that grows by 30px reads the same as
@@ -230,6 +264,53 @@ function describeBlocks(blocks: readonly MeasuredBlock[]): string {
 	return blocks.map((block) => `${block.block} ${block.px}`).join(', ');
 }
 
+/** The recorded table, flattened the way `measureCardBlocks` reports what it finds. */
+function expectedBlocks(blocks: readonly CardBlock[]): MeasuredBlock[] {
+	return blocks.flatMap((block) => [
+		{ block: block.block, px: block.px },
+		...(block.beside ?? []).map((occupant) => ({
+			block: `${block.block} > ${occupant.block}`,
+			px: occupant.px
+		}))
+	]);
+}
+
+/**
+ * Both halves of what this file is for, against one measurement: the card carries the blocks
+ * this file records, and each one costs what it records.
+ *
+ * The names go first because a missing or arriving block explains every height below it, and
+ * a failure that leads with "metric-rail is 64px out" when the real news is that a new block
+ * pushed it is the kind of report that costs an afternoon.
+ */
+function expectBlockTable(
+	measured: readonly MeasuredBlock[],
+	recorded: readonly CardBlock[],
+	what: string
+) {
+	const expected = expectedBlocks(recorded);
+	expect(
+		measured.map((block) => block.block),
+		`The ${what} carries a different set of blocks than this file records. Each one is on ` +
+			'the card because an issue asked for it:\n' +
+			expected.map((block) => `  ${block.block} (${block.px}px)`).join('\n') +
+			'\nA block that arrives makes every card on a phone taller than the screen already ' +
+			`leaves it (${PHONE_SCREEN_PX}px), so it is a decision to argue in the issue that ` +
+			'wants it and then to write into the table in this file.'
+	).toEqual(expected.map((block) => block.block));
+
+	// Issue #430: the px column feeds the budget, so a row that drifts from what the block
+	// actually costs moves the bound quietly. Asserted per block, which is one of the two
+	// fixes that issue offers and the one that cannot go stale again.
+	for (const [index, block] of measured.entries()) {
+		expect(
+			Math.abs(block.px - expected[index].px),
+			`${block.block} measures ${block.px}px against the ${expected[index].px}px this file ` +
+				'records. Re-measure the whole table and write the real numbers back, per issue #430.'
+		).toBeLessThanOrEqual(BLOCK_HEIGHT_TOLERANCE_PX);
+	}
+}
+
 test.describe('result card size', () => {
 	test('a card shaped like the ones production serves', async ({ page }) => {
 		await typicalSearch(page);
@@ -244,22 +325,7 @@ test.describe('result card size', () => {
 		const measured = await measureCardBlocks(card);
 		console.log(`ordinary card blocks at 375px: ${describeBlocks(measured.blocks)}`);
 
-		expect(
-			measured.blocks.map((block) => block.block),
-			'The collapsed card carries a different set of blocks than this file records. Each ' +
-				'one is on the card because an issue asked for it:\n' +
-				COLLAPSED_CARD_BLOCKS.map(
-					(block) => `  ${block.block} (${block.issue}, ${block.px}px)`
-				).join('\n') +
-				'\nA block that arrives makes every card on a phone taller than the screen ' +
-				`already leaves it (${PHONE_SCREEN_PX}px), so it is a decision to argue in the ` +
-				'issue that wants it and then to write into COLLAPSED_CARD_BLOCKS here.'
-		).toEqual(
-			COLLAPSED_CARD_BLOCKS.flatMap((block) => [
-				block.block,
-				...(block.beside ?? []).map((occupant) => `${block.block} > ${occupant}`)
-			])
-		);
+		expectBlockTable(measured.blocks, COLLAPSED_CARD_BLOCKS, 'collapsed card');
 
 		console.log(
 			`ordinary card at 375px: ${measured.px}px, ` +
@@ -305,6 +371,7 @@ test.describe('result card size', () => {
 		console.log(`worst-case receipt: ${receipt.join(' | ')}`);
 		const worstCaseBlocks = await measureCardBlocks(tallest);
 		console.log(`worst-case card blocks at 375px: ${describeBlocks(worstCaseBlocks.blocks)}`);
+		expectBlockTable(worstCaseBlocks.blocks, WORST_CASE_CARD_BLOCKS, 'worst-case card');
 		// A walked leg and a rated one on the same receipt, which is the pair that proves both
 		// readings of an absent price are being printed (`domain/transfer.ts`).
 		//

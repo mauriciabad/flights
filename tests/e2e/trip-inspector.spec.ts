@@ -8,8 +8,14 @@ import { waitForSearchToSettle } from '../shared/search-wait';
  * Issue #104: the regression guard for the gap that issue describes. Before it, a real
  * search's itineraries were built, scored, and then reachable only as summary cards.
  * `results-stream-consumption.spec.ts` already proves a real search's providers get
- * called and answer; this proves the rest of the path: expand a real result into its
- * full detail, and confirm a picker choice really changes the total.
+ * called and answer; this proves the rest of the path: open a real result in full, and
+ * confirm a picker choice really changes the total.
+ *
+ * The file was `trip-inspector.spec.ts` until issue #440 deleted `ResultDetail.svelte`. What
+ * it guards is unchanged and is not a component: a real search's result can be opened in
+ * full, and a choice made there moves the number on the card. Where "in full" lives has now
+ * moved twice, from a panel inside the card to a fold under its trip strip to the inspector
+ * beside the list, and this test followed it each time.
  *
  * The Ryanair mock below is deliberately narrower than `mockAllKeylessProviders`' own
  * generic default, which is a STN -> VIE pair built for a different test and never chains
@@ -24,8 +30,8 @@ import { waitForSearchToSettle } from '../shared/search-wait';
  * assert the real arithmetic, just on figures nobody would book.
  */
 
-test.describe('result detail (issue #104)', () => {
-	test('expanding a real result shows its timeline and map, and a picker change updates the total', async ({
+test.describe('trip inspector (issue #104)', () => {
+	test('opening a real result shows its timeline and map, and a picker change updates the total', async ({
 		page
 	}) => {
 		await mockAllKeylessProviders(page.context());
@@ -61,8 +67,8 @@ test.describe('result detail (issue #104)', () => {
 			}
 		]);
 
-		// ItineraryMap's keyless CARTO basemap (issue #26) — mounted for the first time
-		// anywhere in this app by issue #104's ResultDetail. A minimal, sourceless style
+		// ItineraryMap's keyless CARTO basemap (issue #26), mounted for the first time
+		// anywhere in this app by issue #104's detail panel. A minimal, sourceless style
 		// still fires MapLibre's `load` event, which is all this test needs: it proves the
 		// map initialises alongside the timeline and pickers rather than hanging or
 		// throwing, without pulling in real vector tiles.
@@ -76,14 +82,14 @@ test.describe('result detail (issue #104)', () => {
 
 		await openTimeline(page);
 
-		const detail = page.locator('.result-detail');
+		const detail = customiser(page);
 		await expect(detail).toBeVisible();
 		await expect(detail.locator('.itinerary-timeline')).toBeVisible();
-		// Issue #280 moved the MapLibre map out of this panel and into a dialog behind the
-		// frozen previews, so what mounts alongside the timeline now is the previews row.
-		// `route-previews.spec.ts` owns the map itself: that it appears on tap, that there
-		// is exactly one of it, and that closing takes it away. This search names no origin
-		// or destination location, so the stopover is the only ground leg it has.
+		// Issue #280 moved the MapLibre map out of the panel and into a dialog behind the
+		// frozen previews. Issue #439 then cut the row of three down to the one leg the
+		// inspector is about: `openTimeline` picks the stopover, so this is the stopover's
+		// own picture and there is exactly one of it. `route-previews.spec.ts` owns the map
+		// itself, that it appears on tap and that closing takes it away.
 		await expect(detail.locator('.ground-legs-item')).toHaveCount(1);
 
 		// Issue #309: the total belongs to the card's own headline and to nothing else. The
@@ -108,9 +114,10 @@ test.describe('result detail (issue #104)', () => {
 		// is selected, so the row is tapped first, the way a traveller reaches it.
 		const outboundRow = detail.locator('.itinerary-timeline [data-segment="outbound-flight"]');
 		await expect(outboundRow).toContainText('2 flights');
-		await outboundRow.click();
-		// Issue #278: the picker is in the customise rail beside the list, not folded
-		// into the row. The row is still what selects it.
+		await outboundRow.click({ position: { x: 6, y: 6 } });
+		// Issue #278: the picker is in the inspector beside the list, not folded into the
+		// row. The row is still what selects it, and since issue #440 the row and the picker
+		// are in the same panel, which is what makes them one control.
 		const outboundPicker = customiser(page).getByRole('radiogroup', { name: /Outbound/ });
 		// The 9 March outbound, which is the one the card is NOT on since issue #364 made the
 		// cheaper stopover the default.

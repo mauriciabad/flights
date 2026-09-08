@@ -1,7 +1,7 @@
 import { test, expect } from './support/fixtures';
 import { FIXTURE_FLIGHT_NUMBERS, FIXTURE_PRICES } from './support/fixture-markers';
 import { mockAllKeylessProviders, mockHostelworld, routeRyanairFlights } from './support/providers';
-import { customiser, openTimeline } from './support/results-ui';
+import { customiser, openTimeline, pickTimelineSegment } from './support/results-ui';
 import { waitForSearchToSettle } from '../shared/search-wait';
 
 /**
@@ -55,7 +55,7 @@ test.describe('editing a stopover keeps one trip on the screen', () => {
 		await waitForSearchToSettle(page, { timeout: 20_000 });
 
 		await openTimeline(page);
-		const detail = page.locator('.result-detail');
+		const detail = page.getByTestId('segment-customiser');
 		await expect(detail).toBeVisible();
 
 		const block = detail.locator('.stopover');
@@ -88,18 +88,23 @@ test.describe('editing a stopover keeps one trip on the screen', () => {
 		// controls, and #278's argument was that the card and the panel must never hold two
 		// copies of one trip. Editing from the panel is now the only way, and the block above
 		// the timeline still has to follow it, which is the agreement #250 is about.
-		await detail.locator('[data-segment="connection-waiting"]').click({ position: { x: 6, y: 6 } });
+		await pickTimelineSegment(page, 'connection-waiting');
 		await expect(customiser(page)).toHaveAttribute('data-segment', 'connection-waiting');
 		const connectionWait = customiser(page).locator('.waiting-stepper-input');
 		await connectionWait.fill('1530');
 		await connectionWait.dispatchEvent('input');
 
-		await expect(block).toContainText('Nights 1');
+		// The card follows the edit at once, while the panel is still showing the wait.
 		await expect(page.locator('.result-card').first().locator('.trip-strip-caption-mid')).toContainText('1 night');
 
-		// Issue #243. Reaching the stay list is the two taps a traveller makes: open the
-		// stopover row, then pick the other property.
-		await detail.locator('[data-segment="free-time"]').click();
+		// And so does the stopover block, which issue #440 moved into the stopover's own panel
+		// rather than leaving it above a timeline. Going back to the stopover is what a
+		// traveller does next anyway, and it is the same claim: one edit, every reading.
+		await pickTimelineSegment(page, 'free-time');
+		await expect(customiser(page)).toHaveAttribute('data-segment', 'free-time');
+		await expect(block).toContainText('Nights 1');
+
+		// Issue #243. The stay list is in that same panel: pick the other property.
 		const nearProperty = customiser(page).locator('.alt-card', { hasText: 'FIXTURE Lodge' });
 		await expect(nearProperty).toBeVisible();
 		await nearProperty.click();

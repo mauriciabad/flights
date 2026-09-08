@@ -162,6 +162,12 @@ test.describe('tapping a segment on a phone', () => {
 	test.use({ viewport: { width: 375, height: 812 }, hasTouch: true, isMobile: true });
 
 	test('a thumb opens the segment in the sheet, and a second tap closes it', async ({ page }) => {
+		// This test is about where a tap lands, not about how the page gets there. Issue #308's
+		// reveal is a smooth scroll, and a tap aimed at a segment while it is still travelling
+		// lands on whatever is over that spot right now. `reveal-scroll.ts` already skips the
+		// travel for a reader who asked for less motion, so asking for it here makes the final
+		// position the only position there is.
+		await page.emulateMedia({ reducedMotion: 'reduce' });
 		const card = await openResults(page);
 		const sheet = page.locator('.customise-sheet');
 		const flight = card.locator('.trip-strip-hit-flight').first();
@@ -177,6 +183,26 @@ test.describe('tapping a segment on a phone', () => {
 		// the preview on every focus would put one there; `:focus-visible` is what keeps the
 		// preview on the keyboard and the pointer's hover.
 		await expect(card.getByRole('tooltip')).toBeHidden();
+
+		// The reveal has to have landed before the second tap. Issue #308 moves the strip up by
+		// exactly enough to clear the sheet, and until that is done the cell is still
+		// underneath: Playwright's own scroll-into-view then fights it, retry after retry, and
+		// the failure reads as "the sheet intercepts pointer events" with nothing about timing
+		// in it. Reduced motion above makes the move instant; this says what "landed" means.
+		//
+		// Measured on this fixture: the strip settles at 331..410 against a sheet whose top is
+		// 410, so the app's arithmetic is right and the test was reading it early. Issue #435
+		// surfaced it by making the card 80px taller, which turned a scroll that used to be a
+		// no-op here into a real one.
+		await expect
+			.poll(() =>
+				page.evaluate(() => {
+					const strip = document.querySelector('.card-strip')?.getBoundingClientRect();
+					const sheetBox = document.querySelector('.customise-sheet')?.getBoundingClientRect();
+					return strip !== undefined && sheetBox !== undefined && strip.bottom <= sheetBox.top + 1;
+				})
+			)
+			.toBe(true);
 
 		await flight.tap();
 		await expect(sheet).toBeHidden();
@@ -214,6 +240,69 @@ test.describe('tapping a segment on a phone', () => {
 				{ message: 'the trip strip is behind the sheet, so the segment that was tapped is not on screen' }
 			)
 			.toBeLessThanOrEqual(sheetBox.y);
+	});
+
+	test('the panel is placed on the frame it appears, not on its way to the right place', async ({ page }) => {
+		// The test above is the one a traveller feels, and it only fails when the machine is
+		// slow enough to lose the race. This is the same defect asserted where it cannot
+		// hide, because the panel's own arithmetic decides it and nothing else does.
+		//
+		// `place` cannot measure the panel until `showPopover` has displayed it, so the first
+		// style pass of a panel that has just opened has no `--x`/`--y` and resolves both to
+		// zero. With `translate` transitionable across that pass the panel then travelled from
+		// the corner of the window to the cell over 160ms, and everything under that path was
+		// covered on the way. Measured at 375x812 before the fix, the panel stood at
+		// 0,4..336,432 while the segment it belongs to ran 418..446.
+		//
+		// A phone is where that matters. Chromium hit-tests again for the `mouseup` it
+		// synthesises from a tap, so a panel over the thumb takes the click, which is
+		// dispatched to its common ancestor with the button and selects nothing.
+		//
+		// A hover rather than a tap, because a tap has a click to lose and this is about where
+		// the panel is, not about what the press does. A focus is out too, since
+		// `element.focus()` scrolls the button into view and the strip closes the panel on any
+		// scroll, so the panel opened and shut again before it could be measured.
+		const card = await openResults(page);
+		const hit = card.locator('.trip-strip-hit-stopover');
+
+		// Installed and awaited before the hover, so the listener is certainly up, and on the
+		// document rather than on the panel, because the results list is still revalidating
+		// and a card that re-renders takes its panel's node with it. `toggle` does not bubble;
+		// a capturing listener sees it anyway. The frame after the panel opens rather than the
+		// moment it comes to rest, since settling is what the broken version eventually did
+		// too.
+		await page.evaluate(() => {
+			Object.assign(window, {
+				firstFrame: new Promise<[number, number, number, number]>((resolve, reject) => {
+					document.addEventListener(
+						'toggle',
+						(event) => {
+							const panel = event.target;
+							if ((event as ToggleEvent).newState !== 'open') return;
+							if (!(panel instanceof HTMLElement) || !panel.classList.contains('stub')) return;
+							requestAnimationFrame(() => {
+								const box = panel.getBoundingClientRect();
+								resolve([box.left, box.top, box.right, box.bottom]);
+							});
+						},
+						{ capture: true }
+					);
+					setTimeout(() => reject(new Error('the panel never opened')), 5_000);
+				})
+			});
+		});
+
+		await hit.hover();
+		const [left, top, right, bottom] = await page.evaluate(
+			() => (window as unknown as { firstFrame: Promise<[number, number, number, number]> }).firstFrame
+		);
+		const cell = (await hit.boundingBox())!;
+		const covered =
+			left < cell.x + cell.width && right > cell.x && top < cell.y + cell.height && bottom > cell.y;
+		expect(
+			covered,
+			`the panel was at ${left},${top}..${right},${bottom} over a segment at ${cell.x},${cell.y}..${cell.x + cell.width},${cell.y + cell.height}`
+		).toBe(false);
 	});
 
 	test('the sheet closes on Escape, on its close button, and on a tap outside it', async ({ page }) => {

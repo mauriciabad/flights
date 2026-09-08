@@ -93,13 +93,20 @@ async function openStopoverWithANight(page: Page): Promise<OpenedStopover> {
 	const count = await entries.count();
 	const seen: string[] = [];
 
+	const panel = page.getByTestId('segment-customiser');
+
 	for (let index = 0; index < count; index += 1) {
 		const entry = entries.nth(index);
-		const unfold = entry.locator('.trip-strip-unfold');
-		if ((await unfold.count()) === 0) continue;
+		// Issue #440 deleted the card's fold. Picking the strip's stopover cell is what fills
+		// the inspector, and the timeline that names the stopover's length is inside it.
+		const cell = entry.locator('.trip-strip-hit-stopover').first();
+		if ((await cell.count()) === 0) continue;
 
-		await unfold.click();
-		const row = entry.locator('[data-segment="free-time"]');
+		await cell.click();
+		const summary = panel.locator('.customiser-trip-summary');
+		await summary.waitFor();
+		if ((await panel.locator('.customiser-trip[open]').count()) === 0) await summary.click();
+		const row = panel.locator('[data-segment="free-time"]');
 		await expect(row).toBeVisible();
 
 		// "2 nights in Vienna" or "Day stopover in Vienna", from `ItineraryTimeline.svelte`.
@@ -115,13 +122,14 @@ async function openStopoverWithANight(page: Page): Promise<OpenedStopover> {
 				.catch(() => null)
 		);
 
-		if (!Number.isFinite(nights) || nights < 1) {
-			await unfold.click();
-			continue;
-		}
+		if (!Number.isFinite(nights) || nights < 1) continue;
 
-		await row.click();
-		const panel = page.getByTestId('segment-customiser');
+		// Only when it is not already the selection. Picking the strip's stopover cell above
+		// has usually made it one, and a second activation of a selected row clears it, which
+		// is how a traveller hands the map back the whole route.
+		if ((await row.getAttribute('aria-current')) !== 'true') {
+			await row.click({ position: { x: 6, y: 6 } });
+		}
 		await expect(
 			panel,
 			`Clicking the stopover row on a card reading "${nightsLine}" filled no customise panel. Since issue #278 the page holds one selection and renders SegmentCustomiser for it, as a rail beside the list above 64rem and a sheet below; either the row stopped reporting its selection or the panel stopped mounting, and every assertion below is about what that panel contains.`
@@ -136,7 +144,7 @@ async function openStopoverWithANight(page: Page): Promise<OpenedStopover> {
 	throw new Error(
 		[
 			'No card on the results page has a stopover with a night in it, so the missing-bed notice could not be reached at all.',
-			`Stopover rows seen, in order: ${seen.length > 0 ? seen.join(' | ') : '(none: no card had a trip strip to unfold)'}.`,
+			`Stopover rows seen, in order: ${seen.length > 0 ? seen.join(' | ') : '(none: no card had a trip strip to pick a stopover on)'}.`,
 			'',
 			'`stayIsRelevant` in SegmentCustomiser.svelte is `nightsInConnection > 0 || stay !== undefined`, so a page of',
 			'same-day flight changes correctly shows no notice anywhere. If that is what happened, the scenario in',

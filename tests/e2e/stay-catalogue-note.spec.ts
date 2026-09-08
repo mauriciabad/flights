@@ -1,7 +1,7 @@
 import { test, expect } from './support/fixtures';
 import { FIXTURE_FLIGHT_NUMBERS, FIXTURE_PRICES } from './support/fixture-markers';
 import { mockAllKeylessProviders, mockHostelworld, routeRyanairFlights } from './support/providers';
-import { customiser, openTimeline, pickStripSegment } from './support/results-ui';
+import { customiser, openTimeline } from './support/results-ui';
 import { waitForSearchToSettle } from '../shared/search-wait';
 
 /**
@@ -75,8 +75,10 @@ test.describe('the stay list says whose catalogue it is (issue #374)', () => {
 		await waitForSearchToSettle(page, { timeout: 30_000 });
 		await expect(page.locator('.result-card').first()).toBeVisible();
 
+		// `openTimeline` picks the stopover on the way in, which is the panel this note lives
+		// in. Picking it again would toggle the selection off: the card's own handler treats a
+		// second activation of the selected cell as "clear it".
 		await openTimeline(page);
-		await pickStripSegment(page, 'stopover');
 
 		const panel = customiser(page);
 		// The footnote belongs under the alternatives, so wait for them: finding the note

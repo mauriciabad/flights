@@ -134,8 +134,12 @@ function renderTimeline(itinerary: Itinerary, connectionAirport?: Airport) {
  * wrapper component for exactly this. `externalSelect` plays the part `ItineraryMap`
  * (issue #26) will play for real: writing to the shared bound variable from outside.
  * `withExpansion` makes the harness pass a probe `expansion` snippet and one option mark,
- * the other two things only a `.svelte` file can author. */
-function renderSelectionHarness(itinerary: Itinerary, options: { withExpansion?: boolean } = {}) {
+ * and `insideDisclosure` wraps the whole list in a `<details>` the way the trip inspector
+ * does. All three are things only a `.svelte` file can author. */
+function renderSelectionHarness(
+	itinerary: Itinerary,
+	options: { withExpansion?: boolean; insideDisclosure?: boolean } = {}
+) {
 	target = document.createElement('div');
 	document.body.appendChild(target);
 	const harness = mount(ItineraryTimelineSelectionHarness, { target, props: { itinerary, ...options } });
@@ -390,6 +394,22 @@ describe('ItineraryTimeline, selection binding for the map (issue #73)', () => {
 		row.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
 		flushSync();
 		expect(harness.currentSelection()).toBeNull();
+	});
+
+	it('still selects a row when the whole timeline sits inside a disclosure', () => {
+		// Issue #440 put this component inside the trip inspector's `<details>`, and every row
+		// stopped selecting: `handleRowClick` asked `closest()` whether the click landed on a
+		// control, and `closest` walks past the row to the ancestors, where it found the
+		// disclosure. Three e2e specs went red at once with the panel apparently ignoring the
+		// timeline. The guard is about controls INSIDE the row, and this is the assertion that
+		// says so.
+		const itinerary = makeItinerary();
+		const { root, harness } = renderSelectionHarness(itinerary, { insideDisclosure: true });
+
+		root.querySelector<HTMLLIElement>('[data-segment="onward-flight"]')!.click();
+		flushSync();
+
+		expect(harness.currentSelection()).toBe('onward-flight');
 	});
 
 	it('the expansion snippet renders inside the selected row only, as that row\'s .tl-expansion', () => {

@@ -1,20 +1,40 @@
 import type { Locator, Page } from '@playwright/test';
 
 /**
- * The three gestures every results-page spec needs after issue #278, in one place.
+ * The three gestures every results-page spec needs, in one place.
  *
- * Before it there was one: click "Show details" and everything was inside `.result-detail`.
- * The card no longer opens; the trip strip unfolds into the full timeline, and every
- * control moved to a panel beside the list (a rail above 64rem, a sheet below it). Eight
- * specs reach for those, and eight copies of "which class is the unfold button" is how a
- * restructure turns into a day of test edits.
+ * Before issue #278 there was one: click "Show details" and everything was inside
+ * `.result-detail`. #278 moved every control to a panel beside the list and made the trip
+ * strip's caption unfold a second timeline inside the card. #440 deleted that fold and moved
+ * the timeline into the panel as well.
+ *
+ * Twenty-five specs reach for these, and twenty-five copies of "which class is the unfold
+ * button" is how a restructure turns into a day of test edits. This file is why #440 changed
+ * one gesture rather than twenty-five.
  */
 
-/** Unfolds the full timeline under the first card's trip strip. The control is the strip's
- * own stopover caption, whose accessible name starts with the visible words ("1 night in
- * Vienna") and so cannot be matched by a fixed string. */
+/**
+ * Puts the first card's full timeline on screen, which since issue #440 means filling the
+ * trip inspector with that card and opening the timeline inside it.
+ *
+ * The stopover cell by preference, because its panel is the stopover's and that is what most
+ * of the specs calling this go on to read. A connection with no night in it is a wait at the
+ * airport (issue #426), and the strip draws a wait rather than free time there, so it has no
+ * stopover cell at all; the outbound flight is the one cell every itinerary has, and it is
+ * the fallback.
+ *
+ * The timeline is already open on a wide viewport and closed inside the phone sheet, so the
+ * disclosure is pressed only when it is shut.
+ */
 export async function openTimeline(page: Page, card: Locator = page.locator('.result-card').first()) {
-	await card.locator('.trip-strip-unfold').click();
+	await card.locator('.trip-strip-track').first().waitFor();
+	const stopover = card.locator('.trip-strip-hit-stopover').first();
+	const cell = (await stopover.count()) > 0 ? stopover : card.locator('.trip-strip-hit-flight').first();
+	await cell.click();
+	const summary = page.locator('.customiser-trip-summary');
+	await summary.waitFor();
+	if ((await page.locator('.customiser-trip[open]').count()) === 0) await summary.click();
+	await page.locator('.itinerary-timeline').waitFor();
 }
 
 /** Picks one stretch of the trip on the strip, which is what fills the customise panel.
@@ -28,7 +48,8 @@ export async function pickStripSegment(
 }
 
 /**
- * Picks one stretch of the trip from the unfolded timeline, by `ItinerarySegmentId`.
+ * Picks one stretch of the trip from the timeline, by `ItinerarySegmentId`. Since issue #440
+ * that timeline is inside the inspector, so `openTimeline` has to have run first.
  *
  * Deliberately clicks the row's top-left corner rather than its centre. A row's centre can
  * be the waiting-time stepper, and `ItineraryTimeline.handleRowClick` ignores clicks that
@@ -37,9 +58,15 @@ export async function pickStripSegment(
  * panned view away four times.
  */
 export async function pickTimelineSegment(page: Page, segment: string) {
-	await page
-		.locator(`.itinerary-timeline [data-segment="${segment}"]`)
-		.click({ position: { x: 6, y: 6 } });
+	const row = page.locator(`.itinerary-timeline [data-segment="${segment}"]`);
+	await row.waitFor();
+	// A second activation of the selected row clears the selection, which is how a traveller
+	// hands the map back the whole route. That makes a bare click the wrong gesture for
+	// "show me this step": `openTimeline` picks the stopover on the way in, so a spec asking
+	// for the stopover next would empty the panel it just filled. Every caller here means
+	// select, so this asks whether the row already is the selection first.
+	if ((await row.getAttribute('aria-current')) === 'true') return;
+	await row.click({ position: { x: 6, y: 6 } });
 }
 
 /** The customise panel, wherever it currently lives. One instance is mounted at a time, so

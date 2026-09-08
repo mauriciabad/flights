@@ -87,7 +87,7 @@ async function searchWithBothOnwards(page: Page) {
 	await page.goto('/results/?dep=2027-03-08&arr=2027-03-27&from=BCN&to=TLL');
 	await waitForSearchToSettle(page, { timeout: 20_000 });
 	await openTimeline(page);
-	await expect(page.locator('.result-detail')).toBeVisible();
+	await expect(page.getByTestId('segment-customiser')).toBeVisible();
 
 	// Left open for the whole test. Selecting a segment toggles, so opening this a second
 	// time would shut the panel rather than reopen it, and `takeOnward` below would then
@@ -111,11 +111,11 @@ async function takeOnward(page: Page, flightNumber: string) {
 }
 
 function timelineRows(page: Page) {
-	return page.locator('.result-detail .itinerary-timeline [data-segment]');
+	return page.locator('[data-testid="segment-customiser"] .itinerary-timeline [data-segment]');
 }
 
 function row(page: Page, segment: string) {
-	return page.locator(`.result-detail .itinerary-timeline [data-segment="${segment}"]`);
+	return page.locator(`[data-testid="segment-customiser"] .itinerary-timeline [data-segment="${segment}"]`);
 }
 
 function metric(page: Page, label: string) {
@@ -151,16 +151,21 @@ test.describe('a connection with no night in it is a wait at the airport', () =>
 		await expect(wait.locator('.tl-duration')).toHaveText('12h');
 	});
 
-	test('the block above the timeline says where the traveller is, and for how long', async ({
-		page
-	}) => {
+	test('the stopover block says where the traveller is, and for how long', async ({ page }) => {
 		await searchWithBothOnwards(page);
 		await takeOnward(page, ONWARD_SAME_DAY);
+
+		// Issue #440 gave the block to whichever segment IS the stopover, and on this trip that
+		// is the wait: there is no free-time row to select, because #426 draws one wait row
+		// instead of a ride, a stay and a ride back. Reaching it from the row that describes
+		// the same twelve hours is what a traveller does anyway.
+		await pickTimelineSegment(page, 'connection-waiting');
+		await expect(customiser(page)).toHaveAttribute('data-segment', 'connection-waiting');
 
 		// Issue #228's three-line shape, saying the one thing that is true of this trip. It
 		// used to print the two edges of a "free time" window that is a departures hall,
 		// under a heading naming a city nobody reaches.
-		const block = page.locator('.result-detail .stopover');
+		const block = page.locator('[data-testid="segment-customiser"] .stopover');
 		await expect(block.locator('.stopover-edge').first()).toHaveText('Mon 8 from 9am');
 		await expect(block.locator('.stopover-days')).toHaveText('Waiting at VIE, 12h');
 		await expect(block.locator('.stopover-edge').last()).toHaveText('Mon 8 until 9pm');

@@ -195,9 +195,18 @@
 	// in it gets #141's behaviour back the moment the guard goes. The only caller that does
 	// so is the unit-test harness, which is a fact worth acting on separately rather than
 	// inside this issue.
-	function handleRowClick(event: MouseEvent, segment: ItinerarySegmentId) {
+	//
+	// The row is what "inside" means, and checking that is not optional. `closest` walks the
+	// whole ancestor chain, so it happily matches an element ABOVE this list, and then every
+	// row on the timeline stops selecting. Issue #440 put this component inside the trip
+	// inspector's `<details>` and did exactly that: three specs went red at once with the
+	// panel apparently ignoring every row, because `closest('details')` found the disclosure
+	// two levels up. Any caller with a `<label>`, an `<a>` or a `<summary>` around the
+	// timeline had the same defect waiting for it.
+	function handleRowClick(event: MouseEvent & { currentTarget: HTMLLIElement }, segment: ItinerarySegmentId) {
 		const target = event.target as Element | null;
-		if (target?.closest('.tl-expansion, button, input, label, a, select, summary, details')) return;
+		const control = target?.closest('.tl-expansion, button, input, label, a, select, summary, details');
+		if (control && event.currentTarget.contains(control)) return;
 		selectSegment(segment);
 	}
 
@@ -1243,8 +1252,16 @@
 	 * line existed for the duration and price and cost every flight row a
 	 * line for two short figures. Same children, same order, same
 	 * `data-segment` contract, placed differently.
+	 *
+	 * A container query, not a viewport one, since issue #440. This
+	 * timeline's only home is the trip inspector, which is 20rem at a
+	 * 64rem viewport and 24rem at 90rem. A media query read the screen
+	 * where the rows needed their own width, and answered "wide" to a
+	 * column with 112px for the WHAT column. Every caller therefore has
+	 * to be inside a size container; `SegmentCustomiser`'s `.customiser`
+	 * already is one, for the same reason and with the same note.
 	 * ------------------------------------------------------------------- */
-	@media (max-width: 34rem) {
+	@container (max-width: 34rem) {
 		.itinerary-timeline {
 			grid-template-columns: 1.5rem minmax(0, 1fr) auto;
 		}

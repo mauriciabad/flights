@@ -1,7 +1,7 @@
 import { test, expect, type Locator, type Page } from './support/fixtures';
 import { FIXTURE_FLIGHT_NUMBERS, FIXTURE_PRICES } from './support/fixture-markers';
 import { mockAllKeylessProviders, routeRyanairFlights } from './support/providers';
-import { openTimeline } from './support/results-ui';
+import { openTimeline, pickTimelineSegment } from './support/results-ui';
 import { waitForSearchToSettle } from '../shared/search-wait';
 
 /**
@@ -108,15 +108,19 @@ for (const viewport of VIEWPORTS) {
 			await expect(card.locator('.flight-shape .route-preview')).toBeVisible();
 			await card.screenshot({ path: `docs/screenshots/280-card-${viewport.name}-${scheme}.png` });
 
+			// Issue #439 draws one leg at a time, in the inspector. The stopover is the leg
+			// worth photographing: it is the only one every itinerary has, and it is the one
+			// whose picture changes when a traveller swaps their bed.
 			await openTimeline(page);
-			const previews = page.locator('.result-detail .ground-legs-row');
-			await expect(previews.locator('.ground-leg')).toHaveCount(3);
+			await pickTimelineSegment(page, 'transfer-to-hotel');
+			const previews = page.locator('[data-testid="segment-customiser"] .ground-legs-row');
+			await expect(previews.locator('.ground-leg')).toHaveCount(1);
 			await waitForSnapshots(previews);
 			await previews.screenshot({
 				path: `docs/screenshots/280-ground-previews-${viewport.name}-${scheme}.png`
 			});
 
-			await previews.locator('.ground-leg').nth(1).click();
+			await previews.locator('.ground-leg').first().click();
 			const dialog = page.locator('dialog.route-dialog');
 			await expect(dialog.getByRole('region', { name: /Route map/ })).toBeVisible();
 			// A marker only exists once MapLibre has fired `load` and the model has been
@@ -151,9 +155,11 @@ test('@screenshot ground preview across water', async ({ page }) => {
 	await page.setViewportSize({ width: 1280, height: 1000 });
 	await openResults(page, 'FIXTURE island point@58.2528,22.4894');
 	await openTimeline(page);
+	// The origin leg, which is the one that crosses the water on this fixture.
+	await pickTimelineSegment(page, 'transfer-to-origin-airport');
 
-	const previews = page.locator('.result-detail .ground-legs-row');
-	await expect(previews.locator('.ground-leg')).toHaveCount(3);
+	const previews = page.locator('[data-testid="segment-customiser"] .ground-legs-row');
+	await expect(previews.locator('.ground-leg')).toHaveCount(1);
 	await waitForSnapshots(previews);
 	await previews.screenshot({ path: 'docs/screenshots/346-ground-preview-across-water.png' });
 });

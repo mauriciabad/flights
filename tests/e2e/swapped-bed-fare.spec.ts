@@ -1,7 +1,7 @@
 import { test, expect } from './support/fixtures';
 import { FIXTURE_FLIGHT_NUMBERS, FIXTURE_PRICES } from './support/fixture-markers';
 import { mockAllKeylessProviders, mockHostelworld, routeRyanairFlights } from './support/providers';
-import { customiser, openTimeline } from './support/results-ui';
+import { customiser, openTimeline, pickTimelineSegment } from './support/results-ui';
 import { waitForSearchToSettle } from '../shared/search-wait';
 
 /**
@@ -70,7 +70,7 @@ test.describe('a bed you swap to keeps its fare (issue #356)', () => {
 		await waitForSearchToSettle(page, { timeout: 20_000 });
 
 		await openTimeline(page);
-		const toBed = page.locator('.result-detail [data-segment="transfer-to-hotel"]');
+		const toBed = page.locator('[data-testid="segment-customiser"] [data-segment="transfer-to-hotel"]');
 
 		// The search's own bed, and the reading this test compares everything against. The
 		// pipeline passes the country and the currency, so this ride has always been priced.
@@ -78,7 +78,7 @@ test.describe('a bed you swap to keeps its fare (issue #356)', () => {
 		await expect(toBed).toContainText(AUSTRIAN_TAXI_FARE);
 
 		// Two taps to the other bed: open the stopover, pick the other property.
-		await page.locator('.result-detail [data-segment="free-time"]').click();
+		await pickTimelineSegment(page, 'free-time');
 		const otherBed = customiser(page).locator('.alt-card', { hasText: 'FIXTURE Far Lodge' });
 		await expect(otherBed).toBeVisible();
 		await otherBed.click();
@@ -86,16 +86,14 @@ test.describe('a bed you swap to keeps its fare (issue #356)', () => {
 		// The whole issue, on the timeline row a traveller reads while comparing the two.
 		// Before the fix this row said "price n/a" on a ride the same screen had priced a tap
 		// earlier, which makes the bed at the end of it look cheaper than it is.
-		await expect(page.locator('.result-detail .stopover')).toContainText('FIXTURE Far Lodge');
+		await expect(page.locator('[data-testid="segment-customiser"] .stopover')).toContainText('FIXTURE Far Lodge');
 		await expect(toBed).toContainText('Taxi');
 		await expect(toBed).toContainText(AUSTRIAN_TAXI_FARE, { timeout: 15_000 });
 		await expect(toBed).not.toContainText('price n/a');
 
 		// And in the picker, which is where issue #282 reported the estimate and where the
 		// row is tagged as a guess rather than a quote.
-		await page.locator('.result-detail [data-segment="transfer-to-hotel"]').click({
-			position: { x: 6, y: 6 }
-		});
+		await pickTimelineSegment(page, 'transfer-to-hotel');
 		const currentPick = customiser(page).locator('.picker-row.is-selected');
 		await expect(currentPick).toContainText(AUSTRIAN_TAXI_FARE);
 		await expect(currentPick).toContainText('estimate');

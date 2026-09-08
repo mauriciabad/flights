@@ -105,7 +105,7 @@ async function openDetail(page: Page, options: { originLocation?: boolean } = {}
 	await waitForSearchToSettle(page, { timeout: 20_000 });
 	await openTimeline(page);
 
-	const detail = page.locator('.result-detail');
+	const detail = page.getByTestId('segment-customiser');
 	// Issue #280 moved the map off the panel and into a dialog behind the frozen previews,
 	// so every claim below is now made against the dialog. The defects themselves are
 	// unchanged: they are `ItineraryMap`'s, and that component is the same one, on a bigger
@@ -153,7 +153,7 @@ test.describe('itinerary map defects (issue #141)', () => {
 		// (segment-id.ts) is checked where it now pays off: close the dialog, and the row for
 		// the leg the traveller ended up looking at is the one highlighted underneath.
 		await page.keyboard.press('Escape');
-		await expect(page.locator('.result-detail [data-segment="connection-waiting"]')).toHaveAttribute(
+		await expect(page.locator('[data-testid="segment-customiser"] [data-segment="connection-waiting"]')).toHaveAttribute(
 			'aria-current',
 			'true'
 		);
@@ -258,7 +258,7 @@ test.describe('itinerary map defects (issue #141)', () => {
 		await expect(status).toHaveText('Showing the whole route.');
 
 		await page.keyboard.press('Escape');
-		await expect(page.locator('.result-detail [data-segment="transfer-to-hotel"]')).not.toHaveAttribute(
+		await expect(page.locator('[data-testid="segment-customiser"] [data-segment="transfer-to-hotel"]')).not.toHaveAttribute(
 			'aria-current',
 			'true'
 		);

@@ -36,6 +36,10 @@
 	 *   `formatDuration`, `transferDetailLine` and `transferFareNote`, and when nothing
 	 *   routed to the bed at all, `unroutedLegNote`.
 	 *
+	 * The rate, the room kind and the distance now arrive together, from `stays/bed-facts.ts`.
+	 * Issue #435 put the same property on the result card, and three derivations copied onto a
+	 * second surface is this section's own warning coming true.
+	 *
 	 * ## The two format decisions worth naming
 	 *
 	 * **Money keeps the app's convention, not the one in his comment.** He wrote `52.82
@@ -72,15 +76,7 @@
 	import { transferRideDuration } from '$lib/domain';
 	import { formatClockTime, formatDuration, formatMoney, formatWeekdayAndDay } from '$lib/format';
 	import { overnightWaitNote } from '$lib/results/stopover-nights';
-	import {
-		bedNightlyRate,
-		formatDistanceKm,
-		haversineDistanceKm,
-		PickedBed,
-		propertyKey,
-		ROOM_KIND_LABELS,
-		stayPhotos
-	} from '$lib/stays';
+	import { bedFacts, formatDistanceKm, PickedBed, propertyKey } from '$lib/stays';
 	import { freeTimeDays } from './free-time-days';
 	import {
 		landingBufferNote,
@@ -125,39 +121,32 @@
 	const waitNote = $derived(overnightWaitNote(itinerary));
 
 	/**
-	 * How far out the bed is. Issue #219: the app picked a bed 48.3 km from the airport and
-	 * the card said nothing about it, so the one number that made the pick look absurd was
-	 * the one number missing from the screen.
+	 * The bed, gathered by `stays/bed-facts.ts`.
 	 *
-	 * Straight-line, the same figure and the same formatter the stay picker's rows use
-	 * (`stays/distance.ts`), never a second measurement that could disagree with the list
-	 * a tap away. The transfer line below is the other half of the answer: how long the
-	 * journey actually takes, which is a route rather than a line.
+	 * That module exists because issue #435 put the same property on the result card, and a
+	 * rate or a distance derived on both surfaces is the "one fact, two answers" failure this
+	 * file's header spends a paragraph warning about. What it hands back is unformatted: the
+	 * rate as `Money` and the distance in kilometres, because the card prints a journey where
+	 * this block prints a sentence.
 	 *
-	 * `undefined` when no airport position was resolved. The itinerary carries only an IATA
-	 * code (domain/itinerary.ts), and a block that invented a point would print a distance
-	 * to nowhere; the figure is simply absent instead.
+	 * Issue #219 is why the distance is on screen at all: the app picked a bed 48.3 km from
+	 * the airport and nothing said so. Straight-line, through `stays/distance.ts`, the same
+	 * figure and formatter every row of the stay picker prints. Absent when no airport
+	 * position was resolved, since a block that invented a point would print a distance to
+	 * nowhere.
 	 */
-	const distanceFromAirport = $derived.by(() => {
-		if (!stay || !connectionCoordinates) return undefined;
-		const km = haversineDistanceKm(stay.property.coordinates, connectionCoordinates);
-		return formatDistanceKm(km);
-	});
+	const bed = $derived(bedFacts(itinerary, connectionCoordinates));
+	const distanceFromAirport = $derived(
+		bed?.distanceFromAirportKm === undefined ? undefined : formatDistanceKm(bed.distanceFromAirportKm)
+	);
 
-	// Issue #206: the rate, and who it covers. `bedNightlyRate` owns that decision so this
-	// figure and the card's own "Bed, 2 nights × €13.00 each" can never quote two different
-	// numbers for one bed. A dorm bed for three carries "each"; a private room carries "for
-	// 3", because a room is one unit whatever the party size and splitting it between heads
-	// would be a number nobody quoted.
-	//
-	// Handed on as the number and its audience rather than as one sentence: since issue
-	// #279 the block prints them on two lines, and re-splitting a string it had just joined
-	// would be the second derivation this file exists to avoid.
-	const bedRate = $derived.by(() => {
-		if (!stay) return undefined;
-		const rate = bedNightlyRate(stay, itinerary.travellers);
-		return { amount: formatMoney(rate.money), audience: rate.audience };
-	});
+	// Issue #206: the rate, and who it covers, split into the number and its audience rather
+	// than joined into a sentence. Since issue #279 the block prints them on two lines, and
+	// re-splitting a string it had just joined would be the second derivation this file
+	// exists to avoid.
+	const bedRate = $derived(
+		bed ? { amount: formatMoney(bed.rate.money), audience: bed.rate.audience } : undefined
+	);
 
 	/**
 	 * "each way" only because this leg is travelled twice, out to the bed and back to the
@@ -269,7 +258,7 @@
 		<!-- Since issue #426 a trip with no night carries no bed at all, so `stay` is the whole
 		     question again: `nights > 0` was the guard that let this block hold a quote for a
 		     room nobody was booking, and the model no longer offers it one. -->
-		{:else if stay && bedRate}
+		{:else if stay && bed && bedRate}
 			<!-- Keyed on the property so a swap rebuilds the block rather than reusing it.
 			     `PickedBed` counts which photograph the reader has reached, and carrying
 			     that count over to a different hostel would open the new one on its second
@@ -277,12 +266,12 @@
 			{#key propertyKey(stay.property)}
 				<PickedBed
 					property={stay.property}
-					roomKindLabel={ROOM_KIND_LABELS[stay.roomKind]}
+					roomKindLabel={bed.roomKindLabel}
 					{nights}
 					rate={bedRate}
 					{distanceFromAirport}
 					transfer={{ note: transferLine, mode: toHotel?.mode }}
-					photos={stayPhotos(stay.property, [stay])}
+					photos={bed.photos}
 					showPhotos={photos}
 				/>
 			{/key}
