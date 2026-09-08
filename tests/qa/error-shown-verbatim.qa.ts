@@ -124,7 +124,12 @@ async function openStopoverWithANight(page: Page): Promise<OpenedStopover> {
 
 		if (!Number.isFinite(nights) || nights < 1) continue;
 
-		await row.click({ position: { x: 6, y: 6 } });
+		// Only when it is not already the selection. Picking the strip's stopover cell above
+		// has usually made it one, and a second activation of a selected row clears it, which
+		// is how a traveller hands the map back the whole route.
+		if ((await row.getAttribute('aria-current')) !== 'true') {
+			await row.click({ position: { x: 6, y: 6 } });
+		}
 		await expect(
 			panel,
 			`Clicking the stopover row on a card reading "${nightsLine}" filled no customise panel. Since issue #278 the page holds one selection and renders SegmentCustomiser for it, as a rail beside the list above 64rem and a sheet below; either the row stopped reporting its selection or the panel stopped mounting, and every assertion below is about what that panel contains.`
