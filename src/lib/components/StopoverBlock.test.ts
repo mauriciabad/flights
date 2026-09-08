@@ -1,6 +1,6 @@
 import { flushSync, mount, unmount } from 'svelte';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import type { CityStopoverItinerary, Coordinates, Duration, Itinerary, Transfer, TransferLeg } from '../domain';
+import type { CityStopoverItinerary, Duration, Itinerary, Transfer, TransferLeg } from '../domain';
 import { makeItinerary, makeStopover } from '../results/test-support';
 import { timeFormat } from '../settings/time-format.svelte';
 import StopoverBlock from './StopoverBlock.svelte';
@@ -33,16 +33,12 @@ function render(itinerary: Itinerary, connectionLabel = 'London'): string {
 	return text();
 }
 
-function mountBlock(
-	itinerary: Itinerary,
-	connectionLabel = 'London',
-	connectionCoordinates?: Coordinates
-) {
+function mountBlock(itinerary: Itinerary, connectionLabel = 'London') {
 	target = document.createElement('div');
 	document.body.appendChild(target);
 	component = mount(StopoverBlock, {
 		target,
-		props: { itinerary, connectionLabel, connectionCoordinates }
+		props: { itinerary, connectionLabel }
 	});
 	flushSync();
 }
@@ -244,8 +240,8 @@ describe('a short overnight wait (issue #231)', () => {
 	});
 });
 
-describe('how far out the bed is (issue #219)', () => {
-	/** Gatwick, and a bed 2.8 km from it in Horley - the pair the issue measured. */
+describe('how far out the bed is, which this block no longer answers (issues #219 and #465)', () => {
+	/** Gatwick, and a bed 2.8 km from it in Horley - the pair issue #219 measured. */
 	const GATWICK = { latitude: 51.1537, longitude: -0.1821 };
 
 	function withBedAt(latitude: number, longitude: number): Itinerary {
@@ -256,24 +252,16 @@ describe('how far out the bed is (issue #219)', () => {
 		};
 	}
 
-	function renderWithAirport(itinerary: Itinerary): string {
-		mountBlock(itinerary, 'London', GATWICK);
-		return text();
-	}
-
-	it('prints the distance as a figure of its own, under the label that names it', () => {
-		// 0.0252 degrees of latitude north of Gatwick is 2.8 km.
-		const block = renderWithAirport(withBedAt(GATWICK.latitude + 0.0252, GATWICK.longitude));
-		expect(block).toContain('From airport 2.8 km');
-		expect(block).toContain('Private room');
-	});
-
-	it('drops the figure entirely when no airport position was resolved', () => {
-		// Not a dash and not a zero. The itinerary carries only an IATA code, so there is no
-		// point to measure from and no number to print.
-		const block = render(londonStopover());
+	it("names the room and says nothing about the distance, whatever the bed's position", () => {
+		// Issue #219 printed "From airport 2.8 km" here. Issue #465 found the stay picker's
+		// open card printing the same straight line a few centimetres below, about the same
+		// property, so the figure is the picker's alone now. This block cannot print one at
+		// all, because it takes no airport position, which is what makes the rule hold by
+		// construction rather than by nobody passing a prop.
+		const block = render(withBedAt(GATWICK.latitude + 0.0252, GATWICK.longitude));
 		expect(block).toContain('Private room');
 		expect(block).not.toContain('From airport');
+		expect(block).not.toContain('2.8 km');
 	});
 });
 

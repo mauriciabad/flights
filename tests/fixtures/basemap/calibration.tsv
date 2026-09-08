@@ -1,0 +1,9 @@
+# Written by pnpm data:basemap-canary on 2026-09-08.
+# Do not edit. basemap-canary.ts quotes these rows and basemap-canary.test.ts checks it does.
+population	n	inkShare	lumaSpread	keyNotice
+clean CARTO renders	16	0.0272 - 0.2292	0.0284 - 0.0935	0.000 - 0.227
+watermarked raster tiles	16	0.0331 - 0.2335	0.0612 - 0.0867	1.000 - 1.000
+openstreetmap.org 403	1	0.1661 - 0.1661	0.2603 - 0.2603	0.218 - 0.218
+style with no layers	1	0.0000 - 0.0000	0.0000 - 0.0000	0.000 - 0.000
+style with one bg layer	1	0.0000 - 0.0000	0.0000 - 0.0000	0.000 - 0.000
+the shared test fixture	1	0.0614 - 0.0614	0.0695 - 0.0695	0.094 - 0.094

@@ -989,11 +989,7 @@
 				     fold. Above everything else in this panel because "what do I get here" is
 				     the question a person asks before deciding how long to stay or which bed to
 				     book, and it names the bed that is booked today. -->
-				<StopoverBlock
-					{itinerary}
-					{connectionLabel}
-					connectionCoordinates={connectionAirport?.coordinates}
-				/>
+				<StopoverBlock {itinerary} {connectionLabel} />
 			{/if}
 
 			{#if segment === 'transfer-to-origin-airport'}
