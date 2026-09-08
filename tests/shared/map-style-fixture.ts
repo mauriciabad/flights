@@ -23,8 +23,15 @@ import type { ColorScheme } from '../../src/lib/itinerary-map/style';
  *
  * A street grid, from a 256x256 PNG carried in the style document as a `data:` URL. Nothing
  * here touches the network: a `data:` tile is decoded by the browser, so a spec about bus
- * fares still pays no request for a map it never looks at, and a capture settles in about
- * 430ms against 310ms for the flat one (`tools/probe-fixture-basemap.mjs`).
+ * fares still pays no request for a map it never looks at. That decode is what a capture
+ * waits on, a few hundred milliseconds against a few tens for the flat control, and
+ * `tools/probe-fixture-basemap.mjs` prints both per camera on every run.
+ *
+ * This sentence read "about 430ms against 310ms for the flat one" until #469. The first
+ * figure is about right and the second never was. The flat control settles in 6 to 31ms over
+ * fourteen windows, in each of two runs, on the same probe that shipped in the commit which
+ * wrote the sentence. It is a shape and a pointer at the tool now rather than a number,
+ * because a wall clock on a machine running a dozen agents is not worth recording.
  *
  * A raster tile rather than inline `geojson`, because the picture has to ink at *any*
  * camera. `cameraForFrame` turns a leg's span into a zoom, so the app asks for anything from
