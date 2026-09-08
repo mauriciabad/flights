@@ -144,6 +144,92 @@ test.describe('the segment stub (issue #227)', () => {
 		await expect(cards.nth(1).getByRole('tooltip')).toBeVisible();
 		await expect(cards.nth(0).getByRole('tooltip')).toBeHidden();
 	});
+
+	/**
+	 * Issue #459, which reported the panel ignoring `prefers-reduced-motion` and turned out
+	 * to be answered already, by `app.css` rather than by the component.
+	 *
+	 * That answer is an accident of a `*` rule until something checks it, and it is the kind
+	 * of accident an edit to the panel's own transition list would undo without a symptom.
+	 * So both halves are read here: what the preference does to the declared durations, and
+	 * what it does to the panel when a pointer walks the strip.
+	 *
+	 * The positions the panel is seen at are counted rather than timed, and only the reduced
+	 * case asserts on them. A machine slow enough to drop frames makes a travelling panel
+	 * look still, so a count can under-report movement and never invent it, which makes "it
+	 * only ever stood in two places" the safe direction to assert. The other case proves the
+	 * panel really does travel through its declared durations instead.
+	 */
+	for (const motion of ['reduce', 'no-preference'] as const) {
+		test(`a reader who asked for ${motion} motion gets it`, async ({ page }) => {
+			await page.emulateMedia({ reducedMotion: motion });
+			const card = await openResults(page);
+			const cells = card.locator('.trip-strip-hit-flight, .trip-strip-hit-stopover');
+			await cells.first().hover();
+			const panel = card.getByRole('tooltip');
+			await expect(panel).toBeVisible();
+
+			const declared = await panel.evaluate((node) => ({
+				panel: getComputedStyle(node).transitionDuration,
+				tail: getComputedStyle(node.querySelector('.stub-tail')!).transitionDuration
+			}));
+			const longest = (durations: string) =>
+				Math.max(...durations.split(',').map((value) => Number.parseFloat(value)));
+
+			if (motion === 'reduce') {
+				expect(longest(declared.panel), `panel ${declared.panel}`).toBeLessThan(0.01);
+				expect(longest(declared.tail), `tail ${declared.tail}`).toBeLessThan(0.01);
+			} else {
+				expect(longest(declared.panel), `panel ${declared.panel}`).toBeCloseTo(0.16, 3);
+				expect(longest(declared.tail), `tail ${declared.tail}`).toBeCloseTo(0.16, 3);
+			}
+
+			// Sampled from inside the page rather than polled from here, because the glide is
+			// 160ms and a round trip per reading would miss most of it. The run is bounded by
+			// the move rather than by a frame count. A frame count is a stopwatch in disguise.
+			// On a machine slow enough to spend all of it before the pointer lands, every
+			// reading would be the panel's starting position, and a still panel would look like
+			// a reduced-motion pass. So it stops half a second after the first change and gives
+			// up after five. The panel is looked up each frame because a card that re-renders
+			// while the list revalidates takes its panel's node with it.
+			await page.evaluate(() => {
+				const seen: number[] = [];
+				const startedAt = performance.now();
+				let movedAt: number | undefined;
+				const sample = () => {
+					const node = document.querySelector('.stub:popover-open');
+					if (node) {
+						const left = Math.round(node.getBoundingClientRect().left);
+						if (seen.length > 0 && left !== seen[seen.length - 1]) movedAt ??= performance.now();
+						seen.push(left);
+					}
+					const since = movedAt === undefined ? undefined : performance.now() - movedAt;
+					if ((since ?? 0) < 500 && performance.now() - startedAt < 5_000) requestAnimationFrame(sample);
+				};
+				Object.assign(window, { stubLefts: seen });
+				requestAnimationFrame(sample);
+			});
+			const positionsSeen = () =>
+				page.evaluate(() => new Set((window as unknown as { stubLefts: number[] }).stubLefts).size);
+
+			await cells.last().hover();
+			await expect
+				.poll(positionsSeen, {
+					timeout: 10_000,
+					message: 'the panel never moved to the second segment'
+				})
+				.toBeGreaterThan(1);
+			await page.waitForTimeout(600);
+			const lefts = await page.evaluate(() => (window as unknown as { stubLefts: number[] }).stubLefts);
+			const positions = [...new Set(lefts)];
+
+			if (motion === 'reduce') {
+				// Two positions and nothing between them. Anything in between is the panel
+				// travelling, which is the whole of what the preference asks it not to do.
+				expect(positions.length, `panel passed through ${positions.join(', ')}`).toBe(2);
+			}
+		});
+	}
 });
 
 /**
