@@ -141,6 +141,13 @@ for (const segment of ['transfer-to-hotel', 'free-time'] as const) {
 		if ((await page.locator('.customiser-trip[open]').count()) > 0) {
 			await page.locator('.customiser-trip-summary').click();
 		}
+		// The leg's basemap is a capture that arrives after the panel does, and a shot taken
+		// before it lands photographs the coast drawing the preview falls back to. The 1500ms
+		// is the disclosure animation, which has no event of its own.
+		const preview = panel.locator('img.inert-map-picture');
+		if ((await panel.locator('.ground-leg').count()) > 0) {
+			await expect(preview.first()).toBeVisible({ timeout: 30_000 });
+		}
 		await page.waitForTimeout(1500);
 		// The viewport, not the panel's own element. The rail scrolls inside itself, so an
 		// element capture is one long strip with the scrolled-away part blank, and what #439

@@ -3,6 +3,7 @@ import { FIXTURE_FLIGHT_NUMBERS, FIXTURE_PRICES } from './support/fixture-marker
 import { mockAllKeylessProviders, mockHostelworld, routeRyanairFlights } from './support/providers';
 import { customiser, openTimeline, visibleMapCanvases } from './support/results-ui';
 import { waitForSearchToSettle } from '../shared/search-wait';
+import { waitForMapPicture } from './support/map-picture';
 
 /**
  * Issues #319 and #307: the stay list, the map it opens, and the photographs.
@@ -134,6 +135,11 @@ for (const width of [375, 1280] as const) {
 			// Shooting on the sidebar alone photographed an empty rectangle, which is a
 			// convincing picture of a broken map.
 			await expect(page.locator('.stay-point').first()).toBeVisible({ timeout: 30_000 });
+			// The markers are drawn before the basemap under them is, and the rows have the same
+			// problem for a different reason. Since #405 each one's journey time is a routing
+			// lookup, so a shot taken before those land is a picture of five skeletons.
+			await waitForMapPicture(dialog.locator('.stays-map-canvas'));
+			await expect(dialog.locator('.skeleton')).toHaveCount(0, { timeout: 30_000 });
 			await page.screenshot({ path: `docs/screenshots/324-stays-${width}-${scheme}.png` });
 		});
 	}

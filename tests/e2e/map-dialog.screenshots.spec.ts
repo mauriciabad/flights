@@ -3,6 +3,7 @@ import { FIXTURE_FLIGHT_NUMBERS, FIXTURE_PRICES } from './support/fixture-marker
 import { mockAllKeylessProviders, routeRyanairFlights } from './support/providers';
 import { openTimeline, pickTimelineSegment } from './support/results-ui';
 import { waitForSearchToSettle } from '../shared/search-wait';
+import { waitForMapPicture } from './support/map-picture';
 
 /**
  * The map dialogs, at both widths and in both schemes (issue #324).
@@ -90,6 +91,9 @@ for (const viewport of VIEWPORTS) {
 			await page.locator('.connections-map-link').click();
 			const connections = page.locator('dialog.connections-dialog');
 			await expect(connections.locator('.connection-point').first()).toBeVisible({ timeout: 30_000 });
+			// And the basemap under them, which arrives later than any of them and later than
+			// every DOM signal the map offers. `waitForMapPicture` has the measurement.
+			await waitForMapPicture(connections.locator('.connections-map-canvas'));
 			await page.screenshot({ path: `docs/screenshots/324-connections-list-${suffix}.png` });
 			await connections.locator('.panel-row').filter({ hasText: 'VIE' }).click();
 			await expect(connections.locator('.panel-price')).toBeVisible();
@@ -110,6 +114,7 @@ for (const viewport of VIEWPORTS) {
 			await page.locator('[data-testid="segment-customiser"] .ground-leg').click();
 			const route = page.locator('dialog.route-dialog');
 			await expect(route.getByRole('region', { name: /Route map/ })).toBeVisible({ timeout: 30_000 });
+			await waitForMapPicture(route.locator('.itinerary-map-canvas'));
 			await page.screenshot({ path: `docs/screenshots/324-route-${suffix}.png` });
 		});
 	}
