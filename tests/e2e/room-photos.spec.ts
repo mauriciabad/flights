@@ -75,14 +75,22 @@ async function openPicker(page: Page): Promise<OpenedPicker> {
 	// asking for the stopover again here emptied the panel this spec had just filled.
 	// `pickTimelineSegment` guards against the same thing by reading `aria-current` first.
 	await openTimeline(page);
-	await expect(customiser(page).locator('.photo-carousel').first()).toBeVisible({ timeout: 20_000 });
+	await expect(carousel(page)).toBeVisible({ timeout: 20_000 });
 
 	return { availabilityRequests };
 }
 
-/** The open card's carousel, which is the property the traveller has a bed at. */
+/**
+ * The open card's carousel, which is the property the traveller has a bed at.
+ *
+ * Scoped to `.stay-open-body` rather than taken as the panel's first carousel. Issue #440
+ * put `StopoverBlock` at the top of this panel, so `PickedBed` draws a second carousel of
+ * the same property above the picker, and that one shows the building's own photographs
+ * only. Asking for the first one read its "1 / 2" and never saw the room photographs at all.
+ * `stays-map.spec.ts` names the open card this way for the same reason.
+ */
 function carousel(page: Page) {
-	return customiser(page).locator('.photo-carousel').first();
+	return customiser(page).locator('.stay-open-body .photo-carousel');
 }
 
 test.describe('room photographs on the open stay card (issue #449)', () => {
