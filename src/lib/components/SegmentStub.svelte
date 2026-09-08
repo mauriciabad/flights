@@ -123,8 +123,30 @@
 			if (showing) element.hidePopover();
 			return;
 		}
-		if (!showing) element.showPopover();
+		if (showing) {
+			place(element, anchor);
+			return;
+		}
+		// `place` cannot measure the panel until `showPopover` has displayed it, so the first
+		// style pass of a panel that has just opened has no `--x`/`--y` to read and resolves
+		// both to zero, which is the top left corner of the window. Leave `translate` in the
+		// transition list for that pass and a 336px panel then travels from the corner to the
+		// cell over 160ms, across everything between them.
+		//
+		// On a phone that is what swallows the tap. The press that opened the panel has not
+		// finished yet, and Chromium hit-tests again for the `mouseup` it synthesises. It finds
+		// the travelling panel over the thumb, so it dispatches the click to the common
+		// ancestor of the button and the panel rather than to the button. Measured at 375x812
+		// with the main thread busy, the panel sat at 0,4..336,432 while the segment's own hit
+		// target ran 418..446, so the click landed on `.trip-strip` and nothing was selected.
+		//
+		// So the pass that commits the placement carries no `translate` transition. The fade
+		// and the entry rise are `opacity` and `transform`, which is why they still animate.
+		element.style.transitionProperty = 'opacity, transform';
+		element.showPopover();
 		place(element, anchor);
+		void element.offsetHeight;
+		element.style.transitionProperty = '';
 	});
 
 	function onToggle(event: ToggleEvent) {
@@ -207,8 +229,14 @@
 
 <style>
 	/* `left`/`top` stay at 0 and the position is a translate, so moving from one segment to
-	   the next glides on the compositor and the entry can start 4px nearer the cell it
-	   belongs to. The popover UA styles are reset on the same declarations. */
+	   the next glides on the compositor. The popover UA styles are reset on the same
+	   declarations.
+
+	   The entry rise is a `transform` rather than part of that translate, because the two
+	   are known at different moments. Where the panel goes needs the panel measured, which
+	   needs it displayed; how far it rises is 4px whatever the answer. Folding the rise into
+	   `translate` made `@starting-style` read a placement that did not exist yet, so the
+	   entrance started from 0,0. */
 	.stub {
 		--stub-bg: var(--color-surface-hover);
 		--stub-tint: var(--color-bg-inset);
@@ -233,6 +261,7 @@
 		opacity: 0;
 		transition:
 			opacity 120ms ease,
+			transform 160ms cubic-bezier(0.16, 1, 0.3, 1),
 			translate 160ms cubic-bezier(0.16, 1, 0.3, 1),
 			display 120ms allow-discrete,
 			overlay 120ms allow-discrete;
@@ -245,7 +274,7 @@
 	@starting-style {
 		.stub:popover-open {
 			opacity: 0;
-			translate: var(--x, 0) calc(var(--y, 0px) + var(--enter-dy));
+			transform: translateY(var(--enter-dy));
 		}
 	}
 
