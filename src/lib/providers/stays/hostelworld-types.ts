@@ -79,12 +79,13 @@ export interface HostelworldRoom {
 	 * on this shared room type rather than on the availability response alone, so the day a
 	 * city room summary carries one the app draws it with no further work.
 	 *
-	 * Issue #449 asked what fetching that response would take and answered two thirds of it.
+	 * Issue #449 asked what fetching that response would take.
 	 * `tools/probe-hostelworld-rooms.mjs` measured `200` with `Access-Control-Allow-Origin: *`
 	 * from a real page origin, at 6.4 KB over the wire and 450 ms for one property against
-	 * 89.5 KB and 6.9 s for a page of thirty. What is missing is an address. Nothing this app
-	 * carries out of a search can name one Hostelworld property or one of its rooms, so the
-	 * call has nothing to put in its URL. docs/PROVIDERS.md holds the table.
+	 * 89.5 KB and 6.9 s for a page of thirty. The address it was missing arrived with #450:
+	 * `Stay.source` carries Hostelworld's own property id and, for the two restricted dorm
+	 * kinds, its own room id. So the call is made for the one property whose bed is on screen
+	 * and never for a list. docs/PROVIDERS.md holds the table.
 	 *
 	 * Not unique per room. At property 312244 the female dorm and the mixed dorm publish the
 	 * same three photographs and the private publishes four different ones, so two rooms

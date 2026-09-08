@@ -10,7 +10,7 @@ import { waitForSearchToSettle } from '../shared/search-wait';
  * Two of the three things this feature promises are invisible to a unit test. The lookup
  * runs from an `$effect`, and AGENTS.md's "Svelte trap that cost us a working search" is
  * exactly a defect that survives a green suite and freezes the page. And the request budget
- * is the whole design: one property, never the list, which is a count of network requests
+ * is the whole design, one property and never the list, which is a count of network requests
  * rather than a property of a function.
  *
  * The third is the honesty rule, and it is checked here as well as in `stay-photos.test.ts`

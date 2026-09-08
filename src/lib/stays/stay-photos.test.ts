@@ -94,8 +94,8 @@ describe('stayPhotos, the rooms a provider answered about on demand (issue #449)
 	 * The judgement call this whole issue turns on. A `dorm` and a `private` are priced from a
 	 * property-level average no single room quotes, so no photograph is of the room whose rate
 	 * is on screen, and the mapper has always refused to pretend otherwise. That refusal left
-	 * the two commonest kinds with nothing: 121 of the 216 rooms on a live London page are
-	 * mixed dorms and 51 are privates.
+	 * the two commonest kinds with nothing: 128 of the 228 rooms across thirty live London
+	 * properties are mixed dorms and 52 are privates (2026-09-08).
 	 *
 	 * These are the weaker true claim in its place, and the tests that keep it weak.
 	 */

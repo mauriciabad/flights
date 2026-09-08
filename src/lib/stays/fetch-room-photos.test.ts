@@ -1,7 +1,7 @@
 /**
  * What asking one provider about one property's rooms costs, and what it refuses to ask.
  *
- * Issue #449's whole design is a request budget: thirty of these was measured at 30 requests
+ * Issue #449's whole design is a request budget. Thirty of these was measured at 30 requests
  * and up to 7 seconds, one at 6.4 KB and under half a second. So the assertions that matter
  * here are counts, not contents. The mapping itself is covered in
  * `providers/stays/hostelworld-mapper.test.ts`, which needs no fetch at all.
@@ -91,7 +91,7 @@ describe('stayRoomPhotos', () => {
 	});
 
 	it('rejects with the provider own words when there is nothing held', async () => {
-		// AGENTS.md: show the error you got, never the one you assumed. The status and the
+		// AGENTS.md asks for the error you got, never the one you assumed. The status and the
 		// body both survive to the caller.
 		const store = new MemoryCacheStore();
 		const failing = fixtureFetch(400, {

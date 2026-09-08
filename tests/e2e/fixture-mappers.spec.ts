@@ -229,7 +229,7 @@ const CHECKS: Record<string, FixtureCheck> = {
 	},
 	// Issue #449's per-property answer, the only response in this repo that carries a
 	// photograph of a room rather than of a building. Counted as photographed room kinds,
-	// which is the thing a card can honestly draw: a room's own set needs the room id to be
+	// which is the thing a card can honestly draw. A room's own set needs the room id to be
 	// claimed, and a kind's set is what a `dorm` and a `private` get instead.
 	'hostelworld/property-availability.json': {
 		readBy: 'providers/stays/hostelworld-mapper.ts mapAvailabilityToRoomPhotos',

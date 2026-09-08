@@ -8,7 +8,7 @@
  *
  * A cached value is read back and used, never inspected and found wanting, so a test that
  * checks the new field is present on a fresh fetch proves nothing about the people who
- * already have the old one. These tests do the thing that actually goes wrong: they write
+ * already have the old one. These tests do the thing that actually goes wrong. They write
  * the value the old code would have written, under the key the old code would have written
  * it under, and then run the shipped adapter over it.
  *
@@ -122,8 +122,8 @@ describe('Booking, a Stay[] cached before #450 (issue #131, AGENTS.md)', () => {
 		expect(result.data.length).toBeGreaterThan(0);
 		expect(result.data.every((stay) => stay.source?.provider === 'booking')).toBe(true);
 		expect(result.data.every((stay) => (stay.source?.propertyId.length ?? 0) > 0)).toBe(true);
-		// The old entry is still sitting there, untouched. That is what makes the point: it
-		// was not deleted or repaired, it simply stopped being reachable.
+		// The old entry is still sitting there, untouched. That is what makes the point. It was
+		// not deleted or repaired, it simply stopped being reachable.
 		expect(await store.get(staleKey)).toBeDefined();
 	});
 });

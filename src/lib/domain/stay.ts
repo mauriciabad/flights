@@ -154,8 +154,8 @@ export interface StaySource {
    *
    * Absent for a `dorm` or a `private` at Hostelworld, which are priced from
    * `lowestAverage*PricePerNight`, a property-level average over rates no single room
-   * quotes. Absent for every Booking and Agoda stay: neither response carries a room id at
-   * all (docs/PROVIDERS.md's room table, measured from captures already on disk).
+   * quotes. Absent for every Booking and Agoda stay, because neither response carries a room
+   * id at all (docs/PROVIDERS.md's room table, measured from captures already on disk).
    */
   roomId?: string;
 }
@@ -205,7 +205,7 @@ export interface RoomPhotoLookup {
  *
  * A value already in IndexedDB is read back and used, never inspected and found wanting, so
  * a shape change with an unchanged key means the fix installs and the old value comes
- * straight back. #131 shipped exactly that: the OSRM route cache keyed on
+ * straight back. #131 shipped exactly that. The OSRM route cache keyed on
  * `{service, profile, origin, destination}` with a thirty-day TTL, so everyone who had used
  * the app that month installed real map geometry and kept seeing straight lines. The rule
  * AGENTS.md drew from it is that a cached value whose shape changed needs a key that no

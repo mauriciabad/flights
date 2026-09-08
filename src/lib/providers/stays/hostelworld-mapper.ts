@@ -200,7 +200,7 @@ function roomImages(room: HostelworldRoom | undefined): { roomImages?: string[] 
  * property arrived without an id.
  *
  * Spread into the literal rather than assigned, the same way `roomImages` above is and for
- * the same reason: an absent field is what survives the trip through IndexedDB unchanged,
+ * the same reason. An absent field is what survives the trip through IndexedDB unchanged,
  * and `domain/stay.ts` reads absent as "nothing can be asked about this listing".
  *
  * `roomId` is only ever set for the two restricted dorm kinds, because they are the only
@@ -503,7 +503,7 @@ export function rankCitiesNear(
 /**
  * How many photographs of one room KIND a property may contribute. Issue #449.
  *
- * A room's own set is small by nature: the fixture's four rooms carry three to five each,
+ * A room's own set is small by nature. The fixture's four rooms carry three to five each,
  * and the live London page's rooms carry five. A kind's set is the union across every room
  * of that kind, which at a property selling seven mixed dorms is thirty-odd near-identical
  * pictures behind a counter reading "1 / 37". `PhotoCarousel` fetches only what a reader

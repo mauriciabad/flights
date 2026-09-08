@@ -511,7 +511,7 @@
 
 	/**
 	 * The one tracked read, and a string rather than the stay, for the reason the reach
-	 * signature above gives at length: the candidate list is rebuilt on every snapshot, so
+	 * signature above gives at length. The candidate list is rebuilt on every snapshot, so
 	 * depending on the object would restart this on every background refresh.
 	 *
 	 * `roomPhotosAvailableFrom` is what keeps a Booking or an Agoda bed from starting a
@@ -562,7 +562,7 @@
 		} catch {
 			// A property whose rooms could not be fetched shows the building's photographs,
 			// which is what every card showed before this existed. There is no sentence to
-			// print here: nothing on screen is wrong, there is just less of it.
+			// print here, because nothing on screen is wrong. There is just less of it.
 		}
 	}
 

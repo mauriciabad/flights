@@ -57,7 +57,7 @@
 		connectionAirport: Airport;
 		nights: number;
 		/** Issue #449, by `propertyKey`. Usually holds the open card's property and nothing
-		 * else: nobody fetches this for a list of thirty, so a property the sidebar opens
+		 * else, because nobody fetches this for a list of thirty. A property the sidebar opens
 		 * without one draws the building's photographs, exactly as it did before. */
 		roomPhotosByProperty?: ReadonlyMap<string, RoomPhotoLookup>;
 		/** Picks a property's cheapest bookable room without closing the dialog: the whole

@@ -258,25 +258,21 @@ export interface HostelworldAvailabilityParams {
  *
  * ## Measured before it was built, because the app has no backend
  *
- * `tools/probe-hostelworld-rooms.mjs`, from a page served on `http://127.0.0.1` with a real
- * Chrome User-Agent, 2026-09-08, London city 3, three nights from 2026-10-07, EUR:
- *
- * | what | requests | wire bytes | decoded | wall clock |
- * | --- | --- | --- | --- | --- |
- * | the city search this app already makes | 1 | 49,970 | 292,798 | 251-1,453 ms |
- * | availability for one property | 1 | 6,416 | 63,969 | 399-434 ms |
- * | availability for all thirty | 30 | 89,550 | 704,121 | 603-7,014 ms |
+ * `tools/probe-hostelworld-rooms.mjs` takes the numbers and docs/PROVIDERS.md holds the
+ * table, so they are in one place and re-takeable rather than copied into a comment. The two
+ * that decide the design. One property is about 6.4 KB over the wire and under half a second,
+ * and a page of thirty is about 89.5 KB and 30 requests. That is 1.8x the whole city search's
+ * own bytes for 30x its requests, to answer a question about one property.
  *
  * `200`, `access-control-allow-origin: *`, gzipped, `fetch()` resolving with `type: "cors"`
- * and a body readable from script. Worth measuring rather than inferring from the city
- * endpoint sharing this host, for the reason this file's header records: the sibling
- * `prod.apigee.hostelworld.com` autocomplete host answers `curl` with `200` and sends a
- * foreign origin no `Access-Control-Allow-Origin` at all.
+ * and a body readable from script, measured from a real page origin. Worth measuring rather
+ * than inferring from the city endpoint sharing this host, for the reason this file's header
+ * records: the sibling `prod.apigee.hostelworld.com` autocomplete host answers `curl` with
+ * `200` and sends a foreign origin no `Access-Control-Allow-Origin` at all.
  *
- * The thirty-request row is why nothing calls this for a list. Three runs of it spread from
- * 0.6 s to 7.0 s depending on how warm the connection was, against 0.4 s for the one
- * property somebody actually opened, and the bytes are 1.8x the whole search's own for 30x
- * its requests.
+ * The wall clock for the thirty moves with the connection and the bytes do not. Runs on
+ * 2026-09-08 came in at 7,014 ms, 2,331 ms, 727 ms and 6,917 ms while the wire bytes stayed
+ * within a few hundred of each other, so the cold end is the number to design against.
  *
  * `date-start` and `num-nights` are not optional. Without them it answers `400` carrying its
  * own `{"description":[{"code":"2021","message":"date-start is missing or invalid"},…]}`,

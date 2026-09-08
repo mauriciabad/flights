@@ -674,7 +674,7 @@ describe('mapAvailabilityToRoomPhotos (issue #449)', () => {
 			}
 		});
 		expect(many.byKind.dorm).toHaveLength(8);
-		// The per-room sets are untouched: the cap is about one kind's union, not about a room.
+		// The per-room sets are untouched. The cap is about one kind's union, not about a room.
 		expect(many.byRoomId['0']).toHaveLength(5);
 	});
 });

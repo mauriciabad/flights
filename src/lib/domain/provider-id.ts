@@ -3,13 +3,13 @@
  * (adapters, the budget module's cap table, the settings catalog) each invented this
  * vocabulary on their own and drifted apart. `getProviderCap('skyscanner')` was silently
  * missing the cap table entirely because it was keyed `'sky-scrapper'`, RapidAPI's host
- * slug, not the adapter's own id. This list is the fix: the one place a provider id is
+ * slug, not the adapter's own id. This list is the fix, and the one place a provider id is
  * spelled out, so every other module imports `ProviderId` instead of retyping the string.
  *
  * Unlike IataAirportCode/IsoCurrencyCode (domain/codes.ts), which stay plain strings
  * because their real values come from data too large and too dynamic to enumerate at the
- * type level, providers are exactly the opposite: a small, fixed set, wired up by hand in
- * source, one new entry whenever an adapter is added. A closed union is what makes a typo
+ * type level, providers are exactly the opposite. They are a small, fixed set, wired up by
+ * hand in source, one new entry whenever an adapter is added. A closed union is what makes a typo
  * or a drifted id a compile error at the point it's written, rather than a lookup miss
  * that quietly falls through to a fallback.
  *

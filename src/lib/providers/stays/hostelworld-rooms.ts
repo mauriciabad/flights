@@ -4,18 +4,13 @@
  *
  * ## Why this is on demand, with the number that decides it
  *
- * `tools/probe-hostelworld-rooms.mjs`, London city 3, three nights from 2026-10-07, EUR,
- * 2026-09-08, from a real browser page origin:
+ * `tools/probe-hostelworld-rooms.mjs` re-takes it and docs/PROVIDERS.md holds the table. One
+ * property is about 6.4 KB over the wire and under half a second. A page of thirty is about
+ * 89.5 KB and 30 requests, which is 1.8x the whole city search's own bytes for 30x its
+ * requests, and its wall clock ran as high as 7 seconds on a cold connection.
  *
- * | what | requests | wire bytes | wall clock |
- * | --- | --- | --- | --- |
- * | availability for one property | 1 | 6,416 | 399-434 ms |
- * | availability for all thirty | 30 | 89,550 | 603-7,014 ms |
- *
- * Thirty is 1.8x the whole search's own bytes for 30x its requests, to answer a question
- * about one property the traveller has open. One is 6.4 KB and under half a second. So the
- * caller asks for the property in front of the reader, and this file's whole job is to make
- * that one request cheap to repeat.
+ * So the caller asks for the property in front of the reader, and this file's whole job is to
+ * make that one request cheap to repeat.
  *
  * ## Stale first, then fresh, which AGENTS.md asks for by name
  *
@@ -81,8 +76,8 @@ export interface RoomPhotosYield {
 }
 
 /** Thrown inside the fetcher so `staleWhileRevalidate` can fall back to a held value, and
- * unwrapped by the caller so the provider's own words reach the screen. AGENTS.md: show the
- * error you got, never the one you assumed. */
+ * unwrapped by the caller so the provider's own words reach the screen. AGENTS.md asks for
+ * the error you got, never the one you assumed. */
 export class HostelworldRoomPhotosError extends Error {
 	readonly providerError: ProviderError;
 	constructor(providerError: ProviderError) {

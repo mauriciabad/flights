@@ -282,7 +282,7 @@ export class Bench {
 		}
 		// Issue #449's per-property room lookup, which the picker asks on demand for the one
 		// property whose bed is on screen. Matched before the city page for the reason the
-		// OSRM pair below records: two endpoints on one host, and the path is the only thing
+		// OSRM pair below records. Two endpoints sit on one host, and the path is the only thing
 		// that tells them apart.
 		if (host === HOSTELWORLD_HOST && pathname.includes('/availability/')) {
 			return recorded.hostelworldAvailability();

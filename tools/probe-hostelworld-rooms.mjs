@@ -244,7 +244,7 @@ report.withoutDates = { status: bare.status, body: bare.body?.slice(0, 300) };
 /**
  * The shape a `Stay` has to carry to match one of these answers back to the room whose rate
  * it quotes. Issue #450 put `source.propertyId` and `source.roomId` on a `Stay` for exactly
- * this, and there is one trap worth re-taking rather than remembering: the property id
+ * this, and there is one trap worth re-taking rather than remembering. The property id
  * arrives HERE as a string where the city endpoint sends the same property as a number.
  *
  * The tally beside it is per `basicType`, because which room kinds are photographed is what

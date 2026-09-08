@@ -22,8 +22,10 @@
  * A `dorm` or a `private` is priced from `lowestAverage*PricePerNight`, a property-level
  * average over rates no single room quotes. There is no room whose photograph could go under
  * that price, and `hostelworld-mapper.ts` has always refused to invent one. That refusal is
- * right and it left the two commonest kinds with nothing: 121 of the 216 rooms on a live
- * London page are mixed dorms and 51 are privates.
+ * right and it left the two commonest kinds with nothing. Measured 2026-09-08 across thirty
+ * London properties with `tools/probe-hostelworld-rooms.mjs`, 128 of 228 rooms are mixed
+ * dorms and 52 are privates, so refusing outright ships a feature most travellers never
+ * reach.
  *
  * So there is a third, weaker, true claim. These are the dorms at this property. Not the
  * dorm the rate came from, because nobody knows which one that is. `subject: 'room-kind'`,
@@ -169,8 +171,8 @@ export function stayPhotos(
 				// One kind gets its own name; two or more get the bare plural. The badge sits in
 				// the corner of the photograph opposite the counter, and "Female-only dorms and
 				// male-only dorms" would run into it. The caption still names every kind, and
-				// "Rooms" is the same claim in fewer words: rooms of this sort here, not the one
-				// whose price is on screen.
+				// "Rooms" is the same claim in fewer words, meaning rooms of this sort here rather
+				// than the one whose price is on screen.
 				badge:
 					held.kinds.length === 1 ? ROOM_KIND_PLURAL_LABELS[held.kinds[0]] : 'Rooms'
 			};

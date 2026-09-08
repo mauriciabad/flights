@@ -1091,11 +1091,13 @@ THAT KIND at that property, captioned and badged in the plural ("Dorm rooms at R
 London"). `$lib/stays/stay-photos.ts` is where the three claims are separated, and a
 restricted dorm never feeds the mixed-dorm set (#288 is what pooling them looks like).
 
-Which kinds are photographed decides whether any of that fires. Counted across the same
-thirty properties, per Hostelworld's own `basicType`: Mixed Dorm 94 of 121, Private 37 of 51,
-Female Dorm 20 of 29, Dbl Private 5 of 11, Male Dorm 4 of 4. The two kinds that cannot claim
-a photograph as their own room are also the two commonest, which is why the weaker claim
-exists rather than nothing.
+Which kinds are photographed decides whether any of that fires, so the probe counts them per
+`basicType` too. Its default sample moves with the calendar, and a run on 2026-09-08 asking
+about 2026-10-08 gave Mixed Dorm 102 of 128, Private 38 of 52, Female Dorm 26 of 35, Dbl
+Private 4 of 9, Male Dorm 4 of 4, across 228 rooms in thirty properties. The proportions hold
+across runs and the exact counts do not, which is the point of it being re-takeable. What
+matters is stable: the two kinds that cannot claim a photograph as their own room are also
+the two commonest, which is why the weaker claim exists rather than nothing.
 
 One shape trap worth recording rather than rediscovering. This response sends `id` as a
 STRING (`"330521"`) where the city endpoint sends the same property as a number.
