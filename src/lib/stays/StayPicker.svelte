@@ -15,6 +15,7 @@
 	import { Button, Card, Chip, EmptyState, RoutePreview, Select } from '$lib/components';
 	import RoomKindTile from './RoomKindTile.svelte';
 	import StayAlternativeCard from './StayAlternativeCard.svelte';
+	import StayReachLine from './StayReachLine.svelte';
 	import PhotoCarousel from './PhotoCarousel.svelte';
 	import { stayPhotos } from './stay-photos';
 	import StaysMapDialog from './StaysMapDialog.svelte';
@@ -22,7 +23,7 @@
 	import { describeStayChoices } from './choice';
 	import { stayReachNote, type StayReach } from './reach';
 	import { STAY_SORT_LABELS, availableStaySortKeys, sortStayChoices, type StaySortKey } from './sort';
-	import { formatDistanceKm, haversineDistanceKm } from './distance';
+	import { formatDistanceKm } from './distance';
 	import { stayTotalDelta, stayTotalForNights } from './pricing';
 	import {
 		cheapestSelectableOption,
@@ -330,20 +331,20 @@
 		properties.length > 0 && ranked.every((g) => !cheapestSelectableOption(g, travellers, females))
 	);
 
-	const distanceToAirportKm = $derived(
-		openProperty ? haversineDistanceKm(openProperty.coordinates, connectionAirport.coordinates) : 0
-	);
-	// Issue #162: `undefined`, and the line below it goes away, unless this airport has a
-	// hand-checked city point (`data/airport-city-names.ts`). It used to measure against
-	// `connectionAirport.city.coordinates` when that was the airport's own position, so
-	// this card printed one number under two labels — "6.0 km from the airport" above
-	// "6.0 km from the city centre" — and the second one read as a promise about a real
-	// old town.
-	const distanceToCentreKm = $derived.by(() => {
-		const centre = connectionAirport.city.coordinates;
-		if (!openProperty || !centre) return undefined;
-		return haversineDistanceKm(openProperty.coordinates, centre);
-	});
+	/**
+	 * The open property's own row (issue #470).
+	 *
+	 * Read off `choices` rather than measured again here, so the card and the list under it
+	 * answer "how far out is this bed" from one object. Two derivations of one fact is how
+	 * the card came to print a straight line while every row below it printed the journey.
+	 *
+	 * Issue #162 is why the centre distance can be absent. It needs a hand-checked city point
+	 * (`data/airport-city-names.ts`), and without one it used to measure against the airport's
+	 * own position, so this card printed one number under two labels, "6.0 km from the airport"
+	 * above "6.0 km from the city centre", and the second read as a promise about a real old
+	 * town.
+	 */
+	const openChoice = $derived(choices.find((choice) => choice.group === openGroup));
 
 	// Whether the whole property list has anything that isn't a plain private room -
 	// gates the one general data-quality note below rather than showing it on a
@@ -416,18 +417,28 @@
 				{/key}
 
 				<div class="stay-open-facts">
-					<!-- Issue #245: "(scale as reported by the source)" is gone with the doubt
-					     that needed it. The scale arrives on the rating now, so this can name
-					     it, and the timeline row a few centimetres away names the same one. -->
-					{#if openProperty.rating !== undefined}
-						<span class="stay-open-rating">rated {formatPropertyRating(openProperty.rating)}</span>
-					{/if}
-					<span class="stay-open-distance">{formatDistanceKm(distanceToAirportKm)} from the airport</span>
-					{#if distanceToCentreKm !== undefined}
-						<span class="stay-open-distance">
-							{formatDistanceKm(distanceToCentreKm)} from the centre of {connectionAirport.city.name}
-						</span>
-					{/if}
+					<!-- Issue #470. The journey out, drawn by the component every row below this
+					     card already uses. A straight line is not an answer to "can I walk to
+					     this", and this is the one property a traveller is actually reading. The
+					     component prints that straight line itself where no router answered, so
+					     the figure is not lost, it just stops outranking the better one. -->
+					<StayReachLine
+						reach={openChoice?.reach}
+						distanceToAirportKm={openChoice?.distanceToAirportKm ?? 0}
+					/>
+
+					<div class="stay-open-meta">
+						<!-- Issue #245: "(scale as reported by the source)" is gone with the doubt
+						     that needed it. The scale arrives on the rating now, so this can name
+						     it, and the timeline row a few centimetres away names the same one. -->
+						{#if openProperty.rating !== undefined}
+							<span class="stay-open-rating">rated {formatPropertyRating(openProperty.rating)}</span>
+						{/if}
+						{#if openChoice?.distanceToCentreKm !== undefined}
+							{@const centre = openChoice.distanceToCentreKm}
+							<span>{formatDistanceKm(centre)} from the centre of {connectionAirport.city.name}</span>
+						{/if}
+					</div>
 				</div>
 
 				<div class="stay-room-kinds" role="group" aria-label="Room type for this stay">
@@ -695,7 +706,18 @@
 		--photo-aspect: 16 / 9;
 	}
 
+	/* Two tiers rather than one wrapped line, which is issue #404's fix for the rows applied
+	   to the card they sit under. The journey out leads, the rating and how central the bed
+	   is support it. Held closer together than the card's own 1rem rhythm because between
+	   them they answer one question, which is what this property is like to reach and to
+	   stay in. */
 	.stay-open-facts {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-2);
+	}
+
+	.stay-open-meta {
 		display: flex;
 		flex-wrap: wrap;
 		gap: var(--space-2) var(--space-4);

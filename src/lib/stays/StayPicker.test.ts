@@ -1,9 +1,11 @@
 import { flushSync, mount, unmount } from 'svelte';
 import { afterEach, describe, expect, it } from 'vitest';
-import type { Airport, RoomKind, Stay } from '$lib/domain';
+import type { Airport, Duration, RoomKind, Stay } from '$lib/domain';
 import StayPicker from './StayPicker.svelte';
+import { pendingReach, stayReachTargets } from './fetch-reach';
+import type { ModeReach, StayReach } from './reach';
 import type { BedKind } from './room-kind';
-import { groupByProperty } from './types';
+import { groupByProperty, propertyKey } from './types';
 
 /**
  * Issue #423's filter, through the DOM rather than through the pure functions under it.
@@ -52,7 +54,7 @@ let component: Record<string, unknown> | undefined;
  * log is therefore proof that nothing the traveller did to the view moved their bed. */
 let changes: Stay[] = [];
 
-function render(candidates: Stay[], selected: Stay) {
+function render(candidates: Stay[], selected: Stay, reachByProperty?: ReadonlyMap<string, StayReach>) {
 	changes = [];
 	target = document.createElement('div');
 	document.body.appendChild(target);
@@ -63,6 +65,7 @@ function render(candidates: Stay[], selected: Stay) {
 			connectionAirport: AIRPORT,
 			nights: 2,
 			selected,
+			reachByProperty,
 			onchange: (stay: Stay) => changes.push(stay)
 		}
 	});
@@ -174,5 +177,61 @@ describe('StayPicker bed-kind filter', () => {
 		const root = render([MIXED_DORM, DORM_ONLY], MIXED_DORM);
 		expect(chip(root, 'private').textContent).toContain('(0)');
 		expect(chip(root, 'private').disabled).toBe(true);
+	});
+});
+
+/**
+ * Issue #470: one question, one answer, on every surface of this component.
+ *
+ * The open card printed `13.1 km from the airport` while every row under it printed the
+ * journey through `StayReachLine`, in one scrolling stack, about the same kind of thing.
+ * `reach.test.ts` pins what a journey says and `choice.test.ts` pins which one belongs to
+ * which property. Neither can see which of the two the card reaches for, which is the whole
+ * of the defect.
+ */
+describe('the open card answers how far out the bed is (issue #470)', () => {
+	const routed = (value: number): ModeReach => ({ kind: 'routed', minutes: value as Duration });
+
+	function openCardText(root: HTMLElement): string {
+		return root.querySelector('.stay-open-facts')?.textContent ?? '';
+	}
+
+	it('prints a time per mode where it used to print a straight line', () => {
+		const root = render(
+			[MIXED_DORM, DORM_ONLY],
+			MIXED_DORM,
+			new Map([
+				[
+					propertyKey(MIXED_DORM.property),
+					{ walk: routed(43), transit: { kind: 'not-asked' }, taxi: routed(4) } satisfies StayReach
+				]
+			])
+		);
+
+		expect(openCardText(root)).toContain('43m');
+		expect(openCardText(root)).toContain('4m');
+		expect(openCardText(root)).not.toContain('from the airport');
+	});
+
+	// The same treatment the rows get, and for the same reason. A distance that appears and is
+	// replaced by a duration a second later is two answers, printed in sequence.
+	it('holds the space while the lookup is in flight', () => {
+		const root = render(
+			[MIXED_DORM, DORM_ONLY],
+			MIXED_DORM,
+			pendingReach(stayReachTargets(groupByProperty([MIXED_DORM, DORM_ONLY])))
+		);
+
+		expect(root.querySelector('.stay-open-facts .skeleton')).not.toBeNull();
+		expect(openCardText(root)).not.toContain('from the airport');
+	});
+
+	// Nobody asked, so there is no journey to print and the straight line is the only true
+	// thing left to say. `StayReachLine` owns that fallback, which is why deleting the card's
+	// own copy of the figure loses nothing.
+	it('falls back to the straight line when no router has answered', () => {
+		const root = render([MIXED_DORM, DORM_ONLY], MIXED_DORM);
+
+		expect(openCardText(root)).toContain('from the airport');
 	});
 });

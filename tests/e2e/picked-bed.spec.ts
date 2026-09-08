@@ -101,9 +101,9 @@ test.describe('the picked bed\'s photographs (issues #279 and #458)', () => {
 		expect(empty!.width).toBeGreaterThan(250);
 		expect(empty!.height).toBeGreaterThan(140);
 
-		// 2. Nothing below the photograph moves when it lands. The rating and the two
-		//    distances sit directly under the strip in the same card, so their top is what a
-		//    late image would push down.
+		// 2. Nothing below the photograph moves when it lands. The journey out, the rating and
+		//    the distance into town sit directly under the strip in the same card, so their top
+		//    is what a late image would push down.
 		const facts = openCard(page).locator('.stay-open-facts');
 		const beforeLoad = await facts.boundingBox();
 
@@ -253,9 +253,7 @@ test.describe('the picked bed\'s photographs (issues #279 and #458)', () => {
 });
 
 test.describe('one property, said once (issue #465)', () => {
-	test('leaves the rating and the distance from the airport to the picker\'s open card', async ({
-		page
-	}) => {
+	test("leaves the rating and the journey out to the picker's open card", async ({ page }) => {
 		await mockAllKeylessProviders(page.context());
 		await mockHostelworld(
 			page.context(),
@@ -295,9 +293,14 @@ test.describe('one property, said once (issue #465)', () => {
 
 		// The open card owns both, and says so in words a traveller comparing properties can
 		// read. This is the surface the issue's split gives them to.
+		//
+		// Issue #470 changed how the second one is worded and not which card owns it. The card
+		// used to print a straight line to the terminal and now prints the journey out, the same
+		// `StayReachLine` every row below it draws, so the claim is a routed time rather than a
+		// distance. OSRM is mocked here through `mockAllKeylessProviders`, so one answers.
 		const facts = openCard(page).locator('.stay-open-facts');
 		await expect(facts).toContainText('rated');
-		await expect(facts).toContainText('from the airport');
+		await expect(facts.locator('.reach-point').first()).toBeVisible();
 
 		// And the block above it says neither. Counted across both surfaces rather than merely
 		// absent from the block, because the defect this closes is one figure printed twice in
