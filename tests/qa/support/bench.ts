@@ -37,7 +37,7 @@ import {
 import * as recorded from './responses';
 import { bundledDataModuleFor } from './bundled-data';
 import { UNBUDGETED_HOSTS } from '../budget';
-import { FIXTURE_MAP_STYLE } from '../../shared/map-style-fixture';
+import { fixtureMapStyleFor } from '../../shared/map-style-fixture';
 
 /** Providers that cost the owner money when called for real. Never reached, in any mode. */
 const METERED_HOSTS = new Set([AGODA_HOST, BOOKING_HOST, 'sky-scrapper.p.rapidapi.com', 'kiwi-com-cheap-flights.p.rapidapi.com', 'flights-sky.p.rapidapi.com']);
@@ -292,8 +292,10 @@ export class Bench {
 		// A map style, not a provider answer. Answered from the fixture both suites share so
 		// the detail view's map mounts without reaching a tile CDN, which is neither metered
 		// nor interesting here. It used to be answered with `layers: []`, which mounts a map
-		// that draws nothing and photographs as a blank rectangle (#433).
-		if (UNBUDGETED_HOSTS.includes(host)) return FIXTURE_MAP_STYLE;
+		// that draws nothing and photographs as a blank rectangle (#433), and then with one
+		// flat colour, which measures the same as that (#443). The URL picks the scheme, the
+		// way CARTO's own two styles do.
+		if (UNBUDGETED_HOSTS.includes(host)) return fixtureMapStyleFor(url.href);
 		// Two endpoints on one host, and the path is the only thing that tells them apart.
 		// Matching on host alone handed the table service a `/route/v1/` body, which has no
 		// `durations` array, so the adapter threw and every behavioural check below failed at

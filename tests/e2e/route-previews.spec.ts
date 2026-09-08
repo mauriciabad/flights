@@ -9,6 +9,8 @@ import {
 	visibleMapCanvases
 } from './support/results-ui';
 import { waitForSearchToSettle } from '../shared/search-wait';
+import { readWindowPng } from '../shared/read-png';
+import { complainAboutPixels } from '../../src/lib/itinerary-map/basemap-canary';
 
 /**
  * Issue #280: the frozen previews, and the one map that is still a map.
@@ -347,6 +349,27 @@ test.describe('frozen route previews (issue #280)', () => {
 			// and every assertion above passes while it is true.
 			const decoded = await picture.evaluate((img) => (img as HTMLImageElement).naturalWidth);
 			expect(decoded, `${segment} picture decoded`).toBeGreaterThan(0);
+
+			// And what it decoded is a drawing rather than a fill (#443). Every assertion
+			// above this line passes against a flat rectangle, which is what the mocked
+			// basemap was until the shared fixture started drawing a street grid: it inked
+			// 0.0000 of its pixels, the same number a style with no layers at all measures,
+			// so this whole test was a test of a box's geometry and never of a map.
+			//
+			// Judged by `complainAboutPixels`, the pixel half of the instrument the live
+			// basemap canary uses, at thresholds read off sixteen real CARTO renders rather
+			// than picked. One opinion about what a map looks like, not two.
+			const captured = await picture.evaluate((img) => (img as HTMLImageElement).src);
+			expect(captured.startsWith('data:image/png;base64,'), `${segment} picture is a capture`).toBe(true);
+			const verdict = complainAboutPixels(
+				await readWindowPng(Buffer.from(captured.slice('data:image/png;base64,'.length), 'base64'))
+			);
+			expect(
+				verdict.complaints,
+				`${segment} basemap picture: ${verdict.complaints.join('; ')} ` +
+					`(inkShare ${verdict.stats.inkShare.toFixed(4)}, ` +
+					`lumaSpread ${verdict.stats.lumaSpread.toFixed(4)})`
+			).toEqual([]);
 
 			// The route is over the map, not under it. Not a detail: the picture is
 			// absolutely positioned and the drawing is not, and a positioned element paints

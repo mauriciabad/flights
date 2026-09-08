@@ -25,6 +25,14 @@
  * | openstreetmap.org 403   |  1 | 0.1661          | 0.2603          | 0.218         |
  * | style with no layers    |  1 | 0.0000          | 0.0000          | 0.000         |
  * | style with one bg layer |  1 | 0.0000          | 0.0000          | 0.000         |
+ * | the shared test fixture |  1 | 0.0614          | 0.0662          | 0.094         |
+ *
+ * The fifth row is what the shared test fixture used to be, and the sixth is what it is now
+ * (#443). Both suites answer `basemaps.cartocdn.com` with that one document, and while it
+ * measured the same 0.0000 as the layerless style above it, no mocked spec could tell a map
+ * from a fill. It draws a street grid now. `tools/probe-fixture-basemap.mjs` scores it with
+ * `complainAboutPixels` below at the windows a ground preview actually asks for, where it
+ * inks 0.0546 to 0.0891 at a spread of 0.0396 to 0.0720 over fourteen cameras.
  *
  * Read the first two rows before trusting a summary statistic here. `inkShare` and
  * `lumaSpread` do not separate a watermarked map from a clean one, and they cannot: CARTO's

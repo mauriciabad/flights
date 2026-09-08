@@ -71,6 +71,14 @@ true, and it draws a blank rectangle. Those specs were asserting about the fallb
 rather than the feature, and the ground previews photographed the blank and cached it until
 #431 (issues #431, #433).
 
+The fixture draws a street grid, over a ground whose colour comes from which of CARTO's two
+style URLs was asked for. It used to be one flat colour, which measures 0.0000 ink and
+0.0000 luminance spread, the same numbers the layerless style measures, so a spec asserting
+on a picture of it still could not tell a map from a fill (#443).
+`route-previews.spec.ts` now scores the picture a ground preview captured with
+`complainAboutPixels`, the pixel half of the live basemap canary, and
+`tools/probe-fixture-basemap.mjs` re-takes those numbers and redraws the tile.
+
 Aborting and continuing are different acts and stay allowed. `route-previews.spec.ts`
 aborts to see what a preview shows when the basemap never arrives.
 `route-previews.screenshots.spec.ts` continues, because its whole point is a picture of the
