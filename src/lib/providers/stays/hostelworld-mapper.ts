@@ -10,15 +10,17 @@
  */
 
 import { moneyFromDecimalString } from '../../domain';
-import type { Coordinates, Money, RoomKind, Stay } from '../../domain';
+import type { Coordinates, Money, RoomKind, Stay, StaySource } from '../../domain';
 import { haversineDistanceKm } from './agoda-geo';
 import { hostelworldCardPhoto } from './hostelworld-photo';
 import type {
+	HostelworldAvailabilityResponse,
 	HostelworldContinentCountriesResponse,
 	HostelworldPrice,
 	HostelworldProperty,
 	HostelworldRoom
 } from './hostelworld-types';
+import { HOSTELWORLD_PROVIDER_ID } from './provider-ids';
 import { isWomenOnlyPropertyName } from './women-only-name';
 
 /**
@@ -193,6 +195,34 @@ function roomImages(room: HostelworldRoom | undefined): { roomImages?: string[] 
 	return urls.length > 0 ? { roomImages: urls } : {};
 }
 
+/**
+ * Where a `Stay` lives at Hostelworld, for `Stay.source` (issue #450), or nothing when the
+ * property arrived without an id.
+ *
+ * Spread into the literal rather than assigned, the same way `roomImages` above is and for
+ * the same reason: an absent field is what survives the trip through IndexedDB unchanged,
+ * and `domain/stay.ts` reads absent as "nothing can be asked about this listing".
+ *
+ * `roomId` is only ever set for the two restricted dorm kinds, because they are the only
+ * ones priced from a room this adapter can name. A `dorm` and a `private` come from
+ * `lowestAverage*PricePerNight`, an average over rates the room array does not list, so
+ * there is no room whose id would honestly describe where that price came from.
+ */
+function staySource(
+	propertyId: number | undefined,
+	room?: HostelworldRoom
+): { source?: StaySource } {
+	if (typeof propertyId !== 'number' || !Number.isFinite(propertyId)) return {};
+	const roomId = room?.id;
+	return {
+		source: {
+			provider: HOSTELWORLD_PROVIDER_ID,
+			propertyId: String(propertyId),
+			...(typeof roomId === 'number' && Number.isFinite(roomId) ? { roomId: String(roomId) } : {})
+		}
+	};
+}
+
 function coordinatesOf(property: HostelworldProperty | undefined): Coordinates | undefined {
 	const latitude = property?.latitude;
 	const longitude = property?.longitude;
@@ -331,7 +361,8 @@ export function mapPropertyToStays(
 			roomKind,
 			pricePerNight: perParty(perPerson),
 			pricePerPersonPerNight: perPerson,
-			...roomImages(room)
+			...roomImages(room),
+			...staySource(property.id, room)
 		};
 
 	const dorms = property.rooms?.dorms;
@@ -342,7 +373,12 @@ export function mapPropertyToStays(
 		listsAMixedDorm(dorms)
 			? dormStay('dorm', toMoney(property.lowestAverageDormPricePerNight))
 			: undefined,
-		privateRate && { property: propertyRecord, roomKind: 'private', pricePerNight: privateRate },
+		privateRate && {
+			property: propertyRecord,
+			roomKind: 'private' as const,
+			pricePerNight: privateRate,
+			...staySource(property.id)
+		},
 		dormStay('female-dorm', female?.price, female?.room),
 		dormStay('male-dorm', male?.price, male?.room)
 	];

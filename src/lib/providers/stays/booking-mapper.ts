@@ -4,8 +4,9 @@
  * ryanair-mapper.ts and agoda-mapper.ts.
  */
 
-import type { Money, Property, RoomKind, Stay } from "../../domain";
+import type { Money, Property, RoomKind, Stay, StaySource } from "../../domain";
 import { moneyFromMajorUnits } from "../../domain";
+import { BOOKING_PROVIDER_ID } from "./provider-ids";
 import type {
   BookingMoneyAmount,
   BookingRoomBlock,
@@ -148,6 +149,7 @@ export function mapSearchResultToCandidate(
 export function mapRoomBlocksToStays(
   property: Property,
   blocks: readonly BookingRoomBlock[],
+  hotelId?: number,
 ): Stay[] {
   const cheapestByKind = new Map<RoomKind, Money>();
   for (const block of blocks) {
@@ -170,17 +172,40 @@ export function mapRoomBlocksToStays(
       property,
       roomKind,
       pricePerNight,
+      ...bookingSource(hotelId),
     }),
   );
+}
+
+/**
+ * Where this listing lives at Booking, for `Stay.source` (issue #450), or nothing when the
+ * candidate arrived without an id.
+ *
+ * No `roomId`, and that is measured rather than skipped. A `block` carries `room_name`,
+ * `is_dormitory`, `max_occupancy` and `product_price_breakdown` and nothing else in the one
+ * full-envelope capture on disk (docs/PROVIDERS.md's room table). Booking is metered and the
+ * owner told us not to spend his quota, so whether a fuller response would carry a block id
+ * is not something this branch went and found out.
+ */
+function bookingSource(hotelId: number | undefined): { source?: StaySource } {
+  if (typeof hotelId !== "number" || !Number.isFinite(hotelId)) return {};
+  return {
+    source: { provider: BOOKING_PROVIDER_ID, propertyId: String(hotelId) },
+  };
 }
 
 export function mapRoomListToStays(
   property: Property,
   response: BookingRoomListResponse,
+  hotelId?: number,
 ): Stay[] {
   const blocks = response.data?.block;
   // Same reasoning as agoda-mapper.ts's mapGetPricesToStays: a present-but-wrong-shaped
   // `block` (not an array) must not reach the `for...of` above, which would throw on
   // anything that isn't iterable.
-  return mapRoomBlocksToStays(property, Array.isArray(blocks) ? blocks : []);
+  return mapRoomBlocksToStays(
+    property,
+    Array.isArray(blocks) ? blocks : [],
+    hotelId,
+  );
 }

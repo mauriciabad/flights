@@ -21,6 +21,7 @@ import type {
 	IsoCountryCode,
 	IsoCurrencyCode,
 	LocalDateTime,
+	ProviderId,
 	RoomKind,
 	Stay,
 	Transfer,
@@ -28,39 +29,15 @@ import type {
 } from '../domain';
 
 /**
- * Every adapter actually registered in this codebase, by id. Issue #69: three modules
- * (adapters, the budget module's cap table, the settings catalog) each invented this
- * vocabulary on their own and drifted apart — `getProviderCap('skyscanner')` was silently
- * missing the cap table entirely because it was keyed `'sky-scrapper'`, RapidAPI's host
- * slug, not the adapter's own id. This list is the fix: the one place a provider id is
- * spelled out, so every other module below imports `ProviderId` instead of retyping the
- * string.
+ * The registered adapter ids, re-exported from `domain/provider-id.ts` where they now live.
  *
- * Unlike IataAirportCode/IsoCurrencyCode (domain/codes.ts), which stay plain strings
- * because their real values come from data too large and too dynamic to enumerate at the
- * type level, providers are exactly the opposite: a small, fixed set, wired up by hand in
- * source, one new entry whenever an adapter is added. A closed union is what makes a typo
- * or a drifted id a compile error at the point it's written, rather than a lookup miss
- * that quietly falls through to a fallback.
+ * Issue #450 moved the list itself one layer down, because a `Stay` carries the id of the
+ * provider that listed it and `domain/` imports nothing from outside itself. The names stay
+ * exported here so every module that already reads them from this file keeps working; that
+ * file's header has the reasoning.
  */
-export const PROVIDER_IDS = [
-	'skyscanner',
-	'flights-sky',
-	'kiwi',
-	'kiwi-public',
-	'ryanair',
-	'agoda',
-	'booking',
-	'hostelworld',
-	'transitous',
-	'transitous-geocode',
-	'travelpayouts-cheap-routes',
-	'osrm'
-] as const;
-
-/** Stable identifier for a registered adapter. See `PROVIDER_IDS` above — this is its
- * derived union, not a separately maintained list. */
-export type ProviderId = (typeof PROVIDER_IDS)[number];
+export { PROVIDER_IDS } from '../domain';
+export type { ProviderId };
 
 /**
  * One piece of credential material an adapter needs — one row in a settings-page form.

@@ -22,7 +22,7 @@
 
 import { defineCacheKey, getDefaultStore } from '../../cache';
 import type { CacheKey, CacheStore } from '../../cache';
-import { DEFAULT_TRAVELLERS } from '../../domain';
+import { DEFAULT_TRAVELLERS, STAY_SHAPE_VERSION } from '../../domain';
 import type { Stay } from '../../domain';
 import { callProviderWithBudget } from '../budget';
 import { classifyClientResultError, unwrapOrThrow } from '../client-result-budget';
@@ -40,9 +40,11 @@ import { fetchGetRoomList, fetchSearchHotelsByCoordinates, type BookingHttpDeps 
 import type { BookingFetchError } from './booking-types';
 import { mapRoomListToStays, mapSearchResultToCandidate, type BookingCandidate } from './booking-mapper';
 
-/** Also the id `../budget/caps.ts`'s `DEFAULT_PROVIDER_CAPS` is keyed by — enforced at
- * compile time by `ProviderId` (../types.ts, issue #69), not by convention. */
-export const BOOKING_PROVIDER_ID: ProviderId = 'booking';
+/** Declared in `./provider-ids.ts` since #450, so `booking-mapper.ts` can name its own
+ * provider without importing this file back. Re-exported here because this is where every
+ * caller reads it from. */
+import { BOOKING_PROVIDER_ID } from './provider-ids';
+export { BOOKING_PROVIDER_ID };
 
 /** Drill-downs per search — see this file's header for why this is a fifth of Agoda's
  * default. Kept at 1 rather than 0 because a search that never drills down could only ever
@@ -278,9 +280,12 @@ function createBookingStayProvider(options: BookingProviderOptions = {}): StayPr
 			// see its identical check for the full reasoning.
 			if (ctx.signal.aborted) break;
 
+			// `stayShape` is `STAY_SHAPE_VERSION` (domain/stay.ts). This entry stores `Stay[]`
+			// itself, so a change to that shape has to change this key or the old value comes
+			// straight back — #131's incident, and the reason AGENTS.md carries the rule.
 			const roomListCacheKey = defineCacheKey(
 				BOOKING_PROVIDER_ID,
-				{ op: 'getRoomList', hotelId: candidate.hotelId, checkIn: query.checkIn, checkOut: query.checkOut, travellers, currency: query.currency },
+				{ op: 'getRoomList', hotelId: candidate.hotelId, checkIn: query.checkIn, checkOut: query.checkOut, travellers, currency: query.currency, stayShape: STAY_SHAPE_VERSION },
 				ROOM_LIST_TTL_MS
 			);
 			const roomListEntry = await readFreshCacheEntry<Stay[]>(store, roomListCacheKey);
@@ -304,7 +309,7 @@ function createBookingStayProvider(options: BookingProviderOptions = {}): StayPr
 					// same reasoning as agoda.ts.
 					continue;
 				}
-				candidateStays = mapRoomListToStays(candidate.property, roomListResult.data);
+				candidateStays = mapRoomListToStays(candidate.property, roomListResult.data, candidate.hotelId);
 				await writeCache(store, roomListCacheKey, candidateStays);
 			}
 			stays.push(...candidateStays);

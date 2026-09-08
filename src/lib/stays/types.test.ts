@@ -1,6 +1,6 @@
 import type { Property, Stay } from '$lib/domain';
 import { describe, expect, it } from 'vitest';
-import { groupByProperty, propertyOf } from './types';
+import { groupByProperty, isSameBed, isSameProperty, propertyOf } from './types';
 
 describe('propertyOf', () => {
 	it('reads the property from the first option, since every option in a group shares one', () => {
@@ -115,5 +115,56 @@ describe('groupByProperty', () => {
 		const groups = groupByProperty(stays);
 		expect(groups.map((g) => propertyOf(g).name)).toEqual(['B', 'A']);
 		expect(groups[0].options).toHaveLength(2);
+	});
+});
+
+describe('local identity ignores the provider id (issue #450)', () => {
+	/** One physical hostel, listed by two adapters. Identical name and coordinates, which is
+	 * the exact match `groupByProperty` merges on, and two different provider ids for it. */
+	const twoAdapters = (): Stay[] => {
+		const property = (): Property => ({
+			name: 'Wombats City Hostel London',
+			coordinates: { latitude: 51.5155, longitude: -0.0722 },
+			images: []
+		});
+		return [
+			{
+				property: property(),
+				roomKind: 'dorm',
+				pricePerNight: { minorUnits: 3968, currency: 'EUR' },
+				source: { provider: 'hostelworld', propertyId: '312244' }
+			},
+			{
+				property: property(),
+				roomKind: 'private',
+				pricePerNight: { minorUnits: 13311, currency: 'EUR' },
+				source: { provider: 'booking', propertyId: '71662' }
+			}
+		];
+	};
+
+	it('still merges two adapters describing one hostel', () => {
+		const groups = groupByProperty(twoAdapters());
+		expect(groups).toHaveLength(1);
+		expect(groups[0].options.map((option) => option.stay.roomKind)).toEqual(['dorm', 'private']);
+	});
+
+	it('still calls one bed the same bed across a provider it was not listed by', () => {
+		const [hostelworld] = twoAdapters();
+		const sameBedElsewhere: Stay = {
+			...hostelworld,
+			source: { provider: 'agoda', propertyId: '417108' }
+		};
+		expect(isSameBed(hostelworld, sameBedElsewhere)).toBe(true);
+		expect(isSameProperty(hostelworld.property, sameBedElsewhere.property)).toBe(true);
+	});
+
+	it('still calls one bed the same bed when only one side has a source at all', () => {
+		// The cache and the saved trip both hold pre-#450 stays with no `source`. If absence
+		// counted against a match, the picker would stop recognising the bed the itinerary
+		// already books the moment a fresh search landed beside it.
+		const [hostelworld] = twoAdapters();
+		const fromBeforeThisChange: Stay = { ...hostelworld, source: undefined };
+		expect(isSameBed(hostelworld, fromBeforeThisChange)).toBe(true);
 	});
 });

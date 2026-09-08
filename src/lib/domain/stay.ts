@@ -1,5 +1,6 @@
 import type { Coordinates } from "./coordinates";
 import type { Money } from "./money";
+import type { ProviderId } from "./provider-id";
 
 /**
  * Issue #1: "room kind (`dorm` | `private` | `female-dorm`)." A distinct female-dorm kind
@@ -115,4 +116,89 @@ export interface Stay {
    * other. `$lib/stays/stay-photos.ts` is where the two sets become one list, labelled.
    */
   roomImages?: string[];
+  /**
+   * Where this listing lives at the provider that sent it, so it can be asked a follow-up
+   * question about itself. Issue #450.
+   *
+   * `propertyKey` is `name@lat,lon`, which is an identity for merging two adapters' records
+   * for one physical hostel and means nothing to the provider that sent them. This is the
+   * other identity, and the two must not be confused: a `Property` can already be two
+   * providers' idea of one building, while a `Stay` is always exactly one provider's
+   * listing, which is the thing an id can honestly describe.
+   *
+   * Absent for an adapter that publishes no stable id, and absent on every `Stay` written
+   * before #450 that a cache or a saved trip still holds. Absent means one thing only:
+   * nothing can be asked about this listing. Nothing downstream may read it as a fact about
+   * the property.
+   *
+   * **Never compare two records on this.** `propertyKey` and `isSameBed` stay name and
+   * coordinates. Two adapters listing one hostel carry two different provider ids for it,
+   * so comparing on this would stop them merging and show the owner the same hostel twice
+   * (#188 is what that looks like).
+   */
+  source?: StaySource;
 }
+
+/** One provider's own coordinates for one listing. See `Stay.source`. */
+export interface StaySource {
+  provider: ProviderId;
+  /** The provider's own property id, verbatim as a string, never parsed and never
+   * arithmetic. Hostelworld sends it as a number on the city endpoint and as a string on
+   * the availability endpoint for the same property (`"330521"` against `330521`, measured
+   * 2026-09-08 with `tools/probe-hostelworld-rooms.mjs`), which is exactly why this is
+   * normalised to text at the mapper and compared as text everywhere after. */
+  propertyId: string;
+  /**
+   * The room whose rate `pricePerNight` came from, when one room owns it.
+   *
+   * Absent for a `dorm` or a `private` at Hostelworld, which are priced from
+   * `lowestAverage*PricePerNight`, a property-level average over rates no single room
+   * quotes. Absent for every Booking and Agoda stay: neither response carries a room id at
+   * all (docs/PROVIDERS.md's room table, measured from captures already on disk).
+   */
+  roomId?: string;
+}
+
+/**
+ * Bumped whenever the stored shape of a `Stay` changes, and mixed into the cache key of
+ * every cache that holds one. Issue #450, and #131 before it.
+ *
+ * A value already in IndexedDB is read back and used, never inspected and found wanting, so
+ * a shape change with an unchanged key means the fix installs and the old value comes
+ * straight back. #131 shipped exactly that: the OSRM route cache keyed on
+ * `{service, profile, origin, destination}` with a thirty-day TTL, so everyone who had used
+ * the app that month installed real map geometry and kept seeing straight lines. The rule
+ * AGENTS.md drew from it is that a cached value whose shape changed needs a key that no
+ * longer resolves to the old one.
+ *
+ * Only the caches that store a `Stay` mix this in, which today is Agoda's `getPrices` and
+ * Booking's `roomList`. Hostelworld caches the provider's own response body and re-runs its
+ * mapper on every read, so its entries pick up a new field with no eviction at all, and
+ * versioning it would spend a request per city to relearn something already on disk.
+ *
+ * A saved trip does not carry it either, on purpose. `source` is optional and its absence
+ * degrades to what the app did before #450, which is a far better outcome for someone who
+ * saved a trip than losing the trip.
+ */
+export const STAY_SHAPE_VERSION = 2;
+
+/**
+ * The reminder that the constant above exists, in a form the compiler enforces.
+ *
+ * Adding or removing a field on `Stay` makes this literal wrong, so the build fails until
+ * somebody reads this comment and decides whether the change reaches a cached value. A
+ * sentence in a doc comment would only be read by whoever went looking for it, and the
+ * whole lesson of #131 is that nobody did.
+ */
+const STAY_SHAPE_FIELDS: Record<keyof Required<Stay>, true> = {
+  property: true,
+  roomKind: true,
+  pricePerNight: true,
+  pricePerPersonPerNight: true,
+  roomImages: true,
+  source: true,
+};
+
+/** Every field name `STAY_SHAPE_VERSION` is a version of. Exported so the guard above is a
+ * value the build keeps rather than dead weight a linter removes. */
+export const STAY_SHAPE_FIELD_NAMES: readonly string[] = Object.keys(STAY_SHAPE_FIELDS);

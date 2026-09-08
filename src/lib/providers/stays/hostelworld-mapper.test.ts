@@ -551,3 +551,47 @@ describe('room photographs (issue #442)', () => {
 		expect(stays.find((stay) => stay.roomKind === 'female-dorm')?.roomImages).toHaveLength(1);
 	});
 });
+
+describe('where a Stay lives at Hostelworld (issue #450)', () => {
+	const backpackers = londonProperties.find((property) =>
+		property.name?.startsWith('London Backpackers')
+	) as HostelworldProperty;
+
+	it('carries the property id as text on every stay at that property', () => {
+		const stays = mapPropertyToStays(backpackers, 1);
+		expect(stays.length).toBeGreaterThan(1);
+		for (const stay of stays) {
+			expect(stay.source?.provider).toBe('hostelworld');
+			expect(stay.source?.propertyId).toBe('527');
+		}
+	});
+
+	it('names the room only for the kinds priced from one', () => {
+		// The whole asymmetry `mapPropertyToStays` argues at length, now visible in the data.
+		// A restricted dorm is the cheapest room of its `basicType`, so it has a room to name.
+		// A `dorm` and a `private` come from `lowestAverage*PricePerNight`, an average over
+		// rates the room array does not list, so naming one would be a claim nobody made.
+		const stays = mapPropertyToStays(backpackers, 1);
+		const female = stays.find((stay) => stay.roomKind === 'female-dorm');
+		const dorm = stays.find((stay) => stay.roomKind === 'dorm');
+		const priv = stays.find((stay) => stay.roomKind === 'private');
+		expect(female?.source?.roomId).toBe('831339');
+		expect(dorm?.source?.roomId).toBeUndefined();
+		expect(priv?.source?.roomId).toBeUndefined();
+	});
+
+	it('leaves the whole field absent for a property that arrived without an id', () => {
+		// Absent means "nothing can be asked about this listing", which is a different fact
+		// from an empty string, and the one that survives IndexedDB unchanged.
+		const stays = mapPropertyToStays({ ...backpackers, id: undefined }, 1);
+		expect(stays.length).toBeGreaterThan(0);
+		for (const stay of stays) expect(stay.source).toBeUndefined();
+	});
+
+	it('picks the room id off the same room the price came from', () => {
+		const rome = (propertiesRomeRestricted as { properties?: HostelworldProperty[] }).properties ?? [];
+		const plancton = rome.find((property) => property.name === 'Il Plancton') as HostelworldProperty;
+		const male = mapPropertyToStays(plancton, 1).find((stay) => stay.roomKind === 'male-dorm');
+		expect(male?.source?.roomId).toBe('1005162');
+	});
+});

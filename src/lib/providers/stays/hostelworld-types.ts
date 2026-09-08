@@ -51,6 +51,12 @@ export interface HostelworldPrice {
  * flag, which agoda-types.ts records as `false` on rooms literally named "N-Bed
  * Dormitory". */
 export interface HostelworldRoom {
+	/** Hostelworld's own id for this room type. Present on the city endpoint's room summary
+	 * (docs/PROVIDERS.md lists the eleven fields it carries) and on the availability
+	 * endpoint's fuller one, and the same number in both — which is what lets a `Stay`
+	 * priced from one be matched to photographs published on the other. Sent as a number;
+	 * `Stay.source.roomId` normalises it to text. Issue #450. */
+	id?: number;
 	name?: string;
 	basicType?: string;
 	/**
@@ -167,6 +173,29 @@ export interface HostelworldProperty {
 
 export interface HostelworldPropertiesResponse {
 	properties?: HostelworldProperty[];
+}
+
+/**
+ * `GET /2.2/properties/{id}/availability/?currency=&date-start=&num-nights=&guests=` — one
+ * property's rooms for one stay, and the only response any provider in this repo publishes
+ * room photographs on. Issue #449.
+ *
+ * Measured from a browser page origin on 2026-09-08 with `tools/probe-hostelworld-rooms.mjs`:
+ * `200`, `access-control-allow-origin: *`, gzipped, 6,416 bytes over the wire and 63,969
+ * decoded for one property. Without `date-start` and `num-nights` it answers `400` carrying
+ * its own `{"description":[{"code":"2021","message":"date-start is missing or invalid"},…]}`,
+ * so the parameters are rejected rather than the origin being turned away.
+ *
+ * `id` arrives as a STRING here (`"330521"`) where the city endpoint sends the same property
+ * as a number. Nothing in this adapter does arithmetic on either, and `Stay.source.propertyId`
+ * is text for exactly this reason.
+ */
+export interface HostelworldAvailabilityResponse {
+	id?: string | number;
+	rooms?: {
+		dorms?: HostelworldRoom[];
+		privates?: HostelworldRoom[];
+	};
 }
 
 /* The body Hostelworld sends with a 4xx — `{"description":[{"code":"90593","message":
