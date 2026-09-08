@@ -242,6 +242,69 @@ test.describe('tapping a segment on a phone', () => {
 			.toBeLessThanOrEqual(sheetBox.y);
 	});
 
+	test('the panel is placed on the frame it appears, not on its way to the right place', async ({ page }) => {
+		// The test above is the one a traveller feels, and it only fails when the machine is
+		// slow enough to lose the race. This is the same defect asserted where it cannot
+		// hide, because the panel's own arithmetic decides it and nothing else does.
+		//
+		// `place` cannot measure the panel until `showPopover` has displayed it, so the first
+		// style pass of a panel that has just opened has no `--x`/`--y` and resolves both to
+		// zero. With `translate` transitionable across that pass the panel then travelled from
+		// the corner of the window to the cell over 160ms, and everything under that path was
+		// covered on the way. Measured at 375x812 before the fix, the panel stood at
+		// 0,4..336,432 while the segment it belongs to ran 418..446.
+		//
+		// A phone is where that matters. Chromium hit-tests again for the `mouseup` it
+		// synthesises from a tap, so a panel over the thumb takes the click, which is
+		// dispatched to its common ancestor with the button and selects nothing.
+		//
+		// A hover rather than a tap, because a tap has a click to lose and this is about where
+		// the panel is, not about what the press does. A focus is out too, since
+		// `element.focus()` scrolls the button into view and the strip closes the panel on any
+		// scroll, so the panel opened and shut again before it could be measured.
+		const card = await openResults(page);
+		const hit = card.locator('.trip-strip-hit-stopover');
+
+		// Installed and awaited before the hover, so the listener is certainly up, and on the
+		// document rather than on the panel, because the results list is still revalidating
+		// and a card that re-renders takes its panel's node with it. `toggle` does not bubble;
+		// a capturing listener sees it anyway. The frame after the panel opens rather than the
+		// moment it comes to rest, since settling is what the broken version eventually did
+		// too.
+		await page.evaluate(() => {
+			Object.assign(window, {
+				firstFrame: new Promise<[number, number, number, number]>((resolve, reject) => {
+					document.addEventListener(
+						'toggle',
+						(event) => {
+							const panel = event.target;
+							if ((event as ToggleEvent).newState !== 'open') return;
+							if (!(panel instanceof HTMLElement) || !panel.classList.contains('stub')) return;
+							requestAnimationFrame(() => {
+								const box = panel.getBoundingClientRect();
+								resolve([box.left, box.top, box.right, box.bottom]);
+							});
+						},
+						{ capture: true }
+					);
+					setTimeout(() => reject(new Error('the panel never opened')), 5_000);
+				})
+			});
+		});
+
+		await hit.hover();
+		const [left, top, right, bottom] = await page.evaluate(
+			() => (window as unknown as { firstFrame: Promise<[number, number, number, number]> }).firstFrame
+		);
+		const cell = (await hit.boundingBox())!;
+		const covered =
+			left < cell.x + cell.width && right > cell.x && top < cell.y + cell.height && bottom > cell.y;
+		expect(
+			covered,
+			`the panel was at ${left},${top}..${right},${bottom} over a segment at ${cell.x},${cell.y}..${cell.x + cell.width},${cell.y + cell.height}`
+		).toBe(false);
+	});
+
 	test('the sheet closes on Escape, on its close button, and on a tap outside it', async ({ page }) => {
 		const card = await openResults(page);
 		const sheet = page.locator('.customise-sheet');
