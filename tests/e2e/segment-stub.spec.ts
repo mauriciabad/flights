@@ -356,6 +356,60 @@ test.describe('tapping a segment on a phone', () => {
 		expect(states.join(', ')).not.toContain('OPEN');
 	});
 
+	test('a panel too tall for the room keeps its eyebrow on screen', async ({ page }) => {
+		// Issue #457. `place` caps the counterfoil with `--stub-body-max` when neither side of
+		// the strip has room for the whole panel, and then has to place the panel at the
+		// height that cap produced. It measured before capping and budgeted the cap without
+		// `.stub-bottom`'s own padding and borders, so the panel came out taller than the room
+		// twice over and hung off the window, taking the eyebrow with it. Measured at 375x812
+		// before the fix, the panel's top sat at -25 against an 8px edge.
+		//
+		// A short window rather than the describe block's 812, so the cap certainly engages on
+		// whatever this fixture's stopover panel weighs, and the assertion below says so
+		// rather than passing vacuously if it ever stops.
+		const card = await openResults(page);
+		await page.setViewportSize({ width: 375, height: 640 });
+		const hit = card.locator('.trip-strip-hit-stopover');
+		await hit.scrollIntoViewIfNeeded();
+
+		// The app shell scrolls inside `.app-content` rather than the document, and any scroll
+		// closes an open panel, so the strip is put where it is wanted before it is hovered.
+		for (let attempt = 0; attempt < 4; attempt += 1) {
+			const box = (await hit.boundingBox())!;
+			const delta = Math.round(box.y - 380);
+			if (Math.abs(delta) <= 1) break;
+			await page.evaluate((by) => {
+				const scroller = document.querySelector('.app-content') ?? document.scrollingElement!;
+				scroller.scrollTop += by;
+			}, delta);
+			await page.waitForTimeout(60);
+		}
+
+		const panel = card.getByRole('tooltip');
+		await hit.hover();
+		await expect(panel).toBeVisible();
+		// The 4px entry rise is a `transform` over the `translate` that carries the placement,
+		// so a box read while it runs is 4px from the one a reader sees.
+		await expect
+			.poll(() => panel.evaluate((node) => getComputedStyle(node).transform))
+			.toMatch(/^(none|matrix\(1, 0, 0, 1, 0, 0\))$/);
+
+		const placement = await panel.evaluate((node) => ({
+			bodyMax: node.style.getPropertyValue('--stub-body-max'),
+			top: Math.round(node.getBoundingClientRect().top),
+			bottom: Math.round(node.getBoundingClientRect().bottom),
+			eyebrowTop: Math.round(node.querySelector('.stub-eyebrow')!.getBoundingClientRect().top),
+			windowHeight: window.innerHeight
+		}));
+		expect(
+			placement.bodyMax,
+			'the counterfoil was not capped, so this window is too tall to be asking the question'
+		).not.toBe('none');
+		expect(placement.top, `the panel stood at ${placement.top}..${placement.bottom}`).toBeGreaterThanOrEqual(8);
+		expect(placement.bottom).toBeLessThanOrEqual(placement.windowHeight - 8);
+		expect(placement.eyebrowTop).toBeGreaterThanOrEqual(8);
+	});
+
 	test('the sheet closes on Escape, on its close button, and on a tap outside it', async ({ page }) => {
 		const card = await openResults(page);
 		const sheet = page.locator('.customise-sheet');
