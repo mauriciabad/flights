@@ -32,11 +32,18 @@ import type { ColorScheme } from '../../src/lib/itinerary-map/style';
  * to cross a z24 window would be a graticule of hundreds of thousands of lines; one tile
  * repeated costs 1.3kB and draws at every zoom and every place.
  *
- * Measured on 2026-09-08 over both schemes and seven cameras from z4.6 to z24.6, land and
- * open sea. It inks 0.0546 to 0.0891 of its pixels at a luminance spread of 0.0396 to
+ * Measured over both schemes and seven cameras from z4.6 to z24.6, land and open sea. Across
+ * those 14 windows it inks 0.0546 to 0.0891 of its pixels at a luminance spread of 0.0396 to
  * 0.0720. The floor is 0.01 and the ceiling 0.15, so it clears both by a factor of five and
  * of two, and it sits inside the range sixteen real CARTO renders measured
  * (`basemap-canary.ts` holds that table).
+ *
+ * Every figure in those two sentences is recorded rather than transcribed (#469).
+ * `tools/probe-fixture-basemap.mjs` writes them into `tests/fixtures/basemap/fixture-range.tsv`
+ * and `basemap-canary.test.ts` reads this comment and that file and fails on any one that
+ * disagrees, so a run of the probe is the only thing that can move a number here. The date of
+ * the run went into that file with them. A date in prose is the same kind of claim as the
+ * range was, true on the day somebody typed it and unchecked ever after.
  *
  * `maxzoom: 24` is measured, not guessed. At the MapLibre default of 22 the tile is stretched
  * past z22 and inks 0.0000 by z25; at 26 the source never goes idle at all past z22 and draws

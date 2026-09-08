@@ -214,3 +214,79 @@ describe('the calibration table is the recorded one (issue #466)', () => {
 		expect(documented().length).toBeGreaterThanOrEqual(6);
 	});
 });
+
+/**
+ * The shared fixture's own range, against the run that recorded it (issue #469).
+ *
+ * The same defect as #466 one level down, in the file the block above already imports.
+ * `tests/shared/map-style-fixture.ts` said what it draws in prose, copied out of a tool that
+ * printed the numbers and kept none of them, so the sentence had the half-life of any other
+ * transcription. `tools/probe-fixture-basemap.mjs` writes `fixture-range.tsv` now and this
+ * reads both.
+ *
+ * Nothing is re-measured here, and that is deliberate. Those figures come from fourteen real
+ * MapLibre renders, seven cameras in each of the two schemes, and this suite is jsdom and has
+ * no renderer to take them with. The probe stays the measurement. This is only the check that
+ * the paragraph beside the fixture still quotes what the probe last found, which is the half
+ * that was missing.
+ */
+describe("the fixture's measured range is the recorded one (issue #469)", () => {
+	const here = path.dirname(fileURLToPath(import.meta.url));
+	const repo = path.join(here, '..', '..', '..');
+
+	interface Range {
+		windows: string;
+		zoom: string;
+		inkShare: string;
+		lumaSpread: string;
+	}
+
+	function recorded(): Range {
+		const lines = readFileSync(path.join(repo, 'tests/fixtures/basemap/fixture-range.tsv'), 'utf8')
+			.split('\n')
+			.filter((line) => line.length > 0 && !line.startsWith('#'));
+		const row = lines
+			.slice(1)
+			.map((line) => line.split('\t'))
+			.find(([style]) => style === 'the shipped fixture');
+		if (!row) throw new Error(`no shipped-fixture row among ${lines.length - 1} recorded`);
+		const [, windows, zoom, inkShare, lumaSpread] = row;
+		return { windows, zoom, inkShare, lumaSpread };
+	}
+
+	/**
+	 * The comment's figures, read off the prose it is written as.
+	 *
+	 * Prose rather than the markdown table #466 could parse, because this one is a paragraph
+	 * arguing why the fixture draws what it draws, and a table in the middle of it would be a
+	 * worse comment for the sake of an easier regex. The comment markers come off and the
+	 * whole file collapses to one line first, so the sentence can wrap wherever it reads best.
+	 */
+	function documented(): Range {
+		const prose = readFileSync(path.join(repo, 'tests/shared/map-style-fixture.ts'), 'utf8')
+			.split('\n')
+			.map((line) => line.replace(/^\s*\*\s?/, ''))
+			.join(' ')
+			.replace(/\s+/g, ' ');
+		// Every figure is `\d+\.?\d*` rather than `[\d.]+`, so the full stop that ends the
+		// sentence stays out of the last one.
+		const found = prose.match(
+			/from z(\d+\.?\d*) to z(\d+\.?\d*)[^.]*\. Across those (\d+) windows it inks (\d+\.?\d*) to (\d+\.?\d*) of its pixels at a luminance spread of (\d+\.?\d*) to (\d+\.?\d*)/
+		);
+		if (!found) throw new Error('map-style-fixture.ts no longer states its measured range');
+		const [, zoomLow, zoomHigh, windows, inkLow, inkHigh, spreadLow, spreadHigh] = found;
+		return {
+			windows,
+			zoom: `${zoomLow} - ${zoomHigh}`,
+			inkShare: `${inkLow} - ${inkHigh}`,
+			lumaSpread: `${spreadLow} - ${spreadHigh}`
+		};
+	}
+
+	// No companion check that a range is stated at all, which #466's table needed because two
+	// empty lists compare equal. Both readers here throw with their own sentence when they
+	// find nothing, so a comment that lost its range cannot read as agreement.
+	it('quotes every figure the last run measured', () => {
+		expect(documented()).toEqual(recorded());
+	});
+});

@@ -1,0 +1,5 @@
+# Written by node tools/probe-fixture-basemap.mjs on 2026-09-08.
+# Do not edit. map-style-fixture.ts quotes these figures and basemap-canary.test.ts checks it does.
+style	n	zoom	inkShare	lumaSpread
+the flat style #443 is about	14	4.6 - 24.6	0.0000 - 0.0000	0.0000 - 0.0000
+the shipped fixture	14	4.6 - 24.6	0.0546 - 0.0891	0.0396 - 0.0720

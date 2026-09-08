@@ -17,6 +17,9 @@
  *
  * Exits non-zero when the fixture fails the canary's limits at any camera the app can ask
  * for, which is the property `route-previews.spec.ts` now leans on.
+ *
+ * It also records what it measured into `tests/fixtures/basemap/fixture-range.tsv` (#469).
+ * The fixture's own header quotes that range, and used to quote a copy of it made by hand.
  */
 import { spawn } from 'node:child_process';
 import { writeFileSync } from 'node:fs';
@@ -112,6 +115,11 @@ const CAMERAS = [
 	{ name: 'open sea z13.6', center: [-30, 35], zoom: 13.6 }
 ];
 
+/** The zoom span the fixture's own header quotes, read off the list above rather than typed
+ *  out beside it. A camera added here moves the recorded span, and the header that quotes it
+ *  goes red until somebody re-reads the sentence. */
+const zooms = CAMERAS.map((camera) => camera.zoom);
+
 /** The supersampled box a ground preview captures: 120x88 units at SUPERSAMPLE 3. */
 const WINDOW = { width: 360, height: 264 };
 
@@ -183,6 +191,7 @@ const server = await serveMapLibre();
 const browser = await chromium.launch();
 const page = await browser.newPage();
 let offenders = 0;
+const table = [];
 
 try {
 	await page.goto(`http://127.0.0.1:${PORT}/`);
@@ -194,10 +203,12 @@ try {
 	]) {
 		console.log(`\n${label}`);
 		console.log('  scheme camera                inkShare  lumaSpread  settled  verdict');
+		const measured = [];
 		for (const scheme of SCHEMES) {
 			for (const camera of CAMERAS) {
 				const { png, settledMs } = await photograph(page, styleFor(scheme), camera);
 				const stats = describeWindow(await readWindow(png));
+				measured.push(stats);
 				const complaints = [];
 				if (stats.inkShare < MAP_WINDOW_LIMITS.minInkShare) complaints.push('drew almost nothing');
 				if (stats.lumaSpread > MAP_WINDOW_LIMITS.maxLumaSpread) complaints.push('reads as a notice');
@@ -209,11 +220,45 @@ try {
 				);
 			}
 		}
+		const range = (field) => {
+			const values = measured.map((stats) => stats[field]);
+			return `${Math.min(...values).toFixed(4)} - ${Math.max(...values).toFixed(4)}`;
+		};
+		table.push({
+			label,
+			n: measured.length,
+			zoom: `${Math.min(...zooms).toFixed(1)} - ${Math.max(...zooms).toFixed(1)}`,
+			inkShare: range('inkShare'),
+			lumaSpread: range('lumaSpread')
+		});
 	}
 } finally {
 	await browser.close();
 	server.kill();
 }
+
+/**
+ * The record, so the fixture's own header stops being a transcription (#469).
+ *
+ * That header used to carry this range in prose, copied by hand out of the run above, which
+ * is the defect #466 found one level up and fixed the same way. `basemap-canary.test.ts`
+ * reads this file and that paragraph and fails on any figure that disagrees, so a run of this
+ * script is the only thing that can move the numbers.
+ *
+ * Written on every run, including a failing one. What it holds is what was last measured, and
+ * the exit code below is what says whether that still reads as a map.
+ */
+const rangeFile = path.join(repo, 'tests', 'fixtures', 'basemap', 'fixture-range.tsv');
+writeFileSync(
+	rangeFile,
+	[
+		`# Written by node tools/probe-fixture-basemap.mjs on ${new Date().toISOString().slice(0, 10)}.`,
+		'# Do not edit. map-style-fixture.ts quotes these figures and basemap-canary.test.ts checks it does.',
+		['style', 'n', 'zoom', 'inkShare', 'lumaSpread'].join('\t'),
+		...table.map((row) => [row.label, row.n, row.zoom, row.inkShare, row.lumaSpread].join('\t'))
+	].join('\n') + '\n'
+);
+console.log(`\nWrote ${path.relative(repo, rangeFile)}`);
 
 console.log(
 	`\nLimits: inkShare >= ${MAP_WINDOW_LIMITS.minInkShare}, lumaSpread <= ${MAP_WINDOW_LIMITS.maxLumaSpread}`
