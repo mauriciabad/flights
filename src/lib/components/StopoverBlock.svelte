@@ -29,16 +29,22 @@
 	 *   money edge. The card's price breakdown composes the same two pieces into its own
 	 *   "Bed, 2 nights × €13.00 each", so the panel and the card cannot quote two different
 	 *   figures for one bed (issue #206).
-	 * - The room kind is `ROOM_KIND_LABELS`, the same table the stay picker's tiles use, and
-	 *   the distance beside it is `stays/distance.ts`, the same straight line and the same
-	 *   formatter every row of that picker prints (issue #219).
+	 * - The room kind is `ROOM_KIND_LABELS`, the same table the stay picker's tiles use.
 	 * - The transfer's duration, shape and fare are `itinerary.transferToHotel` through
 	 *   `formatDuration`, `transferDetailLine` and `transferFareNote`, and when nothing
 	 *   routed to the bed at all, `unroutedLegNote`.
 	 *
-	 * The rate, the room kind and the distance now arrive together, from `stays/bed-facts.ts`.
-	 * Issue #435 put the same property on the result card, and three derivations copied onto a
-	 * second surface is this section's own warning coming true.
+	 * The rate and the room kind arrive together, from `stays/bed-facts.ts`. Issue #435 put the
+	 * same property on the result card, and three derivations copied onto a second surface is
+	 * this section's own warning coming true.
+	 *
+	 * ## How far out the bed is left this block with issue #465
+	 *
+	 * Issue #219 put a straight line to the connection airport here, and #465 found it printed
+	 * again a few centimetres below, in the stay picker's open card, which is by construction
+	 * the same property. Every summary figure has one surface (issue #309), so the distance is
+	 * the picker's now and this block stopped asking for a point to measure from. That is why
+	 * there is no `connectionCoordinates` prop any more. Nothing here needs one.
 	 *
 	 * ## The two format decisions worth naming
 	 *
@@ -72,11 +78,11 @@
 	 * same content. This component is what it should render rather than writing a second
 	 * one; it takes an `Itinerary` and nothing else, so a popover can call it unchanged.
 	 */
-	import type { Coordinates, Itinerary } from '$lib/domain';
+	import type { Itinerary } from '$lib/domain';
 	import { transferRideDuration } from '$lib/domain';
 	import { formatClockTime, formatDuration, formatMoney, formatWeekdayAndDay } from '$lib/format';
 	import { overnightWaitNote } from '$lib/results/stopover-nights';
-	import { bedFacts, formatDistanceKm, PickedBed } from '$lib/stays';
+	import { bedFacts, PickedBed } from '$lib/stays';
 	import { freeTimeDays } from './free-time-days';
 	import {
 		landingBufferNote,
@@ -91,15 +97,9 @@
 		 * itinerary carries only the IATA code (domain/itinerary.ts), so a component that
 		 * derived this itself would print a code where the rest of the card prints a city. */
 		connectionLabel: string;
-		/** Issue #219: the connection airport's position, so the block can say how far out
-		 * the bed is. Optional, and the line degrades to the room kind alone without it: the
-		 * itinerary carries no connection `Airport` (domain/itinerary.ts holds the IATA code
-		 * and nothing else), and a caller that has not resolved one must not be forced to
-		 * invent a point. */
-		connectionCoordinates?: Coordinates;
 	}
 
-	let { itinerary, connectionLabel, connectionCoordinates }: Props = $props();
+	let { itinerary, connectionLabel }: Props = $props();
 
 	// `undefined` for a window with no length: a same-day change whose whole gap is eaten
 	// by the waiting rule and the transfers. Three lines about nothing is worse than none.
@@ -119,21 +119,15 @@
 	 * The bed, gathered by `stays/bed-facts.ts`.
 	 *
 	 * That module exists because issue #435 put the same property on the result card, and a
-	 * rate or a distance derived on both surfaces is the "one fact, two answers" failure this
-	 * file's header spends a paragraph warning about. What it hands back is unformatted: the
-	 * rate as `Money` and the distance in kilometres, because the card prints a journey where
-	 * this block prints a sentence.
+	 * rate derived on both surfaces is the "one fact, two answers" failure this file's header
+	 * spends a paragraph warning about. What it hands back is unformatted, the rate as
+	 * `Money`, because each surface prints money its own way.
 	 *
-	 * Issue #219 is why the distance is on screen at all: the app picked a bed 48.3 km from
-	 * the airport and nothing said so. Straight-line, through `stays/distance.ts`, the same
-	 * figure and formatter every row of the stay picker prints. Absent when no airport
-	 * position was resolved, since a block that invented a point would print a distance to
-	 * nowhere.
+	 * Called with no coordinates on purpose. `bedFacts` will measure the straight line to the
+	 * connection airport for a caller that has one, and since issue #465 no surface this
+	 * block draws wants it.
 	 */
-	const bed = $derived(bedFacts(itinerary, connectionCoordinates));
-	const distanceFromAirport = $derived(
-		bed?.distanceFromAirportKm === undefined ? undefined : formatDistanceKm(bed.distanceFromAirportKm)
-	);
+	const bed = $derived(bedFacts(itinerary));
 
 	// Issue #206: the rate, and who it covers, split into the number and its audience rather
 	// than joined into a sentence. Since issue #279 the block prints them on two lines, and
@@ -259,7 +253,6 @@
 				roomKindLabel={bed.roomKindLabel}
 				{nights}
 				rate={bedRate}
-				{distanceFromAirport}
 				transfer={{ note: transferLine, mode: toHotel?.mode }}
 			/>
 		{:else}

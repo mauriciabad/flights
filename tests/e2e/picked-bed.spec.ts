@@ -252,6 +252,81 @@ test.describe('the picked bed\'s photographs (issues #279 and #458)', () => {
 	});
 });
 
+test.describe('one property, said once (issue #465)', () => {
+	test('leaves the rating and the distance from the airport to the picker\'s open card', async ({
+		page
+	}) => {
+		await mockAllKeylessProviders(page.context());
+		await mockHostelworld(
+			page.context(),
+			'hostelworld/continents-vienna.json',
+			'hostelworld/properties-vienna-photos.json'
+		);
+		await page.context().route('https://photos.fixture.invalid/**', async (route) => {
+			await route.fulfill({
+				status: 200,
+				contentType: 'image/svg+xml',
+				body: photo('ONE', 1600, 1000)
+			});
+		});
+		await routeRyanairFlights(page.context(), [
+			{
+				dep: 'BCN',
+				arr: 'VIE',
+				depDate: '2027-03-08T08:00:00',
+				arrDate: '2027-03-08T10:15:00',
+				price: FIXTURE_PRICES.first,
+				flightNumber: FIXTURE_FLIGHT_NUMBERS[2]
+			},
+			{
+				dep: 'VIE',
+				arr: 'TLL',
+				depDate: '2027-03-10T11:00:00',
+				arrDate: '2027-03-10T13:20:00',
+				price: FIXTURE_PRICES.third,
+				flightNumber: FIXTURE_FLIGHT_NUMBERS[4]
+			}
+		]);
+
+		await page.setViewportSize({ width: 1440, height: 900 });
+		await page.goto('/results/?dep=2027-03-08&arr=2027-03-27&from=BCN&to=TLL');
+		await waitForSearchToSettle(page, { timeout: 20_000 });
+		await openTheDetail(page);
+
+		// The open card owns both, and says so in words a traveller comparing properties can
+		// read. This is the surface the issue's split gives them to.
+		const facts = openCard(page).locator('.stay-open-facts');
+		await expect(facts).toContainText('rated');
+		await expect(facts).toContainText('from the airport');
+
+		// And the block above it says neither. Counted across both surfaces rather than merely
+		// absent from the block, because the defect this closes is one figure printed twice in
+		// one column. An assertion that only read the block would pass just as happily if the
+		// picker had stopped printing the rating instead.
+		//
+		// Scoped to those two elements and not to the whole panel. The alternatives below the
+		// open card score their own properties, and the trip timeline at the top of the panel
+		// prints the picked bed's rating in its stopover row, which is a different surface
+		// behind a fold and not what issue #465 is about.
+		const block = customiser(page).locator('.stopover');
+		await expect(block).not.toContainText('From airport');
+		const score = (await facts.innerText()).match(/rated\s+(\S+)/)?.[1];
+		expect(score).toBeTruthy();
+		const timesInTheColumn = await page.evaluate(
+			([selectors, needle]: [string[], string]) =>
+				selectors
+					.map((selector) => document.querySelector(selector))
+					.filter((element): element is HTMLElement => element !== null)
+					.reduce((total, element) => total + element.innerText.split(needle).length - 1, 0),
+			[
+				['[data-testid="segment-customiser"] .stopover', '[data-testid="segment-customiser"] .stay-open-body'],
+				score!
+			] as [string[], string]
+		);
+		expect(timesInTheColumn).toBe(1);
+	});
+});
+
 /** The bed's photographs live wherever the stopover is described in full, and that has moved
  * three times: #278 made the trip strip unfold into it, #440 deleted that fold and put it in
  * the trip inspector's free-time panel, #458 left them to the stay picker's open card inside
