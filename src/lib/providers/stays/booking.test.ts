@@ -131,7 +131,7 @@ describe('searchStays', () => {
 				property: expect.objectContaining({ name: 'Ibis Vienna Airport' }),
 				roomKind: 'private',
 				pricePerNight: { minorUnits: 7527, currency: 'EUR' },
-				// Issue #450: Booking's own `hotel_id`, as text. No `roomId` — a `block` carries
+				// Issue #450: Booking's own `hotel_id`, as text. No `roomId`, because a `block` carries
 				// no id in the one full-envelope capture on disk, and Booking is metered, so
 				// this branch did not spend a request to find out whether a fuller one would.
 				source: { provider: 'booking', propertyId: '71662' }

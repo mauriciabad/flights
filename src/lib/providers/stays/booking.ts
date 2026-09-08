@@ -282,7 +282,7 @@ function createBookingStayProvider(options: BookingProviderOptions = {}): StayPr
 
 			// `stayShape` is `STAY_SHAPE_VERSION` (domain/stay.ts). This entry stores `Stay[]`
 			// itself, so a change to that shape has to change this key or the old value comes
-			// straight back — #131's incident, and the reason AGENTS.md carries the rule.
+			// straight back. That is #131's incident, and the reason AGENTS.md carries the rule.
 			const roomListCacheKey = defineCacheKey(
 				BOOKING_PROVIDER_ID,
 				{ op: 'getRoomList', hotelId: candidate.hotelId, checkIn: query.checkIn, checkOut: query.checkOut, travellers, currency: query.currency, stayShape: STAY_SHAPE_VERSION },

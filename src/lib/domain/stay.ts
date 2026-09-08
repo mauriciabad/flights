@@ -100,9 +100,10 @@ export interface Stay {
    * selected, would be nice to also be able to see those in my app." He is right about the
    * providers and wrong about the endpoints this app calls, which is the whole finding.
    * `docs/PROVIDERS.md` holds the field-by-field table; the short version is that only
-   * Hostelworld publishes room photographs at all, on a property endpoint this app does not
-   * call, and the three endpoints it does call carry none. So this is empty in practice
-   * today and the mapper that fills it is real code on a real path rather than a promise.
+   * Hostelworld publishes room photographs at all, and not on the search endpoint. So this
+   * field is empty for every stay any search returns, and it is not the whole answer to the
+   * owner's question. `RoomPhotoLookup` below is the rest of it: what a provider says when
+   * it is asked about one property, which is issue #449.
    *
    * Absent and empty mean the same thing here, which is "the provider gave none". Neither
    * means the room has no photographs.

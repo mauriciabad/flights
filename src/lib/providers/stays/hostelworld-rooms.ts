@@ -28,9 +28,9 @@
  * ## What is cached is the reduced lookup, not the response
  *
  * The response is 63,969 bytes decoded and the lookup built from it is a few dozen URLs.
- * `hostelworld.ts` caches raw bodies for the opposite reason — its mapper re-runs on every
- * read, so a mapping change reaches old entries for free — and pays 292,798 bytes per city
- * for it. Here the ratio is the wrong way round, so the key carries a shape version instead
+ * `hostelworld.ts` caches raw bodies for the opposite reason. Its mapper re-runs on every
+ * read, so a mapping change reaches old entries for free, and it pays 292,798 bytes per city
+ * for that. Here the ratio is the wrong way round, so the key carries a shape version instead
  * and a change to `RoomPhotoLookup` evicts rather than being served stale.
  */
 
@@ -151,7 +151,7 @@ function toProviderError(error: {
 			return { code: 'malformed-response', message: error.message, cause: error.cause };
 		case 'rate-limited':
 			// Keyless, so no plan is being exceeded. Hostelworld's own edge can still throttle,
-			// and "back off and try later" is the right thing to say either way — the same call
+			// and "back off and try later" is the right thing to say either way. The same call
 			// `hostelworld.ts` makes for its own 429.
 			return {
 				code: 'quota-exceeded',

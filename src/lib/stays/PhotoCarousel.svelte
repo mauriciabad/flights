@@ -467,6 +467,12 @@
 		   "Female-only dorms"; this is the guard for the narrowest box these are drawn in,
 		   which is the map sidebar. */
 		max-width: calc(100% - 5.5rem);
+		/* Clipped rather than wrapped. A two-line pill over a photograph reads as a broken
+		   control, and no truncation of these words can turn a plural into "Room", which is
+		   the only way this label could mislead. */
+		overflow: hidden;
+		white-space: nowrap;
+		text-overflow: ellipsis;
 		margin: 0;
 		padding: 2px var(--space-2);
 		border: 1px solid var(--color-accent);

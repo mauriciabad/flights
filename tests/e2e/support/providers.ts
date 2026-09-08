@@ -392,7 +392,7 @@ export async function mockHostelworld(
 	target: Routable,
 	continentsFixture = 'hostelworld/continents-empty.json',
 	propertiesFixture = 'hostelworld/properties-empty.json',
-	availabilityFixture = 'hostelworld/property-availability.json'
+	availabilityFixture = 'hostelworld/property-availability-empty.json'
 ) {
 	await mockJson(target, 'https://api.m.hostelworld.com/2.2/continents/**', continentsFixture);
 	await mockJson(target, 'https://api.m.hostelworld.com/2.2/cities/**', propertiesFixture);
@@ -400,6 +400,12 @@ export async function mockHostelworld(
 	// here rather than per spec because the network guard blocks anything no mock wanted, so
 	// leaving it out would fail every spec that opens the customise rail on a stopover with a
 	// Hostelworld bed, with a message about a provider call rather than about the feature.
+	//
+	// The default carries rooms and no photographs, the same way `properties-empty.json` is
+	// the default page. A spec that has not registered `photos.fixture.invalid` would
+	// otherwise start fetching room pictures it never asked for, and read as a blocked
+	// provider call. `hostelworld/property-availability.json` is the one with photographs in
+	// it; pass it when the photographs are what the spec is about.
 	await mockJson(target, 'https://api.m.hostelworld.com/2.2/properties/**', availabilityFixture);
 }
 

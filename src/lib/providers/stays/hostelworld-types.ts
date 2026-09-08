@@ -53,7 +53,7 @@ export interface HostelworldPrice {
 export interface HostelworldRoom {
 	/** Hostelworld's own id for this room type. Present on the city endpoint's room summary
 	 * (docs/PROVIDERS.md lists the eleven fields it carries) and on the availability
-	 * endpoint's fuller one, and the same number in both — which is what lets a `Stay`
+	 * endpoint's fuller one, and the same number in both, which is what lets a `Stay`
 	 * priced from one be matched to photographs published on the other. Sent as a number;
 	 * `Stay.source.roomId` normalises it to text. Issue #450. */
 	id?: number;
@@ -69,15 +69,15 @@ export interface HostelworldRoom {
 	 * width, so `hostelworld-photo.ts` overrides it rather than respecting it; its
 	 * `PUBLISHED_TRANSFORMATION` comment holds the 1,424,980-against-99,478 measurement.
 	 *
-	 * **The city endpoint this adapter calls does not send it.** Measured against three
-	 * untrimmed `show-rooms=1` captures (Rome 30 properties, London 30, London 3), where a
-	 * room is exactly `id, token, name, capacity, basicType, ensuite, grade, extendedType,
-	 * averagePrice, stp, conditions`. The field is real on the per-property availability
-	 * response, which `fixtures/hostelworld-property-availability-rooms.json` is cut from
-	 * and which nothing here fetches. Modelled anyway, against this module's "only what the
-	 * adapter reads" rule and for the same reason `imagesGallery` below earns its exception:
-	 * the mapper reads it, so the day a room summary carries one the app draws it, and the
-	 * fixture is the evidence that the shape was measured rather than guessed.
+	 * **The city endpoint does not send it, and the availability endpoint does.** Measured
+	 * against three untrimmed `show-rooms=1` captures (Rome 30 properties, London 30, London
+	 * 3), where a room is exactly `id, token, name, capacity, basicType, ensuite, grade,
+	 * extendedType, averagePrice, stp, conditions`. The field is real on
+	 * `HostelworldAvailabilityResponse` below, which `hostelworld-rooms.ts` fetches on demand
+	 * for the one property whose bed is on screen (issue #449), and which
+	 * `fixtures/hostelworld-property-availability-rooms.json` is cut from. It stays modelled
+	 * on this shared room type rather than on the availability response alone, so the day a
+	 * city room summary carries one the app draws it with no further work.
 	 *
 	 * Issue #449 asked what fetching that response would take and answered two thirds of it.
 	 * `tools/probe-hostelworld-rooms.mjs` measured `200` with `Access-Control-Allow-Origin: *`
@@ -176,7 +176,7 @@ export interface HostelworldPropertiesResponse {
 }
 
 /**
- * `GET /2.2/properties/{id}/availability/?currency=&date-start=&num-nights=&guests=` — one
+ * `GET /2.2/properties/{id}/availability/?currency=&date-start=&num-nights=&guests=`. One
  * property's rooms for one stay, and the only response any provider in this repo publishes
  * room photographs on. Issue #449.
  *
