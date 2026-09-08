@@ -357,37 +357,6 @@
 						></span
 					>
 				</span>
-				<!-- The owner: "the result card should show the departure and arrival dates. now
-				     it doesn't show it anywhere when collapsed". It did not. The strip stamps a
-				     weekday on a free day and the timeline carries full dates, but both of those
-				     are inside the fold, so a collapsed card said which cities and what price
-				     and never which days.
-
-
-				     A `.route` item rather than a row of its own, because `.route` already wraps
-				     and this costs no card height on a desktop card and one wrap on a phone.
-				     Issue #437 kept that. The owner wanted the dates at the right end and heavier
-				     ("now it is too bland"), and both are true of an item that stays in the flow:
-				     `margin-left: auto` sends it to the end of whatever line it lands on, which
-				     is the far right at 1440px and the end of the second line at 375px, beside
-				     the third airport rather than alone under it.
-
-				     Each end reads in its own place's local time, per the owner's rule that every
-				     time on this page belongs to the place it names, so a red-eye landing after
-				     midnight says the day the traveller actually arrives. -->
-				<span class="route-dates font-mono tabular-nums"
-					><!--
-					Non-breaking spaces inside the hidden words on purpose. A trailing space at the
-					end of an element's text is collapsed away, and the accessible name came out
-					"DepartsWed 16" and "arrivesThu 17" when it was an ordinary one. #318 is the
-					same seam read the other way: there, indentation between two elements put a
-					space in front of a comma.
-					--><span class="visually-hidden">Departs&nbsp;</span>{formatWeekdayAndDay(
-						itinerary.outboundFlight.departure
-					)}<span class="route-dates-arrow" aria-hidden="true">→</span><span class="visually-hidden"
-						>,&nbsp;arrives&nbsp;</span
-					>{formatWeekdayAndDay(itinerary.onwardFlight.arrival)}</span
-				>
 				{#if isDeprioritized || showFreshness}
 					<span class="header-badges">
 						{#if isDeprioritized}
@@ -403,20 +372,61 @@
 						{/if}
 					</span>
 				{/if}
-				{#if onToggleSave}
-					<!-- Issue #434, the owner: "we can use the heart icon for saved itineraries".
-					     Last, so it is beside the stamp: the two are the row's right-hand cluster
-					     and they wrap together or not at all, which is what keeps the dates from
-					     ending up alone on a line of their own. -->
-					<button
-						type="button"
-						class={['save-trip', { 'is-saved': savedTrip !== undefined }]}
-						aria-label={saveLabel}
-						onclick={onToggleSave}
+				<!-- Issue #463. #452 put the heart last in the row so it and the stamp would wrap
+				     together, and at 375px that is what happens. On a wider card it did not: the
+				     stamp fit on the first line and the heart, 24px behind it, did not, so the
+				     heart wrapped alone and the row's own `margin-left: auto` was on the stamp
+				     rather than on it. Measured on a live BCN to TLL search, every card had four
+				     or five bands of about 28px of viewport where that happened.
+
+				     One flex item is what settles it. The stamp and the heart cannot land on
+				     different lines because they are no longer two things the row can break
+				     between, and the auto margin now belongs to the pair, so whichever line they
+				     land on ends with them. -->
+				<span class="route-end">
+					<!-- The owner: "the result card should show the departure and arrival dates. now
+					     it doesn't show it anywhere when collapsed". It did not. The strip stamps a
+					     weekday on a free day and the timeline carries full dates, but both of those
+					     are inside the fold, so a collapsed card said which cities and what price
+					     and never which days.
+
+
+					     A `.route` item rather than a row of its own, because `.route` already wraps
+					     and this costs no card height on a desktop card and one wrap on a phone.
+					     Issue #437 kept that. The owner wanted the dates at the right end and heavier
+					     ("now it is too bland"), and both are true of an item that stays in the flow:
+					     `margin-left: auto`, which since #463 belongs to the enclosing pair, sends
+					     the stamp to the end of whatever line it lands on. That is the far right
+					     at 1440px and the end of the second line at 375px, beside the third
+					     airport rather than alone under it.
+
+					     Each end reads in its own place's local time, per the owner's rule that every
+					     time on this page belongs to the place it names, so a red-eye landing after
+					     midnight says the day the traveller actually arrives. -->
+					<span class="route-dates font-mono tabular-nums"
+						><!--
+						Non-breaking spaces inside the hidden words on purpose. A trailing space at the
+						end of an element's text is collapsed away, and the accessible name came out
+						"DepartsWed 16" and "arrivesThu 17" when it was an ordinary one. #318 is the
+						same seam read the other way: there, indentation between two elements put a
+						space in front of a comma.
+						--><span class="visually-hidden">Departs&nbsp;</span>{formatWeekdayAndDay(
+							itinerary.outboundFlight.departure
+						)}<span class="route-dates-arrow" aria-hidden="true">→</span><span
+							class="visually-hidden">,&nbsp;arrives&nbsp;</span
+						>{formatWeekdayAndDay(itinerary.onwardFlight.arrival)}</span
 					>
-						<Icon name="heart" />
-					</button>
-				{/if}
+					{#if onToggleSave}
+						<button
+							type="button"
+							class={['save-trip', { 'is-saved': savedTrip !== undefined }]}
+							aria-label={saveLabel}
+							onclick={onToggleSave}
+						>
+							<Icon name="heart" />
+						</button>
+					{/if}
+				</span>
 			</div>
 			{#if priceNote}
 				<!-- Only on a trip the traveller kept, and only once it has been priced twice.
@@ -624,6 +634,33 @@
 	}
 
 	/*
+	 * Issue #463: the stamp and the heart as one flex item, so `.route` has nothing to break
+	 * between them.
+	 *
+	 * #452 put the heart last in the row rather than in the card's corner, because that is
+	 * what makes the two wrap together and keeps the dates off a line of their own. Two
+	 * items only wrap together while both fit on the same line, and measured on a live BCN
+	 * to TLL search every card had four or five bands of about 28px of viewport where the
+	 * stamp fit and the heart did not. Düsseldorf DUS, Germany was one of them at 1440px.
+	 *
+	 * The gap is `--space-1` because that is what the pair already measured: `.route`'s own
+	 * `--space-2` less the 4px the heart used to pull back with a negative margin. So the
+	 * cluster is the width it was, the row's line box is the 24px it was, and `card-header`
+	 * measures what `card-size.spec.ts` records.
+	 *
+	 * `flex-wrap: nowrap` is the default, and it is written out because it is the whole
+	 * point of this element. At 375px the pair is 153px inside a 301px row, so nothing here
+	 * can overflow the card.
+	 */
+	.route-end {
+		display: inline-flex;
+		align-items: center;
+		flex-wrap: nowrap;
+		gap: var(--space-1);
+		margin-left: auto;
+	}
+
+	/*
 	 * Issue #437: a date stamped on the stub, rather than two more words trailing the third
 	 * airport in the weight of everything around them.
 	 *
@@ -646,7 +683,6 @@
 	.route-dates {
 		display: inline-flex;
 		align-items: center;
-		margin-left: auto;
 		padding: 2px var(--space-1);
 		border: 1px solid var(--color-border);
 		border-radius: var(--radius-sm);
@@ -677,15 +713,24 @@
 	   whole card, and pinning them to the right of the route line keeps the price row free
 	   for the price and its parts.
 
-	   Their `margin-left: auto` moved to `.route-dates` in #437. Two auto margins on one
-	   flex line share the free space between them, which would have parked the badges in
-	   the middle of the row; one is what pins a cluster to the end. */
+	   They sit ahead of the stamp rather than between the stamp and the heart, which is
+	   where #452 left them. #463 needs those two adjacent to glue them together, and a badge
+	   in between is the one thing that cannot be there.
+
+	   The auto margin belongs to whichever of the two arrives first on the row. Two of them
+	   on one flex line share the free space between them, which would park the badges in the
+	   middle of the row; one is what pins a cluster to the end. */
 	.header-badges {
 		display: flex;
 		flex-wrap: wrap;
 		align-items: center;
 		justify-content: flex-end;
 		gap: var(--space-2);
+		margin-left: auto;
+	}
+
+	.header-badges + .route-end {
+		margin-left: 0;
 	}
 
 	.avoid-badge {
@@ -722,9 +767,9 @@
 	 * and below the row absorbs the rest, so the header measures what it measured before.
 	 * `.saved-all` on the search screen buys its target the same way.
 	 *
-	 * Absolute, because a target this size in a row that wraps at 375px is a wrap. Pinned to
-	 * the top right so it reads as the card's own corner action, which is also the one place
-	 * on this card nothing else claims.
+	 * In the flow beside the stamp, not pinned to the card's corner. A corner is a position
+	 * the row cannot reason about, and #452 wanted the two to travel together. `position:
+	 * relative` here is for the 44px overlay below to hang off, nothing more.
 	 */
 	.save-trip {
 		position: relative;
@@ -733,13 +778,14 @@
 		justify-content: center;
 		/* WCAG 2.2 SC 2.5.8's 24px, as a real box, because that is what
 		   `trip-strip-geometry.spec.ts` measures and it is right to: an overlay is a
-		   promise a bounding box can check. The 4px it costs the row comes back below. */
+		   promise a bounding box can check. The 4px it costs the row comes back in the pair's
+		   gap, see below. */
 		width: 1.5rem;
 		height: 1.5rem;
+		/* The 4px that used to come back through a negative inline-start margin is
+		   `.route-end`'s gap since #463. Same 4px, and now it belongs to the pair rather
+		   than to one half of it. */
 		margin: 0;
-		/* Half the row's gap, so the heart and the stamp read as the one right-hand cluster
-		   they wrap as, and so a 24px control costs the row exactly what a 20px one did. */
-		margin-inline-start: calc(var(--space-1) - var(--space-2));
 		padding: 0;
 		border-radius: var(--radius-full);
 		color: var(--color-accent-muted-text);
