@@ -310,14 +310,14 @@ test.describe('tapping a segment on a phone', () => {
 		context
 	}) => {
 		// Issue #456. The strip suppresses the preview for the focus a press causes, and the
-		// whole question is how long that suppression lasts. `tap()` is no use here: it sends
+		// whole question is how long that suppression lasts. `tap()` is no use here. It sends
 		// `touchStart` and `touchEnd` in the same millisecond, which is not a gesture a hand
 		// makes and is the one duration where every version of this passes. A thumb rests on
 		// the glass for 50 to 150ms, so this presses and holds through CDP.
 		//
 		// 160ms because Chromium suppresses timer queues for the first 100ms after a
 		// `touchstart` and no longer. That is what made a zero-delay clear a defect rather
-		// than a race: past that mark the macrotask ran mid-gesture, every time, and the
+		// than a race. Past that mark the macrotask ran mid-gesture, every time, and the
 		// compatibility focus that followed it opened the panel. Measured at 375x812 before
 		// the fix, a press of 80ms and every longer one did it (`tools/probe-strip-press.mjs`).
 		await page.emulateMedia({ reducedMotion: 'reduce' });
@@ -326,8 +326,8 @@ test.describe('tapping a segment on a phone', () => {
 		await hit.scrollIntoViewIfNeeded();
 
 		// Read as each event is dispatched rather than after the gesture. The panel opens and
-		// shuts again inside one press, so anything sampled afterwards sees nothing, and its
-		// own `toggle` event is no better: the HTML spec replaces a queued popover toggle
+		// shuts again inside one press, so anything sampled afterwards sees nothing. Its own
+		// `toggle` event is no better, because the HTML spec replaces a queued popover toggle
 		// task, so an open and a close in one turn dispatch a single closed-to-closed event.
 		await page.evaluate(() => {
 			const seen: string[] = [];
