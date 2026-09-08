@@ -32,6 +32,7 @@ import type { Coordinates, Itinerary, Property, Transfer, TransferMode } from '$
 import { transferRideDuration } from '$lib/domain';
 import { haversineDistanceKm } from './distance';
 import { bedNightlyRate, type NightlyRate } from './pricing';
+import { stayPhotos, type StayPhoto } from './stay-photos';
 import { UNASKED_REACH, type ModeReach, type ReachMode, type StayReach } from './reach';
 import { ROOM_KIND_LABELS } from './room-kind';
 
@@ -45,6 +46,14 @@ export interface BedFacts {
 	nights: number;
 	/** What one night costs and who that figure covers (issue #206). */
 	rate: NightlyRate;
+	/**
+	 * The building's photographs and this room's, labelled, through `stayPhotos`.
+	 *
+	 * Assembled here so every surface showing this bed shows the same set. Issue #442's rule
+	 * is that a photograph of the building may never be presented as a photograph of the
+	 * room, and it holds by construction because the merge happens once.
+	 */
+	photos: StayPhoto[];
 	/**
 	 * Straight line from the connection airport to the property, in kilometres. Absent when
 	 * the caller resolved no airport position: the itinerary carries only an IATA code, and a
@@ -96,6 +105,7 @@ export function bedFacts(itinerary: Itinerary, connectionCoordinates?: Coordinat
 		roomKindLabel: ROOM_KIND_LABELS[stay.roomKind],
 		nights: itinerary.nightsInConnection,
 		rate: bedNightlyRate(stay, itinerary.travellers),
+		photos: stayPhotos(stay.property, [stay]),
 		distanceFromAirportKm: connectionCoordinates
 			? haversineDistanceKm(stay.property.coordinates, connectionCoordinates)
 			: undefined,

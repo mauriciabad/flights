@@ -27,6 +27,19 @@ describe('bedFacts', () => {
 		expect(bedFacts(trip({ stay: undefined }), VIENNA_AIRPORT)).toBeUndefined();
 	});
 
+	it('merges the building and room photographs once, for every surface that draws them', () => {
+		// Issue #442's rule is that a photograph of the building may never be presented as a
+		// photograph of the room. It holds by construction when the merge happens in one
+		// place, which is what this field is for: the card and the stopover block read the
+		// same list rather than each calling `stayPhotos` with their own arguments.
+		const withRoom = trip({
+			stay: stay({ roomImages: ['https://photos.invalid/room.jpg'] })
+		});
+		const photos = bedFacts(withRoom, VIENNA_AIRPORT)?.photos ?? [];
+		expect(photos.map((photo) => photo.subject)).toEqual(['room']);
+		expect(photos[0].caption).toContain('Wombats City Hostel');
+	});
+
 	it('carries the room kind in the picker tiles own words', () => {
 		expect(bedFacts(trip(), VIENNA_AIRPORT)?.roomKindLabel).toBe('Dorm bed');
 	});

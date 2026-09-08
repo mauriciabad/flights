@@ -76,7 +76,7 @@
 	import { transferRideDuration } from '$lib/domain';
 	import { formatClockTime, formatDuration, formatMoney, formatWeekdayAndDay } from '$lib/format';
 	import { overnightWaitNote } from '$lib/results/stopover-nights';
-	import { bedFacts, formatDistanceKm, PickedBed, propertyKey, stayPhotos } from '$lib/stays';
+	import { bedFacts, formatDistanceKm, PickedBed, propertyKey } from '$lib/stays';
 	import { freeTimeDays } from './free-time-days';
 	import {
 		landingBufferNote,
@@ -271,7 +271,7 @@
 					rate={bedRate}
 					{distanceFromAirport}
 					transfer={{ note: transferLine, mode: toHotel?.mode }}
-					photos={stayPhotos(stay.property, [stay])}
+					photos={bed.photos}
 					showPhotos={photos}
 				/>
 			{/key}

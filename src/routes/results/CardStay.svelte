@@ -81,9 +81,9 @@
 		     the receipt beside it has already said "Hotel". -->
 		<div class="card-stay">
 			<div class="card-stay-body">
-				{#if bed.property.images.length > 0}
+				{#if bed.photos.length > 0}
 					<div class="card-stay-photo">
-						<PhotoCarousel images={bed.property.images} name={bed.property.name} />
+						<PhotoCarousel photos={bed.photos} name={bed.property.name} />
 					</div>
 				{/if}
 
