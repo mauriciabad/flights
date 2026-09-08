@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { readKeyNotice, readWindowFixture } from '../../../tests/shared/read-png';
 import { fixtureMapStyle, fixtureMapStyleFor } from '../../../tests/shared/map-style-fixture';
@@ -126,5 +129,88 @@ describe('judging a style document', () => {
 	it('answers each CARTO style URL with the matching scheme', () => {
 		expect(fixtureMapStyleFor(MAP_STYLE_URL.light).name).toBe('fixture-light');
 		expect(fixtureMapStyleFor(MAP_STYLE_URL.dark).name).toBe('fixture-dark');
+	});
+});
+
+/**
+ * The calibration table in `basemap-canary.ts`, against the run that recorded it (#466).
+ *
+ * A human used to copy that table out of `pnpm data:basemap-canary`'s console. One cell
+ * arrived wrong. The shared fixture's luminance spread was written 0.0662 while the drawing
+ * that shipped in the same commit measures 0.0695. No threshold is read off that row, so
+ * nothing failed and nothing could.
+ *
+ * The script writes `calibration.tsv` now and this reads both files. It is a check on prose,
+ * which is unusual and is the point. The table is the evidence for every threshold in that
+ * module, and evidence nobody can check is a number somebody liked.
+ *
+ * Ranges are collapsed the way the comment writes them. The script always prints `min - max`
+ * and the table shows one figure where the two are equal, which is a formatting rule rather
+ * than a difference in what was measured.
+ */
+describe('the calibration table is the recorded one (issue #466)', () => {
+	const here = path.dirname(fileURLToPath(import.meta.url));
+	const repo = path.join(here, '..', '..', '..');
+
+	interface Row {
+		population: string;
+		n: string;
+		inkShare: string;
+		lumaSpread: string;
+		keyNotice: string;
+	}
+
+	function recorded(): Row[] {
+		const lines = readFileSync(path.join(repo, 'tests/fixtures/basemap/calibration.tsv'), 'utf8')
+			.split('\n')
+			.filter((line) => line.length > 0 && !line.startsWith('#'));
+		const collapse = (cell: string) => {
+			const [low, high] = cell.split(' - ');
+			return high === undefined || low === high ? low : cell;
+		};
+		return lines.slice(1).map((line) => {
+			const [population, n, inkShare, lumaSpread, keyNotice] = line.split('\t');
+			return {
+				population,
+				n,
+				inkShare: collapse(inkShare),
+				lumaSpread: collapse(lumaSpread),
+				keyNotice: collapse(keyNotice)
+			};
+		});
+	}
+
+	function documented(): Row[] {
+		const source = readFileSync(path.join(here, 'basemap-canary.ts'), 'utf8');
+		return source
+			.split('\n')
+			.filter((line) => line.trimStart().startsWith('* |'))
+			.map((line) =>
+				line
+					.trim()
+					.slice(2)
+					.split('|')
+					.map((cell) => cell.trim())
+					.filter((cell) => cell.length > 0)
+			)
+			.filter(([population]) => population !== 'population' && !population.startsWith('---'))
+			.map(([population, n, inkShare, lumaSpread, keyNotice]) => ({
+				population,
+				n,
+				inkShare,
+				lumaSpread,
+				keyNotice
+			}));
+	}
+
+	it('quotes every cell the last run measured, in the order it measured them', () => {
+		expect(documented()).toEqual(recorded());
+	});
+
+	it('reads a table at all, so a comment that lost its rows fails rather than passes', () => {
+		// Both sides of the check above are parsed out of files, and two empty lists are
+		// equal. This is what stops a reformatted comment or a truncated file from reading as
+		// agreement.
+		expect(documented().length).toBeGreaterThanOrEqual(6);
 	});
 });

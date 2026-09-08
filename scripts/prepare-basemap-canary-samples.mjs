@@ -4,10 +4,23 @@
  *
  * `pnpm data:basemap-canary`
  *
- * Writes five pictures into tests/fixtures/basemap/ and prints the calibration table that
- * src/lib/itinerary-map/basemap-canary.ts quotes, scored by that module's own functions.
- * Re-run it when CARTO changes the notice, or when a threshold in that module needs its
- * evidence checked. It only ever reads the network; nothing here answers a request.
+ * Writes five pictures and one table into tests/fixtures/basemap/, scored by that module's
+ * own functions. Re-run it when CARTO changes the notice, or when a threshold in
+ * src/lib/itinerary-map/basemap-canary.ts needs its evidence checked. It only ever reads the
+ * network; nothing here answers a request.
+ *
+ * ## The table is written, not read off the console (#466)
+ *
+ * That module's header carries this table, and until #466 a person copied it there by hand
+ * from the lines below. One cell arrived wrong and stayed wrong. The shared fixture's
+ * luminance spread was documented at 0.0662 while the drawing that shipped in the same commit
+ * measures 0.0695, deterministically, over twelve runs. Nothing was broken by it, which is
+ * exactly why nobody noticed for a day.
+ *
+ * So this writes `calibration.tsv` as well as printing, and `basemap-canary.test.ts` reads
+ * both that file and the module's own source and fails when a single cell disagrees. A run of
+ * this script is now the only way the table can change, and a table nobody has re-recorded
+ * cannot quietly stop describing the code beside it.
  *
  * The notice is derived rather than drawn: it is the set of pixels that carry ink in every
  * one of the sixteen watermarked tiles, across eight cities and both raster styles. Anything
@@ -215,6 +228,7 @@ try {
 	writeFileSync(path.join(outDir, 'openstreetmap-refusal.png'), notFound);
 	writeFileSync(path.join(outDir, 'style-with-no-layers.png'), blank);
 
+	const table = [];
 	const report = async (label, samples) => {
 		const rows = [];
 		for (const { png } of samples) {
@@ -225,19 +239,41 @@ try {
 			const values = rows.map((r) => r[key]);
 			return `${Math.min(...values).toFixed(digits)} - ${Math.max(...values).toFixed(digits)}`;
 		};
+		const row = {
+			label,
+			n: rows.length,
+			inkShare: range('inkShare', 4),
+			lumaSpread: range('lumaSpread', 4),
+			keyNotice: range('coverage', 3)
+		};
+		table.push(row);
 		console.log(
-			`${label.padEnd(26)} n=${String(rows.length).padStart(2)}  inkShare ${range('inkShare', 4).padEnd(17)}` +
-				`lumaSpread ${range('lumaSpread', 4).padEnd(17)}keyNotice ${range('coverage', 3)}`
+			`${label.padEnd(26)} n=${String(row.n).padStart(2)}  inkShare ${row.inkShare.padEnd(17)}` +
+				`lumaSpread ${row.lumaSpread.padEnd(17)}keyNotice ${row.keyNotice}`
 		);
 	};
 
 	console.log(`\nnotice: ${marked} pixels (${((marked / (SIZE * SIZE)) * 100).toFixed(2)}% of a tile)\n`);
 	await report('clean CARTO renders', clean);
 	await report('watermarked raster tiles', watermarked);
-	await report('openstreetmap.org refusal', [{ png: notFound }]);
+	await report('openstreetmap.org 403', [{ png: notFound }]);
 	await report('style with no layers', [{ png: blank }]);
 	await report('style with one bg layer', [{ png: backgroundOnly }]);
 	await report('the shared test fixture', [{ png: fixture }]);
+
+	// Tab separated because every label has spaces in it and half the cells are ranges
+	// written with a spaced hyphen, so a comma or a space would need quoting to survive.
+	const tableFile = path.join(outDir, 'calibration.tsv');
+	writeFileSync(
+		tableFile,
+		[
+			`# Written by pnpm data:basemap-canary on ${new Date().toISOString().slice(0, 10)}.`,
+			'# Do not edit. basemap-canary.ts quotes these rows and basemap-canary.test.ts checks it does.',
+			['population', 'n', 'inkShare', 'lumaSpread', 'keyNotice'].join('\t'),
+			...table.map((row) => [row.label, row.n, row.inkShare, row.lumaSpread, row.keyNotice].join('\t'))
+		].join('\n') + '\n'
+	);
+	console.log(`\nWrote ${path.relative(repo, tableFile)}`);
 } finally {
 	await browser.close();
 	server.close();

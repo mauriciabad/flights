@@ -13,10 +13,10 @@
  *
  * ## What the numbers are
  *
- * Measured 2026-09-07 over 32 windows: eight European city centres at zoom 12, each drawn
- * four ways. Clean means the two keyless CARTO vector styles this app loads, rendered
- * through MapLibre. Watermarked means the same eight tiles from CARTO's raster endpoints,
- * which carry the key notice.
+ * Measured over 32 windows: eight European city centres at zoom 12, each drawn four ways.
+ * Clean means the two keyless CARTO vector styles this app loads, rendered through MapLibre.
+ * Watermarked means the same eight tiles from CARTO's raster endpoints, which carry the key
+ * notice.
  *
  * | population              |  n | inkShare        | lumaSpread      | keyNotice     |
  * | ----------------------- | -- | --------------- | --------------- | ------------- |
@@ -25,14 +25,28 @@
  * | openstreetmap.org 403   |  1 | 0.1661          | 0.2603          | 0.218         |
  * | style with no layers    |  1 | 0.0000          | 0.0000          | 0.000         |
  * | style with one bg layer |  1 | 0.0000          | 0.0000          | 0.000         |
- * | the shared test fixture |  1 | 0.0614          | 0.0662          | 0.094         |
+ * | the shared test fixture |  1 | 0.0614          | 0.0695          | 0.094         |
+ *
+ * That table is not typed. `pnpm data:basemap-canary` records every cell into
+ * `tests/fixtures/basemap/calibration.tsv`, and `basemap-canary.test.ts` reads both that file
+ * and this comment and fails on any cell that disagrees. Change a figure here and the suite
+ * goes red; change what is measured and only a fresh run can move it.
+ *
+ * Issue #466 is why. The last row's luminance spread read 0.0662 for a day while the drawing
+ * that shipped in the same commit measured 0.0695, over twelve runs, with and without a
+ * raster fade, on an unchanged maplibre-gl 6.7.0. Nothing read a threshold off that row and
+ * nothing broke, which is what let it sit there. A grid about 5% fainter than the one that
+ * ships measures around 0.0662, and the fixture's own comment records its alpha being tuned
+ * inside that commit, so the figure looks like a draft's measurement that outlived its
+ * drawing. It is not a render drifting. The fixture's ink share and notice coverage on that
+ * same row reproduce exactly, and so does every other cell of this table.
  *
  * The fifth row is what the shared test fixture used to be, and the sixth is what it is now
  * (#443). Both suites answer `basemaps.cartocdn.com` with that one document, and while it
  * measured the same 0.0000 as the layerless style above it, no mocked spec could tell a map
  * from a fill. It draws a street grid now. `tools/probe-fixture-basemap.mjs` scores it with
- * `complainAboutPixels` below at the windows a ground preview actually asks for, where it
- * inks 0.0546 to 0.0891 at a spread of 0.0396 to 0.0720 over fourteen cameras.
+ * `complainAboutPixels` below at the windows a ground preview actually asks for, over
+ * fourteen cameras.
  *
  * Read the first two rows before trusting a summary statistic here. `inkShare` and
  * `lumaSpread` do not separate a watermarked map from a clean one, and they cannot: CARTO's
