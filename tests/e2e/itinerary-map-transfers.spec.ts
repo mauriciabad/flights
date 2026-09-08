@@ -278,7 +278,7 @@ test.describe('itinerary map: every transfer leg, distinct markers, honest geome
 		});
 
 		// -----------------------------------------------------------------
-		// 5. Keyless CARTO basemap — same empty style trip-inspector.spec.ts uses,
+		// 5. Keyless CARTO basemap, the same empty style trip-inspector.spec.ts uses,
 		//    enough for MapLibre's own `load` event without pulling real vector tiles.
 		// -----------------------------------------------------------------
 
