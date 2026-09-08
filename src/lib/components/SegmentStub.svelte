@@ -217,11 +217,7 @@
 	<div class="stub-bottom">
 		<div class="stub-body" bind:this={counterfoil}>
 			{#if stub.rendersStopoverBlock}
-				<!-- Issue #307, the owner: "dont show the images inside the toooltip, it is too
-				     large." Measured before the change, this panel stood 542px tall on a 900px
-				     viewport with 189px of it media. The block keeps every other fact it prints:
-				     the name, the score, the room kind, the rate, the nights and the ride. -->
-				<StopoverBlock {itinerary} {connectionLabel} photos={false} />
+				<StopoverBlock {itinerary} {connectionLabel} />
 			{/if}
 			{#if stub.facts.length > 0}
 				<dl class={['stub-facts', { 'after-block': stub.rendersStopoverBlock }]}>
@@ -245,7 +241,21 @@
 	   are known at different moments. Where the panel goes needs the panel measured, which
 	   needs it displayed; how far it rises is 4px whatever the answer. Folding the rise into
 	   `translate` made `@starting-style` read a placement that did not exist yet, so the
-	   entrance started from 0,0. */
+	   entrance started from 0,0.
+
+	   No local `prefers-reduced-motion` block, and that is the answer rather than an
+	   omission (issue #459). `app.css` flattens every `transition-duration` on the page to
+	   0.001ms under that query, through a `*` rule carrying `!important`, so all five
+	   properties below are already covered and a rule here could only restate it or fight
+	   it. Measured at 1440x900, the panel and the tail both compute 1e-06s, and a pointer
+	   walking from one segment to the next puts the panel through two positions rather than
+	   through the run of intermediate ones it glides over otherwise. `segment-stub.spec.ts`
+	   holds that measurement, so a future edit to the list above cannot quietly opt out of
+	   the preference.
+
+	   `display` and `overlay` stay in the list under both, since a popover with no
+	   transition on them disappears on the frame it closes rather than fading, and neither
+	   moves anything. */
 	.stub {
 		--stub-bg: var(--color-surface-hover);
 		--stub-tint: var(--color-bg-inset);

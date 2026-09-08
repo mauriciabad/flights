@@ -71,9 +71,9 @@
 </script>
 
 {#if bed}
-	<!-- Keyed on the property, for `PickedBed`'s reason: the carousel counts which photograph
-	     the reader has reached, and carrying that count to a different hostel would open the
-	     new one on its second picture and fetch it unasked. -->
+	<!-- Keyed on the property because the carousel counts which photograph the reader has
+	     reached, and carrying that count to a different hostel would open the new one on its
+	     second picture and fetch it unasked. -->
 	{#key propertyKey(bed.property)}
 		<!-- A plain div, not a labelled `<section>`. A section with an accessible name is a
 		     landmark, and four cards on screen would put four identically named landmarks in

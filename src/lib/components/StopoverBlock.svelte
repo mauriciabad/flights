@@ -76,7 +76,7 @@
 	import { transferRideDuration } from '$lib/domain';
 	import { formatClockTime, formatDuration, formatMoney, formatWeekdayAndDay } from '$lib/format';
 	import { overnightWaitNote } from '$lib/results/stopover-nights';
-	import { bedFacts, formatDistanceKm, PickedBed, propertyKey } from '$lib/stays';
+	import { bedFacts, formatDistanceKm, PickedBed } from '$lib/stays';
 	import { freeTimeDays } from './free-time-days';
 	import {
 		landingBufferNote,
@@ -97,14 +97,9 @@
 		 * and nothing else), and a caller that has not resolved one must not be forced to
 		 * invent a point. */
 		connectionCoordinates?: Coordinates;
-		/** Whether the bed is drawn with its photographs. False in exactly one place, the
-		 * trip strip's hover panel (issue #307): a media box is a third of that panel's
-		 * height and a tooltip is for a glance. Passed straight through to `PickedBed`,
-		 * which is where the decision is argued. */
-		photos?: boolean;
 	}
 
-	let { itinerary, connectionLabel, connectionCoordinates, photos = true }: Props = $props();
+	let { itinerary, connectionLabel, connectionCoordinates }: Props = $props();
 
 	// `undefined` for a window with no length: a same-day change whose whole gap is eaten
 	// by the waiting rule and the transfers. Three lines about nothing is worse than none.
@@ -259,22 +254,14 @@
 		     question again: `nights > 0` was the guard that let this block hold a quote for a
 		     room nobody was booking, and the model no longer offers it one. -->
 		{:else if stay && bed && bedRate}
-			<!-- Keyed on the property so a swap rebuilds the block rather than reusing it.
-			     `PickedBed` counts which photograph the reader has reached, and carrying
-			     that count over to a different hostel would open the new one on its second
-			     picture and fetch it unasked. -->
-			{#key propertyKey(stay.property)}
-				<PickedBed
-					property={stay.property}
-					roomKindLabel={bed.roomKindLabel}
-					{nights}
-					rate={bedRate}
-					{distanceFromAirport}
-					transfer={{ note: transferLine, mode: toHotel?.mode }}
-					photos={bed.photos}
-					showPhotos={photos}
-				/>
-			{/key}
+			<PickedBed
+				property={stay.property}
+				roomKindLabel={bed.roomKindLabel}
+				{nights}
+				rate={bedRate}
+				{distanceFromAirport}
+				transfer={{ note: transferLine, mode: toHotel?.mode }}
+			/>
 		{:else}
 			<p class="stopover-room">{noBedLine}</p>
 			<p class="stopover-transfer">{transferLine}</p>
