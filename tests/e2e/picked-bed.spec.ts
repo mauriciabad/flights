@@ -1,16 +1,21 @@
 import { expect, test } from './support/fixtures';
 import { FIXTURE_FLIGHT_NUMBERS, FIXTURE_PRICES } from './support/fixture-markers';
 import { mockAllKeylessProviders, mockHostelworld, routeRyanairFlights } from './support/providers';
-import { openTimeline } from './support/results-ui';
+import { customiser, openTimeline } from './support/results-ui';
 import { waitForSearchToSettle } from '../shared/search-wait';
 
 /**
- * Issue #279's bed block, measured rather than read.
+ * The picked bed's photographs, measured rather than read.
  *
- * The unit tests in `src/lib/stays/PickedBed.test.ts` already assert every word this block
- * prints. They cannot assert a single pixel, because jsdom has no layout: every element
- * there is 0x0, so a check on the reserved media box would pass just as happily against a
- * box that reserves nothing.
+ * Written for issue #279 against `PickedBed`, which drew them until issue #458 left them to
+ * the stay picker's open card. That card is the same property, since `StayPicker` opens the
+ * group holding the selected bed. So the subject of these two cases has not changed, only which
+ * element in the panel is asked.
+ *
+ * The unit tests in `src/lib/stays/PhotoCarousel.test.ts` already assert every word the
+ * carousel prints. They cannot assert a single pixel, because jsdom has no layout: every
+ * element there is 0x0, so a check on the reserved media box would pass just as happily
+ * against a box that reserves nothing.
  *
  * That gap is not hypothetical in this repo. `TripStrip`'s segments shipped invisible to
  * production at 0 to 2px wide, with the right colours and `visibility: visible`, while all
@@ -36,7 +41,7 @@ function photo(label: string, width: number, height: number): string {
  * without it, short enough that the test is not slow. */
 const PHOTO_DELAY_MS = 1200;
 
-test.describe('the picked bed on the card (issue #279)', () => {
+test.describe('the picked bed\'s photographs (issues #279 and #458)', () => {
 	test('reserves the photograph its space, so a late image shifts nothing', async ({ page }) => {
 		await mockAllKeylessProviders(page.context());
 		await mockHostelworld(
@@ -82,9 +87,11 @@ test.describe('the picked bed on the card (issue #279)', () => {
 
 		await openTheDetail(page);
 
-		// Scoped to the bed block. Issue #435 put a second carousel on the card itself, above
-		// this one in the DOM, and an unscoped `.first()` would photograph that one instead.
-		const media = page.locator('.bed .photo-carousel').first();
+		// Scoped to the picker's open card, which since issue #458 is the one surface in this
+		// panel that photographs the bed. The card behind it draws its own thumbnail strip and
+		// an unscoped `.first()` would measure that one instead.
+		const media = openCard(page).locator('.photo-carousel');
+		await media.scrollIntoViewIfNeeded();
 		await expect(media).toBeVisible();
 
 		// 1. The box holds its space before a byte of image has arrived. This is the
@@ -94,10 +101,11 @@ test.describe('the picked bed on the card (issue #279)', () => {
 		expect(empty!.width).toBeGreaterThan(250);
 		expect(empty!.height).toBeGreaterThan(140);
 
-		// 2. Nothing below the photograph moves when it lands. The transfer line sits under
-		//    the whole block, so its top is what a late image would push down.
-		const transfer = page.locator('.bed-transfer').first();
-		const beforeLoad = await transfer.boundingBox();
+		// 2. Nothing below the photograph moves when it lands. The rating and the two
+		//    distances sit directly under the strip in the same card, so their top is what a
+		//    late image would push down.
+		const facts = openCard(page).locator('.stay-open-facts');
+		const beforeLoad = await facts.boundingBox();
 
 		const image = media.locator('img').first();
 		await expect
@@ -106,7 +114,7 @@ test.describe('the picked bed on the card (issue #279)', () => {
 			})
 			.toBeGreaterThan(0);
 
-		const afterLoad = await transfer.boundingBox();
+		const afterLoad = await facts.boundingBox();
 		expect(afterLoad!.y).toBeCloseTo(beforeLoad!.y, 0);
 
 		// 3. The picture is genuinely drawn at the box's size, not collapsed inside it.
@@ -119,10 +127,10 @@ test.describe('the picked bed on the card (issue #279)', () => {
 		//    about 65 KB after it. That is the claim, and it is about which photographs
 		//    leave the app rather than how many elements ask for one.
 		//
-		//    It counted requests until issue #435 put a carousel on the card as well. Three
-		//    `<img>` now carry this address, two cards and this block, and the number that
-		//    reaches the network is the browser's to decide. Measured at 375x780 over twelve
-		//    runs at load average 30, all three drew from a single request. So a count here
+		//    It counted requests until issue #435 put a carousel on the card as well. Several
+		//    `<img>` carry this address, one per card in the list plus this one, and the number
+		//    that reaches the network is the browser's to decide. Measured at 375x780 over
+		//    twelve runs at load average 30, all of them drew from a single request. So a count here
 		//    pins Chromium's image cache, not anything this app chose, and it went flaky on
 		//    CI the moment a second surface appeared. The addresses are what the app decides,
 		//    so the addresses are what this reads.
@@ -175,14 +183,16 @@ test.describe('the picked bed on the card (issue #279)', () => {
 
 		await openTheDetail(page);
 
-		// Scoped to the bed block. Issue #435 put a second carousel on the card itself, above
-		// this one in the DOM, and an unscoped `.first()` would photograph that one instead.
-		const media = page.locator('.bed .photo-carousel').first();
+		// Scoped to the picker's open card, which since issue #458 is the one surface in this
+		// panel that photographs the bed. The card behind it draws its own thumbnail strip and
+		// an unscoped `.first()` would measure that one instead.
+		const media = openCard(page).locator('.photo-carousel');
+		await media.scrollIntoViewIfNeeded();
 		await expect(media).toBeVisible();
 		await expect(media.locator('.photo-count')).toHaveText('1 / 2');
 
 		// Read by address rather than by position, for the reason the test above records. The
-		// first photograph now has three surfaces asking for it, and how many requests that
+		// first photograph has more than one surface asking for it, and how many requests that
 		// becomes is the browser's business.
 		const second = () => requested.filter((url) => url.includes('FIXTURE-two'));
 		expect(second()).toEqual([]);
@@ -233,22 +243,29 @@ test.describe('the picked bed on the card (issue #279)', () => {
 		// And no trap. The arrows are ordinary buttons and nothing inside the strip is
 		// focusable, so Tab leaves the carousel rather than cycling inside it.
 		//
-		// Asserted against this carousel rather than against any carousel. Issue #440 put the
-		// bed block and the stay picker in one panel, and the picker draws a carousel of its
-		// own for whichever property is open, so "focus is inside a carousel" stopped meaning
-		// "focus never left this one".
+		// Asserted against this carousel rather than against any carousel. Every card in the
+		// list behind the panel draws one of its own, so "focus is inside a carousel" does not
+		// mean "focus never left this one".
 		await page.keyboard.press('Tab');
 		const trapped = await media.evaluate((element) => element.contains(document.activeElement));
 		expect(trapped).toBe(false);
 	});
 });
 
-/** The bed block lives wherever the stopover is described in full, and that has moved twice:
- * #278 made the trip strip unfold into it, #440 deleted that fold and put it in the trip
- * inspector's free-time panel. This is the one helper that has had to change each time, which
- * is what its first version predicted. */
+/** The bed's photographs live wherever the stopover is described in full, and that has moved
+ * three times: #278 made the trip strip unfold into it, #440 deleted that fold and put it in
+ * the trip inspector's free-time panel, #458 left them to the stay picker's open card inside
+ * that panel. This is the one helper that has had to change each time, which is what its
+ * first version predicted. */
 async function openTheDetail(page: import('@playwright/test').Page) {
 	await expect(page.locator('.result-card').first()).toBeVisible();
 	await openTimeline(page);
 	await expect(page.locator('.stopover').first()).toBeVisible();
+	await expect(openCard(page)).toBeVisible({ timeout: 20_000 });
+}
+
+/** The picker's open card, which is the property this trip books. `StayPicker` opens the
+ * group holding the selected bed, and choosing an alternative is what makes it selected. */
+function openCard(page: import('@playwright/test').Page) {
+	return customiser(page).locator('.stay-open-body');
 }

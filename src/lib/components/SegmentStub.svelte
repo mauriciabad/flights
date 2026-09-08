@@ -217,11 +217,7 @@
 	<div class="stub-bottom">
 		<div class="stub-body" bind:this={counterfoil}>
 			{#if stub.rendersStopoverBlock}
-				<!-- Issue #307, the owner: "dont show the images inside the toooltip, it is too
-				     large." Measured before the change, this panel stood 542px tall on a 900px
-				     viewport with 189px of it media. The block keeps every other fact it prints:
-				     the name, the score, the room kind, the rate, the nights and the ride. -->
-				<StopoverBlock {itinerary} {connectionLabel} photos={false} />
+				<StopoverBlock {itinerary} {connectionLabel} />
 			{/if}
 			{#if stub.facts.length > 0}
 				<dl class={['stub-facts', { 'after-block': stub.rendersStopoverBlock }]}>

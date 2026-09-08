@@ -20,57 +20,43 @@
 	 * a fact with two derivations grows two answers. `bedNightlyRate` (issue #238) still
 	 * owns the rate and who it covers, `stays/distance.ts` still owns the distance, and the
 	 * ride's sentence is still the one `itinerary-timeline-format.ts` spells for the
-	 * timeline. This file arranges them and draws pictures.
+	 * timeline. This file arranges them.
 	 *
-	 * ## What the photographs actually are, and what that forces
+	 * ## This block draws no photographs, and the reason moved twice
 	 *
-	 * Measured 2026-09-05 with `tools/probe-images.mjs`, which renders real `<img>` tags
-	 * from an http origin in a browser, because an image tag is a no-cors request that
-	 * ignores the `Access-Control-Allow-Origin` header `probe-cors.mjs` measures. All three
-	 * adapters serve photographs that decode cross-origin: 200, `image/jpeg`, no
-	 * `Cross-Origin-Resource-Policy`, no hotlink rule.
+	 * It drew them from #279 until issue #458. The strip itself moved out first, to
+	 * `PhotoCarousel.svelte` for #307, so the picker's open card and the stay map's sidebar
+	 * could show the same thing rather than each growing one.
 	 *
-	 * Two facts from that run shape everything below.
+	 * Then #440 put this block at the top of the trip inspector, directly above that picker,
+	 * and the picker's open card is by construction the property this block is about.
+	 * `StayPicker` opens the group holding the selected bed, and choosing an alternative is
+	 * what makes it selected. So the panel photographed one building twice, the upper one
+	 * reading `1 / 2` and the lower `1 / 5`, and the one a reader's eye lands on first was
+	 * the one with less in it. The upper set was `Property.images` merged with the picked
+	 * room's; the lower adds what the provider answered on demand about that property's
+	 * rooms (`fetch-room-photos.ts`), which is a lookup keyed to the open card rather than
+	 * to a bed. Measured at 1440x900 before the change, 235px of this block's 523px was a
+	 * photograph of a building photographed again 550px below it.
 	 *
-	 * **There are two of them, not twenty.** Hostelworld returned 2 images for each of 3
-	 * properties, Agoda 2 for each of 4, Booking exactly 1. So this is a photograph with a
-	 * counter, not a gallery, and at one photograph the controls are gone rather than
-	 * greyed: a dead arrow is a promise the data cannot keep.
+	 * A picture belongs where somebody is choosing, so the picker's open card keeps it and
+	 * this block says which bed is booked in words. The panel loses nothing, since those are
+	 * the same property's photographs with its rooms in them. The result card carries a
+	 * thumbnail carousel of the same bed through `CardStay`, which is where issue #279's ask
+	 * for the picked hotel "in the card permanently, with images" is answered now.
 	 *
-	 * **They were enormous, and are not any more.** Hostelworld is the keyless default most
-	 * visitors hit, and its `images` field points at the photographer's original: 4032x2268
-	 * at 2.79 MB, 3936x2624 at 984 KB, 1930x1085 at 2.02 MB. Issue #284 read that as an
-	 * origin with no resize, on a control that passed imgix's parameters to the ORIGIN path.
-	 * `a.hwstatic.com` is a Cloudinary account, its delivery path is
-	 * `/image/upload/<transformations>/v1/<public id>`, and `hostelworld-photo.ts` asks for
-	 * the card width there. Eight measured photographs weigh 13,157,409 bytes as published
-	 * and 523,570 at `c_limit,w_800,f_auto,q_auto`. The second photograph is still fetched only
-	 * when the reader asks for it, which now saves about 65 KB rather than 2.8 MB.
-	 *
-	 * ## The photographs live next door now
-	 *
-	 * The strip, its arrows, its counter and its one-at-a-time fetching moved to
-	 * `PhotoCarousel.svelte` for issue #307, unchanged, so the picker's open property and
-	 * the stay map's sidebar can show the same thing rather than growing a second one. Both
-	 * facts above still shape it and are argued there.
-	 *
-	 * ## A tooltip gets no photographs
-	 *
-	 * Issue #307, the owner: **"dont show the images inside the toooltip, it is too
-	 * large."** Measured on this branch before the change, the trip strip's hover panel
-	 * stood 542px tall on a 900px viewport and 189px of that was the media box. A tooltip is
-	 * for a glance. So `showPhotos` is false there, and everything else stays: the name, the
-	 * score, the room kind, the women-only tag, the rate, the nights, the distance, the ride.
+	 * The hover panel wanted this first and for its own reason. Issue #307, the owner:
+	 * **"dont show the images inside the toooltip, it is too large."** It stood 542px tall
+	 * on a 900px viewport with 189px of that a media box. That is true by construction now
+	 * rather than by a prop nobody sets.
 	 */
 	import { ModeIcon } from '$lib/components';
 	import type { Property, TransferMode } from '$lib/domain';
 	import { formatPropertyRating } from '$lib/format';
-	import PhotoCarousel from './PhotoCarousel.svelte';
-	import type { StayPhoto } from './stay-photos';
 
 	interface Props {
-		/** Name, photographs, rating and the women-only restriction. The three after the
-		 * name are read straight off the domain record and have never been on this card. */
+		/** Name, rating and the women-only restriction, read straight off the domain record.
+		 * `Property.images` is not drawn here; the section above says where it is. */
 		property: Property;
 		/** `ROOM_KIND_LABELS[stay.roomKind]`, the same table the picker's tiles print. */
 		roomKindLabel: string;
@@ -88,154 +74,73 @@
 		 * routed at all, because issue #228 asked for a line that never vanishes. `mode` is
 		 * absent in exactly that unrouted case, and the pictogram goes with it. */
 		transfer: { note: string; mode?: TransferMode };
-		/**
-		 * The photographs, already merged and labelled by `stayPhotos`: the building's, then
-		 * this bed's own room where the provider sent any (issue #442).
-		 *
-		 * Derived by the caller like everything else here. The two sets are one list by the
-		 * time they arrive, because the rule they have to keep is that neither is presented as
-		 * the other, and a component holding two arrays is a component that can get that wrong.
-		 */
-		photos: readonly StayPhoto[];
-		/** Whether to draw the photographs at all. False in the trip strip's hover panel and
-		 * nowhere else (issue #307): a media box is a third of that panel's height, and a
-		 * tooltip is for a glance. Every other fact this block prints is unaffected. */
-		showPhotos?: boolean;
 	}
 
-	let {
-		property,
-		roomKindLabel,
-		nights,
-		rate,
-		distanceFromAirport,
-		transfer,
-		photos,
-		showPhotos = true
-	}: Props = $props();
+	let { property, roomKindLabel, nights, rate, distanceFromAirport, transfer }: Props = $props();
 
 	const rating = $derived(property.rating ? formatPropertyRating(property.rating) : undefined);
 </script>
 
-<!--
-	The frame exists only to be the query container. An element with `container-type`
-	establishes a container for its DESCENDANTS and never for itself, so `.bed` carrying
-	both the `container-type` and the `@container` rule meant the rule could never match:
-	the block stayed in its one-column phone form at every width, and a desktop card drew a
-	525px-tall photograph across 840px. Nothing in the markup looked wrong, which is why it
-	took a screenshot to find.
--->
-<div class="bed-frame">
-	<div class={['bed', { 'has-photos': showPhotos && photos.length > 0 }]}>
-		<!--
-			No media element at all when the provider gave no photograph, and none in a
-			tooltip. A grey box with a building glyph in it says "a picture is missing", and
-			nothing is missing: this property came back without one.
-		-->
-		{#if showPhotos}
-			<PhotoCarousel {photos} name={property.name} />
+<div class="bed">
+	<p class="bed-name">
+		{property.name}
+		{#if rating}
+			<!-- Issue #258 made the rating a value and its scale, and `formatPropertyRating` is the
+			     only place it becomes a string. Absent means no provider scored it, which is a
+			     different fact from a bad score, so nothing is drawn. -->
+			<span class="bed-rating font-mono tabular-nums">{rating}</span>
 		{/if}
+	</p>
 
-		<div class="bed-facts">
-			<p class="bed-name">
-				{property.name}
-				{#if rating}
-					<!-- Issue #258 made the rating a value and its scale, and
-					     `formatPropertyRating` is the only place it becomes a string. Absent
-					     means no provider scored it, which is a different fact from a bad
-					     score, so nothing is drawn. -->
-					<span class="bed-rating font-mono tabular-nums">{rating}</span>
-				{/if}
-			</p>
+	<p class="bed-tags">
+		<span class="bed-tag">{roomKindLabel}</span>
+		{#if property.womenOnly}
+			<!-- The whole property admits women only, which `domain/stay.ts` is careful to separate
+			     from one room being a female dorm. It has been on the record since a women-only
+			     hostel was recommended to a party with no female travellers, and this is the first
+			     surface to print it. -->
+			<span class="bed-tag bed-tag-restricted">Women only</span>
+		{/if}
+	</p>
 
-			<p class="bed-tags">
-				<span class="bed-tag">{roomKindLabel}</span>
-				{#if property.womenOnly}
-					<!-- The whole property admits women only, which `domain/stay.ts` is careful
-					     to separate from one room being a female dorm. It has been on the record
-					     since a women-only hostel was recommended to a party with no female
-					     travellers, and this is the first surface to print it. -->
-					<span class="bed-tag bed-tag-restricted">Women only</span>
-				{/if}
-			</p>
-
-			<dl class="bed-rail">
-				<div class="bed-figure">
-					<dt class="bed-figure-label font-mono">Per night</dt>
-					<dd class="bed-figure-value font-mono tabular-nums">
-						{rate.amount}
-						<!-- The space before this matters and is not formatting. The note is a block,
-						     so it drops to its own line either way, but with the markup closed up
-						     the two run together in `textContent` and a screen reader says
-						     "twenty euros for three" as one word: "€20.00for 3". -->
-						{#if rate.audience}<span class="bed-figure-note">{rate.audience}</span>{/if}
-					</dd>
-				</div>
-				<div class="bed-figure">
-					<dt class="bed-figure-label font-mono">Nights</dt>
-					<dd class="bed-figure-value font-mono tabular-nums">{nights}</dd>
-				</div>
-				{#if distanceFromAirport}
-					<div class="bed-figure">
-						<dt class="bed-figure-label font-mono">From airport</dt>
-						<dd class="bed-figure-value font-mono tabular-nums">{distanceFromAirport}</dd>
-					</div>
-				{/if}
-			</dl>
-
-			<p class="bed-transfer">
-				{#if transfer.mode}
-					<ModeIcon kind={transfer.mode} />
-				{/if}
-				<span>{transfer.note}</span>
-			</p>
+	<dl class="bed-rail">
+		<div class="bed-figure">
+			<dt class="bed-figure-label font-mono">Per night</dt>
+			<dd class="bed-figure-value font-mono tabular-nums">
+				{rate.amount}
+				<!-- The space before this matters and is not formatting. The note is a block, so it
+				     drops to its own line either way, but with the markup closed up the two run
+				     together in `textContent` and a screen reader says "twenty euros for three" as
+				     one word: "€20.00for 3". -->
+				{#if rate.audience}<span class="bed-figure-note">{rate.audience}</span>{/if}
+			</dd>
 		</div>
-	</div>
+		<div class="bed-figure">
+			<dt class="bed-figure-label font-mono">Nights</dt>
+			<dd class="bed-figure-value font-mono tabular-nums">{nights}</dd>
+		</div>
+		{#if distanceFromAirport}
+			<div class="bed-figure">
+				<dt class="bed-figure-label font-mono">From airport</dt>
+				<dd class="bed-figure-value font-mono tabular-nums">{distanceFromAirport}</dd>
+			</div>
+		{/if}
+	</dl>
+
+	<p class="bed-transfer">
+		{#if transfer.mode}
+			<ModeIcon kind={transfer.mode} />
+		{/if}
+		<span>{transfer.note}</span>
+	</p>
 </div>
 
 <style>
-	/*
-	   Two columns once there is room for two, one column when there is not, and the switch
-	   is a container query rather than a media query because the card this sits in is a
-	   different width in a results list, in a detail panel and in the desktop sidebar #278
-	   is adding. A viewport width cannot tell those apart; the block's own width can.
-
-	   The stacked form is the expensive one and it is the one a phone gets, so the height
-	   it costs is argued in the PR rather than hidden here: roughly 190px of photograph on
-	   a 375px screen. Side by side, the photograph costs nothing at all, because the facts
-	   beside it are already taller than it is.
-	*/
-	.bed-frame {
-		container-type: inline-size;
-	}
-
+	/* One column at every width. This was two once there was room for two, and the second
+	   track held the photograph; with the photograph on the picker's own card (issue #458)
+	   the query container, the container query and the wrapper that carried it are all gone
+	   with it. Four short rows have nothing to gain from a second column. */
 	.bed {
-		display: grid;
-		gap: var(--space-3);
-	}
-
-	/* Two columns only when there is a photograph to put in the first one. Without one -
-	   a provider that returned none, or the trip strip's hover panel, which asks for none
-	   (issue #307) - a second track would reserve 13rem of blank and push every fact into
-	   a column half the block's width. */
-	@container (min-width: 26rem) {
-		/* The photograph is 208px wide in this phase, where two 32px arrows and their insets
-		   swallow 80px of it. Down to 24px, which is still over the 24px WCAG 2.5.8 minimum,
-		   and tight to the edges. The phone keeps the larger target: there the photograph is
-		   343px wide and the finger pressing it is not a mouse pointer. Both arrive as custom
-		   properties, because a component's own class is out of this stylesheet's scope and
-		   inheritance is the way in. */
-		.bed.has-photos {
-			--photo-arrow-size: 1.5rem;
-			--photo-arrow-inset: var(--space-1);
-
-			grid-template-columns: minmax(0, 13rem) minmax(0, 1fr);
-			gap: var(--space-4);
-			align-items: start;
-		}
-	}
-
-	.bed-facts {
 		display: grid;
 		gap: var(--space-2);
 		align-content: start;

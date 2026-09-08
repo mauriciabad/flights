@@ -2,7 +2,6 @@ import { flushSync, mount, unmount } from 'svelte';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { Property } from '../domain';
 import PickedBed from './PickedBed.svelte';
-import { stayPhotos } from './stay-photos';
 
 /**
  * Issue #279. These mount the block and read it back off the DOM, the same way
@@ -16,14 +15,11 @@ import { stayPhotos } from './stay-photos';
 let target: HTMLElement | undefined;
 let component: Record<string, unknown> | undefined;
 
-const PHOTO_A = 'https://fixture.invalid/photos/one.jpg';
-const PHOTO_B = 'https://fixture.invalid/photos/two.jpg';
-
 function property(overrides: Partial<Property> = {}): Property {
 	return {
 		name: "Wombat's City Hostel",
 		coordinates: { latitude: 48.2, longitude: 16.35 },
-		images: [PHOTO_A, PHOTO_B],
+		images: [],
 		rating: { value: 87, outOf: 100 },
 		...overrides
 	};
@@ -37,7 +33,6 @@ function render(props: Partial<Parameters<typeof PickedBed>[1]> = {}) {
 		target,
 		props: {
 			property: shown,
-			photos: stayPhotos(shown),
 			roomKindLabel: 'Dorm bed',
 			nights: 2,
 			rate: { amount: '€13.00', audience: 'each' },

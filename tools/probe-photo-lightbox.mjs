@@ -25,7 +25,7 @@
  * What that costs is one claim. The lightbox swaps in the publisher's original once the
  * reader zooms past 1x, and `originalStayPhoto` only reverses addresses on a provider's own
  * host, so it cannot fire for a photograph this probe serves. That wiring is pinned in
- * `src/lib/stays/PickedBed.test.ts` instead, which can assert the element and its `src`
+ * `src/lib/stays/PhotoCarousel.test.ts` instead, which can assert the element and its `src`
  * without anybody's network. Everything a browser alone can answer is measured here.
  *
  * Usage: node tools/probe-photo-lightbox.mjs [--headed]

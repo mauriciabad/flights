@@ -51,10 +51,11 @@
 	 * and the map dialog's figure rail prints both side by side for anyone comparing in
 	 * earnest. The switch cost over the stay stays, because that is the thing being decided.
 	 *
-	 * One layout, no container query, unlike `PickedBed`: this list is only ever rendered
-	 * inside `SegmentCustomiser`, which is a 312px rail on a desktop and a full-width sheet on
-	 * a phone. Both are in one width band, and a second phase nobody reaches is a second phase
-	 * nobody tests.
+	 * One layout and no container query, because this list is only ever rendered inside
+	 * `SegmentCustomiser`, which is a 312px rail on a desktop and a full-width sheet on a
+	 * phone. Both are in one width band, and a second phase nobody reaches is a second phase
+	 * nobody tests. `PickedBed` had the other kind until issue #458 took its photograph away
+	 * and the second column with it.
 	 *
 	 * ## No carousel here, deliberately
 	 *

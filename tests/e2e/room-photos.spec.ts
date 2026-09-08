@@ -83,11 +83,12 @@ async function openPicker(page: Page): Promise<OpenedPicker> {
 /**
  * The open card's carousel, which is the property the traveller has a bed at.
  *
- * Scoped to `.stay-open-body` rather than taken as the panel's first carousel. Issue #440
- * put `StopoverBlock` at the top of this panel, so `PickedBed` draws a second carousel of
- * the same property above the picker, and that one shows the building's own photographs
- * only. Asking for the first one read its "1 / 2" and never saw the room photographs at all.
- * `stays-map.spec.ts` names the open card this way for the same reason.
+ * Scoped to `.stay-open-body` rather than taken as the page's first carousel. Every card in
+ * the list behind the panel draws one of its own through `CardStay`, and those show the
+ * building's photographs only, so an unscoped `.first()` would read a "1 / 2" and never see
+ * the room photographs at all. That was true of a second carousel inside this panel too
+ * until issue #458 removed it. `stays-map.spec.ts` names the open card this way for the same
+ * reason.
  */
 function carousel(page: Page) {
 	return customiser(page).locator('.stay-open-body .photo-carousel');
