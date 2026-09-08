@@ -27,14 +27,26 @@
 	 * argument for rendering nothing on an empty list. `bedFacts` returning `undefined` is the
 	 * trip having no bed, and the row then goes back to being the detour and the receipt.
 	 *
-	 * ## Why the layout is flex-basis arithmetic and one container query
+	 * ## One shape at every width, which took a measurement to arrive at
 	 *
 	 * The card is the middle column of a three-column page, so its width does not track the
-	 * viewport: at 1024px it is about 310px of content and at 1440px about 630px. A media
-	 * query would be reading the wrong number. `.card-getting-there` wraps on flex bases
-	 * instead, so this panel drops to its own line exactly when the row cannot seat three, and
-	 * a container query on this element decides which shape it takes there. Measured heights
-	 * for both are in `tests/e2e/card-size.spec.ts`.
+	 * viewport: at 1024px it is about 310px of content and at 1440px about 630px, and
+	 * `.card-getting-there` wraps on flex bases so this panel drops to its own line exactly
+	 * when the row cannot seat three.
+	 *
+	 * The first build asked a container query which shape to take there: a photograph above
+	 * the facts in a narrow column, beside them on a wide row. The two cases turned out to be
+	 * about 250px and about 300px apart, which is no gap at all, and the threshold landed
+	 * 3px from a real phone card. Measured on 2026-09-08: the same 375px card came out 335px
+	 * wide in one fixture and 301px in another, and the panel was 64px tall in the first and
+	 * 241px in the second, because a full-width 16/9 photograph is 169px on its own.
+	 *
+	 * So there is one shape. The photograph sits beside the facts at every width, taking a
+	 * third of the row between a 5rem floor and a 9rem cap, and the panel's height is the
+	 * taller of a small picture and three short lines. That is 64px on a phone card and
+	 * around 90px in a desktop column, which is under the receipt beside it: the panel costs
+	 * the desktop card nothing at all, which is what put it in this row.
+	 * `tests/e2e/card-size.spec.ts` carries the numbers.
 	 */
 	import type { Airport, Itinerary } from '$lib/domain';
 	import { formatPropertyRating } from '$lib/format';
@@ -105,29 +117,30 @@
 		   about 34rem of content puts this on its own line. */
 		flex: 1 1 15rem;
 		min-width: 0;
-		/* The shape below is decided by how much room this panel ended up with, not by the
-		   viewport. A phone card and a 1440px card can both hand it 20rem, from opposite
-		   directions. */
-		container-type: inline-size;
 	}
 
 	.card-stay-body {
 		display: flex;
-		flex-direction: column;
-		gap: var(--space-2);
+		align-items: flex-start;
+		gap: var(--space-3);
 		min-width: 0;
 	}
 
 	.card-stay-photo {
+		/* A third of the panel, floored and capped. Small enough that the name and the journey
+		   keep the width they need in a 250px desktop column, large enough to be a photograph
+		   rather than a stamp on a 630px card. */
+		flex: 0 0 clamp(5rem, 32%, 9rem);
 		/* Shorter than the 16/10 the picker uses. This is a thumbnail beside a receipt, not
 		   the subject of the screen, and every pixel here is card height on a phone. */
 		--photo-aspect: 16 / 9;
-		--photo-arrow-size: 1.75rem;
+		--photo-arrow-size: 1.5rem;
 		min-width: 0;
 	}
 
 	.card-stay-facts {
 		display: flex;
+		flex: 1 1 0;
 		flex-direction: column;
 		gap: var(--space-1);
 		min-width: 0;
@@ -179,25 +192,4 @@
 		background: var(--color-bg-inset);
 	}
 
-	/* Wide enough for the picture to sit beside the words instead of above them, which is
-	   what this panel gets when it has wrapped to a line of its own. Vertical is the narrow
-	   case and the default, so a card that never reaches this width needs no override. */
-	@container (min-width: 19rem) {
-		.card-stay-body {
-			flex-direction: row;
-			align-items: flex-start;
-			gap: var(--space-3);
-		}
-
-		.card-stay-photo {
-			/* A third of the row, floored and capped: small enough that the name and the
-			   journey keep the width they need on a 375px card, large enough to be a
-			   photograph rather than a stamp on a 1440px one. */
-			flex: 0 0 clamp(6.5rem, 32%, 11rem);
-		}
-
-		.card-stay-facts {
-			flex: 1 1 0;
-		}
-	}
 </style>

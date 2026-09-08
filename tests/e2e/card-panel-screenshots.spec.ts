@@ -135,16 +135,34 @@ for (const segment of ['transfer-to-hotel', 'free-time'] as const) {
 
 		const panel = page.getByTestId('segment-customiser');
 		await expect(panel).toHaveAttribute('data-segment', segment);
+		// Back to how a traveller first meets the panel. `openTimeline` had to unfold the trip
+		// to reach the row, and what the picture is for is the default: the controls for the
+		// step that was tapped, with the whole trip one press above them.
+		if ((await page.locator('.customiser-trip[open]').count()) > 0) {
+			await page.locator('.customiser-trip-summary').click();
+		}
 		await page.waitForTimeout(1500);
-		await panel.screenshot({ path: `docs/screenshots/439-inspector-${segment}-${LABEL}.png` });
+		// The viewport, not the panel's own element. The rail scrolls inside itself, so an
+		// element capture is one long strip with the scrolled-away part blank, and what #439
+		// is about is the panel beside the list rather than the panel alone.
+		await page.screenshot({ path: `docs/screenshots/439-inspector-${segment}-${LABEL}.png` });
 
-		const measured = await panel.evaluate((element) => ({
-			panel: Math.round(element.getBoundingClientRect().width),
-			legs: element.querySelectorAll('.ground-legs-item').length,
-			timelineRows: element.querySelectorAll('.tl-row').length,
-			stopoverBlocks: element.querySelectorAll('.stopover').length,
-			overflows: element.scrollWidth > element.clientWidth + 1
-		}));
+		const measured = await panel.evaluate((element) => {
+			const height = (selector: string) => {
+				const node = element.querySelector(selector) as HTMLElement | null;
+				return node ? Math.round(node.getBoundingClientRect().height) : null;
+			};
+			return {
+				panel: Math.round(element.getBoundingClientRect().width),
+				legs: element.querySelectorAll('.ground-legs-item').length,
+				timelineRows: element.querySelectorAll('.tl-row').length,
+				timeline: height('.customiser-trip'),
+				stopover: height('.stopover'),
+				ladder: height('.staying-longer'),
+				stays: height('.stay-alternatives'),
+				overflows: element.scrollWidth > element.clientWidth + 1
+			};
+		});
 		console.log(`MEASURED ${LABEL} inspector-${segment} ${JSON.stringify(measured)}`);
 		expect(measured.overflows, 'the inspector must not scroll sideways at 20rem').toBe(false);
 	});

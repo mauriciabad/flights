@@ -1588,7 +1588,6 @@
 			segment={customisingSegment}
 			onSelectSegment={(segment) => selectSegment(customisingResult.id, customisingResult.itinerary, segment)}
 			onOpenRouteMap={() => (routeMapOpen = true)}
-			compact={!sidebarIsColumn}
 			stopoverOptions={customisingResult.stopover.options}
 			isFlightChange={customisingResult.stopover.isFlightChange}
 			group={groupsByConnection[customisingResult.id]}

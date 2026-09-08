@@ -35,9 +35,15 @@
 	 *
 	 * - **The full `ItineraryTimeline`**, at the top, because it is the navigator. Its rows
 	 *   write the same selection the strip's cells do, so the timeline and the panel under it
-	 *   are one control rather than two views of one. Open on the wide rail; closed inside the
-	 *   phone sheet, which is deliberately capped under half the screen and would otherwise
-	 *   open on a wall of rows instead of the picker the tap asked for.
+	 *   are one control rather than two views of one.
+	 *
+	 *   Closed until somebody opens it, on both surfaces. It was going to be open on the wide
+	 *   rail, and the measurement said no: the timeline is 960px on this fixture and the rail
+	 *   is `100dvh - 9.5rem`, about 848px at a 1000px viewport. Open, it is taller than the
+	 *   column that holds it, so the picker a traveller just tapped for starts below the fold
+	 *   every single time and the panel opens on rows instead of controls. The card's own trip
+	 *   strip is still on screen and is already a navigator, so the detailed one is a thing you
+	 *   ask for. The disclosure is 44px and says what it holds.
 	 * - **The map for the leg that is selected**, and only that one. `GroundLegPreviews` drew
 	 *   all three at once inside the card, so a reader looking at one ride was shown three.
 	 *   `groundLegPreviewIdFor` decides which picture a segment belongs to, from the table the
@@ -173,13 +179,7 @@
 		 * `GroundLegPreviews` records: on a phone this panel is a sheet that closes when the
 		 * selection clears, and the map inside the dialog is one of the things that clears it. */
 		onOpenRouteMap: (segment: ItinerarySegmentId | null) => void;
-		/**
-		 * True inside the phone sheet, which is capped under half the screen on purpose.
-		 * The timeline starts closed there: a sheet that opened on eleven rows would bury the
-		 * picker the tap asked for. It is still one press away, which is what makes deleting
-		 * the card's fold a move rather than a loss.
-		 */
-		compact?: boolean;
+
 		/** Every stopover length this connection can do, priced, for the ladder issue #225
 		 * built. Rides with the free-time panel because that is the segment it lengthens. */
 		stopoverOptions?: readonly StopoverLengthOption[];
@@ -242,7 +242,6 @@
 		segment,
 		onSelectSegment,
 		onOpenRouteMap,
-		compact = false,
 		stopoverOptions = [],
 		isFlightChange = false,
 		departureOptions = [],
@@ -792,13 +791,13 @@
 	/**
 	 * Whether the whole-trip timeline at the top is unfolded.
 	 *
-	 * Plain `$state` seeded from `compact`, not a `$derived` and not bound to it. The rail and
-	 * the sheet are separate blocks on the page, so crossing 64rem destroys one instance and
-	 * builds the other, and this is read once per instance. Deriving it would fight the
-	 * traveller: every re-render would reopen a timeline they had just closed.
+	 * Plain `$state`, and it starts closed for the reason the header gives. It survives a
+	 * change of segment, which is the point: a traveller who opened the trip is reading it, and
+	 * picking a row from it must not fold the thing they picked from. It does not survive
+	 * crossing 64rem, because the rail and the sheet are separate blocks on the page and one
+	 * instance is destroyed to build the other.
 	 */
-	// svelte-ignore state_referenced_locally
-	let timelineOpen = $state(!compact);
+	let timelineOpen = $state(false);
 
 	/** The heading for a segment the strip draws no cell for. Both are places rather than
 	 * stretches of time, and neither has anything to change. */
@@ -848,9 +847,8 @@
 	     open state, the keyboard contract and what a screen reader announces are all the
 	     element's, and none of them is worth rewriting.
 
-	     `open` is not bound. It is set once from `compact` when the element is created, which
-	     is exactly once per instance because the rail and the sheet are separate blocks on the
-	     page. Binding it would reopen a timeline the traveller had just closed. -->
+	     `bind:open` rather than a one-way attribute, so a traveller's own press on the summary
+	     is what the rest of the panel reads. -->
 	<details class="customiser-trip" bind:open={timelineOpen}>
 		<summary class="customiser-trip-summary">
 			<!-- An explicit chevron rather than the browser's own marker. A `<summary>` laid out
