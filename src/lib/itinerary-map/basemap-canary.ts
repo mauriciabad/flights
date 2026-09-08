@@ -48,10 +48,13 @@ export interface WindowStats {
 	readonly lumaSpread: number;
 }
 
-export interface WindowVerdict {
+export interface PixelVerdict {
 	readonly looksLikeAMap: boolean;
 	readonly complaints: readonly string[];
 	readonly stats: WindowStats;
+}
+
+export interface WindowVerdict extends PixelVerdict {
 	readonly keyNoticeCoverage: number;
 }
 
@@ -160,9 +163,16 @@ export function keyNoticeCoverage(window: MapWindow, notice: Uint8Array): number
 	return drawn / marked;
 }
 
-export function judgeWindow(window: MapWindow, notice: Uint8Array): WindowVerdict {
+/**
+ * The half of the verdict that reads only the window's own pixels.
+ *
+ * Separate from `judgeWindow` because the notice is a mask of one 256x256 tile, so only a
+ * caller photographing that exact window can supply it. The mocked suites photograph
+ * whatever box a preview asked for and have no CARTO in front of them at all. This is the
+ * half that still means something there, and it is what tells a drawing from a fill (#443).
+ */
+export function complainAboutPixels(window: MapWindow): PixelVerdict {
 	const stats = describeWindow(window);
-	const coverage = keyNoticeCoverage(window, notice);
 	const complaints: string[] = [];
 
 	if (stats.inkShare < MAP_WINDOW_LIMITS.minInkShare) {
@@ -177,6 +187,15 @@ export function judgeWindow(window: MapWindow, notice: Uint8Array): WindowVerdic
 				`over the ${MAP_WINDOW_LIMITS.maxLumaSpread} ceiling`
 		);
 	}
+
+	return { looksLikeAMap: complaints.length === 0, complaints, stats };
+}
+
+export function judgeWindow(window: MapWindow, notice: Uint8Array): WindowVerdict {
+	const pixels = complainAboutPixels(window);
+	const coverage = keyNoticeCoverage(window, notice);
+	const complaints = [...pixels.complaints];
+
 	if (coverage > MAP_WINDOW_LIMITS.maxKeyNoticeCoverage) {
 		complaints.push(
 			`carries the recorded key notice: ${(coverage * 100).toFixed(1)}% of it is drawn, over ` +
@@ -184,7 +203,12 @@ export function judgeWindow(window: MapWindow, notice: Uint8Array): WindowVerdic
 		);
 	}
 
-	return { looksLikeAMap: complaints.length === 0, complaints, stats, keyNoticeCoverage: coverage };
+	return {
+		looksLikeAMap: complaints.length === 0,
+		complaints,
+		stats: pixels.stats,
+		keyNoticeCoverage: coverage
+	};
 }
 
 /**
