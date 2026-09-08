@@ -115,8 +115,16 @@ const BLOCK_HEIGHT_TOLERANCE_PX = 3;
 const COLLAPSED_CARD_BLOCKS: readonly CardBlock[] = [
 	/* The route line. #278 took the neutral freshness badge out of it: "Current price" said
 	   what the footer's "fetched 3m ago" already said, and at 375px it wrapped and cost the
-	   card a row it could not spare. */
-	{ block: 'card-header', issue: '#278', px: 90 },
+	   card a row it could not spare.
+
+	   90 until the owner asked for the legs to stack, city over code and country: "the header
+	   is ugly because left part and right part wrap always. make that airport code and country
+	   name are below city name". A leg is 38px instead of 24px and this row still wraps once
+	   at 375px, so the block costs 27px more here. It buys the desktop card the wrap it was
+	   complaining about: measured on a live BCN to TLL search at 1440px, five cards, four of
+	   which wrapped their route line at 91px and now none of them does at 72px. The phone pays
+	   for the screen that has the room. */
+	{ block: 'card-header', issue: '#278', px: 117 },
 	/* #305 put the detour drawing beside the receipt, and #435 put the bed beside both.
 	   Three items on flex bases, which at 375px seats the drawing and the receipt on one
 	   line and wraps the bed under them. So this row costs the receipt plus a gap plus the
@@ -153,7 +161,7 @@ const COLLAPSED_CARD_BLOCKS: readonly CardBlock[] = [
 /**
  * The same six blocks on the worst case, which is a different card and therefore different
  * numbers. Two of them are what `worstCaseSearch`'s escalations buy: an "Airline you avoid"
- * badge and a wrapping route line take the header from 90 to 130, and a receipt carrying two
+ * badge on a line of its own takes the header from 117 to 149, and a receipt carrying two
  * currencies and a "for 2" audience takes `price-line` from 152 to 220.
  *
  * The bed panel is the one block that costs the same on both. It is a photograph and three
@@ -161,7 +169,7 @@ const COLLAPSED_CARD_BLOCKS: readonly CardBlock[] = [
  * the newest arrival on this card and it does not grow.
  */
 const WORST_CASE_CARD_BLOCKS: readonly CardBlock[] = [
-	{ block: 'card-header', issue: '#278', px: 130 },
+	{ block: 'card-header', issue: '#278', px: 149 },
 	{
 		block: 'card-getting-there',
 		issue: '#305, #435',
@@ -499,9 +507,9 @@ async function worstCaseSearch(page: Page) {
  *   what wraps both onto a second line. That is `price-line`, and `price-line` is what sets
  *   the height of the `card-getting-there` row.
  * - **`avoidAirlines=ZZ`**. It puts "Airline you avoid" in `card-header` as a badge, and a
- *   search carries an avoid list only if the traveller set one. The headers measure 90px
- *   here and 98px on the worst case, though their route lines differ too, so that 8px is
- *   not all badge.
+ *   search carries an avoid list only if the traveller set one. The headers measure 117px
+ *   here and 149px on the worst case. Since the legs stack, both route lines wrap once at
+ *   375px, so that 32px is the badge on a line of its own and its gap.
  * - **A London origin against a Tallinn destination**. Stansted's ground legs price off the
  *   UK rate card in GBP and Tallinn's off the Estonian one in EUR, which is the split
  *   `priceBreakdown` documents and the reason #249 gives each currency a row. Barcelona

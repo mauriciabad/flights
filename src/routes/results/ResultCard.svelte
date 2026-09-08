@@ -326,36 +326,60 @@
 	{#snippet header()}
 		<div class="card-head">
 			<div class="route">
+				<!-- Issue #463's follow-up, the owner: "the header is ugly because left part and
+				     right part wrap always. make that airport code and country name are below
+				     city name, and flag a bit larger on the left vertically centered."
+
+				     A leg used to be one line, so its width was the city plus the code plus the
+				     country, and three of those plus the stamp needed more room than the card
+				     has. Stacked, a leg is as wide as its widest line. Measured at 1440px on a
+				     live BCN to TLL search, the three legs went from 384-487px to 290-355px in a
+				     630px row, which is what stops it wrapping.
+
+				     `size="md"` is the size `Flag` already documents for exactly this, a flag
+				     beside two stacked lines, so the row does not invent a third one. `.route-leg`
+				     centres it against the pair. -->
 				<span class="route-leg">
-					<Flag country={itinerary.originAirport.country} />
-					<span class="place"
-						><span class="city">{originCity}</span><span class="iata font-mono tabular-nums"
-							>{itinerary.originAirport.iataCode}</span
-						></span
-					>
+					<Flag country={itinerary.originAirport.country} size="md" />
+					<span class="place">
+						<span class="city">{originCity}</span>
+						<span class="place-sub"
+							><span class="iata font-mono tabular-nums"
+								>{itinerary.originAirport.iataCode}</span
+							></span
+						>
+					</span>
 				</span>
 				<span class="route-arrow" aria-hidden="true">→</span>
 				<span class="route-leg route-leg-stopover">
 					<!-- Decorative here alone: this leg spells the country out beside the flag,
 					     so announcing it twice only slows a screen reader down. -->
-					<Flag country={connectionAirport?.country} decorative />
-					<!-- City, code and country share one flex item on purpose: they are one
-					     place name, and separate items would put the row's gap in front of the
-					     comma. -->
-					<span class="place"
-						><span class="city">{connectionLabel}</span>{#if showConnectionCode}<span
-								class="iata font-mono tabular-nums">{connectionCode}</span
-							>{/if}{#if connectionCountry}<span class="country">, {connectionCountry}</span>{/if}</span
-					>
+					<Flag country={connectionAirport?.country} decorative size="md" />
+					<span class="place">
+						<span class="city">{connectionLabel}</span>
+						<!-- Code and country share the second line and no gap sits between them,
+						     because the country's own leading comma is the separator. A flex gap
+						     here would print "DUS , Germany", which is what #318 was. -->
+						<span class="place-sub"
+							>{#if showConnectionCode}<span class="iata font-mono tabular-nums"
+									>{connectionCode}</span
+								>{/if}{#if connectionCountry}<span class="country"
+									>, {connectionCountry}</span
+								>{/if}</span
+						>
+					</span>
 				</span>
 				<span class="route-arrow" aria-hidden="true">→</span>
 				<span class="route-leg">
-					<Flag country={itinerary.destinationAirport.country} />
-					<span class="place"
-						><span class="city">{destinationCity}</span><span class="iata font-mono tabular-nums"
-							>{itinerary.destinationAirport.iataCode}</span
-						></span
-					>
+					<Flag country={itinerary.destinationAirport.country} size="md" />
+					<span class="place">
+						<span class="city">{destinationCity}</span>
+						<span class="place-sub"
+							><span class="iata font-mono tabular-nums"
+								>{itinerary.destinationAirport.iataCode}</span
+							></span
+						>
+					</span>
 				</span>
 				{#if isDeprioritized || showFreshness}
 					<span class="header-badges">
@@ -567,46 +591,58 @@
 
 	.route-leg {
 		display: inline-flex;
+		/* Against the middle of the two-line block, which is what the owner asked for and
+		   what a 24px flag needs: at 17px it could pass for part of the city's own line, and
+		   beside two lines it cannot. */
 		align-items: center;
+		/* Still 4px, not the 8px a 24px flag first asked for. Measured at 375px, the wider gap
+		   costs each leg 4px and that is a whole line on the worst card: with 4px, Barcelona
+		   and Frankfurt am Main share the first line at 300px of 301px, and with 8px they do
+		   not. The header is 117px on every card at 4px and 149px on that one at 8px. */
 		gap: var(--space-1);
-		/* Three place names on one row is more than a 375px phone holds, so a leg wraps
-		   whole rather than splitting a city from its code. */
+		/* A leg wraps whole rather than splitting a city from its code. */
 		min-width: 0;
 	}
 
-	/* The one place a baseline is still the right answer: city, code and country are one
-	   run of text at three sizes, and centring them would leave the small ones floating. */
+	/*
+	 * The city over the code, rather than the two of them along one line.
+	 *
+	 * The owner: "the header is ugly because left part and right part wrap always." That is
+	 * the symptom of a row whose natural width no card has. Measured at 1440px on a live BCN
+	 * to TLL search, five cards, the three legs written along the line came to 384-487px of a
+	 * 630px row. The stamp and the heart need 153px of the same row, and two arrows and the
+	 * gaps take the rest, so four of the five wrapped.
+	 *
+	 * Stacked, a leg is as wide as its widest line rather than the sum of three, and the same
+	 * three legs come to 290-355px. Nothing wraps at 1440px on any card now. Issue #463 made
+	 * the stamp and the heart unwrappable, which stopped the heart orphaning on its own line;
+	 * this stops the line happening.
+	 */
 	.place {
 		display: inline-flex;
-		align-items: baseline;
+		flex-direction: column;
+		align-items: flex-start;
 		min-width: 0;
 	}
 
-	/* Spaced by margin, not by the flex gap: a gap would also sit between the code and
-	   the country's leading comma, printing "London LGW , United Kingdom". */
-	.place .iata {
-		margin-left: var(--space-1);
-	}
-
+	/* Tighter than the page's 1.5rem, which is spacing for a paragraph and reads as two
+	   separate facts when the two lines are one place name. */
 	.place .city {
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
+		line-height: 1.25;
 	}
 
-	/* Three cities and three codes already wrap to three lines on a 375px phone, and the
-	   flag beside the stopover says the country without spending one of them. Measured:
-	   the route block is 89px tall with the country and 50px without, against a card
-	   #197 had just brought down to 462px. The name comes back as soon as there is room
-	   for it, and the flag carries it meanwhile. */
-	.country {
-		display: none;
-	}
-
-	@media (min-width: 30rem) {
-		.country {
-			display: inline;
-		}
+	/* Code and country on one line, on a baseline because that is what they are, a run of
+	   text at two sizes. No gap: the country's leading comma is the separator, and a gap
+	   would print "DUS , Germany". */
+	.place-sub {
+		display: inline-flex;
+		align-items: baseline;
+		min-width: 0;
+		line-height: 1.25;
+		white-space: nowrap;
 	}
 
 	.route-leg-stopover .city {
@@ -622,6 +658,17 @@
 		color: var(--color-text-deprioritized);
 	}
 
+	/* Printed at every width now. It used to be hidden below 30rem and the reason was height:
+	   measured then, the route block was 89px with the country and 50px without, on a card
+	   #197 had just brought down to 462px. That reading belonged to a leg written along one
+	   line.
+
+	   Sharing the code's line it costs no height. It does still cost width, and on more legs
+	   than one: measured at 375px, "BUD, Hungary" is 87px against a 74px "Budapest" and
+	   "AMS, Netherlands" is 112px against a 90px "Amsterdam", so four of five stopover legs
+	   are as wide as their country rather than their city. It buys no line back, because
+	   three legs do not fit on a 301px row either way. The header is 117px on all five with
+	   the country and the row is two lines with it or without. */
 	.country {
 		font-size: var(--font-size-sm);
 		font-weight: var(--font-weight-regular);
@@ -699,11 +746,13 @@
 		color: var(--color-text-muted);
 	}
 
-	/* Pulled in to a 4px gap from the row's own 8px. An arrow is a connector and belongs
-	   nearer the two things it connects than the legs are to each other, and this row needs
-	   the 16px: measured at 1440px, "Barcelona BCN to Budapest BUD, Hungary to Paphos PFO"
-	   plus the stamp and the heart is 641px of content in a 630px card, and 625px once the
-	   two arrows stop taking a full gap each. */
+	/* Pulled in to a 4px gap from the row's own 8px, so an arrow sits as close to the legs it
+	   connects as a flag does to its own city.
+
+	   It was buying width at 1440px when a leg was one line of text. Stacked legs took that
+	   need away and left the rule load-bearing at 375px instead: Barcelona and Frankfurt am
+	   Main share the first line at 300px of 301px, and the 16px these two margins give back
+	   is what makes that fit rather than a third line. */
 	.route-arrow {
 		margin-inline: calc(var(--space-1) - var(--space-2));
 		color: var(--color-accent-muted-text);

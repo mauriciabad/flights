@@ -49,9 +49,14 @@ import { waitForSearchToSettle } from '../shared/search-wait';
  *
  * `.route-end` is what makes it zero: one flex item holding both, so `.route` has nothing to
  * break between, and the `margin-left: auto` that used to sit on the stamp now belongs to the
- * pair. The header measures the same height at every one of the 1281 widths either way,
- * measured card by card on the live search above, so `card-size.spec.ts` keeps its 90 and its
- * 130.
+ * pair.
+ *
+ * The bands above were read against a one-line leg. The owner then asked for the legs to
+ * stack, city over code and country, which took the row's natural width down far enough that
+ * it no longer wraps at 1440px at all, and the widths where the pair is the thing that wraps
+ * moved with it. That does not change what this file asserts. A row wide enough never to wrap
+ * is a row this sweep cannot fail on, and a narrow one still wraps, so the property is the
+ * same property and the sweep still covers both.
  */
 
 /**
@@ -200,8 +205,12 @@ test.describe('the header stamp and the heart', () => {
 		// The premise, before the sweep that depends on it. A card whose stopover resolved to
 		// a bare "TRS" would pass every assertion below while measuring a 7-character label,
 		// which is issue #382's shape: a geometry check that an empty case satisfies.
+		//
+		// The space is the line break. The city and the code-plus-country sit on two lines of
+		// the leg since the owner asked for them stacked, and `toHaveText` normalises that
+		// break to a space.
 		await expect(page.locator('.result-card .route-leg-stopover .place').first()).toHaveText(
-			'Ronchi dei Legionari/TriesteTRS, Italy'
+			'Ronchi dei Legionari/Trieste TRS, Italy'
 		);
 
 		const orphaned: Failure[] = [];
