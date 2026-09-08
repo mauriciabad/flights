@@ -287,6 +287,9 @@ const agodaSearchBody = readJson('src/lib/providers/stays/fixtures/agoda-search-
 const agodaPricesBody = readJson('src/lib/providers/stays/fixtures/agoda-get-prices-wombats-hostel.json');
 const bookingSearchBody = readJson('tests/e2e/fixtures/booking/hotels-search.json');
 const bookingRoomsBody = readJson('src/lib/providers/stays/fixtures/booking-room-list-ibis.json');
+const hostelworldAvailabilityBody = readJson(
+	'src/lib/providers/stays/fixtures/hostelworld-property-availability-rooms.json'
+);
 const nominatimBody = readJson('src/lib/providers/stays/fixtures/nominatim-vienna.json');
 const osrmBody = readJson('tests/e2e/fixtures/osrm/route.json');
 const osrmTableBody = readJson('tests/e2e/fixtures/osrm/table.json') as {
@@ -474,6 +477,23 @@ export function hostelworldProperties(url: URL): unknown {
 	return stamp(
 		relocate(inCurrency(hostelworldPropertiesBody, currency), code ? airportCoordinates.get(code) : undefined)
 	);
+}
+
+/**
+ * `/2.2/properties/{id}/availability/`: one property's rooms, which is the only response any
+ * provider in this bench publishes a photograph of a ROOM on. Issue #449.
+ *
+ * Answered because the app now asks it, and AGENTS.md is explicit that an adapter's new
+ * endpoint has to be answered in the same PR. A bench that answered this host on path alone
+ * would have handed the room lookup a city page, which has no `rooms` at the top level, so
+ * the lookup would have found no photographs and said nothing about why.
+ *
+ * The recording keeps its own property id rather than echoing the one in the URL. The lookup
+ * only ever reads `rooms`, and rewriting the id would make the fixture claim to be a
+ * property the bench invented.
+ */
+export function hostelworldAvailability(): unknown {
+	return stamp(hostelworldAvailabilityBody);
 }
 
 /**

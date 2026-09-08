@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
 	classifyRoomKind,
 	flattenGeoCities,
+	mapAvailabilityToRoomPhotos,
 	mapPropertiesToStays,
 	mapPropertyToStays,
 	nightsBetweenDates,
@@ -549,5 +550,131 @@ describe('room photographs (issue #442)', () => {
 			1
 		);
 		expect(stays.find((stay) => stay.roomKind === 'female-dorm')?.roomImages).toHaveLength(1);
+	});
+});
+
+describe('where a Stay lives at Hostelworld (issue #450)', () => {
+	const backpackers = londonProperties.find((property) =>
+		property.name?.startsWith('London Backpackers')
+	) as HostelworldProperty;
+
+	it('carries the property id as text on every stay at that property', () => {
+		const stays = mapPropertyToStays(backpackers, 1);
+		expect(stays.length).toBeGreaterThan(1);
+		for (const stay of stays) {
+			expect(stay.source?.provider).toBe('hostelworld');
+			expect(stay.source?.propertyId).toBe('527');
+		}
+	});
+
+	it('names the room only for the kinds priced from one', () => {
+		// The whole asymmetry `mapPropertyToStays` argues at length, now visible in the data.
+		// A restricted dorm is the cheapest room of its `basicType`, so it has a room to name.
+		// A `dorm` and a `private` come from `lowestAverage*PricePerNight`, an average over
+		// rates the room array does not list, so naming one would be a claim nobody made.
+		const stays = mapPropertyToStays(backpackers, 1);
+		const female = stays.find((stay) => stay.roomKind === 'female-dorm');
+		const dorm = stays.find((stay) => stay.roomKind === 'dorm');
+		const priv = stays.find((stay) => stay.roomKind === 'private');
+		expect(female?.source?.roomId).toBe('831339');
+		expect(dorm?.source?.roomId).toBeUndefined();
+		expect(priv?.source?.roomId).toBeUndefined();
+	});
+
+	it('leaves the whole field absent for a property that arrived without an id', () => {
+		// Absent means "nothing can be asked about this listing", which is a different fact
+		// from an empty string, and the one that survives IndexedDB unchanged.
+		const stays = mapPropertyToStays({ ...backpackers, id: undefined }, 1);
+		expect(stays.length).toBeGreaterThan(0);
+		for (const stay of stays) expect(stay.source).toBeUndefined();
+	});
+
+	it('picks the room id off the same room the price came from', () => {
+		const rome = (propertiesRomeRestricted as { properties?: HostelworldProperty[] }).properties ?? [];
+		const plancton = rome.find((property) => property.name === 'Il Plancton') as HostelworldProperty;
+		const male = mapPropertyToStays(plancton, 1).find((stay) => stay.roomKind === 'male-dorm');
+		expect(male?.source?.roomId).toBe('1005162');
+	});
+});
+
+describe('mapAvailabilityToRoomPhotos (issue #449)', () => {
+	const photos = mapAvailabilityToRoomPhotos(availabilityRooms);
+
+	it('keys the exact room by the id a Stay carries, at the card width', () => {
+		// Published as `/image/upload/f_auto,q_auto/v1/...`, a transformation with no width at
+		// all, which docs/PROVIDERS.md measured at 1,424,980 bytes for one photograph.
+		expect(photos.byRoomId['851743']?.[0]).toBe(
+			'https://a.hwstatic.com/image/upload/c_limit,w_800,f_auto,q_auto/v1/propertyimages/3/312244/yoe4nqle0gqlcocnnzfe'
+		);
+		expect(photos.byRoomId['851743']).toHaveLength(4);
+	});
+
+	it('keeps a restricted dorm out of the mixed dorm set and the reverse', () => {
+		// #27 and #288 in one assertion. The female dorm at this property publishes four
+		// addresses and the mixed dorm three, three of which they share, and pooling them
+		// would offer a women-only room under a bed anyone can book.
+		const dorm = photos.byKind.dorm ?? [];
+		const female = photos.byKind['female-dorm'] ?? [];
+		expect(dorm).toHaveLength(3);
+		expect(female).toHaveLength(4);
+		expect(female.filter((url) => !dorm.includes(url))).toHaveLength(1);
+	});
+
+	it('counts a photograph two rooms of one kind share exactly once', () => {
+		const twice = mapAvailabilityToRoomPhotos({
+			rooms: {
+				dorms: [
+					{ id: 1, basicType: 'Mixed Dorm', images: availabilityRooms.rooms.dorms[1].images },
+					{ id: 2, basicType: 'Mixed Dorm', images: availabilityRooms.rooms.dorms[1].images }
+				]
+			}
+		});
+		expect(twice.byKind.dorm).toHaveLength(3);
+		expect(Object.keys(twice.byRoomId)).toEqual(['1', '2']);
+	});
+
+	it('says which provider its room ids belong to', () => {
+		// Two adapters can describe one building, and their room ids come from different
+		// namespaces. `stay-photos.ts` reads this before it matches one against the other.
+		expect(photos.provider).toBe('hostelworld');
+	});
+
+	it('is empty rather than throwing on a response with no rooms in it', () => {
+		expect(mapAvailabilityToRoomPhotos(undefined)).toEqual({
+			provider: 'hostelworld',
+			byRoomId: {},
+			byKind: {}
+		});
+		expect(mapAvailabilityToRoomPhotos({ rooms: {} })).toEqual({
+			provider: 'hostelworld',
+			byRoomId: {},
+			byKind: {}
+		});
+	});
+
+	it('still gives a room with no id its kind', () => {
+		const anonymous = mapAvailabilityToRoomPhotos({
+			rooms: { dorms: [{ basicType: 'Mixed Dorm', images: availabilityRooms.rooms.dorms[1].images }] }
+		});
+		expect(anonymous.byRoomId).toEqual({});
+		expect(anonymous.byKind.dorm).toHaveLength(3);
+	});
+
+	it('caps one kind at eight, so the counter stays a number a person can act on', () => {
+		const many = mapAvailabilityToRoomPhotos({
+			rooms: {
+				dorms: Array.from({ length: 6 }, (_, room) => ({
+					id: room,
+					basicType: 'Mixed Dorm',
+					images: Array.from({ length: 5 }, (_, photo) => ({
+						prefix: 'a.hwstatic.com/image/upload/f_auto,q_auto',
+						suffix: `/v1/propertyimages/3/1/room${room}photo${photo}`
+					}))
+				}))
+			}
+		});
+		expect(many.byKind.dorm).toHaveLength(8);
+		// The per-room sets are untouched. The cap is about one kind's union, not about a room.
+		expect(many.byRoomId['0']).toHaveLength(5);
 	});
 });

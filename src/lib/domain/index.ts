@@ -7,6 +7,7 @@
  */
 
 export * from './codes';
+export * from './provider-id';
 export * from './coordinates';
 export * from './datetime';
 export * from './duration';

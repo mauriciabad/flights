@@ -51,6 +51,12 @@ export interface HostelworldPrice {
  * flag, which agoda-types.ts records as `false` on rooms literally named "N-Bed
  * Dormitory". */
 export interface HostelworldRoom {
+	/** Hostelworld's own id for this room type. Present on the city endpoint's room summary
+	 * (docs/PROVIDERS.md lists the eleven fields it carries) and on the availability
+	 * endpoint's fuller one, and the same number in both, which is what lets a `Stay`
+	 * priced from one be matched to photographs published on the other. Sent as a number;
+	 * `Stay.source.roomId` normalises it to text. Issue #450. */
+	id?: number;
 	name?: string;
 	basicType?: string;
 	/**
@@ -63,22 +69,23 @@ export interface HostelworldRoom {
 	 * width, so `hostelworld-photo.ts` overrides it rather than respecting it; its
 	 * `PUBLISHED_TRANSFORMATION` comment holds the 1,424,980-against-99,478 measurement.
 	 *
-	 * **The city endpoint this adapter calls does not send it.** Measured against three
-	 * untrimmed `show-rooms=1` captures (Rome 30 properties, London 30, London 3), where a
-	 * room is exactly `id, token, name, capacity, basicType, ensuite, grade, extendedType,
-	 * averagePrice, stp, conditions`. The field is real on the per-property availability
-	 * response, which `fixtures/hostelworld-property-availability-rooms.json` is cut from
-	 * and which nothing here fetches. Modelled anyway, against this module's "only what the
-	 * adapter reads" rule and for the same reason `imagesGallery` below earns its exception:
-	 * the mapper reads it, so the day a room summary carries one the app draws it, and the
-	 * fixture is the evidence that the shape was measured rather than guessed.
+	 * **The city endpoint does not send it, and the availability endpoint does.** Measured
+	 * against three untrimmed `show-rooms=1` captures (Rome 30 properties, London 30, London
+	 * 3), where a room is exactly `id, token, name, capacity, basicType, ensuite, grade,
+	 * extendedType, averagePrice, stp, conditions`. The field is real on
+	 * `HostelworldAvailabilityResponse` below, which `hostelworld-rooms.ts` fetches on demand
+	 * for the one property whose bed is on screen (issue #449), and which
+	 * `fixtures/hostelworld-property-availability-rooms.json` is cut from. It stays modelled
+	 * on this shared room type rather than on the availability response alone, so the day a
+	 * city room summary carries one the app draws it with no further work.
 	 *
-	 * Issue #449 asked what fetching that response would take and answered two thirds of it.
+	 * Issue #449 asked what fetching that response would take.
 	 * `tools/probe-hostelworld-rooms.mjs` measured `200` with `Access-Control-Allow-Origin: *`
 	 * from a real page origin, at 6.4 KB over the wire and 450 ms for one property against
-	 * 89.5 KB and 6.9 s for a page of thirty. What is missing is an address. Nothing this app
-	 * carries out of a search can name one Hostelworld property or one of its rooms, so the
-	 * call has nothing to put in its URL. docs/PROVIDERS.md holds the table.
+	 * 89.5 KB and 6.9 s for a page of thirty. The address it was missing arrived with #450:
+	 * `Stay.source` carries Hostelworld's own property id and, for the two restricted dorm
+	 * kinds, its own room id. So the call is made for the one property whose bed is on screen
+	 * and never for a list. docs/PROVIDERS.md holds the table.
 	 *
 	 * Not unique per room. At property 312244 the female dorm and the mixed dorm publish the
 	 * same three photographs and the private publishes four different ones, so two rooms
@@ -167,6 +174,29 @@ export interface HostelworldProperty {
 
 export interface HostelworldPropertiesResponse {
 	properties?: HostelworldProperty[];
+}
+
+/**
+ * `GET /2.2/properties/{id}/availability/?currency=&date-start=&num-nights=&guests=`. One
+ * property's rooms for one stay, and the only response any provider in this repo publishes
+ * room photographs on. Issue #449.
+ *
+ * Measured from a browser page origin on 2026-09-08 with `tools/probe-hostelworld-rooms.mjs`:
+ * `200`, `access-control-allow-origin: *`, gzipped, 6,416 bytes over the wire and 63,969
+ * decoded for one property. Without `date-start` and `num-nights` it answers `400` carrying
+ * its own `{"description":[{"code":"2021","message":"date-start is missing or invalid"},…]}`,
+ * so the parameters are rejected rather than the origin being turned away.
+ *
+ * `id` arrives as a STRING here (`"330521"`) where the city endpoint sends the same property
+ * as a number. Nothing in this adapter does arithmetic on either, and `Stay.source.propertyId`
+ * is text for exactly this reason.
+ */
+export interface HostelworldAvailabilityResponse {
+	id?: string | number;
+	rooms?: {
+		dorms?: HostelworldRoom[];
+		privates?: HostelworldRoom[];
+	};
 }
 
 /* The body Hostelworld sends with a 4xx — `{"description":[{"code":"90593","message":

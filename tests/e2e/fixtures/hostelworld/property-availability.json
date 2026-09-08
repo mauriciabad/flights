@@ -1,0 +1,43 @@
+{
+  "id": "991002",
+  "rooms": {
+    "dorms": [
+      {
+        "id": 991003,
+        "name": "FIXTURE 12 Bed Mixed Dorm",
+        "capacity": "12",
+        "basicType": "Mixed Dorm",
+        "ensuite": false,
+        "images": [
+          { "prefix": "photos.fixture.invalid/room/FIXTURE-dorm-one", "suffix": ".svg" },
+          { "prefix": "photos.fixture.invalid/room/FIXTURE-dorm-two", "suffix": ".svg" }
+        ],
+        "averagePrice": { "value": "9444.44", "currency": "EUR" }
+      },
+      {
+        "id": 991005,
+        "name": "FIXTURE 6 Bed Female Dorm",
+        "capacity": "6",
+        "basicType": "Female Dorm",
+        "ensuite": false,
+        "images": [
+          { "prefix": "photos.fixture.invalid/room/FIXTURE-female-one", "suffix": ".svg" }
+        ],
+        "averagePrice": { "value": "9555.55", "currency": "EUR" }
+      }
+    ],
+    "privates": [
+      {
+        "id": 991004,
+        "name": "FIXTURE Twin Private",
+        "capacity": "2",
+        "basicType": "Private",
+        "ensuite": false,
+        "images": [
+          { "prefix": "photos.fixture.invalid/room/FIXTURE-private-one", "suffix": ".svg" }
+        ],
+        "averagePrice": { "value": "9333.33", "currency": "EUR" }
+      }
+    ]
+  }
+}

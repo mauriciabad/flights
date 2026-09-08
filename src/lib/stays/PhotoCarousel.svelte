@@ -272,11 +272,13 @@
 			<Icon name="maximize" />
 		</button>
 
-		<!-- Only drawn when a room photograph is in the set, which today is never for the three
-		     providers this app calls (docs/PROVIDERS.md). When it is, the reader has to be able
-		     to tell a lobby from the bed they are buying, and the counter alone cannot. -->
-		{#if photos[index].subject === 'room'}
-			<p class="photo-subject">Room</p>
+		<!-- The building carries no badge and every room photograph does, because the reader has
+		     to be able to tell a lobby from the bed they are buying and the counter alone cannot.
+		     The word comes off the photograph rather than being decided here, so it can never
+		     disagree with the caption in the dialog: "Room" is the room whose rate is quoted,
+		     and a plural is rooms of that kind at this property (`stay-photos.ts`). -->
+		{#if photos[index].badge}
+			<p class="photo-subject">{photos[index].badge}</p>
 		{/if}
 
 		{#if pageable}
@@ -460,6 +462,17 @@
 		position: absolute;
 		bottom: var(--space-2);
 		left: var(--space-2);
+		/* The counter sits in the opposite corner of the same strip, so the badge gives it room
+		   rather than running underneath it. `stay-photos.ts` keeps the longest word to
+		   "Female-only dorms"; this is the guard for the narrowest box these are drawn in,
+		   which is the map sidebar. */
+		max-width: calc(100% - 5.5rem);
+		/* Clipped rather than wrapped. A two-line pill over a photograph reads as a broken
+		   control, and no truncation of these words can turn a plural into "Room", which is
+		   the only way this label could mislead. */
+		overflow: hidden;
+		white-space: nowrap;
+		text-overflow: ellipsis;
 		margin: 0;
 		padding: 2px var(--space-2);
 		border: 1px solid var(--color-accent);

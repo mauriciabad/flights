@@ -11,8 +11,10 @@ import type {
   Property,
   RoomKind,
   Stay,
+  StaySource,
 } from "../../domain";
 import { moneyFromMajorUnits } from "../../domain";
+import { AGODA_PROVIDER_ID } from "./provider-ids";
 import { haversineDistanceKm } from "./agoda-geo";
 import { agodaCardPhoto } from "./agoda-photo";
 import type {
@@ -273,6 +275,7 @@ function cheapestOfferPrice(masterRoom: AgodaMasterRoom): Money | undefined {
 export function mapMasterRoomsToStays(
   property: Property,
   masterRooms: readonly AgodaMasterRoom[],
+  propertyId?: number,
 ): Stay[] {
   const cheapestByKind = new Map<RoomKind, Money>();
   for (const masterRoom of masterRooms) {
@@ -290,13 +293,31 @@ export function mapMasterRoomsToStays(
       property,
       roomKind,
       pricePerNight,
+      ...agodaSource(propertyId),
     }),
   );
+}
+
+/**
+ * Where this listing lives at Agoda, for `Stay.source` (issue #450), or nothing when the
+ * candidate arrived without an id.
+ *
+ * No `roomId`. A `masterRoom` carries `name`, `isDormitory`, `maxOccupancy` and a `rooms`
+ * array of prices, with no id on either level (docs/PROVIDERS.md's room table, read off the
+ * captures already on disk). Agoda is metered and the owner told us not to spend his quota,
+ * so this branch did not go and ask a fuller endpoint whether one exists.
+ */
+function agodaSource(propertyId: number | undefined): { source?: StaySource } {
+  if (typeof propertyId !== "number" || !Number.isFinite(propertyId)) return {};
+  return {
+    source: { provider: AGODA_PROVIDER_ID, propertyId: String(propertyId) },
+  };
 }
 
 export function mapGetPricesToStays(
   property: Property,
   response: AgodaGetPricesResponse,
+  propertyId?: number,
 ): Stay[] {
   const masterRooms = response.data?.roomGridData?.masterRooms;
   // `Array.isArray`, not `?? []`: a nullish-coalesce only catches `masterRooms` being
@@ -306,6 +327,7 @@ export function mapGetPricesToStays(
   return mapMasterRoomsToStays(
     property,
     Array.isArray(masterRooms) ? masterRooms : [],
+    propertyId,
   );
 }
 

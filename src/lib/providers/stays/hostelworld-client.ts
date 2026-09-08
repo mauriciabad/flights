@@ -56,6 +56,7 @@
 
 import { describeProviderResponse, readProviderResponse, readRetryAfterSeconds } from '../response-evidence';
 import type {
+	HostelworldAvailabilityResponse,
 	HostelworldContinentCountriesResponse,
 	HostelworldFetchResult,
 	HostelworldPropertiesResponse
@@ -231,4 +232,65 @@ export function fetchCityProperties(
 	});
 	const url = `${ENDPOINT}/cities/${params.cityId}/properties/?${query.toString()}`;
 	return getJson<HostelworldPropertiesResponse>(url, deps);
+}
+
+export interface HostelworldAvailabilityParams {
+	/** Hostelworld's own property id, from `Stay.source.propertyId`. Interpolated into the
+	 * path as given, never parsed. */
+	propertyId: string;
+	currency: string;
+	/** Check-in, `YYYY-MM-DD`. */
+	dateStart: string;
+	numNights: number;
+	guests: number;
+}
+
+/**
+ * One property's rooms for one stay, and the only response any provider in this repo
+ * publishes a photograph of a ROOM on. Issue #449.
+ *
+ * ## Why this is a second endpoint rather than a wider version of the first
+ *
+ * `fetchCityProperties` above is keyed by city and answers thirty properties at once. Its
+ * room summaries carry no `images` field at all, measured against three untrimmed
+ * `show-rooms=1` captures (docs/PROVIDERS.md's room table). The photographs exist only here,
+ * one property at a time, so there is no parameter that would have added them to the search.
+ *
+ * ## Measured before it was built, because the app has no backend
+ *
+ * `tools/probe-hostelworld-rooms.mjs` takes the numbers and docs/PROVIDERS.md holds the
+ * table, so they are in one place and re-takeable rather than copied into a comment. The two
+ * that decide the design. One property is about 6.4 KB over the wire and under half a second,
+ * and a page of thirty is about 89.5 KB and 30 requests. That is 1.8x the whole city search's
+ * own bytes for 30x its requests, to answer a question about one property.
+ *
+ * `200`, `access-control-allow-origin: *`, gzipped, `fetch()` resolving with `type: "cors"`
+ * and a body readable from script, measured from a real page origin. Worth measuring rather
+ * than inferring from the city endpoint sharing this host, for the reason this file's header
+ * records: the sibling `prod.apigee.hostelworld.com` autocomplete host answers `curl` with
+ * `200` and sends a foreign origin no `Access-Control-Allow-Origin` at all.
+ *
+ * The wall clock for the thirty moves with the connection and the bytes do not. Runs on
+ * 2026-09-08 came in at 7,014 ms, 2,331 ms, 727 ms and 6,917 ms while the wire bytes stayed
+ * within a few hundred of each other, so the cold end is the number to design against.
+ *
+ * `date-start` and `num-nights` are not optional. Without them it answers `400` carrying its
+ * own `{"description":[{"code":"2021","message":"date-start is missing or invalid"},…]}`,
+ * which `getJson` surfaces verbatim.
+ */
+export function fetchPropertyAvailability(
+	params: HostelworldAvailabilityParams,
+	deps: HostelworldHttpDeps
+): Promise<HostelworldFetchResult<HostelworldAvailabilityResponse>> {
+	const query = new URLSearchParams({
+		currency: params.currency,
+		'date-start': params.dateStart,
+		'num-nights': String(params.numNights),
+		guests: String(params.guests)
+	});
+	const path = encodeURIComponent(params.propertyId);
+	return getJson<HostelworldAvailabilityResponse>(
+		`${ENDPOINT}/properties/${path}/availability/?${query.toString()}`,
+		deps
+	);
 }

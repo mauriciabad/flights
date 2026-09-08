@@ -322,6 +322,14 @@ test.describe('result card size', () => {
 		const card = page.locator('.result-card').first();
 		await expect(card).toBeVisible();
 
+		// The band is built only once the search has settled, out of a few dozen IndexedDB
+		// reads (`results/+page.svelte`), so it lands a moment after `waitForSearchToSettle`
+		// returns rather than with the card. Measured on this machine at 3ms to 7ms, and one
+		// run in ten was still without it at settle; a CI runner sharing two workers widened
+		// that into a block table missing `price-band` and a failure blaming the wrong thing.
+		// The worst-case test below has always waited for the same block before measuring.
+		await expect(card.locator('.price-band')).toBeVisible();
+
 		const measured = await measureCardBlocks(card);
 		console.log(`ordinary card blocks at 375px: ${describeBlocks(measured.blocks)}`);
 

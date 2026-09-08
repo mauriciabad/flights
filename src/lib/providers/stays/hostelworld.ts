@@ -89,9 +89,11 @@ import {
 import type { HostelworldCity } from './hostelworld-mapper';
 import type { HostelworldFetchError } from './hostelworld-types';
 
-/** Also the id `../budget/caps.ts`'s `DEFAULT_PROVIDER_CAPS` is keyed by — though this
- * adapter deliberately has no entry there, because it is not metered. */
-export const HOSTELWORLD_PROVIDER_ID: ProviderId = 'hostelworld';
+/** Declared in `./provider-ids.ts` since #450, so `hostelworld-mapper.ts` can name its own
+ * provider without importing this file back. Re-exported here because this is where every
+ * caller reads it from. */
+import { HOSTELWORLD_PROVIDER_ID } from './provider-ids';
+export { HOSTELWORLD_PROVIDER_ID };
 
 /** Live rates, so cached about as long as one stays true. The same window agoda.ts and
  * booking.ts settled on for their own searches. */

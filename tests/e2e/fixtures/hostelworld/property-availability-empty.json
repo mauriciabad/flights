@@ -1,0 +1,26 @@
+{
+  "id": "991002",
+  "name": "FIXTURE Lodge",
+  "rooms": {
+    "dorms": [
+      {
+        "id": 991003,
+        "name": "FIXTURE 12 Bed Mixed Dorm",
+        "capacity": "12",
+        "basicType": "Mixed Dorm",
+        "ensuite": false,
+        "averagePrice": { "value": "9444.44", "currency": "EUR" }
+      }
+    ],
+    "privates": [
+      {
+        "id": 991004,
+        "name": "FIXTURE Twin Private",
+        "capacity": "2",
+        "basicType": "Private",
+        "ensuite": false,
+        "averagePrice": { "value": "9333.33", "currency": "EUR" }
+      }
+    ]
+  }
+}

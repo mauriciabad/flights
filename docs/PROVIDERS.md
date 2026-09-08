@@ -1020,7 +1020,7 @@ nothing here asked a metered provider anything.
 | provider | endpoint this app calls | room photographs | what a room actually carries |
 |---|---|---|---|
 | Hostelworld | `GET /2.2/cities/{id}/properties/?show-rooms=1` | **none** | `id, token, name, capacity, basicType, ensuite, grade, extendedType, averagePrice, stp, conditions` |
-| Hostelworld | per-property availability, **not called here** | **yes**, `rooms.dorms[].images` and `rooms.privates[].images` | the summary above plus `description`, `bedTypes`, `facilities`, `ratePlans`, `images` |
+| Hostelworld | `GET /2.2/properties/{id}/availability/`, **called on demand since #449** | **yes**, `rooms.dorms[].images` and `rooms.privates[].images` | the summary above plus `description`, `bedTypes`, `facilities`, `ratePlans`, `images` |
 | Booking | `getRoomList` | **none** | `room_name, is_dormitory, max_occupancy, product_price_breakdown` |
 | Agoda | `hotels-homes/get-prices` | **none** | `name, isDormitory, maxOccupancy, rooms[]` (prices only) |
 | Agoda | `hotels-homes/overnight-stays/search` | property only | `content.images.hotelImages[].urls[].value`, the building |
@@ -1039,7 +1039,7 @@ photograph is not unique to a room, and two rooms sharing one is normal rather t
 `hostelworld-types.ts` models the field and `hostelworld-mapper.ts` reads it, so the day a
 room summary carries one it is drawn, sized and labelled with no further work.
 
-### What the availability endpoint costs, and the reason it is still not called (issue #449)
+### What the availability endpoint costs, and when it is called (issue #449)
 
 Both questions #442 left open are now measured, and `tools/probe-hostelworld-rooms.mjs`
 re-takes both. It serves a page from a real `http://` origin, runs `fetch` inside that
@@ -1072,15 +1072,36 @@ The photographs are there. Across those thirty properties, 160 of 216 rooms carr
 one; 21 properties had every room photographed and 4 had none at all, so anything built on
 this has to degrade to what the card shows today.
 
-**It is still not called, and the blocker is now a third thing.** Nothing this app holds can
-address a single Hostelworld property. `Property` is `name, coordinates, images, rating,
-womenOnly` and `Stay` adds `roomKind` and three money fields; `propertyKey` is
-`name@lat,lon`, which identifies a property to us and to nobody else. The availability
-endpoint wants Hostelworld's own numeric id, and the room whose rate a `Stay` quotes wants
-Hostelworld's own room id, and neither survives `hostelworld-mapper.ts`. Carrying them means
-a provider-scoped identity on `Stay`, which is a domain decision affecting all three stay
-adapters and every record already in IndexedDB, so it is its own issue rather than a detail
-of this one.
+The wall clock moves with the connection and the bytes do not. Three runs of the thirty
+minutes apart on 2026-09-08 came in at 7,014 ms, 603 ms and 2,331 ms while the wire bytes
+stayed within 40 of each other. The cold end is the number that decides it.
+
+**It is called now, for one property at a time.** #450 put `Stay.source` on the record, so a
+`Stay` finally carries Hostelworld's own property id and, for the two restricted dorm kinds,
+its own room id. `providers/stays/hostelworld-rooms.ts` asks this endpoint for the property
+whose bed is on screen and for nothing else, caches the reduced answer for an hour, and
+serves the held one before the fresh one. Nothing anywhere fetches it for a list.
+
+**Only two of the four room kinds can take the strong claim.** `female-dorm` and `male-dorm`
+quote a specific room, so a photograph of it belongs under that price. `dorm` and `private`
+come from `lowestAverage*PricePerNight`, a property-level average no single room quotes, and
+`hostelworld-mapper.ts` has always refused to put a picture under a price that did not come
+from it. Since #449 those two get the weaker claim that is still true instead: the rooms OF
+THAT KIND at that property, captioned and badged in the plural ("Dorm rooms at Rest Up
+London"). `$lib/stays/stay-photos.ts` is where the three claims are separated, and a
+restricted dorm never feeds the mixed-dorm set (#288 is what pooling them looks like).
+
+Which kinds are photographed decides whether any of that fires, so the probe counts them per
+`basicType` too. Its default sample moves with the calendar, and a run on 2026-09-08 asking
+about 2026-10-08 gave Mixed Dorm 102 of 128, Private 38 of 52, Female Dorm 26 of 35, Dbl
+Private 4 of 9, Male Dorm 4 of 4, across 228 rooms in thirty properties. The proportions hold
+across runs and the exact counts do not, which is the point of it being re-takeable. What
+matters is stable: the two kinds that cannot claim a photograph as their own room are also
+the two commonest, which is why the weaker claim exists rather than nothing.
+
+One shape trap worth recording rather than rediscovering. This response sends `id` as a
+STRING (`"330521"`) where the city endpoint sends the same property as a number.
+`Stay.source.propertyId` is text for that reason, and nothing does arithmetic on either.
 
 Booking's `getRoomList` is worth writing down once so nobody looks again. Its `data` also
 holds a `rooms` map beside `block`, which is where a room gallery would plausibly live, and

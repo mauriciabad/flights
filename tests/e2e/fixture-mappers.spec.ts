@@ -8,6 +8,7 @@ import type { Coordinates, TransitPlanMoment } from '../../src/lib/domain';
 import { mapSearchResultToCandidate } from '../../src/lib/providers/stays/booking-mapper';
 import {
 	flattenGeoCities,
+	mapAvailabilityToRoomPhotos,
 	mapPropertiesToStays
 } from '../../src/lib/providers/stays/hostelworld-mapper';
 import {
@@ -225,6 +226,24 @@ const CHECKS: Record<string, FixtureCheck> = {
 			mapPropertiesToStays((raw as { properties?: never[] }).properties, AIRPORT, 50, 1).filter(
 				(stay) => stay.property.images.length > 0
 			).length
+	},
+	// Issue #449's per-property answer, the only response in this repo that carries a
+	// photograph of a room rather than of a building. Counted as photographed room kinds,
+	// which is the thing a card can honestly draw. A room's own set needs the room id to be
+	// claimed, and a kind's set is what a `dorm` and a `private` get instead.
+	'hostelworld/property-availability.json': {
+		readBy: 'providers/stays/hostelworld-mapper.ts mapAvailabilityToRoomPhotos',
+		yields: 'some',
+		map: (raw) => Object.keys(mapAvailabilityToRoomPhotos(raw as never).byKind).length
+	},
+	// The same shape with no `images` anywhere, which is what `mockHostelworld` answers by
+	// default so a spec that never registered a photograph host does not start fetching one.
+	// `yields: 'none'` is the assertion: a property whose rooms are unphotographed produces
+	// nothing to draw, and that is a real answer rather than a broken fixture.
+	'hostelworld/property-availability-empty.json': {
+		readBy: 'providers/stays/hostelworld-mapper.ts mapAvailabilityToRoomPhotos',
+		yields: 'none',
+		map: (raw) => Object.keys(mapAvailabilityToRoomPhotos(raw as never).byKind).length
 	},
 	'kiwi-public/one-per-city-empty.json': {
 		readBy: 'providers/flights/kiwi-public-mapper.ts mapOnePerCityResultToDestinations',

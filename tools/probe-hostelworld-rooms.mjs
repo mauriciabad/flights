@@ -187,12 +187,20 @@ const all = await page.evaluate(async (urls) => {
 		const text = await response.text();
 		const parsed = JSON.parse(text);
 		const rooms = [...(parsed.rooms?.dorms ?? []), ...(parsed.rooms?.privates ?? [])];
+		const byBasicType = {};
+		for (const room of rooms) {
+			const key = room.basicType ?? room.name ?? 'unknown';
+			const held = (byBasicType[key] ??= { rooms: 0, photographed: 0 });
+			held.rooms += 1;
+			if ((room.images ?? []).length > 0) held.photographed += 1;
+		}
 		return {
 			status: response.status,
 			decodedBytes: new TextEncoder().encode(text).length,
 			ms: Math.round(performance.now() - begun),
 			rooms: rooms.length,
-			roomsWithImages: rooms.filter((room) => (room.images ?? []).length > 0).length
+			roomsWithImages: rooms.filter((room) => (room.images ?? []).length > 0).length,
+			byBasicType
 		};
 	};
 	return Promise.all(urls.map(one));
@@ -221,6 +229,48 @@ report.wholePage = {
 	propertiesWhereEveryRoomIsPhotographed: all.filter((row) => row.rooms > 0 && row.rooms === row.roomsWithImages).length,
 	propertiesWithNoRoomPhotographAtAll: all.filter((row) => row.roomsWithImages === 0).length,
 	statusesOtherThan200: all.filter((row) => row.status !== 200).map((row) => row.status)
+};
+
+/**
+ * What the endpoint says when the dates are missing, which is the other half of the CORS
+ * answer. A `400` carrying Hostelworld's own words is the endpoint SERVING the request and
+ * rejecting the parameters; a browser turned away at the origin never gets a body at all.
+ */
+const bare = await fetchFromPage(
+	`${ENDPOINT}/properties/${ids[0]}/availability/?currency=${CURRENCY}`
+);
+report.withoutDates = { status: bare.status, body: bare.body?.slice(0, 300) };
+
+/**
+ * The shape a `Stay` has to carry to match one of these answers back to the room whose rate
+ * it quotes. Issue #450 put `source.propertyId` and `source.roomId` on a `Stay` for exactly
+ * this, and there is one trap worth re-taking rather than remembering. The property id
+ * arrives HERE as a string where the city endpoint sends the same property as a number.
+ *
+ * The tally beside it is per `basicType`, because which room kinds are photographed is what
+ * decides whether the feature fires for anybody. `dorm` and `private` are the two commonest
+ * kinds and the two that cannot claim a photograph as their own room, so a run where those
+ * are the unphotographed ones would mean something very different from this one.
+ */
+const sample = JSON.parse(first.body);
+const sampleRooms = [...(sample.rooms?.dorms ?? []), ...(sample.rooms?.privates ?? [])];
+const byBasicType = {};
+for (const row of all) {
+	for (const [basicType, counts] of Object.entries(row.byBasicType)) {
+		const held = (byBasicType[basicType] ??= { rooms: 0, photographed: 0 });
+		held.rooms += counts.rooms;
+		held.photographed += counts.photographed;
+	}
+}
+report.roomShape = {
+	propertyIdInTheResponse: sample.id,
+	propertyIdType: typeof sample.id,
+	firstRooms: sampleRooms.slice(0, 4).map((room) => ({
+		id: room.id,
+		basicType: room.basicType,
+		photographs: room.images?.length ?? 0
+	})),
+	byBasicType
 };
 
 report.requestFailed = failures;
