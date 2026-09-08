@@ -128,6 +128,12 @@ test.describe('a leg the map cannot draw (issue #286)', () => {
 		const dialog = page.locator('dialog.route-dialog');
 		await expect(dialog).toBeVisible();
 
+		// Held on to now and asked about at the end of the test. The property the map has to
+		// keep is that pressing the absent leg leaves *this* instance alone.
+		const mapCanvas = dialog.locator('canvas.maplibregl-canvas');
+		await expect(mapCanvas).toHaveCount(1);
+		const openedWith = (await mapCanvas.elementHandle())!;
+
 		// Every ground leg of the trip, including the one with nothing behind it.
 		const steps = dialog.locator('.map-step');
 		await expect(steps).toHaveText([
@@ -182,14 +188,30 @@ test.describe('a leg the map cannot draw (issue #286)', () => {
 		}, { x: statusBox!.x + 40, y: statusBox!.y + statusBox!.height / 2 });
 		expect(onTop, 'what is painted where the sentence is').toContain('Nothing to draw.');
 
-		// One map, still. Pressing a leg with nothing to draw must not tear the map down or
-		// build a second one.
+		// One map, still, and the same one. Pressing a leg with nothing to draw must not tear
+		// the map down or build a second one. `tools/probe-map-cost.mjs` measured Chromium
+		// evicting the oldest of more than sixteen live WebGL contexts, so a rebuild per press
+		// is a blank map by a traveller's ninth dialog.
 		//
-		// `visibleMapCanvases` rather than a raw count: the page also runs one hidden instance
-		// to photograph the ground previews (`map-snapshot.svelte.ts`), it comes and goes on
-		// its own, and since issue #439 selecting a leg is what asks it for a picture. Counting
-		// raw canvases here counts that timer.
-		await expect.poll(() => visibleMapCanvases(page)).toBe(1);
+		// Identity rather than a count, which is issue #455. This used to count every
+		// `canvas.maplibregl-canvas` on the page and found two about a quarter of the time.
+		// `tools/probe-map-canvases.mjs` says what the second one was. It is the off-screen
+		// instance that photographs the ground previews (`map-snapshot.svelte.ts`), which
+		// outlives its last capture by `IDLE_RELEASE_MS`. So the spec was reading a timer.
+		//
+		// Counting was the wrong question either way, and excluding that instance would only
+		// have hidden it. A count of one is also what a teardown-and-rebuild leaves behind, and
+		// a poll for one is answered by whichever moment it samples. Asking whether this is the
+		// canvas the dialog opened with cannot be satisfied by either.
+		await expect(mapCanvas).toHaveCount(1);
+		expect(
+			await openedWith.evaluate((canvas) => canvas.isConnected),
+			'the dialog is still showing the map it opened with'
+		).toBe(true);
+		// And nothing else on the page is showing one. The hidden renderer is excluded by
+		// `visibleMapCanvases`; that it is the only thing excluded is pinned in
+		// `route-previews.spec.ts`, which counts raw canvases across a whole settle.
+		expect(await visibleMapCanvases(page), 'maps a traveller can see').toBe(1);
 	});
 
 	test('is reachable by keyboard, and the whole route is still one press away', async ({

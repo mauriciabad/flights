@@ -25,6 +25,14 @@
  * | openstreetmap.org 403   |  1 | 0.1661          | 0.2603          | 0.218         |
  * | style with no layers    |  1 | 0.0000          | 0.0000          | 0.000         |
  * | style with one bg layer |  1 | 0.0000          | 0.0000          | 0.000         |
+ * | the shared test fixture |  1 | 0.0614          | 0.0662          | 0.094         |
+ *
+ * The fifth row is what the shared test fixture used to be, and the sixth is what it is now
+ * (#443). Both suites answer `basemaps.cartocdn.com` with that one document, and while it
+ * measured the same 0.0000 as the layerless style above it, no mocked spec could tell a map
+ * from a fill. It draws a street grid now. `tools/probe-fixture-basemap.mjs` scores it with
+ * `complainAboutPixels` below at the windows a ground preview actually asks for, where it
+ * inks 0.0546 to 0.0891 at a spread of 0.0396 to 0.0720 over fourteen cameras.
  *
  * Read the first two rows before trusting a summary statistic here. `inkShare` and
  * `lumaSpread` do not separate a watermarked map from a clean one, and they cannot: CARTO's
@@ -48,10 +56,13 @@ export interface WindowStats {
 	readonly lumaSpread: number;
 }
 
-export interface WindowVerdict {
+export interface PixelVerdict {
 	readonly looksLikeAMap: boolean;
 	readonly complaints: readonly string[];
 	readonly stats: WindowStats;
+}
+
+export interface WindowVerdict extends PixelVerdict {
 	readonly keyNoticeCoverage: number;
 }
 
@@ -160,9 +171,16 @@ export function keyNoticeCoverage(window: MapWindow, notice: Uint8Array): number
 	return drawn / marked;
 }
 
-export function judgeWindow(window: MapWindow, notice: Uint8Array): WindowVerdict {
+/**
+ * The half of the verdict that reads only the window's own pixels.
+ *
+ * Separate from `judgeWindow` because the notice is a mask of one 256x256 tile, so only a
+ * caller photographing that exact window can supply it. The mocked suites photograph
+ * whatever box a preview asked for and have no CARTO in front of them at all. This is the
+ * half that still means something there, and it is what tells a drawing from a fill (#443).
+ */
+export function complainAboutPixels(window: MapWindow): PixelVerdict {
 	const stats = describeWindow(window);
-	const coverage = keyNoticeCoverage(window, notice);
 	const complaints: string[] = [];
 
 	if (stats.inkShare < MAP_WINDOW_LIMITS.minInkShare) {
@@ -177,6 +195,15 @@ export function judgeWindow(window: MapWindow, notice: Uint8Array): WindowVerdic
 				`over the ${MAP_WINDOW_LIMITS.maxLumaSpread} ceiling`
 		);
 	}
+
+	return { looksLikeAMap: complaints.length === 0, complaints, stats };
+}
+
+export function judgeWindow(window: MapWindow, notice: Uint8Array): WindowVerdict {
+	const pixels = complainAboutPixels(window);
+	const coverage = keyNoticeCoverage(window, notice);
+	const complaints = [...pixels.complaints];
+
 	if (coverage > MAP_WINDOW_LIMITS.maxKeyNoticeCoverage) {
 		complaints.push(
 			`carries the recorded key notice: ${(coverage * 100).toFixed(1)}% of it is drawn, over ` +
@@ -184,7 +211,12 @@ export function judgeWindow(window: MapWindow, notice: Uint8Array): WindowVerdic
 		);
 	}
 
-	return { looksLikeAMap: complaints.length === 0, complaints, stats, keyNoticeCoverage: coverage };
+	return {
+		looksLikeAMap: complaints.length === 0,
+		complaints,
+		stats: pixels.stats,
+		keyNoticeCoverage: coverage
+	};
 }
 
 /**

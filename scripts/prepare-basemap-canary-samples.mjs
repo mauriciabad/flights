@@ -24,6 +24,9 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium } from '@playwright/test';
 import sharp from 'sharp';
+// What the two test suites answer this host with, imported rather than copied. A private
+// copy here is how the table below would go on reporting a fixture nobody serves any more.
+import { fixtureMapStyle } from '../tests/shared/map-style-fixture.ts';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repo = path.join(here, '..');
@@ -59,12 +62,11 @@ const RASTER_STYLES = {
 
 const LAYERLESS_STYLE = { version: 8, name: 'empty', sources: {}, layers: [] };
 
-/** What the two test suites answer this host with (tests/shared/map-style-fixture.ts). It
- *  has the layer `map-snapshot.svelte.ts` insists on, and it is still a flat colour, which
- *  is the number the table below exists to state rather than imply. */
+/** What the shared fixture was until #443: the layer `map-snapshot.svelte.ts` insists on and
+ *  nothing that draws. Kept beside the one that ships so the two rows can be read together. */
 const BACKGROUND_ONLY_STYLE = {
 	version: 8,
-	name: 'fixture',
+	name: 'background only',
 	sources: {},
 	layers: [{ id: 'background', type: 'background', paint: { 'background-color': '#101820' } }]
 };
@@ -223,6 +225,7 @@ try {
 	const [viennaX, viennaY] = tileOf(...CITIES.vienna);
 	const blank = await renderWindow(browser, LAYERLESS_STYLE, boundsOfTile(viennaX, viennaY));
 	const backgroundOnly = await renderWindow(browser, BACKGROUND_ONLY_STYLE, boundsOfTile(viennaX, viennaY));
+	const fixture = await renderWindow(browser, fixtureMapStyle('dark'), boundsOfTile(viennaX, viennaY));
 	const notFound = await fetchPng(`https://tile.openstreetmap.org/${ZOOM}/${viennaX}/${viennaY}.png`);
 
 	// The intersection, which is the whole trick: a pixel survives only if all sixteen
@@ -268,6 +271,7 @@ try {
 	await report('openstreetmap.org refusal', [{ png: notFound }]);
 	await report('style with no layers', [{ png: blank }]);
 	await report('style with one bg layer', [{ png: backgroundOnly }]);
+	await report('the shared test fixture', [{ png: fixture }]);
 } finally {
 	await browser.close();
 	server.close();

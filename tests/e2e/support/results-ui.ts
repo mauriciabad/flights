@@ -76,15 +76,20 @@ export function customiser(page: Page): Locator {
 }
 
 /**
- * How many MapLibre canvases a traveller can see, which is no longer the same as how many
- * are on the page.
+ * How many MapLibre canvases are on the page that a traveller could be looking at, which is
+ * every attached one except the hidden renderer's.
  *
  * One hidden instance draws the ground previews' basemaps off-screen
  * (`map-snapshot.svelte.ts`), and it comes and goes on its own: built by the first preview
- * that asks and released a few seconds after the queue empties. A spec counting raw
- * canvases to prove a dialog does not leak would be reading that timer instead. So it is
- * excluded here by ancestry, and the property that there is only ever one of it is pinned
- * separately, in `route-previews.spec.ts`.
+ * that asks and released `IDLE_RELEASE_MS` after the queue empties. A spec counting raw
+ * canvases to prove a dialog does not leak reads that timer instead, which is what issue
+ * #455 turned out to be. So it is excluded here by ancestry, and the property that there is
+ * only ever one of it is pinned separately, in `route-previews.spec.ts`, which counts raw
+ * canvases across a whole settle for exactly that reason.
+ *
+ * Read the name loosely. This counts what is attached, and a `<dialog>` that has fired
+ * `close` is still attached until the parent stops rendering it, so a count here can be 1
+ * for the moment between the two. That is why the assertions after Escape poll for 0.
  */
 export async function visibleMapCanvases(page: Page): Promise<number> {
 	return page.evaluate(

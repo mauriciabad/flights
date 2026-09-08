@@ -3,7 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { BrowserContext, Page } from '@playwright/test';
 import { OSRM_BASE_URL } from '../../../src/lib/providers/transfers/osrm';
-import { FIXTURE_MAP_STYLE_JSON } from '../../shared/map-style-fixture';
+import { fixtureMapStyleFor } from '../../shared/map-style-fixture';
 import {
 	AIRLINE_LOGO_BASE_URL,
 	AIRLINE_LOGO_REDIRECT_HOST
@@ -546,6 +546,14 @@ export async function mockAirlineLogos(target: Routable) {
  */
 export async function mockMapStyle(target: Routable) {
 	await target.route('https://basemaps.cartocdn.com/**', async (route) => {
-		await route.fulfill({ status: 200, contentType: 'application/json', body: FIXTURE_MAP_STYLE_JSON });
+		// Answered per style URL, because `dark-matter` and `positron` are two differently
+		// coloured maps and the app picks between them by colour scheme. One document for both
+		// puts a dark map behind a light page in every screenshot of a map that does not
+		// recolour its own background.
+		await route.fulfill({
+			status: 200,
+			contentType: 'application/json',
+			body: JSON.stringify(fixtureMapStyleFor(route.request().url()))
+		});
 	});
 }

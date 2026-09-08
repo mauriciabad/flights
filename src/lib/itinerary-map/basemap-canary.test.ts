@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { readKeyNotice, readWindowFixture } from '../../../tests/shared/read-png';
+import { fixtureMapStyle, fixtureMapStyleFor } from '../../../tests/shared/map-style-fixture';
+import { MAP_STYLE_URL } from './style';
 import { complainAboutStyle, judgeWindow, MAP_WINDOW_LIMITS } from './basemap-canary';
 
 /**
@@ -100,5 +102,29 @@ describe('judging a style document', () => {
 
 	it('refuses something that is not a style at all', () => {
 		expect(complainAboutStyle('<html>404</html>')).toEqual(['is not a style document at all']);
+	});
+
+	/**
+	 * The fixture both suites answer `basemaps.cartocdn.com` with, held to the same rules as
+	 * the real thing (#443).
+	 *
+	 * It failed this for two years' worth of issues. `layers: []` was thirty-six private
+	 * copies of a style that draws nothing (#433), and the one background layer that replaced
+	 * them named no sources, so a spec asserting on a picture of it was asserting about a
+	 * flat colour. A fixture that this function refuses is a fixture no mocked spec can tell
+	 * from a blank.
+	 */
+	it.each(['dark', 'light'] as const)('accepts the %s fixture the mocked suites answer with', (scheme) => {
+		expect(complainAboutStyle(fixtureMapStyle(scheme))).toEqual([]);
+	});
+
+	/**
+	 * The fixture picks its scheme off CARTO's slug rather than off `MAP_STYLE_URL`, so that
+	 * bare Node can load it from `tools/` and `scripts/`. This is what stops that shortcut
+	 * from quietly answering every request with the dark document if either URL moves.
+	 */
+	it('answers each CARTO style URL with the matching scheme', () => {
+		expect(fixtureMapStyleFor(MAP_STYLE_URL.light).name).toBe('fixture-light');
+		expect(fixtureMapStyleFor(MAP_STYLE_URL.dark).name).toBe('fixture-dark');
 	});
 });
