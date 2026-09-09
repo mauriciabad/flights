@@ -1,5 +1,21 @@
 # Layover
 
+> **Abandoned and archived, September 2026.** This repo is read only. No issues, no pull
+> requests, nothing more will be merged.
+>
+> It was written end to end by AI agents, and the app that came out of it is not useful
+> enough to keep maintaining. What is here is the state it was in when work stopped.
+>
+> The site at [flights.mauri.app](https://flights.mauri.app) stays up, but treat what it
+> tells you as out of date. GitHub Actions does not run in an archived repo, so the five
+> scheduled jobs that refreshed the vendored data are dead: exchange rates, the Ryanair
+> network, cheap routes, direct routes and the basemap supply are all frozen at their
+> last commit and go staler every week. Fares and timetables still come live from the
+> providers, so those keep working for as long as the provider APIs do.
+>
+> The MIT licence and the third-party data licences at the bottom still apply if you want
+> to take any of it.
+
 Find flights to places with no direct route, by turning the connection into a trip.
 
 Live at **[flights.mauri.app](https://flights.mauri.app)**
