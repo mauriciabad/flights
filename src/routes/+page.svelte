@@ -11,6 +11,7 @@
 	 * longer a tab of its own.
 	 */
 	import { browser } from '$app/environment';
+	import { ArchivedNotice } from '$lib/components';
 	import { goto } from '$app/navigation';
 	import { base } from '$app/paths';
 	import { page } from '$app/state';
@@ -60,6 +61,11 @@
 </svelte:head>
 
 <div class="page">
+	<!-- Above everything, including the title: whether this app is maintained and how old its
+	     data is changes what a search result is worth, and that is knowable before the form
+	     is filled in rather than after. It stays closed, so it costs one line. -->
+	<ArchivedNotice />
+
 	<header class="page-intro">
 		<h1>Search a layover trip</h1>
 		<p>Two flights instead of one, with enough time in the middle to make that city a trip of its own.</p>

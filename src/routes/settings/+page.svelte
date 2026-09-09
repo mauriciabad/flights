@@ -21,7 +21,7 @@
 	 * where the currency changes what every provider is asked for.
 	 */
 	import { keyStore } from '$lib/keys';
-	import { Icon, Skeleton } from '$lib/components';
+	import { ArchivedNotice, Icon, Skeleton } from '$lib/components';
 	import { SETTINGS_PROVIDERS } from '$lib/settings/provider-catalog';
 	import CurrencyPicker from './CurrencyPicker.svelte';
 	import ProviderKeyCard from './ProviderKeyCard.svelte';
@@ -46,6 +46,10 @@
 			already work with no key at all, and the providers here unlock the rest.
 		</p>
 	</header>
+
+	<!-- The other place it belongs: somebody about to paste a paid API key into an app
+	     deserves to read that the app was abandoned before they do it, not after. -->
+	<ArchivedNotice />
 
 	<section class="settings-section" aria-labelledby="api-keys">
 		<h2 class="settings-section-heading" id="api-keys">API keys</h2>

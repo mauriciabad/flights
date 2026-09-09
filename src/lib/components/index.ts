@@ -1,6 +1,7 @@
 // Base components for the app. Import from `$lib/components` rather than
 // reaching into individual files, so this list stays the one place that
 // documents what the design system offers.
+export { default as ArchivedNotice } from './ArchivedNotice.svelte';
 export { default as Button } from './Button.svelte';
 export { default as Input } from './Input.svelte';
 export { default as Select } from './Select.svelte';
